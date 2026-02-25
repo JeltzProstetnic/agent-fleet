@@ -16,7 +16,9 @@ Config repo: `~/claude-config/`
 
 5. **Follow the manifest's Knowledge Loading table** — load only the listed domain files
 
-6. **Conditional loading (do NOT load unless triggered):**
+6. **First-run check:** If `~/claude-config/.setup-pending` exists, load `~/.claude/foundation/first-run-refinement.md` and follow it. This takes priority over normal session flow.
+
+7. **Conditional loading (do NOT load unless triggered):**
    - New/unconfigured project detected: `~/.claude/foundation/project-setup.md`
    - Roster changes needed: `~/.claude/foundation/roster-management.md`
    - MCP tool usage or issues: `~/.claude/reference/mcp-catalog.md`
@@ -25,9 +27,9 @@ Config repo: `~/claude-config/`
    - Subagent permission failures: `~/.claude/reference/permissions.md`
    - Cross-project coordination needed: `~/.claude/foundation/cross-project-sync.md`
 
-7. **Check for project-specific knowledge**: `ls <project>/.claude/knowledge/` or `<project>/.claude/*.md`
+8. **Check for project-specific knowledge**: `ls <project>/.claude/knowledge/` or `<project>/.claude/*.md`
 
-8. **Do NOT load everything.** Only load what the manifest says + what's triggered by context.
+9. **Do NOT load everything.** Only load what the manifest says + what's triggered by context.
 
 ## Indexes
 

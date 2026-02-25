@@ -33,3 +33,20 @@ venv/
 # Build output
 dist/
 build/
+
+# LaTeX artifacts
+*.aux
+*.out
+*.toc
+*.fls
+*.fdb_latexmk
+*.synctex.gz
+
+# Editor swap
+*.kate-swp
+
+# Setup marker (transient, per-machine)
+.setup-pending
+
+# Machine catalog (auto-generated, per-machine)
+machine-catalog.md

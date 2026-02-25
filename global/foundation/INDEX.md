@@ -9,3 +9,4 @@
 | Project Setup | `project-setup.md` | New project detection, bootstrap protocol, registry |
 | Protocol Creation | `protocol-creation.md` | When and how to create new domain protocols |
 | Cross-Project Sync | `cross-project-sync.md` | Shared strategy pattern for coordinating overlapping projects |
+| First-Run Refinement | `first-run-refinement.md` | Post-setup interactive personalization (triggered by `.setup-pending` marker) |

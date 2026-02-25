@@ -112,7 +112,7 @@ git clone https://github.com/JeltzProstetnic/claude-config-template ~/claude-con
 cd ~/claude-config && bash setup.sh
 ```
 
-`setup.sh` runs 6 steps:
+`setup.sh` runs 6 mechanical steps, then hands off to Claude for interactive personalization:
 
 | Step | What it does |
 |------|-------------|
@@ -122,6 +122,7 @@ cd ~/claude-config && bash setup.sh
 | 4 | Creates `machine-catalog.md` with installed tools and versions |
 | 5 | Symlinks `~/.claude/` directories to this repo |
 | 6 | Installs session hooks for automatic git sync |
+| 7 | **Launches Claude for interactive refinement** — personalize your profile, choose domains, set up your first project, add global rules |
 
 Non-interactive mode: `bash setup.sh --non-interactive`
 
@@ -145,7 +146,8 @@ claude-config-template/
 │   │   ├── project-setup.md             # Bootstrap new projects (8 steps)
 │   │   ├── protocol-creation.md         # Self-healing: mistakes → protocols
 │   │   ├── roster-management.md         # Agents, skills, MCP servers per project
-│   │   └── cross-project-sync.md        # Inbox + strategy file patterns
+│   │   ├── cross-project-sync.md        # Inbox + strategy file patterns
+│   │   └── first-run-refinement.md     # Post-setup interactive personalization
 │   │
 │   ├── domains/                          # Loaded per-project from manifest
 │   │   ├── software-development/         # TDD protocol

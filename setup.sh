@@ -272,6 +272,11 @@ EOF
 fi
 
 # ---------------------------------------------------------------------------
+# Create first-run marker
+# ---------------------------------------------------------------------------
+touch "$REPO_DIR/.setup-pending"
+
+# ---------------------------------------------------------------------------
 # Summary
 # ---------------------------------------------------------------------------
 echo ""
@@ -287,9 +292,50 @@ echo "  CLAUDE.md   ->  global/CLAUDE.md"
 echo "  foundation/ ->  global/foundation/"
 echo "  domains/    ->  global/domains/"
 echo "  reference/  ->  global/reference/"
+
+# ---------------------------------------------------------------------------
+# Offer interactive refinement
+# ---------------------------------------------------------------------------
 echo ""
-echo -e "${BOLD}Next steps:${RESET}"
-echo "  1. Review global/foundation/user-profile.md"
-echo "  2. Edit global/CLAUDE.md to reflect your workflow"
-echo "  3. Add projects to registry.md"
-echo "  4. Run: claude"
+echo -e "${BOLD}${BLUE}Interactive setup${RESET}"
+echo "  Claude can now help you personalize your configuration:"
+echo "  - Refine your user profile with real preferences"
+echo "  - Choose which knowledge domains to enable"
+echo "  - Set up your first project"
+echo "  - Add global rules (e.g. 'always use bun', 'never auto-commit')"
+echo ""
+
+# Detect available Claude command
+CLAUDE_CMD=""
+if command -v mclaude &>/dev/null; then
+  CLAUDE_CMD="mclaude"
+elif command -v claude &>/dev/null; then
+  CLAUDE_CMD="claude"
+fi
+
+if [[ -n "$CLAUDE_CMD" ]]; then
+  do_refine=false
+  if [[ "$NON_INTERACTIVE" == true ]]; then
+    echo "  Run '$CLAUDE_CMD' in $REPO_DIR to start interactive setup."
+  else
+    read -r -p "  Launch Claude now for interactive setup? [Y/n]: " _refine
+    [[ "${_refine,,}" != "n" ]] && do_refine=true
+  fi
+
+  if [[ "$do_refine" == true ]]; then
+    echo ""
+    echo -e "${BOLD}Launching $CLAUDE_CMD in ${REPO_DIR}...${RESET}"
+    echo ""
+    cd "$REPO_DIR"
+    exec "$CLAUDE_CMD"
+  fi
+else
+  echo -e "  ${YELLOW}Claude Code not found in PATH.${RESET}"
+  echo "  After installing Claude Code, run it in ${REPO_DIR} to start interactive setup."
+fi
+
+echo ""
+echo -e "${BOLD}Manual setup:${RESET}"
+echo "  1. cd $REPO_DIR"
+echo "  2. Run: claude  (or mclaude)"
+echo "  Claude will detect the pending setup and guide you through it."
