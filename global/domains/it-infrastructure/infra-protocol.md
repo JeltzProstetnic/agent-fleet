@@ -11,9 +11,9 @@ Home and cloud infrastructure: servers, networking, Docker services, DNS, SSL, s
 **Always check current state in:** `~/claude-config/cross-project/infrastructure-strategy.md`
 
 Key systems:
-- **VPS** (148.230.108.107): Ubuntu 24.04, Docker, nginx-proxy, ttyd web terminal, Claude Code
+- **VPS** (__VPS_IP__): Ubuntu 24.04, Docker, nginx-proxy, ttyd web terminal, Claude Code
 - **NUC**: Win11 (Linux migration pending), Docker Desktop, Home Assistant
-- **wsl-jeltz**: Primary dev, WSL2/Ubuntu
+- **__WSL_MACHINE__**: Primary dev, WSL2/Ubuntu
 
 ## Operational Rules
 
@@ -24,7 +24,7 @@ Key systems:
 4. For Docker: `docker ps` before touching containers
 
 ### DNS & SSL
-- DNS managed via Hostinger panel (matthiasgruber.com, 8pwc.com)
+- DNS managed via Hostinger panel (__YOUR_DOMAIN__, __YOUR_DOMAIN__)
 - SSL certs via Let's Encrypt + certbot
 - Always set up HTTP first (for ACME challenge), then add HTTPS
 - Track cert expiry dates in infrastructure-strategy.md

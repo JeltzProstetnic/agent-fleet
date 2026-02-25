@@ -154,7 +154,7 @@ Until consolidated, **reuse existing scripts — do NOT write new ones.**
 ### Opening review HTML
 
 ```bash
-python3 tmp/<script>.py && powershell.exe -Command "Start-Process '\\\\wsl.localhost\\Ubuntu\\home\\jeltz\\aIware\\tmp\\<output>.html'"
+python3 tmp/<script>.py && powershell.exe -Command "Start-Process '\\\\wsl.localhost\\Ubuntu\\home\\__USERNAME__\\aIware\\tmp\\<output>.html'"
 ```
 
 ---
