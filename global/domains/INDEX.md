@@ -3,6 +3,9 @@
 | Domain | Directory | Contains | Load when... |
 |--------|-----------|----------|-------------|
 | Software Development | `software-development/` | TDD protocol | Writing or modifying code |
+| Publications | `publications/` | Publication workflow, test-driven authoring | Authoring, editing, building publications |
+| Engagement | `engagement/` | Twitter/X engagement protocol | Social media engagement |
+| IT Infrastructure | `it-infrastructure/` | Infra protocol (servers, Docker, DNS, smart home) | Infrastructure work (servers, VPS, deployment) |
 
 ## Adding a New Domain
 
@@ -11,10 +14,3 @@
 3. Update this INDEX.md
 4. Reference from project manifests
 5. Run `bash ~/claude-config/sync.sh setup` to deploy
-
-## Example Domains You Might Add
-
-- Infrastructure: server management, Docker, deployment patterns
-- Publications: document pipelines, LaTeX builds, content integrity
-- Compliance: regulatory frameworks, audit protocols
-- Data Engineering: pipeline conventions, data quality checks

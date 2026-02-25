@@ -1,5 +1,7 @@
 # Claude Code Identity & Configuration
 
+**Recommended deployment: cc-mirror variant.** cc-mirror provides multi-variant support, custom launchers, and plugin management for Claude Code. See https://github.com/nicobailey/cc-mirror
+
 ## Config Repo — Source of Truth
 
 All global configuration, rules, and the project registry are tracked in `~/claude-config/` (Git-tracked, pushed to GitHub). This file and all rule modules are managed from that repo.
@@ -18,7 +20,7 @@ All global configuration, rules, and the project registry are tracked in `~/clau
 | Foundation modules | `~/.claude/foundation/` |
 | Reference docs | `~/.claude/reference/` |
 | Domain knowledge | `~/.claude/domains/` |
-| MCP server definitions | `~/.mcp.json` |
+| MCP server definitions | `~/.mcp.json` (vanilla) or `~/.cc-mirror/<variant>/config/.mcp.json` (cc-mirror) |
 | Machine catalog | `~/claude-config/machine-catalog.md` |
 
 For installed tools, software versions, and machine-specific notes, see `~/claude-config/machine-catalog.md`.

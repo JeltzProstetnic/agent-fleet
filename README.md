@@ -1,109 +1,233 @@
 # claude-config-template
 
-A configuration management system for Claude Code that adds session memory, layered knowledge loading, multi-machine sync, and cross-project coordination. Works on Linux, macOS, and WSL.
+A configuration management system for Claude Code that adds session memory, layered knowledge loading, multi-machine sync, cross-project coordination, and a per-machine tool catalog. Deploys via [cc-mirror](https://github.com/nicobailey/cc-mirror). Works on Linux, macOS, and WSL.
+
+---
 
 ## Quick Start
 
 ```bash
-git clone https://github.com/anthropics/claude-config-template ~/claude-config
+git clone https://github.com/JeltzProstetnic/claude-config-template ~/claude-config
 cd ~/claude-config && bash setup.sh
 ```
 
-The `setup.sh` script will:
-1. Detect your platform (Linux, macOS, or WSL)
-2. Install prerequisites (git, bash)
-3. Generate your user profile from interactive prompts
-4. Create machine-catalog.md with detected tools
-5. Set up symlinks to `~/.claude/` directories
-6. Install session hooks for automatic git sync
+`setup.sh` runs 6 steps:
 
-## How It Works
+| Step | What it does |
+|------|-------------|
+| 1 | Detects platform (Linux, macOS, WSL) |
+| 2 | Checks prerequisites (git, `~/.claude/`) |
+| 3 | Generates your user profile from interactive prompts |
+| 4 | Creates `machine-catalog.md` with installed tools and versions |
+| 5 | Symlinks `~/.claude/` directories to this repo |
+| 6 | Installs session hooks for automatic git sync |
 
-Claude Code loads configuration in five layers:
+Non-interactive mode: `bash setup.sh --non-interactive`
+
+---
+
+## The Problem This Solves
 
 ```
-Layer 1: Global Prompt      ← always loaded, the dispatcher
-Layer 2: Foundation          ← always loaded, session rules + identity
-Layer 3: Domains             ← per-project, loaded from manifest
-Layer 4: References          ← on-demand, triggered by context
-Layer 5: Project Rules       ← per-project, local config
+ Claude Code          Claude CoWork         OpenClaw            This System
+ ┌─────────┐         ┌─────────┐          ┌─────────┐        ┌──────────────────┐
+ │ Terminal │         │ Desktop │          │ 24/7 AI │        │ Management layer │
+ │ AI agent │         │ app     │          │ via chat │        │ on top of Claude │
+ └─────────┘         └─────────┘          └─────────┘        │ Code             │
+                                                              └──────────────────┘
+ No memory            No memory             No knowledge       Session memory
+ No coordination      No coordination       No recovery        5-layer architecture
+ No team consistency  No knowledge mgmt     No coordination    Multi-machine sync
+                                                               Self-healing protocols
+                                                               Machine tool catalog
 ```
 
-**Layer 1** provides Claude with the dispatcher CLAUDE.md that references all other layers.
-**Layer 2** contains session persistence rules, cross-project coordination patterns, and user identity.
-**Layer 3** holds domain-specific protocols (IT infrastructure, development workflows, etc.) referenced by project manifests.
-**Layer 4** includes conditional references for tooling, environment troubleshooting, and specialized knowledge.
-**Layer 5** stores project-local rules, manifests, and session context.
+---
+
+## Architecture: 5 Layers of Knowledge
+
+```
+┌──────────────────────────────────────────────────────────────┐
+│  Layer 1: Global Prompt — the dispatcher (~80 lines)         │  ◄── Always loaded
+└──────────────────────────────────────────────────────────────┘
+        │
+┌──────────────────────────────────────────────────────────────┐
+│  Layer 2: Foundation — session rules, identity, protocols    │  ◄── Always loaded
+└──────────────────────────────────────────────────────────────┘
+        │
+┌──────────────────────────────────────────────────────────────┐
+│  Layer 3: Domains — coding, infra, publishing, engagement    │  ◄── Per-project
+└──────────────────────────────────────────────────────────────┘
+        │
+┌──────────────────────────────────────────────────────────────┐
+│  Layer 4: References — troubleshooting, tool guides          │  ◄── On-demand
+└──────────────────────────────────────────────────────────────┘
+        │
+┌──────────────────────────────────────────────────────────────┐
+│  Layer 5: Project Rules — project-specific config            │  ◄── Per-project
+└──────────────────────────────────────────────────────────────┘
+```
+
+Each project declares what it needs. AI loads only relevant knowledge. Context stays focused.
+
+---
+
+## How a Session Works
+
+```
+┌─────────────┐          ┌─────────────┐          ┌─────────────┐
+│Session Start│          │   Working   │          │ Session End  │
+│             │ ──────►  │             │ ──────►  │             │
+│ Hook pulls  │          │ Parallel    │          │ Hook saves   │
+│ config      │          │ agents      │          │ state        │
+│ Loads layers│          │ Protocols   │          │ Commits +    │
+│             │          │ enforced    │          │ pushes       │
+└──────┬──────┘          │ State       │          └──────┬──────┘
+       ▲                 │ checkpointed│                 │
+       │                 └─────────────┘                 │
+       │                                                 │
+       └──────── any machine, any time ◄─────────────────┘
+```
+
+---
 
 ## Directory Structure
 
 ```
 claude-config-template/
-├── README.md                    # This file
-├── setup.sh                     # Installation script
-├── sync.sh                      # Multi-machine sync tool
-├── CLAUDE.md                    # Meta-configuration manifest
-├── session-context.md           # Current state (updated per session)
-├── registry.md                  # Machine and project catalog
-├── machine-catalog.md           # Auto-generated tool inventory
-├── backlog.md                   # Prioritized tasks
+├── setup.sh                              # One-command bootstrap (Linux/macOS/WSL)
+├── sync.sh                               # Bidirectional sync: deploy / collect / status
+├── registry.md                           # All projects, all machines
+├── machine-catalog.md                    # Auto-generated tool inventory (per machine)
+│
 ├── global/
-│   ├── CLAUDE.md               # Global prompt deployed to ~/.claude/
-│   ├── foundation/             # Always-loaded session protocols
-│   ├── domains/                # Domain-specific knowledge (IT, dev, security, etc.)
-│   ├── reference/              # On-demand conditional knowledge
-│   └── hooks/                  # Session auto-sync hooks
+│   ├── CLAUDE.md                         # Global prompt — the dispatcher
+│   ├── foundation/                       # Always loaded (7 modules)
+│   │   ├── identity.md                   # Agent config, paths, machine catalog ref
+│   │   ├── user-profile.md              # Fill-in: name, role, style, goals
+│   │   ├── session-protocol.md          # State persistence, shutdown checklist
+│   │   ├── project-setup.md             # New project bootstrap (8 steps)
+│   │   ├── protocol-creation.md         # Self-healing: mistakes → protocols
+│   │   ├── roster-management.md         # Agents, skills, MCP servers per project
+│   │   └── cross-project-sync.md        # Inbox + strategy file patterns
+│   │
+│   ├── domains/                          # Loaded per-project from manifest
+│   │   ├── software-development/         # TDD protocol
+│   │   ├── publications/                 # Publication workflow, test-driven authoring
+│   │   ├── engagement/                   # Twitter/X engagement protocol
+│   │   ├── it-infrastructure/            # Servers, Docker, DNS, smart home
+│   │   └── _template/                    # How to write your own domain protocol
+│   │
+│   ├── reference/                        # On-demand (triggered by context)
+│   │   ├── mcp-catalog.md               # MCP server setup + troubleshooting
+│   │   ├── serena.md                     # Semantic code navigation (93% context savings)
+│   │   ├── permissions.md               # Subagent global permissions
+│   │   └── wsl-environment.md           # WSL-specific tips
+│   │
+│   └── hooks/                            # Copied to ~/.claude/hooks/
+│       ├── config-check.sh              # Session start: pull config, surface inbox
+│       └── config-auto-sync.sh          # Session end: commit + push
+│
 ├── projects/
-│   └── example/
-│       ├── CLAUDE.md           # Project manifest
-│       └── rules/              # Project-local rules
+│   └── _example/rules/CLAUDE.md          # Example project manifest
+│
 └── cross-project/
-    ├── infrastructure-strategy.md
-    ├── fmt-visibility-strategy.md
-    └── inbox.md                # Cross-machine task passing
+    └── inbox.md                          # Async task passing between projects
 ```
 
-## Adding Your Own Content
+---
 
-**Add a domain:** Create `global/domains/<domain-name>/`, add protocol files, update `global/domains/INDEX.md`, then reference from project manifests.
+## Machine Tool Catalog
 
-**Add a project:** Create `projects/<name>/`, write a `CLAUDE.md` manifest declaring which domains to load, add to `registry.md`.
+`setup.sh` auto-generates `machine-catalog.md` listing every tool on the machine:
 
-**Add a machine:** Clone this repo on your new machine and run `setup.sh`. Hooks will sync configuration bidirectionally via git.
+```
+# Machine Catalog: fedora-workstation
 
-## The Machine Catalog
+Platform: linux
+Last updated: 2026-02-25
 
-`setup.sh` generates `machine-catalog.md` listing installed tools on your system: Python version, Go, Node, Docker, kubectl, Terraform, AWS CLI, etc. Projects reference this file instead of probing the system at runtime, speeding up Claude's context loading.
+## Installed Tools
+
+| Tool     | Path                | Version    |
+|----------|---------------------|------------|
+| git      | /usr/bin/git        | 2.47.1     |
+| node     | /usr/bin/node       | v22.14.0   |
+| python3  | /usr/bin/python3    | 3.13.2     |
+| docker   | /usr/bin/docker     | 27.5.1     |
+| gh       | /usr/bin/gh         | 2.67.0     |
+| pandoc   | /usr/bin/pandoc     | 3.1.11.1   |
+...
+```
+
+Projects reference this catalog instead of probing the system. No `which` commands. No version detection at runtime. The catalog is the source of truth for what's available.
+
+---
 
 ## Multi-Machine Sync
 
-Session hooks automate bidirectional sync via git:
-
 ```
-Machine A (session ends)  ──→  GitHub  ──→  Machine B (session starts)
-      git add + push              ↓         git pull + load
+Machine A (session ends)                    Machine B (session starts)
+┌────────────────────────┐                  ┌────────────────────────┐
+│ config-auto-sync.sh    │                  │ config-check.sh        │
+│   │                    │                  │   │                    │
+│   ├── sync.sh collect  │                  │   ├── git pull         │
+│   ├── git commit       │  ── GitHub ──►   │   ├── surface inbox    │
+│   └── git push         │                  │   └── verify symlinks  │
+└────────────────────────┘                  └────────────────────────┘
 ```
 
-At session end, hooks commit session context, backlog updates, and machine-specific configs. At session start on another machine, hooks pull the latest state.
+No machine is special. Clone the repo, run `setup.sh`, and any machine becomes a full participant.
+
+---
 
 ## Cross-Project Coordination
 
-Three patterns enable teams to coordinate across projects:
+**Inbox** (`cross-project/inbox.md`) — One-off tasks targeting a specific project. Drop a message, the project picks it up at next session start, deletes after integrating.
 
-**Inbox** (`cross-project/inbox.md`): One-off tasks, per-project. Drop a message instead of editing another project's files directly.
+**Strategy files** — Persistent shared state between projects that overlap (e.g., infrastructure + config, authoring + social media). Single source of truth. Both projects reference the same file.
 
-**Strategy files** (`infrastructure-strategy.md`, `fmt-visibility-strategy.md`): Shared decisions that affect multiple projects.
+**Registry** (`registry.md`) — The phone book. Every project, every machine, current status.
 
-**Registry** (`registry.md`): Central phone book of all machines and projects.
+---
+
+## Included Domains
+
+| Domain | Files | What it enforces |
+|--------|-------|-----------------|
+| **Software Development** | `tdd-protocol.md` | Test-driven development with explicit escape hatches |
+| **Publications** | `publication-workflow.md`, `test-driven-authoring.md` | Markdown-to-LaTeX-to-PDF pipeline, content integrity testing, parallel agent chunking |
+| **Engagement** | `twitter-engagement-protocol.md` | Discourse scanning, reply drafting, thread etiquette, growth strategy |
+| **IT Infrastructure** | `infra-protocol.md` | Server management, Docker conventions, DNS/SSL, service coordination |
+
+Add your own: copy `global/domains/_template/example-protocol.md`, adapt, add to INDEX.
+
+---
 
 ## Platform Notes
 
-| Platform | Key Differences |
-|----------|-----------------|
-| **Linux** | Use `xdg-open` for file operations. No path restrictions. |
-| **macOS** | Use `open` for file operations. Path handling identical to Linux. |
-| **WSL** | Avoid `/mnt/c/` paths (10-15x slower). Work in `~`. Set `core.autocrlf = input`. |
+| | Linux | macOS | WSL |
+|--|-------|-------|-----|
+| **Open files** | `xdg-open` | `open` | `powershell.exe Start-Process` |
+| **Symlinks** | `ln -sf` | `ln -sf` | `ln -sf` (within WSL fs) |
+| **Performance** | Native | Native | Avoid `/mnt/c/` (10-15x slower) |
+| **Git line endings** | N/A | N/A | `core.autocrlf input` |
+| **Package manager** | varies | Homebrew | apt |
+
+---
+
+## cc-mirror
+
+This system is designed to work with [cc-mirror](https://github.com/nicobailey/cc-mirror), which provides:
+- Named variants (e.g., separate configs for different roles)
+- Per-variant MCP server configuration
+- Plugin management (VoltAgent subagents, skill collections)
+- Custom launchers with update checking
+
+Works with vanilla Claude Code too — just uses `~/.claude/` paths instead of `~/.cc-mirror/<variant>/`.
+
+---
 
 ## License
 
-MIT
+MIT -- see [LICENSE](LICENSE).
