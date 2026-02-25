@@ -38,11 +38,12 @@ Config repo: `~/claude-config/`
 
 ## Conventions
 
-**Output rule:** Any text the user needs to copy/paste/reference (>10 words) MUST be written to a file and opened in the system text editor:
-- **WSL**: `powershell.exe -Command "Start-Process notepad.exe '\\\\wsl.localhost\\Ubuntu<filepath>'"`
-- **Linux (native)**: `xdg-open <filepath>` (uses system default editor — works on any DE/distro)
-- **macOS**: `open <filepath>` (uses system default app)
+**Output rule:** Any document, summary, or one-pager MUST be delivered as **PDF**, not markdown. Write the `.md` as source, convert to PDF, open the PDF:
+- **Convert**: `pandoc input.md -o output.pdf --pdf-engine=xelatex -V geometry:margin=1.8cm -V mainfont="Liberation Sans" -V monofont="Liberation Mono" --highlight-style=tango`
+- **Avoid** Unicode box-drawing characters in code blocks (xelatex chokes) — use tables instead
+- **Open**: `xdg-open output.pdf` (Linux) / `open output.pdf` (macOS) / `powershell.exe -Command "Start-Process '\\\\wsl.localhost\\Ubuntu<filepath>'"` (WSL)
 - **Detect environment**: if `/mnt/c/` exists → WSL, elif `uname` is Darwin → macOS, otherwise → native Linux
+- Short text (<10 words) can go inline. Anything longer → file + PDF + open.
 
 **Backlog convention:** Every project has `backlog.md` at root. Do NOT read at session start — only when active tasks are done or user asks.
 
@@ -54,6 +55,8 @@ Config repo: `~/claude-config/`
 **Session context:** Maintain `session-context.md` in every project. Update before and after every significant action.
 
 ## Meta-Rules
+
+**Rules live in rules, not in memory.** Persistent behavioral rules MUST go in `CLAUDE.md` (global or project-level), foundation files, or domain protocols — never in auto-memory files. Memory is for contextual notes (project structure, debugging insights, technical recipes). If it governs behavior, it's a rule and belongs here.
 
 **Protocol creation:** When domain-complexity mistakes happen, create a protocol. See `~/.claude/foundation/protocol-creation.md`.
 
