@@ -20,6 +20,7 @@ The session context file should be at: `./session-context.md` (relative to curre
 
 ## Session Info
 - **Last Updated**: [ISO timestamp]
+- **Machine**: [machine-id]
 - **Working Directory**: [path]
 - **Session Goal**: [current high-level objective]
 
@@ -28,20 +29,36 @@ The session context file should be at: `./session-context.md` (relative to curre
 - **Progress**: [completed steps]
 - **Pending**: [remaining steps]
 
-## Context
-- **Key Files Modified**: [list of files changed this session]
-- **Key Decisions Made**: [important choices and rationale]
-- **Blockers/Issues**: [any problems encountered]
+## Key Decisions
+- [Decision]: [rationale] (record significant decisions made this session)
 
 ## Recovery Instructions
 [If session terminates, here's how to resume:]
 1. [Step to continue from current state]
 2. [Next action needed]
 3. [Any pending verifications]
-
-## Conversation Summary
-[Brief summary of what user asked and what was discussed]
 ```
+
+## Session Documentation Layers
+
+Session information is organized in 3 layers to balance startup speed with history preservation:
+
+| Layer | File | Read at startup? | Purpose |
+|-------|------|-------------------|---------|
+| 1 | `session-context.md` | YES | Current session state |
+| 2 | `session-history.md` | NO — on demand | Rolling last 3 sessions |
+| 3a | `docs/session-log.md` | NO — reference only | Full archive, never pruned |
+| 3b | `docs/decisions.md` | NO — on demand | Curated decisions & rationale |
+
+**Layer 1 (session-context.md):** Current session only. Read at startup, updated throughout, archived at shutdown by the rotation script.
+
+**Layer 2 (session-history.md):** Rolling window of the last 3 sessions. Newest first. Read when you need recent context (e.g., "what happened last session?"). Managed automatically by `rotate-session.sh`.
+
+**Layer 3a (docs/session-log.md):** Full chronological archive. Every session ever, append-only, never pruned. Same entry format as Layer 2. Read when you need to look back further than 3 sessions.
+
+**Layer 3b (docs/decisions.md):** Curated, topic-organized record of important decisions, user requirements, and design rationale. Manually maintained — add entries during sessions when significant decisions are made. NOT automated at shutdown.
+
+**decisions.md vs CLAUDE.md:** No overlap. CLAUDE.md contains rules (behavioral directives). decisions.md contains rationale, context, and choices that don't translate to rules.
 
 ## Relationship to Auto Memory and Project Docs
 
@@ -66,27 +83,31 @@ The session context file should be at: `./session-context.md` (relative to curre
 ### 1. Session context
 - [ ] Update `session-context.md` with final state, completed work, and recovery instructions
 
-### 2. Cross-project inbox
+### 2. Session rotation
+- [ ] Run `bash ~/claude-config/setup/scripts/rotate-session.sh` to archive session to history/log and reset template
+- [ ] If significant decisions were made, add entries to `docs/decisions.md`
+
+### 3. Cross-project inbox
 - [ ] If this session's work affects other projects, drop tasks in `~/claude-config/cross-project/inbox.md`
 - [ ] Each entry targets ONE project — never broadcast
 - [ ] Format: `- [ ] **project-name**: description of what they need to do`
 
-### 3. Shared strategy files
+### 4. Shared strategy files
 - [ ] If shared state changed → update the relevant `~/claude-config/cross-project/*-strategy.md` file
 - [ ] Only update strategy files you actually touched this session — don't speculatively refresh them
 
-### 4. Auto memory (MEMORY.md)
+### 5. Auto memory (MEMORY.md)
 - [ ] Save **durable lessons** confirmed this session (not session state)
 - [ ] Patterns, gotchas, key facts that will save time in future sessions
 - [ ] Keep MEMORY.md under 50 lines — use separate topic files for detail
 - [ ] Never duplicate what's already in project docs or strategy files
 
-### 5. Commit and push
+### 6. Commit and push
 - [ ] `git add` changed files, commit with descriptive message
 - [ ] `git push` (or rely on SessionEnd auto-sync hook if configured)
 - [ ] If domain-specific workflows apply (e.g., publication builds), follow their extended checklist
 
-### 6. Verify auto-sync will succeed (if applicable)
+### 7. Verify auto-sync will succeed (if applicable)
 - [ ] Run `bash ~/claude-config/sync.sh collect` to verify it exits cleanly
 - [ ] If it fails, fix the issue or clear `.sync-failed` marker with explanation
 

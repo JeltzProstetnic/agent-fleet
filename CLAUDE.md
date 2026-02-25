@@ -13,6 +13,9 @@ Claude Code configuration management across all machines and projects.
 | File | Purpose |
 |------|---------|
 | `session-context.md` | Current session state — **read first** |
+| `session-history.md` | Rolling last 3 sessions — read on demand, not at startup |
+| `docs/session-log.md` | Full session archive — append-only, never pruned |
+| `docs/decisions.md` | Curated decisions & rationale — topical, manually maintained |
 | `backlog.md` | Prioritized backlog — read when active TODOs are done |
 | `registry.md` | All projects, all machines — the phone book |
 | `sync.sh` | Bidirectional sync tool (setup/deploy/collect/status) |
@@ -28,6 +31,8 @@ Claude Code configuration management across all machines and projects.
 | `global/reference/` | `~/.claude/reference/` | Conditional references (symlinked) |
 | `global/hooks/` | `~/.claude/hooks/` | Session hooks (copied) |
 | `projects/<name>/rules/` | `<project>/.claude/` | Project-specific rules (copied) |
+| `setup/scripts/audit-tools.sh` | (stays in repo) | Generates per-machine tool inventory |
+| `setup/scripts/rotate-session.sh` | (stays in repo) | Archives session-context → history + log |
 
 ## Cross-Project
 

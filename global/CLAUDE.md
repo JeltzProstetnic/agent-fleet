@@ -26,6 +26,7 @@ Config repo: `~/claude-config/`
    - WSL troubleshooting: `~/.claude/reference/wsl-environment.md`
    - Subagent permission failures: `~/.claude/reference/permissions.md`
    - Cross-project coordination needed: `~/.claude/foundation/cross-project-sync.md`
+   - CLI tool usage or uncertainty about installed software: `~/.claude/reference/system-tools.md`
 
 8. **Check for project-specific knowledge**: `ls <project>/.claude/knowledge/` or `<project>/.claude/*.md`
 
