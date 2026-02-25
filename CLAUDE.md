@@ -40,9 +40,10 @@ Claude Code configuration management across all machines and projects.
 ## Rules for Claude
 
 - When working on ANY project, be aware this config repo exists at `~/claude-config/`
+- **Cross-project boundary**: This project may NOT write to files in other project directories (including `~/claude-config/`). To request changes elsewhere, use ONLY the cross-project inbox: `~/claude-config/cross-project/inbox.md`
 - After changing any global rule or CLAUDE.md during a session, remind the user to sync
-- When setting up a new project, add it to the registry
-- When infrastructure or deployment state changes, update `cross-project/infrastructure-strategy.md`
+- When setting up a new project, add it to the registry (via inbox if not in claude-config)
+- When infrastructure or deployment state changes, drop an inbox task for claude-config — do NOT edit `cross-project/` files directly unless your working directory IS `~/claude-config/`
 
 ## Workflow
 
