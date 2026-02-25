@@ -14,7 +14,7 @@ Thumbs.db
 .env.*
 *.key
 *.pem
-secrets/
+# secrets/ has its own .gitignore (tracks scaffold, ignores actual secrets)
 credentials/
 
 # Logs
