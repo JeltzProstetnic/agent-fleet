@@ -10,7 +10,7 @@
 - **Progress**:
   - Created `backlog.md` with 2 items
   - Picked up inbox task (secrets scaffold) and cleared it from cross-project inbox
-  - Added new TODO: project prioritization system for ai2do cross-project ranking
+  - Added project prioritization TODO — moved to claude-config backlog (correct owner)
   - Implemented secrets scaffold: `secrets/vault-manage.sh`, `secrets/vault.json.example`, `secrets/.gitignore`
   - Updated root `.gitignore` to let secrets/ own its tracking
   - Marked secrets scaffold as done in backlog
