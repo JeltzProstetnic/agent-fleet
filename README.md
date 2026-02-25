@@ -216,13 +216,15 @@ Add your own: copy `global/domains/_template/example-protocol.md`, adapt, add to
 
 ---
 
-## cc-mirror
+## cc-mirror — Multi-Agent Variant System
 
-This system is designed to work with [cc-mirror](https://github.com/nicobailey/cc-mirror), which provides:
-- Named variants (e.g., separate configs for different roles)
-- Per-variant MCP server configuration
-- Plugin management (VoltAgent subagents, skill collections)
-- Custom launchers with update checking
+This system is designed to work with [cc-mirror](https://github.com/nicobailey/cc-mirror), a multi-agent variant system for Claude Code that provides:
+
+- **Named variants** — separate configs for different roles or projects (e.g., `mclaude`, `devops`, `writer`)
+- **VoltAgent subagent roster** — 129 specialized agents (infrastructure, QA, data/AI, research, business, etc.) selectable per variant
+- **Per-variant MCP server configuration** — each variant gets its own tool stack
+- **Plugin management** — install, update, and compose skill collections per variant
+- **Custom launchers** — named entry points with automatic update checking
 
 Works with vanilla Claude Code too — just uses `~/.claude/` paths instead of `~/.cc-mirror/<variant>/`.
 

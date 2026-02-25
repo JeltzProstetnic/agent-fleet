@@ -1,6 +1,6 @@
 # Claude Code Identity & Configuration
 
-**Recommended deployment: cc-mirror variant.** cc-mirror provides multi-variant support, custom launchers, and plugin management for Claude Code. See https://github.com/nicobailey/cc-mirror
+**Recommended deployment: cc-mirror variant.** cc-mirror is a multi-agent variant system for Claude Code — it provides named configuration variants, a roster of 129 VoltAgent subagents, per-variant MCP server configs, plugin management, and custom launchers. See https://github.com/nicobailey/cc-mirror
 
 ## Config Repo — Source of Truth
 
