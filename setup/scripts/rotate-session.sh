@@ -52,7 +52,7 @@ if [[ -z "$GOAL" ]]; then
 fi
 
 # Extract completed items (lines starting with "- [x]" anywhere in the file)
-COMPLETED=$(echo "$CONTENT" | grep '^\- \[x\]' | sed 's/^- \[x\] /- /' || true)
+COMPLETED=$(echo "$CONTENT" | grep -F '- [x]' | sed 's/^- \[x\] /- /' || true)
 if [[ -z "$COMPLETED" ]]; then
     COMPLETED="- (no completed items recorded)"
 fi
@@ -64,16 +64,34 @@ if [[ -z "$DECISIONS" ]]; then
     DECISIONS="- (no decisions recorded)"
 fi
 
+# Extract Recovery Instructions section content
+# Get everything between "## Recovery Instructions" and the next "##" heading (or EOF)
+RECOVERY=$(echo "$CONTENT" | awk '/^## Recovery Instructions/{flag=1; next} /^## /{flag=0} flag' | sed '/^$/d' || true)
+
+# Extract Pending items from Current State
+PENDING=$(echo "$CONTENT" | grep -oP '(?<=\*\*Pending\*\*: ).*' | head -1 || true)
+
 # --- Build the entry ---
-ENTRY=$(cat <<EOF
-### $SHORT_TS — $MACHINE
+# Include recovery/pending only if they have content
+ENTRY="### $SHORT_TS — $MACHINE
 **Goal:** $GOAL
 **Completed:**
 $COMPLETED
 **Key Decisions:**
-$DECISIONS
-EOF
-)
+$DECISIONS"
+
+# Append pending if non-empty
+if [[ -n "$PENDING" && "$PENDING" != "—" && "$PENDING" != "-" ]]; then
+    ENTRY="$ENTRY
+**Pending at shutdown:** $PENDING"
+fi
+
+# Append recovery instructions if non-empty
+if [[ -n "$RECOVERY" ]]; then
+    ENTRY="$ENTRY
+**Recovery/Next session:**
+$RECOVERY"
+fi
 
 # --- Create/update session-history.md (rolling last 3) ---
 if [[ ! -f "$HISTORY_FILE" ]]; then

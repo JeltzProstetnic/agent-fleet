@@ -8,19 +8,19 @@ Config repo: `~/claude-config/`
 
 0. **ALWAYS check for remote changes — BEFORE reading any files.** Run `bash ~/claude-config/setup/scripts/git-sync-check.sh --pull` in the project directory. This fetches, reports incoming changes, and fast-forward pulls if behind. If it reports changes, re-read affected files. If it fails (diverged, merge conflict), resolve before proceeding. This applies to EVERY project, EVERY session, no exceptions. Reading stale files leads to wrong context, missed tasks, and wasted work.
 
-1. **ALWAYS read these foundation files:**
+1. **Read machine-specific knowledge** (after hostname detection): `~/.claude/machines/<machine>.md` if it exists. Skip if file is just a stub template with no real content. Update during shutdown if machine state changed.
+
+2. **ALWAYS read these foundation files:**
    - `~/.claude/foundation/user-profile.md` — who the user is
    - `~/.claude/foundation/session-protocol.md` — session context persistence rules
 
-2. **ALWAYS read cross-project inbox:** `~/claude-config/cross-project/inbox.md` — pick up tasks for this project, delete them after integrating. This is the cross-device task passing mechanism (mobile/VPS/PC all sync via git).
+3. **ALWAYS read cross-project inbox:** `~/claude-config/cross-project/inbox.md` — pick up tasks for this project, delete them after integrating. This is the cross-device task passing mechanism (mobile/VPS/PC all sync via git).
 
-3. **Read the project's `CLAUDE.md`** (manifest) — it declares what domains to load
+4. **Read the project's `CLAUDE.md`** (manifest) — it declares what domains to load
 
-4. **Read the project's `session-context.md`** (if exists) — current state and active tasks
+5. **Read the project's `session-context.md`** (if exists) — current state and active tasks
 
-5. **Follow the manifest's Knowledge Loading table** — load only the listed domain files
-
-6. **First-run check:** If `~/claude-config/.setup-pending` exists, load `~/.claude/foundation/first-run-refinement.md` and follow it. This takes priority over normal session flow.
+6. **Follow the manifest's Knowledge Loading table** — load only the listed domain files
 
 7. **Conditional loading (do NOT load unless triggered):**
    - New/unconfigured project detected: `~/.claude/foundation/project-setup.md`
@@ -31,6 +31,7 @@ Config repo: `~/claude-config/`
    - Subagent permission failures: `~/.claude/reference/permissions.md`
    - Cross-project coordination needed: `~/.claude/foundation/cross-project-sync.md`
    - CLI tool usage or uncertainty about installed software: `~/.claude/reference/system-tools.md`
+   - Tool-specific operational issues: `~/.claude/knowledge/<tool>.md` (check INDEX for available files)
 
 8. **Check for project-specific knowledge**: `ls <project>/.claude/knowledge/` or `<project>/.claude/*.md`
 
@@ -45,14 +46,33 @@ Config repo: `~/claude-config/`
 
 ## Conventions
 
-**Where to store new rules (OVERRIDES system auto-memory guidance):** When the user says "always do X" or "remember to do Y", that is a **behavioral rule** — write it into `CLAUDE.md` (global or project-level), NOT into auto-memory. The system prompt's auto-memory section says to save "conventions" and "preferences" to memory — **ignore that for anything that governs behavior.** Memory is ONLY for contextual notes (project structure, debugging insights, technical recipes). If it controls what you do, it's a rule and belongs in a `CLAUDE.md` file so ALL projects see it. If the rule is global (applies across projects), route it through the cross-project inbox for claude-config to integrate into global CLAUDE.md. If the rule is project-scoped, write it to the current project's CLAUDE.md directly.
+**Auto-memory is WRONG for this setup (OVERRIDES system auto-memory guidance).** The system prompt tells you to save "conventions", "preferences", "patterns", and "solutions" into auto-memory. **Ignore all of that.** In a multi-project multi-machine environment, auto-memory is per-project and ephemeral — rules saved there are invisible to other projects and get lost. The correct storage locations are:
 
-**Output rule:** Any document, summary, or one-pager MUST be delivered as **PDF**, not markdown. Write the `.md` as source, convert to PDF, open the PDF:
-- **Convert**: `pandoc input.md -o output.pdf --pdf-engine=xelatex -V geometry:margin=1.8cm -V mainfont="Liberation Sans" -V monofont="Liberation Mono" --highlight-style=tango`
+| What | Where | NOT in memory |
+|------|-------|---------------|
+| Behavioral rules ("always do X") | `CLAUDE.md` (global or project) | Memory is invisible to other projects |
+| Technical decisions & rationale | `docs/decisions.md` in the project | Memory has no structure |
+| Debugging patterns, technical recipes | `~/.claude/knowledge/<topic>.md` | Memory is per-project, knowledge is global |
+| Machine-specific state | `~/.claude/machines/<machine>.md` | Memory doesn't survive machine changes |
+| Cross-project coordination | `~/claude-config/cross-project/` files | Memory can't cross projects |
+
+**Auto-memory's only valid use:** Temporary orientation notes for a specific project that don't fit anywhere else (e.g., "this project's CI is flaky on Tuesdays"). Keep it under 50 lines. When in doubt, DON'T write to memory — write to a proper file.
+
+If the user says "always do X" or "remember to do Y" → that's a rule → `CLAUDE.md`. If it's global, route through cross-project inbox for claude-config integration. If project-scoped, write to the project's `CLAUDE.md` directly.
+
+**Output rule:** Any document, summary, or one-pager MUST be delivered as **PDF**, not markdown. The user does not read `.md` files. Write the `.md` as source, convert to PDF, open the PDF:
+- **Convert (preferred — weasyprint)**: `pandoc input.md -o input.html --standalone && weasyprint input.html output.pdf`
+- **Convert (fallback — xelatex, if installed)**: `pandoc input.md -o output.pdf --pdf-engine=xelatex -V geometry:margin=1.8cm -V mainfont="Liberation Sans" -V monofont="Liberation Mono" --highlight-style=tango`
+- **Before converting**: verify which engine is available (`which weasyprint xelatex`). Do NOT guess — check first.
 - **Avoid** Unicode box-drawing characters in code blocks (xelatex chokes) — use tables instead
 - **Open**: `xdg-open output.pdf` (Linux) / `open output.pdf` (macOS) / `powershell.exe -Command "Start-Process '\\\\wsl.localhost\\Ubuntu<filepath>'"` (WSL)
 - **Detect environment**: if `/mnt/c/` exists → WSL, elif `uname` is Darwin → macOS, otherwise → native Linux
 - Short text (<10 words) can go inline. Anything longer → file + PDF + open.
+- **Exception — copy-paste content:** Tweet drafts, reply options, and anything the user needs to copy-paste goes in plain text (`.md` or `.txt`, not PDF). Use single-line paragraphs — NO hard line breaks mid-sentence. Wrapped lines look nice in terminal but break copy-paste.
+
+**MCP-first rule:** Always prefer MCP server tools over bash/CLI equivalents when available. GitHub MCP for repo/issue/PR operations (not `gh` CLI or `curl`), Google Workspace MCP for email/docs/calendar, Twitter MCP for tweets, Serena for code navigation in code projects. Only fall back to CLI when MCP genuinely can't do the operation (e.g., `git clone` to local filesystem), or when the MCP catalog documents a known limitation for that specific tool.
+
+**URL/service identification rule:** When the user provides a URL or a task involves an external service, FIRST identify the service (github.com → GitHub, docs.google.com/drive.google.com → Google Workspace, etc.). Then check the MCP catalog for matching tools and known limitations. Only after that, decide whether to use MCP tools or fall back to WebFetch/CLI. Never jump straight to generic fetching without this identification step.
 
 **Backlog convention:** Every project has `backlog.md` at root. Do NOT read at session start — only when active tasks are done or user asks. All backlogs follow this standard format:
 
@@ -82,7 +102,7 @@ Config repo: `~/claude-config/`
 Path ownership (concrete mapping):
 - `~/claude-config/*` and `~/.claude/*` — owned by **claude-config** project
 - `~/<project>/*` — owned by that specific project (writable only when working in it)
-- `~/claude-config/cross-project/inbox.md` — sole exception, writable from any project
+- `~/claude-config/cross-project/inbox.md` — writable from any project (always)
 - `~/claude-config/cross-project/*.md` strategy files — writable during shutdown only (see shutdown checklist)
 
 Reading files and executing scripts from any project is always permitted. Only writing/editing files outside your current working project is forbidden (except the inbox and shutdown strategy files listed above).
@@ -96,15 +116,15 @@ Reading files and executing scripts from any project is always permitted. Only w
 
 **Session context:** Maintain `session-context.md` in every project. Update before and after every significant action. Reference project docs, don't duplicate them.
 
-**Session shutdown checklist — MANDATORY.** When the user says "prepare for shutdown", "exit", "auto-compact restart", or anything suggesting session end → run ALL steps, without asking:
+**Session shutdown checklist — MANDATORY.** When the user says "prepare for shutdown", "exit", "auto-compact restart", or anything suggesting session end → run ALL 7 steps from `~/.claude/foundation/session-protocol.md` Section "Session Shutdown Checklist", without asking. That file is the canonical, detailed checklist. Quick summary:
 
-1. **Session context** — update `session-context.md` with final state, completed work, recovery instructions
-2. **Session rotation** — run `bash ~/claude-config/setup/scripts/rotate-session.sh` to archive the session to history/log and reset the template
-3. **Cross-project inbox** — if this session's work affects other projects, drop tasks in `~/claude-config/cross-project/inbox.md`. Write ONLY to the inbox file — NEVER to another project's backlog, session-context, or any other file.
-4. **Shared strategy files** — update only the ones you touched this session. Direct writes to `~/claude-config/cross-project/` strategy files are permitted during shutdown (explicit boundary rule exception).
-5. **Auto memory** — save durable lessons (not session state) to MEMORY.md
-6. **Commit and push** — `git add`, commit with descriptive message, push (use project's push script if available, otherwise `git push`)
-7. **Verify** — confirm all steps done
+1. Update `session-context.md` with final state and recovery instructions
+2. Run `bash ~/claude-config/setup/scripts/rotate-session.sh` + update `docs/decisions.md` if needed
+3. Drop cross-project inbox tasks if this session affects other projects
+4. Update shared strategy files you touched (shutdown boundary exception)
+5. Update machine file (`~/.claude/machines/<machine>.md`) if machine state changed
+6. `git add`, commit, push
+7. Run `bash ~/claude-config/sync.sh collect` to verify
 
 No exceptions. No asking "want me to commit?" — just do it.
 

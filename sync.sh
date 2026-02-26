@@ -55,7 +55,7 @@ cmd_setup() {
     log_info "Linked: $CLAUDE_HOME/CLAUDE.md → $GLOBAL_DIR/CLAUDE.md"
 
     # Knowledge architecture directories (directory symlinks)
-    for dir in foundation reference domains; do
+    for dir in foundation reference domains knowledge machines; do
         if [ -d "$GLOBAL_DIR/$dir" ]; then
             if [ -L "$CLAUDE_HOME/$dir" ]; then
                 rm "$CLAUDE_HOME/$dir"
@@ -98,7 +98,7 @@ cmd_deploy() {
     fi
 
     # Knowledge architecture directories
-    for dir in foundation reference domains; do
+    for dir in foundation reference domains knowledge machines; do
         if [ -d "$GLOBAL_DIR/$dir" ]; then
             if [ -L "$CLAUDE_HOME/$dir" ]; then
                 log_info "$dir/ is symlinked — no copy needed"
@@ -160,7 +160,7 @@ cmd_collect() {
     fi
 
     # Knowledge architecture directories
-    for dir in foundation reference domains; do
+    for dir in foundation reference domains knowledge machines; do
         if [ -L "$CLAUDE_HOME/$dir" ]; then
             log_info "$dir/ is symlinked — already in sync"
         elif [ -d "$CLAUDE_HOME/$dir" ] && [ -d "$GLOBAL_DIR/$dir" ]; then
@@ -207,7 +207,7 @@ cmd_status() {
     fi
 
     # Knowledge architecture directories
-    for dir in foundation reference domains; do
+    for dir in foundation reference domains knowledge machines; do
         if [ -L "$CLAUDE_HOME/$dir" ]; then
             echo "  $dir/: symlinked ✓"
         elif [ -d "$CLAUDE_HOME/$dir" ]; then

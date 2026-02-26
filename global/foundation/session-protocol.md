@@ -93,21 +93,20 @@ Session information is organized in 3 layers to balance startup speed with histo
 - [ ] Format: `- [ ] **project-name**: description of what they need to do`
 
 ### 4. Shared strategy files
-- [ ] If shared state changed → update the relevant `~/claude-config/cross-project/*-strategy.md` file
+- [ ] If infrastructure, deployment, or shared state changed → update `~/claude-config/cross-project/infrastructure-strategy.md`
+- [ ] If visibility/outreach state changed → update `~/claude-config/cross-project/fmt-visibility-strategy.md`
 - [ ] Only update strategy files you actually touched this session — don't speculatively refresh them
 
-### 5. Auto memory (MEMORY.md)
-- [ ] Save **durable lessons** confirmed this session (not session state)
-- [ ] Patterns, gotchas, key facts that will save time in future sessions
-- [ ] Keep MEMORY.md under 50 lines — use separate topic files for detail
-- [ ] Never duplicate what's already in project docs or strategy files
+### 5. Machine knowledge
+- [ ] If machine-specific state changed (tooling installed, patches applied, auth rotated) → update `~/.claude/machines/<machine>.md`
+- [ ] If new operational knowledge discovered (tool bugs, workarounds) → update or create `~/.claude/knowledge/<tool>.md`
 
 ### 6. Commit and push
 - [ ] `git add` changed files, commit with descriptive message
 - [ ] `git push` (or rely on SessionEnd auto-sync hook if configured)
-- [ ] If domain-specific workflows apply (e.g., publication builds), follow their extended checklist
+- [ ] If publication files were modified, follow the extended checklist in `publication-workflow.md` Section 6
 
-### 7. Verify auto-sync will succeed (if applicable)
+### 7. Verify sync (if applicable)
 - [ ] Run `bash ~/claude-config/sync.sh collect` to verify it exits cleanly
 - [ ] If it fails, fix the issue or clear `.sync-failed` marker with explanation
 
