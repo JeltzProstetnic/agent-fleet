@@ -51,8 +51,23 @@ if [[ -z "$GOAL" ]]; then
     GOAL="(no goal recorded)"
 fi
 
-# Extract completed items (lines starting with "- [x]" anywhere in the file)
-COMPLETED=$(echo "$CONTENT" | grep -F '- [x]' | sed 's/^- \[x\] /- /' || true)
+# Extract completed items — two formats supported:
+# 1. "- [x] item" checkboxes anywhere in file (may be indented)
+# 2. Plain bullets under "### Completed This Session" or "### Completed" subsection
+COMPLETED=""
+# Format 1: checkbox items (strip indentation and checkbox prefix)
+CHECKBOX_ITEMS=$(echo "$CONTENT" | grep -F '[x]' | sed 's/^[[:space:]]*- \[x\] /- /' || true)
+# Format 2: plain bullets under ### Completed... subsection (only lines starting with "- ")
+SECTION_ITEMS=$(echo "$CONTENT" | awk '/^### Completed/{flag=1; next} /^###|^## |^- \*\*/{flag=0} flag' | grep '^- ' || true)
+# Combine
+if [[ -n "$CHECKBOX_ITEMS" && -n "$SECTION_ITEMS" ]]; then
+    COMPLETED="$CHECKBOX_ITEMS
+$SECTION_ITEMS"
+elif [[ -n "$CHECKBOX_ITEMS" ]]; then
+    COMPLETED="$CHECKBOX_ITEMS"
+elif [[ -n "$SECTION_ITEMS" ]]; then
+    COMPLETED="$SECTION_ITEMS"
+fi
 if [[ -z "$COMPLETED" ]]; then
     COMPLETED="- (no completed items recorded)"
 fi
@@ -70,6 +85,8 @@ RECOVERY=$(echo "$CONTENT" | awk '/^## Recovery Instructions/{flag=1; next} /^##
 
 # Extract Pending items from Current State
 PENDING=$(echo "$CONTENT" | grep -oP '(?<=\*\*Pending\*\*: ).*' | head -1 || true)
+# Strip placeholder values
+[[ "$PENDING" == "—" || "$PENDING" == "-" || "$PENDING" == "none" || -z "$PENDING" ]] && PENDING=""
 
 # --- Build the entry ---
 # Include recovery/pending only if they have content
@@ -81,7 +98,7 @@ $COMPLETED
 $DECISIONS"
 
 # Append pending if non-empty
-if [[ -n "$PENDING" && "$PENDING" != "—" && "$PENDING" != "-" ]]; then
+if [[ -n "$PENDING" ]]; then
     ENTRY="$ENTRY
 **Pending at shutdown:** $PENDING"
 fi
@@ -177,7 +194,7 @@ cat > "$SESSION_FILE" <<'EOF'
 
 ## Current State
 - **Active Task**:
-- **Progress**:
+- **Progress** (use `- [x]` checkbox for each completed item):
 - **Pending**:
 
 ## Key Decisions
