@@ -28,8 +28,28 @@ if [[ ! -s "$SESSION_FILE" ]]; then
     exit 0
 fi
 
-# --- Parse session-context.md ---
+# --- Detect blank template (never populated by the session) ---
+# A session-context.md is "blank" if Session Goal is empty AND there are no
+# completed items (checkboxes or section) AND no key decisions recorded.
+# This prevents useless "(no completed items recorded)" entries in history.
 CONTENT=$(cat "$SESSION_FILE")
+
+HAS_GOAL=$(echo "$CONTENT" | grep -oP '(?<=\*\*Session Goal\*\*: ).+' | head -1 || true)
+HAS_COMPLETED=$(echo "$CONTENT" | grep -P '^\s*- \[x\]' || true)
+HAS_COMPLETED_SECTION=$(echo "$CONTENT" | awk '/^### Completed/{flag=1; next} /^###|^## |^- \*\*/{flag=0} flag' | grep '^- ' || true)
+HAS_DECISIONS=$(echo "$CONTENT" | awk '/^## Key Decisions/{flag=1; next} /^## /{flag=0} flag' | sed '/^$/d' || true)
+
+if [[ -z "$HAS_GOAL" && -z "$HAS_COMPLETED" && -z "$HAS_COMPLETED_SECTION" && -z "$HAS_DECISIONS" ]]; then
+    echo "ERROR: session-context.md is still a blank template — refusing to rotate."
+    echo "Before rotating, the session MUST populate at minimum:"
+    echo "  - Session Goal (even if just 'No significant activity')"
+    echo "  - At least one completed item OR a note explaining why nothing was done"
+    echo ""
+    echo "This prevents useless blank entries in session-history.md and session-log.md."
+    exit 1
+fi
+
+# --- Parse session-context.md ---
 
 # Extract Last Updated timestamp
 TIMESTAMP=$(echo "$CONTENT" | grep -oP '(?<=\*\*Last Updated\*\*: ).*' | head -1)
@@ -59,7 +79,7 @@ COMPLETED=""
 CHECKBOX_ITEMS=$(echo "$CONTENT" | grep -F '[x]' | sed 's/^[[:space:]]*- \[x\] /- /' || true)
 # Format 2: plain bullets under ### Completed... subsection (only lines starting with "- ")
 SECTION_ITEMS=$(echo "$CONTENT" | awk '/^### Completed/{flag=1; next} /^###|^## |^- \*\*/{flag=0} flag' | grep '^- ' || true)
-# Combine
+# Combine (prefer checkbox if both exist, deduplicate unlikely but harmless)
 if [[ -n "$CHECKBOX_ITEMS" && -n "$SECTION_ITEMS" ]]; then
     COMPLETED="$CHECKBOX_ITEMS
 $SECTION_ITEMS"

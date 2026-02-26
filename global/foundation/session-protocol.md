@@ -122,3 +122,4 @@ Session information is organized in 3 layers to balance startup speed with histo
 4. **Include recovery instructions** - assume the session could terminate at any moment
 5. **Update BEFORE responding** - write state before action, update after completion
 6. **Reference, don't duplicate** - point to canonical docs rather than copying their content
+7. **Session-context.md MUST be populated before rotation** - `rotate-session.sh` will refuse to archive a blank template. At minimum, fill in `Session Goal` (even if just "No significant activity — quick check") and one line under Progress or Key Decisions explaining what happened. If a session genuinely did nothing, write that explicitly — a blank template is never acceptable.
