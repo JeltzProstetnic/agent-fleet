@@ -82,6 +82,60 @@ Do NOT embed tokens in this file. All credentials live in `.mcp.json`.
 - Full usage guide: see `reference/serena.md`.
 - Use for code projects only — not useful for pure authoring sessions (context waste).
 
+### 6. Playwright
+
+| Field | Value |
+|-------|-------|
+| **Package** | `@playwright/mcp` |
+| **Command** | `npx -y @playwright/mcp` |
+| **Purpose** | Full browser automation: navigate, click, fill forms, screenshot, extract content |
+| **Auth** | None |
+
+**Key gotchas:**
+- First run downloads Chromium (~200MB). Subsequent runs reuse cached browser.
+- Runs headless by default.
+- Screenshots and page content returned inline.
+
+### 7. Memory (Knowledge Graph)
+
+| Field | Value |
+|-------|-------|
+| **Package** | `@modelcontextprotocol/server-memory` |
+| **Command** | `npx -y @modelcontextprotocol/server-memory` |
+| **Purpose** | Persistent entity-relation knowledge graph stored as local JSONL |
+| **Auth** | None |
+
+**Key gotchas:**
+- Graph persists across sessions in a JSONL file. Set `MEMORY_FILE_PATH` env var to control location.
+- Tools: `create_entities`, `create_relations`, `add_observations`, `delete_entities`, `delete_relations`, `delete_observations`, `read_graph`, `search_nodes`, `open_nodes`.
+
+### 8. Diagram Bridge
+
+| Field | Value |
+|-------|-------|
+| **Package** | `diagram-bridge-mcp` |
+| **Command** | `npx -y diagram-bridge-mcp` |
+| **Purpose** | Render diagrams in 30+ formats via Kroki.io (Graphviz, Mermaid, PlantUML, D2, etc.) |
+| **Auth** | None |
+
+**Key gotchas:**
+- Requires internet access to reach Kroki.io rendering service.
+- Output is rendered images (SVG/PNG), not editable graph data.
+
+### 9. PostgreSQL (Optional)
+
+| Field | Value |
+|-------|-------|
+| **Package** | `@modelcontextprotocol/server-postgres` |
+| **Command** | `npx -y @modelcontextprotocol/server-postgres <connection-url>` |
+| **Purpose** | Direct SQL queries against PostgreSQL databases |
+| **Auth** | Connection string (passed as CLI argument) |
+
+**Key gotchas:**
+- Connection URL format: `postgresql://user:pass@host:port/dbname`
+- Be careful with write operations — consider using read-only connection strings.
+- Requires a running PostgreSQL instance.
+
 ---
 
 ## Additional Servers (Not Included by Default)
@@ -92,11 +146,9 @@ These can be added to `.mcp.json` if needed:
 |--------|---------|---------|------|
 | **Slack** | `@modelcontextprotocol/server-slack` | Channels, messages, threads | Bot token (xoxb-) |
 | **Linear** | `mcp-linear` | Issues, projects, cycles | API key |
-| **Postgres** | `@modelcontextprotocol/server-postgres` | Direct database queries | Connection string |
 | **Filesystem** | `@modelcontextprotocol/server-filesystem` | Controlled file access | Path allowlist |
 | **Brave Search** | `@modelcontextprotocol/server-brave-search` | Web search | API key |
 | **Fetch** | `@modelcontextprotocol/server-fetch` | HTTP requests | None |
-| **Memory** | `@modelcontextprotocol/server-memory` | Persistent knowledge graph | None |
 | **Notion** | Community servers | Pages, databases | Integration token |
 | **PST Search** | Custom Python server | Email archive search | None (local data) |
 

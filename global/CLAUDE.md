@@ -140,6 +140,8 @@ No exceptions. No asking "want me to commit?" — just do it.
 
 **New project:** Add to `~/claude-config/registry.md`. See `~/.claude/foundation/project-setup.md`.
 
+**New machine:** Populate `~/.claude/machines/<machine>.md` from `machines/_template.md`. Add hostname pattern to Machine Identity table. Run `bash ~/claude-config/sync.sh setup` to link config. See machine file template for required sections.
+
 ## Platform Notes
 
 **WSL:**

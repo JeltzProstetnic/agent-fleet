@@ -113,6 +113,9 @@ cmd_deploy() {
     # Project-specific rules
     deploy_project_rules
 
+    # Template drift check
+    check_template_drift
+
     log_info "Deploy complete."
 }
 
@@ -145,6 +148,43 @@ deploy_project_rules() {
             done
         fi
     done
+}
+
+# ---- TEMPLATE DRIFT CHECK ----
+# Checks tracked files for changes since last template sync.
+# The manifest stores file hashes — if changed, template may need updating.
+check_template_drift() {
+    local manifest="$SCRIPT_DIR/template-sync-manifest.md"
+    [ -f "$manifest" ] || return 0  # No manifest — nothing to check
+
+    local drift_count=0
+
+    # Extract tracked file rows from manifest: lines matching "| `path` | `hash` |"
+    # Use process substitution to avoid consuming stdin
+    local tracked_files
+    tracked_files=$(grep -oP '^\| `[^`]+` \| `[0-9a-f]{8}`' "$manifest" | sed 's/^| `//;s/` | `/|/;s/`$//' || true)
+
+    local line file_path hash
+    for line in $tracked_files; do
+        file_path="${line%%|*}"
+        hash="${line##*|}"
+        [ -n "$file_path" ] && [ -n "$hash" ] || continue
+
+        local full_path="$SCRIPT_DIR/$file_path"
+        [ -f "$full_path" ] || continue
+
+        local current_hash
+        current_hash=$(sha256sum "$full_path" | cut -c1-8)
+
+        if [ "$current_hash" != "$hash" ]; then
+            log_warn "$file_path changed since last template sync (was: $hash, now: $current_hash)"
+            drift_count=$((drift_count + 1))
+        fi
+    done
+
+    if [ "$drift_count" -gt 0 ]; then
+        log_warn "$drift_count file(s) drifted. Review template-sync-manifest.md and propagate changes."
+    fi
 }
 
 # ---- COLLECT: Copy from live locations → repo ----
@@ -256,6 +296,39 @@ cmd_status() {
         count=$(ls "$d/.claude/agents/"*.md 2>/dev/null | wc -l)
         [ "$count" -gt 0 ] && echo "  $(basename "$d"): $count agents"
     done
+
+    # Cross-project status
+    local cross_dir="$SCRIPT_DIR/cross-project"
+    if [ -d "$cross_dir" ]; then
+        echo ""
+        log_info "Cross-project state:"
+        # Inbox pending count
+        local inbox="$cross_dir/inbox.md"
+        if [ -f "$inbox" ]; then
+            local pending
+            pending=$(grep -c '^\- \[ \]' "$inbox" 2>/dev/null || true)
+            if [ "$pending" -gt 0 ] 2>/dev/null; then
+                echo -e "  inbox.md: ${YELLOW}$pending pending task(s)${NC}"
+            else
+                echo "  inbox.md: empty ✓"
+            fi
+        fi
+        # Strategy file freshness
+        for f in "$cross_dir"/*-strategy.md "$cross_dir"/contacts.md "$cross_dir"/engagement-log.md; do
+            [ -f "$f" ] || continue
+            local base last_mod days_ago
+            base=$(basename "$f")
+            last_mod=$(stat -c %Y "$f" 2>/dev/null || stat -f %m "$f" 2>/dev/null)
+            if [ -n "$last_mod" ]; then
+                days_ago=$(( ($(date +%s) - last_mod) / 86400 ))
+                if [ "$days_ago" -gt 14 ]; then
+                    echo -e "  $base: ${YELLOW}last modified ${days_ago}d ago${NC}"
+                else
+                    echo "  $base: updated ${days_ago}d ago ✓"
+                fi
+            fi
+        done
+    fi
 
     echo ""
     if [ $diffs -eq 0 ]; then

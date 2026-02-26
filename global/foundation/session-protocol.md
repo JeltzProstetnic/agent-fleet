@@ -26,7 +26,9 @@ The session context file should be at: `./session-context.md` (relative to curre
 
 ## Current State
 - **Active Task**: [what you're currently working on]
-- **Progress**: [completed steps]
+- **Progress** (use `- [x]` checkbox for each completed item):
+  - [x] Example completed step
+  - [ ] Example pending step
 - **Pending**: [remaining steps]
 
 ## Key Decisions

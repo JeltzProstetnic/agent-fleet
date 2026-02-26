@@ -4,7 +4,8 @@
 # ================================================================
 # This script configures the mclaude variant created by install-base.sh.
 # It sets up VoltAgent subagents, MCP servers (GitHub, Google Workspace,
-# Twitter, Jira, Serena), helper scripts, global CLAUDE.md, and WSL settings.
+# Twitter, Jira, Serena, Playwright, Memory, Diagram Bridge, Postgres),
+# helper scripts, global CLAUDE.md, and WSL settings.
 #
 # PREREQUISITE: Run install-base.sh first to install Node.js, cc-mirror,
 # and create the mclaude variant.
@@ -21,7 +22,8 @@
 #
 # What this script does:
 #   Step 1: Deploy VoltAgent subagents configuration (settings.json)
-#   Step 2: Configure MCP servers (GitHub, Jira, Serena) with credentials
+#   Step 2: Configure MCP servers (GitHub, Jira, Serena, Playwright, Memory,
+#           Diagram Bridge, Postgres) with credentials
 #   Step 3: Patch mclaude launcher with MCP enablement + update-checker
 #   Step 4: Install and patch happy-coder for mobile access
 #   Step 5: Deploy helper scripts (update-checker, happy-coder-patch)
@@ -82,7 +84,8 @@ OPTIONS:
 
 WHAT THIS SCRIPT DOES:
   1. Deploy VoltAgent subagents configuration (settings.json)
-  2. Configure MCP servers (GitHub, Google Workspace, Twitter, Jira, Serena)
+  2. Configure MCP servers (GitHub, Google Workspace, Twitter, Jira, Serena,
+     Playwright, Memory, Diagram Bridge, Postgres)
   3. Patch mclaude launcher with MCP enablement + update-checker
   4. Install and patch happy-coder for mobile access
   5. Deploy helper scripts (update-checker, happy-coder-patch)
@@ -126,6 +129,7 @@ prompt_credential() {
         jira_url) jira_url="${input}" ;;
         jira_email) jira_email="${input}" ;;
         jira_api_token) jira_api_token="${input}" ;;
+        postgres_url) postgres_url="${input}" ;;
         *) log_error "Unknown variable name: ${var_name}"; return 1 ;;
     esac
 }
@@ -209,7 +213,7 @@ configure_mcp_servers() {
     }
 
     # Parse existing config if present (for idempotency)
-    local existing_github=false existing_google=false existing_twitter=false existing_jira=false
+    local existing_github=false existing_google=false existing_twitter=false existing_jira=false existing_postgres=false
     if [[ -f "${target}" ]] && [[ "${RECONFIGURE_MCP}" == "false" ]]; then
         log_info "Checking existing MCP configuration..."
 
@@ -218,14 +222,25 @@ configure_mcp_servers() {
         check_existing_server twitter API_KEY __TWITTER_API_KEY__ && existing_twitter=true
         check_existing_server jira JIRA_URL __JIRA_URL__ && existing_jira=true
 
+        # Postgres stores its URL as a CLI arg, not env var — check if the placeholder is gone
+        if command -v jq &>/dev/null; then
+            local pg_arg
+            pg_arg=$(jq -r '.mcpServers.postgres.args[2] // empty' "${target}" 2>/dev/null || true)
+            [[ -n "${pg_arg}" ]] && [[ "${pg_arg}" != "__POSTGRES_URL__" ]] && existing_postgres=true
+        elif grep -q '"@modelcontextprotocol/server-postgres"' "${target}" 2>/dev/null && \
+             ! grep -q '__POSTGRES_URL__' "${target}" 2>/dev/null; then
+            existing_postgres=true
+        fi
+
         [[ "${existing_github}" == "true" ]] && log_info "GitHub MCP server already configured"
         [[ "${existing_google}" == "true" ]] && log_info "Google Workspace MCP server already configured"
         [[ "${existing_twitter}" == "true" ]] && log_info "Twitter MCP server already configured"
         [[ "${existing_jira}" == "true" ]] && log_info "Jira MCP server already configured"
+        [[ "${existing_postgres}" == "true" ]] && log_info "PostgreSQL MCP server already configured"
     fi
 
-    # --- Serena (always enabled, no credentials needed) ---
-    log_info "Serena MCP server will be configured (no credentials needed)"
+    # --- No-credential servers (always enabled) ---
+    log_info "Always-on MCP servers: Serena, Playwright, Memory, Diagram Bridge (no credentials needed)"
 
     # --- GitHub ---
     local setup_github=false github_token=""
@@ -333,6 +348,29 @@ configure_mcp_servers() {
         fi
     fi
 
+    # --- Postgres ---
+    local setup_postgres=false postgres_url=""
+
+    if [[ "${existing_postgres}" == "true" ]]; then
+        log_info "Skipping PostgreSQL credential prompt (already configured, use --reconfigure-mcp to change)"
+        setup_postgres=true
+        if command -v jq &>/dev/null; then
+            postgres_url=$(jq -r '.mcpServers.postgres.args[2]' "${target}")
+        else
+            postgres_url=$(grep -o '"__POSTGRES_URL__\|postgresql://[^"]*"' "${target}" | tr -d '"' | head -1)
+        fi
+    else
+        echo ""
+        echo -e "${COLOR_BLUE}PostgreSQL MCP Server Setup${COLOR_RESET}"
+        echo "  Direct SQL access to a PostgreSQL database."
+        echo "  Requires a connection URL: postgresql://user:pass@host:port/dbname"
+
+        if prompt_yes_no "  Set up PostgreSQL MCP server?" "n"; then
+            prompt_credential "  Enter your PostgreSQL connection URL:" postgres_url false
+            setup_postgres=true
+        fi
+    fi
+
     # Build .mcp.json from template
     log_info "Generating .mcp.json..."
 
@@ -354,10 +392,11 @@ configure_mcp_servers() {
         -e "s|__JIRA_URL__|${jira_url}|g" \
         -e "s|__JIRA_USERNAME__|${jira_email}|g" \
         -e "s|__JIRA_API_TOKEN__|${jira_api_token}|g" \
+        -e "s|__POSTGRES_URL__|${postgres_url}|g" \
         "${template}")
 
     # Remove unconfigured servers from JSON
-    for server_flag in "github:${setup_github}" "google-workspace:${setup_google}" "twitter:${setup_twitter}" "jira:${setup_jira}"; do
+    for server_flag in "github:${setup_github}" "google-workspace:${setup_google}" "twitter:${setup_twitter}" "jira:${setup_jira}" "postgres:${setup_postgres}"; do
         local server_name="${server_flag%%:*}"
         local server_enabled="${server_flag##*:}"
         if [[ "${server_enabled}" != "true" ]]; then
@@ -387,11 +426,12 @@ configure_mcp_servers() {
     log_info "Deploying settings.local.json with MCP enablement flags..."
 
     # Build the enabledMcpjsonServers list based on what was configured
-    local servers='"serena"'
+    local servers='"serena", "playwright", "memory", "diagram-bridge"'
     [[ "${setup_github}" == "true" ]] && servers="${servers}, \"github\""
     [[ "${setup_google}" == "true" ]] && servers="${servers}, \"google-workspace\""
     [[ "${setup_twitter}" == "true" ]] && servers="${servers}, \"twitter\""
     [[ "${setup_jira}" == "true" ]] && servers="${servers}, \"jira\""
+    [[ "${setup_postgres}" == "true" ]] && servers="${servers}, \"postgres\""
 
     backup_file "${settings_local}"
 
@@ -410,11 +450,12 @@ SETTINGSLOCAL
     fi
 
     # Build summary of what was configured
-    local configured_list="Serena"
+    local configured_list="Serena, Playwright, Memory, Diagram Bridge"
     [[ "${setup_github}" == "true" ]] && configured_list="${configured_list}, GitHub"
     [[ "${setup_google}" == "true" ]] && configured_list="${configured_list}, Google Workspace"
     [[ "${setup_twitter}" == "true" ]] && configured_list="${configured_list}, Twitter"
     [[ "${setup_jira}" == "true" ]] && configured_list="${configured_list}, Jira"
+    [[ "${setup_postgres}" == "true" ]] && configured_list="${configured_list}, PostgreSQL"
 
     log_success "MCP servers configured (${configured_list})"
     INSTALLED_STEPS+=("MCP servers (${configured_list})")

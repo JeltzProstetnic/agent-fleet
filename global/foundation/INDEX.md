@@ -2,7 +2,7 @@
 
 | Module | File | Purpose |
 |--------|------|---------|
-| Identity | `identity.md` | Agent configuration paths, key locations, machine catalog |
+| Identity (deprecated) | `identity.md` | Deprecated — content migrated to global CLAUDE.md, mcp-catalog.md, machines/*.md |
 | Session Protocol | `session-protocol.md` | Session context persistence and recovery rules |
 | User Profile | `user-profile.md` | Who the user is — communication style, background, goals |
 | Roster Management | `roster-management.md` | How to manage agents, skills, and MCP servers per project |
