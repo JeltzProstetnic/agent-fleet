@@ -345,6 +345,26 @@ else
 fi
 [[ "$setup_jira" == true ]] && ok "Jira: configured" && CONFIGURED_SERVERS="$CONFIGURED_SERVERS, jira"
 
+# --- Postgres ---
+setup_postgres=false
+CLAUDE_POSTGRES_URL="${CLAUDE_POSTGRES_URL:-}"
+if [[ "$NON_INTERACTIVE" == true ]]; then
+  [[ -n "$CLAUDE_POSTGRES_URL" ]] && setup_postgres=true
+else
+  read -r -p "  Set up Postgres MCP? (direct database queries) [y/N]: " _pg
+  if [[ "${_pg,,}" == "y" ]]; then
+    read -r -p "    Connection URL (e.g. postgresql://user:pass@localhost/mydb): " CLAUDE_POSTGRES_URL
+    [[ -n "$CLAUDE_POSTGRES_URL" ]] && setup_postgres=true
+  fi
+fi
+[[ "$setup_postgres" == true ]] && ok "Postgres: configured" && CONFIGURED_SERVERS="$CONFIGURED_SERVERS, postgres"
+
+# --- Auto-included servers (no credentials needed) ---
+ok "Playwright (browser automation): auto-included"
+ok "Memory (knowledge graph): auto-included"
+ok "Diagram Bridge (Graphviz/Mermaid/D2 rendering): auto-included"
+CONFIGURED_SERVERS="$CONFIGURED_SERVERS, playwright, memory, diagram-bridge"
+
 # --- Build .mcp.json ---
 # Start with Serena (always present)
 backup_if_exists "$MCP_FILE"
@@ -409,6 +429,33 @@ if command -v node &>/dev/null; then
       };
     }
 
+    if ('$setup_postgres' === 'true') {
+      mcp.mcpServers.postgres = {
+        command: '$NPX_CMD',
+        args: ['-y', '@modelcontextprotocol/server-postgres', $(printf '%s' "$CLAUDE_POSTGRES_URL" | node -e "process.stdout.write(JSON.stringify(require('fs').readFileSync('/dev/stdin','utf8')))")],
+        env: { PATH: '$SAFE_PATH' }
+      };
+    }
+
+    // Auto-included servers (no credentials)
+    mcp.mcpServers.playwright = {
+      command: '$NPX_CMD',
+      args: ['-y', '@playwright/mcp'],
+      env: { PATH: '$SAFE_PATH' }
+    };
+
+    mcp.mcpServers.memory = {
+      command: '$NPX_CMD',
+      args: ['-y', '@modelcontextprotocol/server-memory'],
+      env: { PATH: '$SAFE_PATH' }
+    };
+
+    mcp.mcpServers['diagram-bridge'] = {
+      command: '$NPX_CMD',
+      args: ['-y', 'diagram-bridge-mcp'],
+      env: { PATH: '$SAFE_PATH' }
+    };
+
     process.stdout.write(JSON.stringify(mcp, null, 2) + '\n');
   " > "$MCP_FILE"
 elif command -v python3 &>/dev/null; then
@@ -445,7 +492,8 @@ MCP_LIST=""
 [[ "$setup_google" == true ]] && MCP_LIST="${MCP_LIST}google-workspace, "
 [[ "$setup_twitter" == true ]] && MCP_LIST="${MCP_LIST}twitter, "
 [[ "$setup_jira" == true ]] && MCP_LIST="${MCP_LIST}jira, "
-MCP_LIST="${MCP_LIST}serena"
+[[ "$setup_postgres" == true ]] && MCP_LIST="${MCP_LIST}postgres, "
+MCP_LIST="${MCP_LIST}playwright, memory, diagram-bridge, serena"
 
 sed -i "s/(none configured yet)/${MCP_LIST}/" "$CATALOG_FILE"
 ok "Wrote ~/.claude/.mcp.json ($CONFIGURED_SERVERS)"

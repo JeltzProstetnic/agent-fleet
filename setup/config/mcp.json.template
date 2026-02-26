@@ -61,6 +61,47 @@
         "JIRA_API_TOKEN": "__JIRA_API_TOKEN__",
         "PATH": "__PATH__"
       }
+    },
+    "playwright": {
+      "command": "__NPX_CMD__",
+      "args": [
+        "-y",
+        "@playwright/mcp"
+      ],
+      "env": {
+        "PATH": "__PATH__"
+      }
+    },
+    "postgres": {
+      "command": "__NPX_CMD__",
+      "args": [
+        "-y",
+        "@modelcontextprotocol/server-postgres",
+        "__POSTGRES_URL__"
+      ],
+      "env": {
+        "PATH": "__PATH__"
+      }
+    },
+    "memory": {
+      "command": "__NPX_CMD__",
+      "args": [
+        "-y",
+        "@modelcontextprotocol/server-memory"
+      ],
+      "env": {
+        "PATH": "__PATH__"
+      }
+    },
+    "diagram-bridge": {
+      "command": "__NPX_CMD__",
+      "args": [
+        "-y",
+        "diagram-bridge-mcp"
+      ],
+      "env": {
+        "PATH": "__PATH__"
+      }
     }
   }
 }
