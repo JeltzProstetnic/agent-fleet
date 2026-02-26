@@ -1,8 +1,8 @@
-# claude-config-template
+# Claude Config Template
 
-A configuration management system for Claude Code that adds session memory, layered knowledge loading, multi-machine sync, cross-project coordination, and self-healing protocols. Works on Linux, macOS, and WSL.
+**Session memory, layered knowledge, multi-machine sync, and self-healing protocols for Claude Code.**
 
-**Clone it. Run setup. Same config across all your machines and projects.**
+Works on Linux, macOS, and WSL.
 
 ```bash
 git clone https://github.com/JeltzProstetnic/claude-config-template ~/claude-config
@@ -13,95 +13,97 @@ cd ~/claude-config && bash setup.sh
 
 ## The Problem
 
-Three powerful AI agent products. All powerful. All missing the same things.
+Claude Code is a powerful AI agent. But out of the box:
 
-| Product | What it does | What's missing |
-|---------|-------------|----------------|
-| **Claude Code** | Terminal AI agent. Writes code, runs commands, edits files. | No memory between sessions. No multi-project awareness. No team consistency. |
-| **Claude CoWork** | Desktop app for non-developers. Creates Excel, PowerPoint, docs. | No memory, no coordination, no domain knowledge management. |
-| **OpenClaw** | 24/7 AI via Slack, Teams, WhatsApp. Self-hosted. | No structured knowledge. No session recovery. No cross-project coordination. |
+- **No memory** — every session starts cold
+- **No multi-project awareness** — 10 projects = 10 disconnected configs
+- **No cross-machine sync** — switch computers, lose everything
+- **No structured knowledge** — everything crammed into one `CLAUDE.md`
 
-**The pattern:** capable AI with no management layer. Like a powerful car with no GPS, no dashboard, and no service history.
-
----
-
-## What This System Adds
-
-| Capability | What this means in practice |
-|------------|---------------------------|
-| ✅ **Session Memory** | AI picks up where it left off. Crashes, timeouts, machine switches — nothing lost. |
-| ✅ **Smart Knowledge Loading** | AI gets only relevant rules per project. Coding tasks load coding protocols. Infrastructure tasks load infra rules. |
-| ✅ **Parallel Sub-Agents** | Multiple specialist AIs work simultaneously on different parts of one task. |
-| ✅ **Cross-Project Inbox** | Projects pass tasks to each other automatically. No manual coordination needed. |
-| ✅ **Multi-Machine Sync** | Close laptop, open desktop. Same context, same rules. Zero manual steps. |
-| ✅ **Self-Healing Protocols** | Repeated mistakes auto-generate prevention rules for all future sessions. |
-| ✅ **Full Audit Trail** | Every rule change is version-controlled. Who changed what, when, and why. |
-| ✅ **One-Command Deploy** | New team member: clone repo, run setup, done. Same config as everyone. |
+This system fixes all of that.
 
 ---
 
-## Side-by-Side Comparison
+## What You Get
 
-| Feature | Claude Code | CoWork | OpenClaw | **This System** |
-|---------|:-----------:|:------:|:--------:|:---------------:|
-| AI behavior control | ❌ | ❌ | ❌ | ✅ Layered + versioned |
-| Session memory | ❌ | ❌ | ⚠️ Partial | ✅ Full + crash recovery |
-| Multi-agent coordination | ⚠️ Basic | ⚠️ Basic | ❌ | ✅ Coordinated specialists |
-| Knowledge management | ❌ | ❌ | ❌ | ✅ 5-layer architecture |
-| Multi-project support | ❌ | ❌ | ❌ | ✅ Built-in coordination |
-| Multi-machine sync | ❌ | ❌ | ⚠️ 1 server | ✅ Auto-sync |
-| Error prevention | ❌ | ❌ | ❌ | ✅ Self-healing protocols |
-| Audit trail | ❌ | ❌ | ⚠️ Partial | ✅ Full git history |
-| Team deployment | ❌ | ❌ | ❌ | ✅ One command |
-| Open source | ❌ | ❌ | ✅ | ✅ |
+<table>
+<tr><td>✅</td><td><strong>Session Memory</strong></td><td>AI picks up where it left off. Crashes, timeouts, machine switches — nothing lost.</td></tr>
+<tr><td>✅</td><td><strong>Smart Knowledge Loading</strong></td><td>Each project declares what it needs. Coding gets TDD rules. Infra gets server protocols. No bloat.</td></tr>
+<tr><td>✅</td><td><strong>Cross-Project Inbox</strong></td><td>Projects pass tasks to each other automatically. No manual coordination.</td></tr>
+<tr><td>✅</td><td><strong>Multi-Machine Sync</strong></td><td>Close laptop, open desktop — same context, same rules. Zero manual steps.</td></tr>
+<tr><td>✅</td><td><strong>Self-Healing Protocols</strong></td><td>Repeated mistakes auto-generate prevention rules for all future sessions.</td></tr>
+<tr><td>✅</td><td><strong>9 MCP Servers</strong></td><td>GitHub, Gmail, Jira, browser automation, diagrams, and more — pre-configured.</td></tr>
+<tr><td>✅</td><td><strong>One-Command Deploy</strong></td><td>Clone, run setup, done. Same config on every machine.</td></tr>
+</table>
 
 ---
 
-## Architecture: 5 Layers of Knowledge
+## How It Compares
 
-```
-┌─────────────────────────────────────────────┐
-│  Layer 1: Global Prompt                     │  ← Always loaded
-│  The dispatcher (~80 lines)                 │
-└─────────────────────────────────────────────┘
-         ↓
-┌─────────────────────────────────────────────┐
-│  Layer 2: Foundation                        │  ← Always loaded
-│  Session rules, identity, protocols         │
-└─────────────────────────────────────────────┘
-         ↓
-┌─────────────────────────────────────────────┐
-│  Layer 3: Domains                           │  ← Per-project
-│  Coding, infrastructure, publishing, etc.   │
-└─────────────────────────────────────────────┘
-         ↓
-┌─────────────────────────────────────────────┐
-│  Layer 4: References                        │  ← On-demand
-│  Troubleshooting, tool guides               │
-└─────────────────────────────────────────────┘
-         ↓
-┌─────────────────────────────────────────────┐
-│  Layer 5: Project Rules                     │  ← Per-project
-│  Project-specific configuration             │
-└─────────────────────────────────────────────┘
+| Feature | Claude Code (stock) | **This System** |
+|---------|:-------------------:|:---------------:|
+| Session memory | ❌ Starts cold every time | ✅ Full persistence + crash recovery |
+| Knowledge management | ❌ One flat `CLAUDE.md` | ✅ 5-layer architecture |
+| Multi-project support | ❌ Each project isolated | ✅ Inbox + shared strategy files |
+| Multi-machine sync | ❌ Manual | ✅ Automatic via git hooks |
+| Error prevention | ❌ Same mistakes repeat | ✅ Self-healing protocols |
+| MCP server management | ❌ Per-project setup | ✅ Central config, auto-enabled |
+| Audit trail | ❌ None | ✅ Full git history |
+
+---
+
+## Architecture: 5 Layers
+
+The AI doesn't load everything. Each project declares what it needs. Context stays focused.
+
+```mermaid
+graph TD
+    A["<b>Layer 1: Global Prompt</b><br/>~80 lines — the dispatcher<br/><i>Always loaded</i>"] --> B
+    B["<b>Layer 2: Foundation</b><br/>Session rules, identity, protocols<br/><i>Always loaded</i>"] --> C
+    C["<b>Layer 3: Domains</b><br/>Coding, infra, publishing, engagement<br/><i>Per-project manifest</i>"] --> D
+    D["<b>Layer 4: References</b><br/>MCP catalog, tool guides, troubleshooting<br/><i>On-demand</i>"] --> E
+    E["<b>Layer 5: Project Rules</b><br/>Project-specific CLAUDE.md + session state<br/><i>Per-project</i>"]
+
+    style A fill:#2d6a4f,stroke:#1b4332,color:#fff
+    style B fill:#40916c,stroke:#2d6a4f,color:#fff
+    style C fill:#52b788,stroke:#40916c,color:#fff
+    style D fill:#74c69d,stroke:#52b788,color:#000
+    style E fill:#95d5b2,stroke:#74c69d,color:#000
 ```
 
-**Key insight:** The AI doesn't load everything. Each project declares what it needs. Context stays focused. Performance stays high.
+**The global prompt is a dispatcher, not a knowledge store.** It stays small and stable. Knowledge scales independently in the layers below.
 
 ---
 
 ## How a Session Works
 
+```mermaid
+graph LR
+    subgraph START ["Session Start"]
+        S1[git pull config] --> S2[Load layers 1-5]
+        S2 --> S3[Restore session state]
+        S3 --> S4[Surface inbox tasks]
+    end
+
+    subgraph WORK ["During Work"]
+        W1[Parallel agents] --> W2[Protocols enforced]
+        W2 --> W3[State checkpointed]
+    end
+
+    subgraph STOP ["Session End"]
+        E1[Update session-context] --> E2[sync.sh collect]
+        E2 --> E3[git commit + push]
+    end
+
+    START --> WORK --> STOP
+    STOP -- "any machine, any time" --> START
+
+    style START fill:#1a535c,stroke:#0b3d45,color:#fff
+    style WORK fill:#4ecdc4,stroke:#1a535c,color:#000
+    style STOP fill:#ff6b6b,stroke:#c94040,color:#fff
 ```
-  [Session Start]          [Working]          [Session End]
-       ↓                       ↓                    ↓
-  Hook pulls config    Parallel agents       Hook saves state
-  Loads layers         Protocols enforced    Commits + pushes
-  Restores state       State checkpointed    Next session resumes
-       ↓                       ↓                    ↓
-       └─────────────────────────────────────────┘
-          any machine, any time — full continuity
-```
+
+Hooks automate start and end. No manual git commands needed.
 
 ---
 
@@ -112,159 +114,155 @@ git clone https://github.com/JeltzProstetnic/claude-config-template ~/claude-con
 cd ~/claude-config && bash setup.sh
 ```
 
-`setup.sh` runs 6 mechanical steps, then hands off to Claude for interactive personalization:
+`setup.sh` handles everything:
 
-| Step | What it does |
-|------|-------------|
+| Step | What happens |
+|:----:|-------------|
 | 1 | Detects platform (Linux, macOS, WSL) |
 | 2 | Checks prerequisites (git, `~/.claude/`) |
 | 3 | Generates your user profile from interactive prompts |
-| 4 | Creates `machine-catalog.md` with installed tools and versions |
+| 4 | Creates machine tool catalog (installed tools + versions) |
 | 5 | Symlinks `~/.claude/` directories to this repo |
 | 6 | Installs session hooks for automatic git sync |
-| 7 | **Launches Claude for interactive refinement** — personalize your profile, choose domains, set up your first project, add global rules |
+| 7 | **Launches Claude for interactive refinement** — personalize profile, choose domains, set up first project |
 
-Non-interactive mode: `bash setup.sh --non-interactive`
+Non-interactive: `bash setup.sh --non-interactive`
 
 ---
 
 ## Directory Structure
 
 ```
-claude-config-template/
-├── setup.sh                              # One-command bootstrap (Linux/macOS/WSL)
-├── sync.sh                               # Bidirectional sync: deploy / collect / status
-├── registry.md                           # All projects, all machines (the phone book)
-├── machine-catalog.md                    # Auto-generated tool inventory (per machine)
+claude-config/
+│
+├── setup.sh                        One-command bootstrap
+├── sync.sh                         Bidirectional sync (4 modes)
+├── registry.md                     Project phone book
 │
 ├── global/
-│   ├── CLAUDE.md                         # Global prompt — the dispatcher
-│   ├── foundation/                       # Always loaded (7 modules)
-│   │   ├── identity.md                   # Agent config, paths, machine catalog ref
-│   │   ├── user-profile.md              # Name, role, style, goals
-│   │   ├── session-protocol.md          # State persistence, shutdown checklist
-│   │   ├── project-setup.md             # Bootstrap new projects (8 steps)
-│   │   ├── protocol-creation.md         # Self-healing: mistakes → protocols
-│   │   ├── roster-management.md         # Agents, skills, MCP servers per project
-│   │   ├── cross-project-sync.md        # Inbox + strategy file patterns
-│   │   └── first-run-refinement.md     # Post-setup interactive personalization
-│   │
-│   ├── domains/                          # Loaded per-project from manifest
-│   │   ├── software-development/         # TDD protocol
-│   │   ├── publications/                 # Publication workflow, test-driven authoring
-│   │   ├── engagement/                   # Twitter/X engagement protocol
-│   │   ├── it-infrastructure/            # Servers, Docker, DNS, smart home
-│   │   └── _template/                    # How to write your own domain protocol
-│   │
-│   ├── reference/                        # On-demand (triggered by context)
-│   │   ├── mcp-catalog.md               # MCP server setup + troubleshooting
-│   │   ├── serena.md                     # Semantic code navigation (93% context savings)
-│   │   ├── permissions.md               # Subagent global permissions
-│   │   └── wsl-environment.md           # WSL-specific tips
-│   │
-│   └── hooks/                            # Copied to ~/.claude/hooks/
-│       ├── config-check.sh              # Session start: pull config, surface inbox
-│       └── config-auto-sync.sh          # Session end: commit + push
+│   ├── CLAUDE.md                   Global prompt (the dispatcher)
+│   ├── foundation/                 Always loaded: session rules, protocols
+│   ├── domains/                    Per-project: coding, infra, publishing
+│   ├── reference/                  On-demand: MCP catalog, tool guides
+│   ├── knowledge/                  Tool-specific operational notes
+│   ├── machines/                   Per-machine state and config
+│   └── hooks/                      Auto-sync on session start/end
 │
 ├── projects/
-│   └── _example/rules/CLAUDE.md          # Example project manifest
+│   └── _example/rules/CLAUDE.md    Example project manifest
 │
 └── cross-project/
-    ├── inbox.md                          # Async task passing between projects
-    ├── infrastructure-strategy.md        # Shared infra state
-    └── visibility-strategy.md            # Shared visibility/engagement state
+    ├── inbox.md                    Async task passing
+    └── *-strategy.md              Shared state for overlapping projects
 ```
+
+Global files are **symlinked** — edit in the repo or in `~/.claude/`, same file. Hooks are **copied** for execution reliability.
 
 ---
 
-## Machine Tool Catalog
+## sync.sh — Four Modes
 
-`setup.sh` auto-generates `machine-catalog.md` listing every tool on the machine:
-
-```
-# Machine Catalog: fedora-workstation
-
-Platform: linux
-Last updated: 2026-02-25
-
-## Installed Tools
-
-| Tool     | Path                | Version    |
-|----------|---------------------|------------|
-| git      | /usr/bin/git        | 2.47.1     |
-| node     | /usr/bin/node       | v22.14.0   |
-| python3  | /usr/bin/python3    | 3.13.2     |
-| docker   | /usr/bin/docker     | 27.5.1     |
-| gh       | /usr/bin/gh         | 2.67.0     |
-| pandoc   | /usr/bin/pandoc     | 3.1.11.1   |
-```
-
-Projects reference this catalog instead of probing the system. No `which` commands. No version detection at runtime. The catalog is the source of truth.
+| Mode | What it does |
+|------|-------------|
+| `setup` | **One-time.** Creates symlinks, copies hooks. Idempotent. |
+| `deploy` | Push repo to live locations. Checks for template drift. Safe to repeat. |
+| `collect` | Pull live changes back into repo. |
+| `status` | Health check: symlinks, sync state, inbox count, strategy file age. |
 
 ---
 
-## Multi-Machine Sync
+## MCP Servers (9 Pre-Configured)
 
-```
-Machine A (session ends)              Machine B (session starts)
-┌────────────────────────┐            ┌────────────────────────┐
-│ config-auto-sync.sh    │            │ config-check.sh        │
-│   ├── sync.sh collect  │            │   ├── git pull         │
-│   ├── git commit       │ ─GitHub──► │   ├── surface inbox    │
-│   └── git push         │            │   └── verify symlinks  │
-└────────────────────────┘            └────────────────────────┘
-```
+<table>
+<tr>
+<th colspan="3">Credential-based — prompted during setup (skip any you don't need)</th>
+</tr>
+<tr><td><b>GitHub</b></td><td>Repos, issues, PRs, code search</td><td>PAT</td></tr>
+<tr><td><b>Google Workspace</b></td><td>Gmail, Docs, Sheets, Calendar, Drive</td><td>OAuth</td></tr>
+<tr><td><b>Twitter/X</b></td><td>Post tweets (never autonomous)</td><td>API keys</td></tr>
+<tr><td><b>Jira/Atlassian</b></td><td>Issues, sprints, Confluence</td><td>API token</td></tr>
+<tr><td><b>PostgreSQL</b></td><td>Direct SQL queries</td><td>Connection URL</td></tr>
+<tr>
+<th colspan="3">Always-on — no credentials needed</th>
+</tr>
+<tr><td><b>Serena</b></td><td>Semantic code navigation</td><td>—</td></tr>
+<tr><td><b>Playwright</b></td><td>Browser automation, screenshots, forms</td><td>—</td></tr>
+<tr><td><b>Memory</b></td><td>Persistent knowledge graph (JSONL)</td><td>—</td></tr>
+<tr><td><b>Diagram Bridge</b></td><td>Diagram rendering via Kroki.io (Mermaid, Graphviz, PlantUML, etc.)</td><td>—</td></tr>
+</table>
 
-No machine is special. Clone the repo, run `setup.sh`, and any machine becomes a full participant.
-
----
-
-## Cross-Project Coordination
-
-**Inbox** (`cross-project/inbox.md`) — One-off tasks targeting a specific project. Drop a message, the project picks it up at next session start, deletes after integrating.
-
-**Strategy files** — Persistent shared state between projects that overlap (e.g., infrastructure + config, authoring + social media). Single source of truth.
-
-**Registry** (`registry.md`) — The phone book. Every project, every machine, current status.
+Full details: `global/reference/mcp-catalog.md`
 
 ---
 
 ## Included Domains
 
-| Domain | Files | What it enforces |
-|--------|-------|-----------------|
-| **Software Development** | `tdd-protocol.md` | Test-driven development with explicit escape hatches |
-| **Publications** | `publication-workflow.md`, `test-driven-authoring.md` | Markdown-to-LaTeX-to-PDF pipeline, content integrity testing |
-| **Engagement** | `twitter-engagement-protocol.md` | Discourse scanning, reply drafting, thread etiquette, growth strategy |
-| **IT Infrastructure** | `infra-protocol.md` | Server management, Docker conventions, DNS/SSL, service coordination |
+| Domain | What it enforces |
+|--------|-----------------|
+| **Software Development** | Test-driven development with explicit escape hatches |
+| **Publications** | Markdown → LaTeX → PDF pipeline, content integrity testing |
+| **Engagement** | Discourse scanning, reply drafting, thread etiquette |
+| **IT Infrastructure** | Server management, Docker conventions, DNS/SSL |
 
-Add your own: copy `global/domains/_template/example-protocol.md`, adapt, add to INDEX.
+Add your own: copy `global/domains/_template/`, adapt, reference from your project manifest.
 
 ---
 
-## Platform Notes
+## Cross-Project Coordination
+
+```mermaid
+graph TD
+    P1["Project A"] -- "drops task" --> INBOX["cross-project/inbox.md"]
+    INBOX -- "picks up next session" --> P2["Project B"]
+    P1 -- "reads/writes" --> STRAT["Strategy Files"]
+    P2 -- "reads/writes" --> STRAT
+    REG["registry.md"] -. "lookup" .-> P1
+    REG -. "lookup" .-> P2
+
+    style INBOX fill:#f4845f,stroke:#c94040,color:#000
+    style STRAT fill:#7678ed,stroke:#3d348b,color:#fff
+    style REG fill:#a8dadc,stroke:#457b9d,color:#000
+```
+
+**Hard rule:** Never write directly into another project's files. Use the inbox or strategy files.
+
+---
+
+## Multi-Machine Sync
+
+```mermaid
+graph LR
+    A["Machine A<br/><i>session ends</i>"] -- "git push" --> GH["GitHub"]
+    GH -- "git pull" --> B["Machine B<br/><i>session starts</i>"]
+
+    style A fill:#264653,stroke:#1d3557,color:#fff
+    style GH fill:#e9c46a,stroke:#f4a261,color:#000
+    style B fill:#2a9d8f,stroke:#264653,color:#fff
+```
+
+No machine is special. Clone the repo, run `setup.sh`, and any machine is a full participant.
+
+---
+
+## Platform Support
 
 | | Linux | macOS | WSL |
-|--|-------|-------|-----|
-| **Open files** | `xdg-open` | `open` | `powershell.exe Start-Process` |
-| **Symlinks** | `ln -sf` | `ln -sf` | `ln -sf` (within WSL fs) |
-| **Performance** | Native | Native | Avoid `/mnt/c/` (10-15x slower) |
-| **Git line endings** | N/A | N/A | `core.autocrlf input` |
-| **Package manager** | varies | Homebrew | apt |
+|--|:-----:|:-----:|:---:|
+| **Supported** | ✅ | ✅ | ✅ |
+| **Open files** | `xdg-open` | `open` | `powershell.exe` |
+| **Performance** | Native | Native | Avoid `/mnt/c/` |
 
 ---
 
-## cc-mirror — Multi-Agent Variant System
+## cc-mirror Integration
 
-This system is designed to work with [cc-mirror](https://github.com/nicobailey/cc-mirror), a multi-agent variant system for Claude Code that provides:
+Designed to work with [cc-mirror](https://github.com/nicobailey/cc-mirror) for multi-agent variants:
 
-- **Named variants** — separate configs for different roles or projects (e.g., `mclaude`, `devops`, `writer`)
-- **VoltAgent subagent roster** — 129+ specialized agents (infrastructure, QA, data/AI, research, business, etc.) selectable per variant
-- **Per-variant MCP server configuration** — each variant gets its own tool stack
-- **Plugin management** — install, update, and compose skill collections per variant
-- **Custom launchers** — named entry points with automatic update checking
+- **Named variants** — separate configs per role (`mclaude`, `devops`, `writer`)
+- **129+ VoltAgent subagents** — infrastructure, QA, data/AI, research, business
+- **Per-variant MCP servers** — each variant gets its own tool stack
 
-Works with vanilla Claude Code too — just uses `~/.claude/` paths instead of `~/.cc-mirror/<variant>/`.
+Also works with vanilla Claude Code — just uses `~/.claude/` paths.
 
 ---
 
