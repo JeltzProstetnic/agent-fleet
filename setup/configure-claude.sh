@@ -3,8 +3,8 @@
 # configure-claude.sh - Claude Code mclaude variant configuration
 # ================================================================
 # This script configures the mclaude variant created by install-base.sh.
-# It sets up VoltAgent subagents, MCP servers (GitHub, Jira, Serena),
-# helper scripts, global CLAUDE.md, and WSL-specific settings.
+# It sets up VoltAgent subagents, MCP servers (GitHub, Google Workspace,
+# Twitter, Jira, Serena), helper scripts, global CLAUDE.md, and WSL settings.
 #
 # PREREQUISITE: Run install-base.sh first to install Node.js, cc-mirror,
 # and create the mclaude variant.
@@ -82,7 +82,7 @@ OPTIONS:
 
 WHAT THIS SCRIPT DOES:
   1. Deploy VoltAgent subagents configuration (settings.json)
-  2. Configure MCP servers (GitHub, Jira, Serena) with credentials
+  2. Configure MCP servers (GitHub, Google Workspace, Twitter, Jira, Serena)
   3. Patch mclaude launcher with MCP enablement + update-checker
   4. Install and patch happy-coder for mobile access
   5. Deploy helper scripts (update-checker, happy-coder-patch)
@@ -116,6 +116,13 @@ prompt_credential() {
     # Direct assignment instead of eval for security
     case "${var_name}" in
         github_token) github_token="${input}" ;;
+        google_client_id) google_client_id="${input}" ;;
+        google_client_secret) google_client_secret="${input}" ;;
+        google_email) google_email="${input}" ;;
+        twitter_api_key) twitter_api_key="${input}" ;;
+        twitter_api_secret) twitter_api_secret="${input}" ;;
+        twitter_access_token) twitter_access_token="${input}" ;;
+        twitter_access_secret) twitter_access_secret="${input}" ;;
         jira_url) jira_url="${input}" ;;
         jira_email) jira_email="${input}" ;;
         jira_api_token) jira_api_token="${input}" ;;
@@ -188,32 +195,32 @@ configure_mcp_servers() {
     npx_cmd="$(command -v npx 2>/dev/null || echo "npx")"
     safe_path="${HOME}/.local/bin:${HOME}/.npm-global/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 
+    # Helper: check if a server is already configured (non-placeholder)
+    check_existing_server() {
+        local server_name="$1" env_key="$2" placeholder="$3"
+        if command -v jq &>/dev/null; then
+            local val
+            val=$(jq -r ".mcpServers.\"${server_name}\".env.\"${env_key}\" // empty" "${target}" 2>/dev/null || true)
+            [[ -n "${val}" ]] && [[ "${val}" != "${placeholder}" ]]
+        else
+            grep -q "\"${env_key}\"" "${target}" 2>/dev/null && \
+            ! grep -q "\"${placeholder}\"" "${target}" 2>/dev/null
+        fi
+    }
+
     # Parse existing config if present (for idempotency)
-    local existing_github=false existing_jira=false
+    local existing_github=false existing_google=false existing_twitter=false existing_jira=false
     if [[ -f "${target}" ]] && [[ "${RECONFIGURE_MCP}" == "false" ]]; then
         log_info "Checking existing MCP configuration..."
 
-        # Check if GitHub is configured with non-placeholder token
-        if command -v jq &>/dev/null; then
-            local gh_token jira_url_check
-            gh_token=$(jq -r '.mcpServers.github.env.GITHUB_PERSONAL_ACCESS_TOKEN // empty' "${target}" 2>/dev/null || true)
-            jira_url_check=$(jq -r '.mcpServers.jira.env.JIRA_URL // empty' "${target}" 2>/dev/null || true)
-
-            [[ -n "${gh_token}" ]] && [[ "${gh_token}" != "__GITHUB_TOKEN__" ]] && existing_github=true
-            [[ -n "${jira_url_check}" ]] && [[ "${jira_url_check}" != "__JIRA_URL__" ]] && existing_jira=true
-        else
-            # Fallback: simple grep check
-            if grep -q '"GITHUB_PERSONAL_ACCESS_TOKEN"' "${target}" 2>/dev/null && \
-               ! grep -q '"__GITHUB_TOKEN__"' "${target}" 2>/dev/null; then
-                existing_github=true
-            fi
-            if grep -q '"JIRA_URL"' "${target}" 2>/dev/null && \
-               ! grep -q '"__JIRA_URL__"' "${target}" 2>/dev/null; then
-                existing_jira=true
-            fi
-        fi
+        check_existing_server github GITHUB_PERSONAL_ACCESS_TOKEN __GITHUB_TOKEN__ && existing_github=true
+        check_existing_server google-workspace GOOGLE_OAUTH_CLIENT_ID __GOOGLE_CLIENT_ID__ && existing_google=true
+        check_existing_server twitter API_KEY __TWITTER_API_KEY__ && existing_twitter=true
+        check_existing_server jira JIRA_URL __JIRA_URL__ && existing_jira=true
 
         [[ "${existing_github}" == "true" ]] && log_info "GitHub MCP server already configured"
+        [[ "${existing_google}" == "true" ]] && log_info "Google Workspace MCP server already configured"
+        [[ "${existing_twitter}" == "true" ]] && log_info "Twitter MCP server already configured"
         [[ "${existing_jira}" == "true" ]] && log_info "Jira MCP server already configured"
     fi
 
@@ -226,7 +233,6 @@ configure_mcp_servers() {
     if [[ "${existing_github}" == "true" ]]; then
         log_info "Skipping GitHub credential prompt (already configured, use --reconfigure-mcp to change)"
         setup_github=true
-        # Read existing token
         if command -v jq &>/dev/null; then
             github_token=$(jq -r '.mcpServers.github.env.GITHUB_PERSONAL_ACCESS_TOKEN' "${target}")
         else
@@ -244,13 +250,66 @@ configure_mcp_servers() {
         fi
     fi
 
+    # --- Google Workspace ---
+    local setup_google=false google_client_id="" google_client_secret="" google_email=""
+
+    if [[ "${existing_google}" == "true" ]]; then
+        log_info "Skipping Google Workspace credential prompt (already configured, use --reconfigure-mcp to change)"
+        setup_google=true
+        if command -v jq &>/dev/null; then
+            google_client_id=$(jq -r '.mcpServers."google-workspace".env.GOOGLE_OAUTH_CLIENT_ID' "${target}")
+            google_client_secret=$(jq -r '.mcpServers."google-workspace".env.GOOGLE_OAUTH_CLIENT_SECRET' "${target}")
+            google_email=$(jq -r '.mcpServers."google-workspace".env.USER_GOOGLE_EMAIL' "${target}")
+        fi
+    else
+        echo ""
+        echo -e "${COLOR_BLUE}Google Workspace MCP Server Setup${COLOR_RESET}"
+        echo "  Provides access to Gmail, Google Docs, Sheets, Calendar, Drive."
+        echo "  You need a Google Cloud OAuth 2.0 Client ID."
+        echo "  Create one at: https://console.cloud.google.com/apis/credentials"
+        echo "  Required APIs: Gmail, Drive, Calendar, Docs, Sheets"
+
+        if prompt_yes_no "  Set up Google Workspace MCP server?" "n"; then
+            prompt_credential "  Enter your Google OAuth Client ID:" google_client_id false
+            prompt_credential "  Enter your Google OAuth Client Secret:" google_client_secret
+            prompt_credential "  Enter your Google account email:" google_email false
+            setup_google=true
+        fi
+    fi
+
+    # --- Twitter ---
+    local setup_twitter=false twitter_api_key="" twitter_api_secret="" twitter_access_token="" twitter_access_secret=""
+
+    if [[ "${existing_twitter}" == "true" ]]; then
+        log_info "Skipping Twitter credential prompt (already configured, use --reconfigure-mcp to change)"
+        setup_twitter=true
+        if command -v jq &>/dev/null; then
+            twitter_api_key=$(jq -r '.mcpServers.twitter.env.API_KEY' "${target}")
+            twitter_api_secret=$(jq -r '.mcpServers.twitter.env.API_SECRET_KEY' "${target}")
+            twitter_access_token=$(jq -r '.mcpServers.twitter.env.ACCESS_TOKEN' "${target}")
+            twitter_access_secret=$(jq -r '.mcpServers.twitter.env.ACCESS_TOKEN_SECRET' "${target}")
+        fi
+    else
+        echo ""
+        echo -e "${COLOR_BLUE}Twitter/X MCP Server Setup${COLOR_RESET}"
+        echo "  Post tweets and search. Requires Twitter API v2 credentials."
+        echo "  Create an app at: https://developer.x.com"
+
+        if prompt_yes_no "  Set up Twitter MCP server?" "n"; then
+            prompt_credential "  Enter your API Key:" twitter_api_key
+            prompt_credential "  Enter your API Secret:" twitter_api_secret
+            prompt_credential "  Enter your Access Token:" twitter_access_token
+            prompt_credential "  Enter your Access Token Secret:" twitter_access_secret
+            setup_twitter=true
+        fi
+    fi
+
     # --- Jira ---
     local setup_jira=false jira_url="" jira_email="" jira_api_token=""
 
     if [[ "${existing_jira}" == "true" ]]; then
         log_info "Skipping Jira credential prompt (already configured, use --reconfigure-mcp to change)"
         setup_jira=true
-        # Read existing credentials
         if command -v jq &>/dev/null; then
             jira_url=$(jq -r '.mcpServers.jira.env.JIRA_URL' "${target}")
             jira_email=$(jq -r '.mcpServers.jira.env.JIRA_USERNAME' "${target}")
@@ -266,7 +325,7 @@ configure_mcp_servers() {
         echo "  You need your Jira URL, email, and API token."
         echo "  Create a token at: https://id.atlassian.com/manage-profile/security/api-tokens"
 
-        if prompt_yes_no "  Set up Jira MCP server?" "y"; then
+        if prompt_yes_no "  Set up Jira MCP server?" "n"; then
             prompt_credential "  Enter your Jira URL (e.g. https://company.atlassian.net):" jira_url false
             prompt_credential "  Enter your Jira email:" jira_email false
             prompt_credential "  Enter your Jira API Token:" jira_api_token
@@ -280,39 +339,39 @@ configure_mcp_servers() {
     local mcp_json
     mcp_json=$(sed \
         -e "s|__SERENA_CMD__|${uvx_cmd}|g" \
+        -e "s|__UVX_CMD__|${uvx_cmd}|g" \
         -e "s|__NPX_CMD__|${npx_cmd}|g" \
         -e "s|__JIRA_CMD__|${uvx_cmd}|g" \
         -e "s|__PATH__|${safe_path}|g" \
         -e "s|__GITHUB_TOKEN__|${github_token}|g" \
+        -e "s|__GOOGLE_CLIENT_ID__|${google_client_id}|g" \
+        -e "s|__GOOGLE_CLIENT_SECRET__|${google_client_secret}|g" \
+        -e "s|__GOOGLE_EMAIL__|${google_email}|g" \
+        -e "s|__TWITTER_API_KEY__|${twitter_api_key}|g" \
+        -e "s|__TWITTER_API_SECRET__|${twitter_api_secret}|g" \
+        -e "s|__TWITTER_ACCESS_TOKEN__|${twitter_access_token}|g" \
+        -e "s|__TWITTER_ACCESS_SECRET__|${twitter_access_secret}|g" \
         -e "s|__JIRA_URL__|${jira_url}|g" \
         -e "s|__JIRA_USERNAME__|${jira_email}|g" \
         -e "s|__JIRA_API_TOKEN__|${jira_api_token}|g" \
         "${template}")
 
-    # Remove unconfigured servers from JSON (SAFE: stdin, not argv)
-    if [[ "${setup_github}" != "true" ]]; then
-        if command -v node &>/dev/null; then
-            mcp_json=$(printf '%s' "${mcp_json}" | node -e "
-                const d = JSON.parse(require('fs').readFileSync('/dev/stdin','utf8'));
-                delete d.mcpServers.github;
-                process.stdout.write(JSON.stringify(d, null, 2));
-            ")
-        else
-            log_warn "Node.js not available, cannot remove unconfigured servers from JSON"
+    # Remove unconfigured servers from JSON
+    for server_flag in "github:${setup_github}" "google-workspace:${setup_google}" "twitter:${setup_twitter}" "jira:${setup_jira}"; do
+        local server_name="${server_flag%%:*}"
+        local server_enabled="${server_flag##*:}"
+        if [[ "${server_enabled}" != "true" ]]; then
+            if command -v node &>/dev/null; then
+                mcp_json=$(printf '%s' "${mcp_json}" | node -e "
+                    const d = JSON.parse(require('fs').readFileSync('/dev/stdin','utf8'));
+                    delete d.mcpServers['${server_name}'];
+                    process.stdout.write(JSON.stringify(d, null, 2));
+                ")
+            else
+                log_warn "Node.js not available, cannot remove unconfigured server: ${server_name}"
+            fi
         fi
-    fi
-
-    if [[ "${setup_jira}" != "true" ]]; then
-        if command -v node &>/dev/null; then
-            mcp_json=$(printf '%s' "${mcp_json}" | node -e "
-                const d = JSON.parse(require('fs').readFileSync('/dev/stdin','utf8'));
-                delete d.mcpServers.jira;
-                process.stdout.write(JSON.stringify(d, null, 2));
-            ")
-        else
-            log_warn "Node.js not available, cannot remove unconfigured servers from JSON"
-        fi
-    fi
+    done
 
     # Deploy .mcp.json (use printf for safe file writing)
     backup_file "${target}"
@@ -330,6 +389,8 @@ configure_mcp_servers() {
     # Build the enabledMcpjsonServers list based on what was configured
     local servers='"serena"'
     [[ "${setup_github}" == "true" ]] && servers="${servers}, \"github\""
+    [[ "${setup_google}" == "true" ]] && servers="${servers}, \"google-workspace\""
+    [[ "${setup_twitter}" == "true" ]] && servers="${servers}, \"twitter\""
     [[ "${setup_jira}" == "true" ]] && servers="${servers}, \"jira\""
 
     backup_file "${settings_local}"
@@ -348,8 +409,15 @@ SETTINGSLOCAL
         echo -e "${COLOR_YELLOW}[DRY RUN]${COLOR_RESET} Would deploy: ${settings_local}"
     fi
 
-    log_success "MCP servers configured"
-    INSTALLED_STEPS+=("MCP servers (GitHub, Jira, Serena)")
+    # Build summary of what was configured
+    local configured_list="Serena"
+    [[ "${setup_github}" == "true" ]] && configured_list="${configured_list}, GitHub"
+    [[ "${setup_google}" == "true" ]] && configured_list="${configured_list}, Google Workspace"
+    [[ "${setup_twitter}" == "true" ]] && configured_list="${configured_list}, Twitter"
+    [[ "${setup_jira}" == "true" ]] && configured_list="${configured_list}, Jira"
+
+    log_success "MCP servers configured (${configured_list})"
+    INSTALLED_STEPS+=("MCP servers (${configured_list})")
 }
 
 # ============================================================================

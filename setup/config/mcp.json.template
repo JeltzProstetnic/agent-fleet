@@ -24,6 +24,32 @@
         "PATH": "__PATH__"
       }
     },
+    "google-workspace": {
+      "command": "__UVX_CMD__",
+      "args": [
+        "workspace-mcp"
+      ],
+      "env": {
+        "GOOGLE_OAUTH_CLIENT_ID": "__GOOGLE_CLIENT_ID__",
+        "GOOGLE_OAUTH_CLIENT_SECRET": "__GOOGLE_CLIENT_SECRET__",
+        "USER_GOOGLE_EMAIL": "__GOOGLE_EMAIL__",
+        "PATH": "__PATH__"
+      }
+    },
+    "twitter": {
+      "command": "__NPX_CMD__",
+      "args": [
+        "-y",
+        "@enescinar/twitter-mcp"
+      ],
+      "env": {
+        "API_KEY": "__TWITTER_API_KEY__",
+        "API_SECRET_KEY": "__TWITTER_API_SECRET__",
+        "ACCESS_TOKEN": "__TWITTER_ACCESS_TOKEN__",
+        "ACCESS_TOKEN_SECRET": "__TWITTER_ACCESS_SECRET__",
+        "PATH": "__PATH__"
+      }
+    },
     "jira": {
       "command": "__JIRA_CMD__",
       "args": [

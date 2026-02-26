@@ -2,6 +2,8 @@
   "enableAllProjectMcpServers": true,
   "enabledMcpjsonServers": [
     "github",
+    "google-workspace",
+    "twitter",
     "jira",
     "serena"
   ]

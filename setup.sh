@@ -32,7 +32,17 @@ Environment variables (non-interactive mode):
   CLAUDE_USER_BACKGROUND  Brief background description
   CLAUDE_USER_STYLE       Preferred communication style
   CLAUDE_MACHINE_ID       Machine identifier (default: hostname)
-  CLAUDE_GITHUB_PAT       GitHub PAT for MCP setup (optional)
+  CLAUDE_GITHUB_PAT       GitHub PAT (optional)
+  CLAUDE_GOOGLE_CLIENT_ID     Google OAuth client ID (optional)
+  CLAUDE_GOOGLE_CLIENT_SECRET Google OAuth client secret (optional)
+  CLAUDE_GOOGLE_EMAIL         Google account email (optional)
+  CLAUDE_TWITTER_API_KEY      Twitter API key (optional)
+  CLAUDE_TWITTER_API_SECRET   Twitter API secret (optional)
+  CLAUDE_TWITTER_ACCESS_TOKEN Twitter access token (optional)
+  CLAUDE_TWITTER_ACCESS_SECRET Twitter access token secret (optional)
+  CLAUDE_JIRA_URL             Jira instance URL (optional)
+  CLAUDE_JIRA_EMAIL           Jira account email (optional)
+  CLAUDE_JIRA_API_TOKEN       Jira API token (optional)
 EOF
       exit 0 ;;
     *) echo -e "${RED}Unknown flag: $arg${RESET}" >&2; exit 1 ;;
@@ -231,45 +241,214 @@ else
 fi
 
 # ---------------------------------------------------------------------------
-# Optional — GitHub MCP
+# Optional — MCP Server Setup
 # ---------------------------------------------------------------------------
 echo ""
-do_mcp=false
+echo -e "${BOLD}${BLUE}MCP Server Setup${RESET}"
+echo "  MCP servers let Claude access external tools (GitHub, Gmail, Twitter, Jira)."
+echo "  Serena (code navigation) is always included — no credentials needed."
+echo "  You can skip all of these now and set them up later via Claude's interactive setup."
+echo ""
+
+MCP_FILE="$CLAUDE_DIR/.mcp.json"
+MCP_SERVERS='{}' # Will be built up as JSON
+CONFIGURED_SERVERS="serena"
+
+# Helper to detect tool paths
+NPX_CMD="$(command -v npx 2>/dev/null || echo "npx")"
+UVX_CMD="$(command -v uvx 2>/dev/null || echo "uvx")"
+SAFE_PATH="${HOME}/.local/bin:${HOME}/.npm-global/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+
+# --- Serena (always included) ---
+SERENA_CMD="$(command -v uvx 2>/dev/null || echo "uvx")"
+
+# --- GitHub ---
+setup_github=false
+CLAUDE_GITHUB_PAT="${CLAUDE_GITHUB_PAT:-}"
 if [[ "$NON_INTERACTIVE" == true ]]; then
-  [[ -n "${CLAUDE_GITHUB_PAT:-}" ]] && do_mcp=true
+  [[ -n "$CLAUDE_GITHUB_PAT" ]] && setup_github=true
 else
-  read -r -p "  Configure GitHub MCP server? [y/N]: " _mcp
-  [[ "${_mcp,,}" == "y" ]] && do_mcp=true
+  read -r -p "  Set up GitHub MCP? (repos, issues, PRs) [y/N]: " _gh
+  if [[ "${_gh,,}" == "y" ]]; then
+    echo "    Create a PAT at: https://github.com/settings/tokens (scope: repo)"
+    read -r -s -p "    GitHub PAT (hidden): " CLAUDE_GITHUB_PAT
+    echo ""
+    [[ -n "$CLAUDE_GITHUB_PAT" ]] && setup_github=true
+  fi
+fi
+[[ "$setup_github" == true ]] && ok "GitHub: configured" && CONFIGURED_SERVERS="$CONFIGURED_SERVERS, github"
+
+# --- Google Workspace ---
+setup_google=false
+CLAUDE_GOOGLE_CLIENT_ID="${CLAUDE_GOOGLE_CLIENT_ID:-}"
+CLAUDE_GOOGLE_CLIENT_SECRET="${CLAUDE_GOOGLE_CLIENT_SECRET:-}"
+CLAUDE_GOOGLE_EMAIL="${CLAUDE_GOOGLE_EMAIL:-}"
+if [[ "$NON_INTERACTIVE" == true ]]; then
+  [[ -n "$CLAUDE_GOOGLE_CLIENT_ID" ]] && setup_google=true
+else
+  read -r -p "  Set up Google Workspace MCP? (Gmail, Docs, Calendar, Drive) [y/N]: " _gw
+  if [[ "${_gw,,}" == "y" ]]; then
+    echo "    You need a Google Cloud OAuth 2.0 Client ID."
+    echo "    Create one at: https://console.cloud.google.com/apis/credentials"
+    echo "    Required APIs: Gmail, Drive, Calendar, Docs, Sheets"
+    read -r -p "    Google OAuth Client ID: " CLAUDE_GOOGLE_CLIENT_ID
+    read -r -s -p "    Google OAuth Client Secret (hidden): " CLAUDE_GOOGLE_CLIENT_SECRET
+    echo ""
+    read -r -p "    Google account email: " CLAUDE_GOOGLE_EMAIL
+    [[ -n "$CLAUDE_GOOGLE_CLIENT_ID" && -n "$CLAUDE_GOOGLE_CLIENT_SECRET" ]] && setup_google=true
+  fi
+fi
+[[ "$setup_google" == true ]] && ok "Google Workspace: configured" && CONFIGURED_SERVERS="$CONFIGURED_SERVERS, google-workspace"
+
+# --- Twitter ---
+setup_twitter=false
+CLAUDE_TWITTER_API_KEY="${CLAUDE_TWITTER_API_KEY:-}"
+CLAUDE_TWITTER_API_SECRET="${CLAUDE_TWITTER_API_SECRET:-}"
+CLAUDE_TWITTER_ACCESS_TOKEN="${CLAUDE_TWITTER_ACCESS_TOKEN:-}"
+CLAUDE_TWITTER_ACCESS_SECRET="${CLAUDE_TWITTER_ACCESS_SECRET:-}"
+if [[ "$NON_INTERACTIVE" == true ]]; then
+  [[ -n "$CLAUDE_TWITTER_API_KEY" ]] && setup_twitter=true
+else
+  read -r -p "  Set up Twitter/X MCP? (post tweets, search) [y/N]: " _tw
+  if [[ "${_tw,,}" == "y" ]]; then
+    echo "    You need Twitter API v2 credentials (developer.x.com)."
+    read -r -s -p "    API Key (hidden): " CLAUDE_TWITTER_API_KEY
+    echo ""
+    read -r -s -p "    API Secret (hidden): " CLAUDE_TWITTER_API_SECRET
+    echo ""
+    read -r -s -p "    Access Token (hidden): " CLAUDE_TWITTER_ACCESS_TOKEN
+    echo ""
+    read -r -s -p "    Access Token Secret (hidden): " CLAUDE_TWITTER_ACCESS_SECRET
+    echo ""
+    [[ -n "$CLAUDE_TWITTER_API_KEY" && -n "$CLAUDE_TWITTER_ACCESS_TOKEN" ]] && setup_twitter=true
+  fi
+fi
+[[ "$setup_twitter" == true ]] && ok "Twitter: configured" && CONFIGURED_SERVERS="$CONFIGURED_SERVERS, twitter"
+
+# --- Jira ---
+setup_jira=false
+CLAUDE_JIRA_URL="${CLAUDE_JIRA_URL:-}"
+CLAUDE_JIRA_EMAIL="${CLAUDE_JIRA_EMAIL:-}"
+CLAUDE_JIRA_API_TOKEN="${CLAUDE_JIRA_API_TOKEN:-}"
+if [[ "$NON_INTERACTIVE" == true ]]; then
+  [[ -n "$CLAUDE_JIRA_URL" ]] && setup_jira=true
+else
+  read -r -p "  Set up Jira/Atlassian MCP? (issues, boards, sprints) [y/N]: " _jira
+  if [[ "${_jira,,}" == "y" ]]; then
+    echo "    Create an API token at: https://id.atlassian.com/manage-profile/security/api-tokens"
+    read -r -p "    Jira URL (e.g. https://company.atlassian.net): " CLAUDE_JIRA_URL
+    read -r -p "    Jira email: " CLAUDE_JIRA_EMAIL
+    read -r -s -p "    Jira API token (hidden): " CLAUDE_JIRA_API_TOKEN
+    echo ""
+    [[ -n "$CLAUDE_JIRA_URL" && -n "$CLAUDE_JIRA_API_TOKEN" ]] && setup_jira=true
+  fi
+fi
+[[ "$setup_jira" == true ]] && ok "Jira: configured" && CONFIGURED_SERVERS="$CONFIGURED_SERVERS, jira"
+
+# --- Build .mcp.json ---
+# Start with Serena (always present)
+backup_if_exists "$MCP_FILE"
+
+# Use node if available, otherwise python3, otherwise raw cat
+if command -v node &>/dev/null; then
+  node -e "
+    const mcp = { mcpServers: {} };
+
+    // Serena — always included
+    mcp.mcpServers.serena = {
+      command: '$SERENA_CMD',
+      args: ['--from', 'git+https://github.com/oraios/serena', 'serena-mcp-server', '--context', 'claude-code'],
+      env: { PATH: '$SAFE_PATH' }
+    };
+
+    if ('$setup_github' === 'true') {
+      mcp.mcpServers.github = {
+        command: '$NPX_CMD',
+        args: ['-y', '@modelcontextprotocol/server-github'],
+        env: { GITHUB_PERSONAL_ACCESS_TOKEN: $(printf '%s' "$CLAUDE_GITHUB_PAT" | node -e "process.stdout.write(JSON.stringify(require('fs').readFileSync('/dev/stdin','utf8')))"), PATH: '$SAFE_PATH' }
+      };
+    }
+
+    if ('$setup_google' === 'true') {
+      mcp.mcpServers['google-workspace'] = {
+        command: '$UVX_CMD',
+        args: ['workspace-mcp'],
+        env: {
+          GOOGLE_OAUTH_CLIENT_ID: $(printf '%s' "$CLAUDE_GOOGLE_CLIENT_ID" | node -e "process.stdout.write(JSON.stringify(require('fs').readFileSync('/dev/stdin','utf8')))"),
+          GOOGLE_OAUTH_CLIENT_SECRET: $(printf '%s' "$CLAUDE_GOOGLE_CLIENT_SECRET" | node -e "process.stdout.write(JSON.stringify(require('fs').readFileSync('/dev/stdin','utf8')))"),
+          USER_GOOGLE_EMAIL: $(printf '%s' "$CLAUDE_GOOGLE_EMAIL" | node -e "process.stdout.write(JSON.stringify(require('fs').readFileSync('/dev/stdin','utf8')))"),
+          PATH: '$SAFE_PATH'
+        }
+      };
+    }
+
+    if ('$setup_twitter' === 'true') {
+      mcp.mcpServers.twitter = {
+        command: '$NPX_CMD',
+        args: ['-y', '@enescinar/twitter-mcp'],
+        env: {
+          API_KEY: $(printf '%s' "$CLAUDE_TWITTER_API_KEY" | node -e "process.stdout.write(JSON.stringify(require('fs').readFileSync('/dev/stdin','utf8')))"),
+          API_SECRET_KEY: $(printf '%s' "$CLAUDE_TWITTER_API_SECRET" | node -e "process.stdout.write(JSON.stringify(require('fs').readFileSync('/dev/stdin','utf8')))"),
+          ACCESS_TOKEN: $(printf '%s' "$CLAUDE_TWITTER_ACCESS_TOKEN" | node -e "process.stdout.write(JSON.stringify(require('fs').readFileSync('/dev/stdin','utf8')))"),
+          ACCESS_TOKEN_SECRET: $(printf '%s' "$CLAUDE_TWITTER_ACCESS_SECRET" | node -e "process.stdout.write(JSON.stringify(require('fs').readFileSync('/dev/stdin','utf8')))"),
+          PATH: '$SAFE_PATH'
+        }
+      };
+    }
+
+    if ('$setup_jira' === 'true') {
+      mcp.mcpServers.jira = {
+        command: '$UVX_CMD',
+        args: ['mcp-atlassian'],
+        env: {
+          JIRA_URL: $(printf '%s' "$CLAUDE_JIRA_URL" | node -e "process.stdout.write(JSON.stringify(require('fs').readFileSync('/dev/stdin','utf8')))"),
+          JIRA_USERNAME: $(printf '%s' "$CLAUDE_JIRA_EMAIL" | node -e "process.stdout.write(JSON.stringify(require('fs').readFileSync('/dev/stdin','utf8')))"),
+          JIRA_API_TOKEN: $(printf '%s' "$CLAUDE_JIRA_API_TOKEN" | node -e "process.stdout.write(JSON.stringify(require('fs').readFileSync('/dev/stdin','utf8')))"),
+          PATH: '$SAFE_PATH'
+        }
+      };
+    }
+
+    process.stdout.write(JSON.stringify(mcp, null, 2) + '\n');
+  " > "$MCP_FILE"
+elif command -v python3 &>/dev/null; then
+  python3 -c "
+import json, sys
+
+mcp = {'mcpServers': {}}
+
+mcp['mcpServers']['serena'] = {
+    'command': '$SERENA_CMD',
+    'args': ['--from', 'git+https://github.com/oraios/serena', 'serena-mcp-server', '--context', 'claude-code'],
+    'env': {'PATH': '$SAFE_PATH'}
+}
+
+if '$setup_github' == 'true':
+    mcp['mcpServers']['github'] = {
+        'command': '$NPX_CMD',
+        'args': ['-y', '@modelcontextprotocol/server-github'],
+        'env': {'GITHUB_PERSONAL_ACCESS_TOKEN': sys.stdin.readline().strip(), 'PATH': '$SAFE_PATH'}
+    }
+
+json.dump(mcp, open('$MCP_FILE', 'w'), indent=2)
+print()
+" <<< "$CLAUDE_GITHUB_PAT"
+  warn "Python fallback: only GitHub supported. Add other servers via Claude's interactive setup."
+else
+  warn "Neither node nor python3 found — skipping .mcp.json generation."
+  warn "Claude's interactive setup will help you configure MCP servers."
 fi
 
-if [[ "$do_mcp" == true ]]; then
-  CLAUDE_GITHUB_PAT="${CLAUDE_GITHUB_PAT:-}"
-  if [[ "$NON_INTERACTIVE" == false ]]; then
-    read -r -s -p "  GitHub PAT (hidden): " CLAUDE_GITHUB_PAT
-    echo ""
-  fi
-  if [[ -n "$CLAUDE_GITHUB_PAT" ]]; then
-    MCP_FILE="$CLAUDE_DIR/.mcp.json"
-    backup_if_exists "$MCP_FILE"
-    cat > "$MCP_FILE" <<EOF
-{
-  "mcpServers": {
-    "github": {
-      "command": "npx",
-      "args": ["-y", "@modelcontextprotocol/server-github"],
-      "env": {
-        "GITHUB_PERSONAL_ACCESS_TOKEN": "${CLAUDE_GITHUB_PAT}"
-      }
-    }
-  }
-}
-EOF
-    ok "Wrote ~/.claude/.mcp.json (GitHub MCP)"
-    sed -i 's/(none configured yet)/github (via @modelcontextprotocol\/server-github)/' "$CATALOG_FILE"
-  else
-    warn "No PAT provided — skipping MCP config"
-  fi
-fi
+# Update machine catalog with configured servers
+MCP_LIST=""
+[[ "$setup_github" == true ]] && MCP_LIST="${MCP_LIST}github, "
+[[ "$setup_google" == true ]] && MCP_LIST="${MCP_LIST}google-workspace, "
+[[ "$setup_twitter" == true ]] && MCP_LIST="${MCP_LIST}twitter, "
+[[ "$setup_jira" == true ]] && MCP_LIST="${MCP_LIST}jira, "
+MCP_LIST="${MCP_LIST}serena"
+
+sed -i "s/(none configured yet)/${MCP_LIST}/" "$CATALOG_FILE"
+ok "Wrote ~/.claude/.mcp.json ($CONFIGURED_SERVERS)"
 
 # ---------------------------------------------------------------------------
 # Create first-run marker
@@ -286,6 +465,7 @@ printf "${BOLD}%-20s${RESET} %s\n" "Platform:"    "$PLATFORM"
 printf "${BOLD}%-20s${RESET} %s\n" "Machine ID:"  "$CLAUDE_MACHINE_ID"
 printf "${BOLD}%-20s${RESET} %s\n" "Config dir:"  "$CLAUDE_DIR"
 printf "${BOLD}%-20s${RESET} %s\n" "Repo root:"   "$REPO_DIR"
+printf "${BOLD}%-20s${RESET} %s\n" "MCP servers:"  "$CONFIGURED_SERVERS"
 echo ""
 echo -e "${BOLD}Symlinks in ${CLAUDE_DIR}:${RESET}"
 echo "  CLAUDE.md   ->  global/CLAUDE.md"
@@ -300,6 +480,7 @@ echo ""
 echo -e "${BOLD}${BLUE}Interactive setup${RESET}"
 echo "  Claude can now help you personalize your configuration:"
 echo "  - Refine your user profile with real preferences"
+echo "  - Set up additional MCP servers you skipped above"
 echo "  - Choose which knowledge domains to enable"
 echo "  - Set up your first project"
 echo "  - Add global rules (e.g. 'always use bun', 'never auto-commit')"
