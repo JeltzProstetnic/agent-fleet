@@ -1,28 +1,38 @@
 # Global Claude Code Configuration
 
+@~/.claude/foundation/user-profile.md
+@~/.claude/foundation/session-protocol.md
+
 Config repo: `~/claude-config/`
+
+## Machine Identity
+
+Machine-specific knowledge is auto-loaded via `~/CLAUDE.local.md` (each machine has its own, not synced). Run `hostname` at startup and state where you are in your first response.
+
+If `CLAUDE.local.md` is missing, fall back to reading `~/.claude/machines/<machine>.md` manually.
 
 ## Session Start — Loading Protocol
 
 **MANDATORY — NEVER SKIP.** Complete ALL steps before doing ANY user task. The user's first message often IS the trigger for startup — do not treat it as reason to skip loading. Even if the user asks something urgent, load first, then respond. A 30-second startup is always acceptable; lost context from skipping is not.
 
+**Auto-loaded via @import** (no action needed — loaded before you see this):
+- `user-profile.md` — who the user is
+- `session-protocol.md` — session context persistence rules
+- Machine file — via `CLAUDE.local.md` (machine-specific, not synced)
+
+**Manual steps — execute in order:**
+
 0. **ALWAYS check for remote changes — BEFORE reading any files.** Run `bash ~/claude-config/setup/scripts/git-sync-check.sh --pull` in the project directory. This fetches, reports incoming changes, and fast-forward pulls if behind. If it reports changes, re-read affected files. If it fails (diverged, merge conflict), resolve before proceeding. This applies to EVERY project, EVERY session, no exceptions. Reading stale files leads to wrong context, missed tasks, and wasted work.
 
-1. **Read machine-specific knowledge** (after hostname detection): `~/.claude/machines/<machine>.md` if it exists. Skip if file is just a stub template with no real content. Update during shutdown if machine state changed.
+1. **ALWAYS read cross-project inbox:** `~/claude-config/cross-project/inbox.md` — pick up tasks for this project, delete them after integrating. This is the cross-device task passing mechanism (mobile/VPS/PC all sync via git).
 
-2. **ALWAYS read these foundation files:**
-   - `~/.claude/foundation/user-profile.md` — who the user is
-   - `~/.claude/foundation/session-protocol.md` — session context persistence rules
+2. **Read the project's `CLAUDE.md`** (manifest) — it declares what domains to load
 
-3. **ALWAYS read cross-project inbox:** `~/claude-config/cross-project/inbox.md` — pick up tasks for this project, delete them after integrating. This is the cross-device task passing mechanism (mobile/VPS/PC all sync via git).
+3. **Read the project's `session-context.md`** (if exists) — current state and active tasks
 
-4. **Read the project's `CLAUDE.md`** (manifest) — it declares what domains to load
+4. **Follow the manifest's Knowledge Loading table** — load only the listed domain files
 
-5. **Read the project's `session-context.md`** (if exists) — current state and active tasks
-
-6. **Follow the manifest's Knowledge Loading table** — load only the listed domain files
-
-7. **Conditional loading (do NOT load unless triggered):**
+5. **Conditional loading (do NOT load unless triggered):**
    - New/unconfigured project detected: `~/.claude/foundation/project-setup.md`
    - Roster changes needed: `~/.claude/foundation/roster-management.md`
    - MCP tool usage or issues: `~/.claude/reference/mcp-catalog.md`
@@ -33,16 +43,15 @@ Config repo: `~/claude-config/`
    - CLI tool usage or uncertainty about installed software: `~/.claude/reference/system-tools.md`
    - Tool-specific operational issues: `~/.claude/knowledge/<tool>.md` (check INDEX for available files)
 
-8. **Check for project-specific knowledge**: `ls <project>/.claude/knowledge/` or `<project>/.claude/*.md`
+6. **Check for project-specific knowledge**: `ls <project>/.claude/knowledge/` or `<project>/.claude/*.md`
 
-9. **Do NOT load everything.** Only load what the manifest says + what's triggered by context.
+7. **Do NOT load everything.** Only load what the manifest says + what's triggered by context.
 
 ## Indexes
 
 - Foundation modules: `~/.claude/foundation/INDEX.md`
 - Domain catalog: `~/.claude/domains/INDEX.md`
 - **Project catalog: `~/claude-config/registry.md`** — read when user mentions other projects
-- **Machine tool inventory: `~/claude-config/machine-catalog.md`**
 
 ## Conventions
 
@@ -140,7 +149,7 @@ No exceptions. No asking "want me to commit?" — just do it.
 
 **New project:** Add to `~/claude-config/registry.md`. See `~/.claude/foundation/project-setup.md`.
 
-**New machine:** Populate `~/.claude/machines/<machine>.md` from `machines/_template.md`. Add hostname pattern to Machine Identity table. Run `bash ~/claude-config/sync.sh setup` to link config. See machine file template for required sections.
+**New machine:** Populate `~/.claude/machines/<machine>.md` from `machines/_template.md`. Create `~/CLAUDE.local.md` containing `@~/.claude/machines/<machine>.md`. Add hostname pattern to Machine Identity table. Run `bash ~/claude-config/sync.sh setup` to link config. See machine file template for required sections.
 
 ## Platform Notes
 

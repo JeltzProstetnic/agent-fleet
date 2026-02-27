@@ -81,6 +81,14 @@ cmd_setup() {
     # Project-specific rules
     deploy_project_rules
 
+    # Check for CLAUDE.local.md (machine-specific @import)
+    if [[ ! -f "$HOME/CLAUDE.local.md" ]]; then
+        log_warn "No ~/CLAUDE.local.md found. Create one for machine-specific loading:"
+        log_warn "  echo '@~/.claude/machines/<machine>.md' > ~/CLAUDE.local.md"
+    else
+        log_info "CLAUDE.local.md already exists"
+    fi
+
     log_info "Setup complete. Live locations now symlinked to repo."
     log_warn "Restart Claude Code for changes to take effect."
 }
