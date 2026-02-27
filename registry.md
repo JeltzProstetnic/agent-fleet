@@ -10,9 +10,11 @@ The phone book for all projects and machines. Read this when a user mentions a p
 
 ## Projects
 
-| Project | Path | Description | Active |
-|---------|------|-------------|--------|
-| cfg-agent-fleet | `~/cfg-agent-fleet/` | Claude Code configuration management | yes |
+**Priority scale:** P1 = critical/daily, P2 = active/weekly, P3 = ongoing/as-needed, P4 = paused, P5 = dormant/archive candidate
+
+| Project | Priority | Path | Description | Active |
+|---------|----------|------|-------------|--------|
+| cfg-agent-fleet | P1 | `~/cfg-agent-fleet/` | Claude Code configuration management | yes |
 
 ## Adding a Project
 

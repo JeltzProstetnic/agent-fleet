@@ -39,8 +39,13 @@ fi
 # CONFIGURATION
 # ============================================================================
 
+# Auto-detect Claude Code config directory (cc-mirror variant or stock)
 CC_MIRROR_VARIANT="mclaude"
-CONFIG_DIR="${HOME}/.cc-mirror/${CC_MIRROR_VARIANT}/config"
+if [[ -d "${HOME}/.cc-mirror/${CC_MIRROR_VARIANT}/config" ]]; then
+    CONFIG_DIR="${HOME}/.cc-mirror/${CC_MIRROR_VARIANT}/config"
+else
+    CONFIG_DIR="${HOME}/.claude"
+fi
 MARKETPLACE_DIR="${CONFIG_DIR}/plugins/marketplaces"
 SKILL_COLLECTIONS_DIR="${HOME}/.local/share/skill-collections"
 SETTINGS_FILE="${CONFIG_DIR}/settings.json"

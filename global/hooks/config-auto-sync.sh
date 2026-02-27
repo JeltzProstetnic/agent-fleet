@@ -2,6 +2,10 @@
 # Auto-sync cfg-agent-fleet repo on session end.
 # Runs as a SessionEnd hook — silent, zero context cost.
 #
+# NOTE: This hook always operates on ~/cfg-agent-fleet/, NOT the current project.
+# It collects project rules, commits cfg-agent-fleet changes, and pushes.
+# Dual-remote projects are not affected — this hook doesn't push them.
+#
 # On failure: writes a marker to ~/cfg-agent-fleet/.sync-failed
 # The SessionStart hook (config-check.sh) reads this marker and alerts the user.
 
@@ -16,11 +20,7 @@ sync_success() {
 
 sync_fail() {
     local stage="$1" detail="$2"
-    cat > "$FAIL_MARKER" <<MARKER
-stage=$stage
-time=$(date -u +'%Y-%m-%d %H:%M:%S UTC')
-detail=$detail
-MARKER
+    printf 'stage=%s\ntime=%s\ndetail=%s\n' "$stage" "$(date -u +'%Y-%m-%d %H:%M:%S UTC')" "$detail" > "$FAIL_MARKER"
     exit 0  # Still exit 0 — don't block session end
 }
 
