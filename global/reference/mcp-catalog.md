@@ -19,6 +19,7 @@ Do NOT embed tokens in this file. All credentials live in `.mcp.json`.
 
 **Key gotchas:**
 - **CRITICAL:** The env var MUST be `GITHUB_PERSONAL_ACCESS_TOKEN`, NOT `GITHUB_TOKEN`. Using the wrong name causes unauthenticated requests — public repos work, private repos return 404.
+- **For repo creation:** ALWAYS try MCP `create_repository` first. Known limitation: `create_repository` has no `org` parameter — repos land under the authenticated user. For org repos: create manually on github.com, then configure locally. Multiple GitHub MCP instances (different tokens, different server names) can work around this.
 - Project-level `.mcp.json` files override the global config. Claude Code walks up from the project dir looking for `.mcp.json`.
 - Token scope must include `repo`. Test with: `curl -sI -H "Authorization: token $TOKEN" https://api.github.com/user | grep x-oauth-scopes`
 
