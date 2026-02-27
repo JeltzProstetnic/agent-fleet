@@ -42,9 +42,10 @@ cd "$CONFIG_REPO" 2>/dev/null || sync_fail "cd" "Config repo not found at $CONFI
 # Collect project-specific rules
 bash "$CONFIG_REPO/sync.sh" collect 2>/dev/null || sync_fail "collect" "sync.sh collect failed"
 
-# Stage tracked changes + new files in key directories
-git add -u 2>/dev/null
-git add session-context.md session-history.md docs/ projects/ cross-project/ 2>/dev/null || true
+# Stage only expected directories and files — avoid staging unintended changes
+git add session-context.md session-history.md 2>/dev/null || true
+git add docs/ projects/ cross-project/ 2>/dev/null || true
+git add global/ backlog.md registry.md template-sync-manifest.md 2>/dev/null || true
 git diff --cached --quiet 2>/dev/null && sync_success  # Nothing to sync
 
 # Secret scan: check staged diff for obvious secret patterns before committing

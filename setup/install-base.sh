@@ -371,10 +371,27 @@ install_nodejs() {
 
         log_info "Installing NVM ${NVM_VERSION}..."
         if [[ "${DRY_RUN}" == "false" ]]; then
-            curl -o- "https://raw.githubusercontent.com/nvm-sh/nvm/${NVM_VERSION}/install.sh" | bash || {
+            local nvm_installer
+            nvm_installer=$(mktemp)
+            curl -fsSL "https://raw.githubusercontent.com/nvm-sh/nvm/${NVM_VERSION}/install.sh" -o "$nvm_installer" || {
+                rm -f "$nvm_installer"
+                log_error "Failed to download NVM installer"
+                exit 1
+            }
+            # Verify download is not truncated (NVM install script is >10KB)
+            local installer_size
+            installer_size=$(wc -c < "$nvm_installer")
+            if [[ "$installer_size" -lt 10000 ]]; then
+                rm -f "$nvm_installer"
+                log_error "NVM installer appears truncated (${installer_size} bytes)"
+                exit 1
+            fi
+            bash "$nvm_installer" || {
+                rm -f "$nvm_installer"
                 log_error "Failed to install NVM"
                 exit 1
             }
+            rm -f "$nvm_installer"
             source "${NVM_DIR}/nvm.sh"
         else
             log_info "[DRY RUN] Would download and install NVM ${NVM_VERSION}"

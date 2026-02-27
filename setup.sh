@@ -286,10 +286,10 @@ SEOF
 - [x] Project created by setup.sh with infrastructure discovery
 BEOF
 
-  # Initialize git repo
+  # Initialize git repo — stage only known safe files (not secrets/)
   cd "$INFRA_DIR"
   git init --quiet
-  git add -A
+  git add infrastructure-map.md session-context.md backlog.md .claude/ 2>/dev/null || true
   git commit -m "Initial infrastructure project from setup.sh" --quiet 2>/dev/null || true
   cd "$REPO_DIR"
 

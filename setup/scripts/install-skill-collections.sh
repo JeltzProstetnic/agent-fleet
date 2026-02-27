@@ -134,7 +134,7 @@ clone_repo() {
     log_info "${dir_name}: cloning from ${git_url}..."
     if [[ "${DRY_RUN}" == "false" ]]; then
         mkdir -p "${target_dir}"
-        if git clone --quiet "${git_url}" "${dest}" 2>/dev/null; then
+        if git clone --quiet --depth 1 "${git_url}" "${dest}" 2>/dev/null; then
             log_success "${dir_name}: cloned successfully"
         else
             log_warn "${dir_name}: clone failed (private repo or network issue) — skipping"

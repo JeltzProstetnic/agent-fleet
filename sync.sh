@@ -172,6 +172,12 @@ check_template_drift() {
     local manifest="$SCRIPT_DIR/template-sync-manifest.md"
     [ -f "$manifest" ] || return 0  # No manifest — nothing to check
 
+    # CRC32 computation requires python3
+    if ! command -v python3 >/dev/null 2>&1; then
+        log_warn "python3 not found — skipping template drift check"
+        return 0
+    fi
+
     local drift_count=0
 
     # Extract tracked file rows from manifest: lines matching "| `path` | `hash` |"

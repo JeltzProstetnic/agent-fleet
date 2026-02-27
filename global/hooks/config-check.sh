@@ -87,7 +87,11 @@ if [ -n "$INBOX_MSG" ]; then
 fi
 
 if [ -n "$SYSTEM_MSG" ]; then
-    python3 -c "import json,sys; print(json.dumps({'systemMessage': sys.argv[1]}))" "$SYSTEM_MSG"
+    if command -v python3 >/dev/null 2>&1; then
+        python3 -c "import json,sys; print(json.dumps({'systemMessage': sys.argv[1]}))" "$SYSTEM_MSG"
+    elif command -v node >/dev/null 2>&1; then
+        node -e "console.log(JSON.stringify({systemMessage: process.argv[1]}))" "$SYSTEM_MSG"
+    fi
 fi
 
 exit 0

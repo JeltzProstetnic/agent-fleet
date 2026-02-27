@@ -177,7 +177,12 @@ done
 # Remove excluded glob patterns
 for glob in "${EXCLUDE_GLOBS[@]}"; do
     # shellcheck disable=SC2086
-    git rm -r --cached --quiet -- $glob 2>/dev/null || true
+    # Verify glob matches at least one staged file before attempting removal
+    if git ls-files --cached -- $glob 2>/dev/null | grep -q .; then
+        git rm -r --cached --quiet -- $glob 2>/dev/null || true
+    else
+        echo "WARNING: exclude_glob '$glob' matched no files in index" >&2
+    fi
 done
 
 # Write the filtered tree
@@ -215,7 +220,20 @@ if $DRY_RUN; then
     echo "[dry-run] Would push filtered commit $COMMIT to $PUBLIC_REMOTE/$BRANCH"
     echo "[dry-run] Filtered tree excludes: ${EXCLUDE_PATHS[*]} ${EXCLUDE_GLOBS[*]}"
 else
-    git push "$PUBLIC_REMOTE" "$COMMIT:refs/heads/$BRANCH"
+    # Use --force-with-lease to prevent silently overwriting external commits.
+    # If someone pushed to the public remote directly, this will fail safely.
+    EXPECTED_REF=$(git rev-parse "refs/remotes/$PUBLIC_REMOTE/$BRANCH" 2>/dev/null || echo "")
+    if [[ -n "$EXPECTED_REF" ]]; then
+        if ! git push --force-with-lease="${BRANCH}:${EXPECTED_REF}" "$PUBLIC_REMOTE" "$COMMIT:refs/heads/$BRANCH"; then
+            echo "ERROR: Push rejected — $PUBLIC_REMOTE/$BRANCH has unexpected commits." >&2
+            echo "Someone may have pushed to the public repo directly." >&2
+            echo "Fetch the public remote and reconcile before retrying." >&2
+            exit 1
+        fi
+    else
+        # No known remote ref — first push, safe to proceed without lease
+        git push "$PUBLIC_REMOTE" "$COMMIT:refs/heads/$BRANCH"
+    fi
 fi
 
 echo ""
