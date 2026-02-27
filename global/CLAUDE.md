@@ -35,6 +35,7 @@ If `CLAUDE.local.md` is missing, fall back to reading `~/.claude/machines/<machi
 4. **Follow the manifest's Knowledge Loading table** — load only the listed domain files
 
 5. **Conditional loading (do NOT load unless triggered):**
+   - **First run after setup** (`.setup-pending` exists in repo root): `~/.claude/foundation/first-run-refinement.md` — run this FIRST, before any user task
    - New/unconfigured project detected: `~/.claude/foundation/project-setup.md`
    - Roster changes needed: `~/.claude/foundation/roster-management.md`
    - Code project using Serena: `~/.claude/reference/serena.md`

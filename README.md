@@ -236,7 +236,7 @@ Edit `global/foundation/user-profile.md` with your preferences. Changes take eff
 
 ---
 
-## Multi-Machine Sync
+## Multi-Machine Workflow
 
 ```mermaid
 graph LR
@@ -248,7 +248,33 @@ graph LR
     style B fill:#2a9d8f,stroke:#264653,color:#fff
 ```
 
-No computer is special. Clone the repo, run `setup.sh`, and any machine is a full participant. Session hooks handle the git push/pull automatically.
+No computer is special. Clone the repo, run `setup.sh`, and any machine is a full participant.
+
+### The sync cycle
+
+1. **Session ends on Machine A** — hooks auto-commit config changes and push to GitHub
+2. **Session starts on Machine B** — startup pulls latest config before loading anything
+3. **Conflicts are rare** because each machine writes to its own machine file and session-context is per-session
+
+### Setting up a new machine
+
+```bash
+git clone YOUR_REPO_URL ~/claude-config
+cd ~/claude-config
+bash setup.sh
+```
+
+The setup script detects your platform, creates machine-specific config, and links everything. Each machine gets its own file in `global/machines/` — no conflicts with other machines.
+
+### What syncs vs. what's local
+
+| Syncs via git | Stays local |
+|---------------|-------------|
+| Global rules (CLAUDE.md, foundation/) | `~/.mcp.json` (tokens differ per machine) |
+| Domain protocols | `~/CLAUDE.local.md` (points to local machine file) |
+| Session history | OAuth tokens and credentials |
+| Cross-project inbox | Machine-specific tool paths |
+| Project configs | |
 
 ---
 
@@ -259,6 +285,58 @@ No computer is special. Clone the repo, run `setup.sh`, and any machine is a ful
 | **Works?** | Yes | Yes | Yes |
 | **Open files** | `xdg-open` | `open` | `powershell.exe` |
 | **Note** | — | — | Avoid working in `/mnt/c/` (slow) |
+
+---
+
+## Security
+
+**Never commit secrets.** API tokens, passwords, and credentials should NEVER appear in committed files.
+
+### Where secrets go
+
+| Secret type | Storage | Example |
+|------------|---------|---------|
+| MCP server tokens | `~/.mcp.json` (gitignored on your machine) | GitHub PAT, Google OAuth |
+| Project-specific secrets | `.env` files (add to `.gitignore`) | Database URLs, API keys |
+| Shared/portable secrets | Encrypted vault (`secrets/vault.json.enc`) | Tokens you need across machines |
+
+### Vault setup (optional)
+
+The `secrets/` directory supports an encrypted vault for portable credential storage:
+
+```bash
+# Create vault from template
+cp secrets/vault-template.json secrets/vault.json
+# Edit with your tokens
+nano secrets/vault.json
+# Encrypt (vault.json is gitignored; vault.json.enc is committed)
+openssl enc -aes-256-cbc -salt -pbkdf2 -in secrets/vault.json -out secrets/vault.json.enc
+# On another machine: decrypt
+openssl enc -aes-256-cbc -d -salt -pbkdf2 -in secrets/vault.json.enc -out secrets/vault.json
+```
+
+### What to check before pushing
+
+- `git diff --cached` — scan for tokens, passwords, API keys
+- No `.env` files staged
+- No plaintext vault files staged (`vault.json` should be gitignored)
+- MCP config (`~/.mcp.json`) lives outside the repo
+
+---
+
+## Common Mistakes
+
+**Editing files in the wrong place.** The repo (`~/claude-config/`) is the source of truth. Edit there, then `bash sync.sh deploy`. Don't edit the symlink targets directly in `~/.claude/` — those changes get overwritten.
+
+**Forgetting to sync after changes.** After editing global rules or foundation files, run `bash sync.sh deploy` to push changes to live locations. Or let the session hooks handle it automatically.
+
+**Overloading the global prompt.** `global/CLAUDE.md` is loaded into every session. Keep it lean — use domains for topic-specific rules and references for conditional loading. A bloated global prompt wastes context tokens.
+
+**Storing rules in auto-memory.** Claude Code's built-in memory is per-project and not visible across projects. Persistent rules belong in `CLAUDE.md` files. Use auto-memory only for temporary project-specific orientation notes.
+
+**Working in `/mnt/c/` on WSL.** Windows filesystem paths are 10-15x slower. Always work in the Linux filesystem (`~/`).
+
+**Putting secrets in committed files.** API tokens go in `~/.mcp.json` (local) or the encrypted vault — never in CLAUDE.md, registry.md, or other tracked files.
 
 ---
 

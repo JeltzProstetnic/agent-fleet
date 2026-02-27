@@ -23,16 +23,12 @@ Every publication follows this strict pipeline:
 | **3. LaTeX output** | `<document>.tex` | Generated from .md + formatting rules | Build script ONLY |
 | **4. PDF output** | `<document>.pdf` | Compiled from .tex | `pdflatex` / build script ONLY |
 
-### Document registry
+### Document registry (examples — adapt to your project)
 
 | Document | Content source | Formatting rules | Build script | Generated .tex | Generated .pdf |
 |----------|---------------|-----------------|--------------|----------------|----------------|
-| Book | `pop-sci/book-manuscript.md` | `pop-sci/book-manuscript.formatting-rules.md` | `tmp/build_book_pdf.py` | `pop-sci/book-manuscript.tex` | `pop-sci/book-manuscript.pdf` |
-| Full paper | `paper/full/four-model-theory-full.md` | `paper/full/four-model-theory-full.formatting-rules.md` | TBD | `paper/full/biorxiv/paper.tex` | — |
-| Intelligence paper | `paper/intelligence/paper.md` | `paper/intelligence/paper.formatting-rules.md` | TBD | `paper/intelligence/paper.tex` | — |
-| Cosmology paper | `paper/cosmology/sb-hc4a.md` | `paper/cosmology/sb-hc4a.formatting-rules.md` | `tmp/build_cosmology_pdf.py` | `paper/cosmology/sb-hc4a.tex` | `paper/cosmology/sb-hc4a.pdf` |
-| Cosmology formalization | `paper/cosmology_formal/sb-hc4a-formalization.md` | `paper/cosmology_formal/sb-hc4a-formalization.formatting-rules.md` | `tmp/build_cosmology_pdf.py` | `paper/cosmology_formal/sb-hc4a-formalization.tex` | `paper/cosmology_formal/sb-hc4a-formalization.pdf` |
-| Trimmed paper | `paper/trimmed/noc/four-model-theory-noc.md` | — | — | — (needs .docx) | — |
+| Research Paper | `paper/my-paper.md` | `paper/my-paper.formatting-rules.md` | `tmp/build_paper_pdf.py` | `paper/my-paper.tex` | `paper/my-paper.pdf` |
+| Book | `book/manuscript.md` | `book/manuscript.formatting-rules.md` | `tmp/build_book_pdf.py` | `book/manuscript.tex` | `book/manuscript.pdf` |
 
 ---
 
@@ -46,7 +42,7 @@ Every publication follows this strict pipeline:
 4. **If you catch yourself about to edit .tex: STOP.** Edit the .md instead.
 5. **Subagents must follow these rules too.** Include them in agent prompts.
 
-**Why this rule exists:** Sessions 25, 39, 43, and 70 wrote content or formatting directly to .tex files. The .md was never updated. ~8,000 words were orphaned in earlier sessions. Session 50 partially recovered them. This must never happen again.
+**Why this rule exists:** Editing .tex files directly causes content to be orphaned — the .md never gets updated, and the next rebuild from .md silently clobbers all .tex-only changes. This has caused thousands of words to be lost in practice. It must never happen.
 
 ---
 
@@ -108,7 +104,7 @@ When a new formatting rule is identified (e.g., a line break in the subtitle, a 
 
 The formatting-rules.md file is both documentation AND the specification for what the build script must implement. If they disagree, the build script is wrong.
 
-**Why this is non-negotiable:** Session 70 hand-edited a line break (`\\[0.2cm]`) into the .tex instead of updating the build script. The next rebuild from .md would have silently clobbered it. Formatting rules that exist only in .tex are invisible, undocumented, and fragile.
+**Why this is non-negotiable:** Hand-editing formatting (e.g., a line break `\\[0.2cm]`) directly into .tex instead of updating the build script means the next rebuild from .md silently clobbers it. Formatting rules that exist only in .tex are invisible, undocumented, and fragile.
 
 ---
 
@@ -130,31 +126,30 @@ Content review is **always in HTML**, never by reading raw .md diffs or .tex.
 4. **Section anchors** — every heading gets an `id` for direct linking
 5. **Change count** — summary at top: "N sections modified, M words added, K words removed"
 
-### Existing review scripts (consolidation TODO)
+### Example review scripts (adapt to your project)
 
-These scripts exist in `tmp/` and overlap significantly:
+A typical project has review scripts in `tmp/` for generating change-tracked HTML. Recommended structure:
 
 | Script | What it does |
 |--------|-------------|
-| `render_tracked_paper.py` | Insertion markers → highlighted HTML (paper) |
-| `render_book_changes.py` | Old/new text pairs → labeled diff HTML (book) |
-| `create_highlighted_book.py` | Git diff → yellow highlights (book) |
-| `create_book_diff_html.py` | Another book diff variant |
-| `create_tracked_paper.py` | Another paper variant |
+| `tmp/render_changes.py` | Insertion markers → highlighted HTML for any document |
+| `tmp/build_review_html.py` | Git diff → change-tracked HTML with navigation sidebar |
 
-**TODO:** Consolidate into a single `tmp/review_changes.py` with:
+**Recommended interface** for a unified review script:
 - `--mode highlight` (highlight-new-only)
 - `--mode track` (track-changes with strikethrough)
 - `--source <file.md>` (input document)
 - `--against <ref>` (git ref, file, or "staged")
 - `--output <file.html>` (output path)
 
-Until consolidated, **reuse existing scripts — do NOT write new ones.**
-
 ### Opening review HTML
 
 ```bash
-python3 tmp/<script>.py && powershell.exe -Command "Start-Process '\\\\wsl.localhost\\Ubuntu\\home\\__USERNAME__\\aIware\\tmp\\<output>.html'"
+# Native Linux:
+python3 tmp/<script>.py && xdg-open tmp/<output>.html
+
+# WSL (adjust __USERNAME__ and __PROJECT__ to match your setup):
+python3 tmp/<script>.py && powershell.exe -Command "Start-Process '\\\\wsl.localhost\\Ubuntu\\home\\__USERNAME__\\__PROJECT__\\tmp\\<output>.html'"
 ```
 
 ---
@@ -181,17 +176,17 @@ python3 tmp/<script>.py && powershell.exe -Command "Start-Process '\\\\wsl.local
 
 ### CRITICAL: Never overwrite or recompile canonical paper PDFs for comparison
 
-**Canonical PDFs** (`paper/*/paper.pdf`, `paper/cosmology/sb-hc4a.pdf`) are compiled products that may have been built with multi-pass pdflatex+bibtex, hand-verified, and used for submissions. They are **not disposable**.
+**Canonical PDFs** (e.g., `paper/my-paper.pdf`, `book/manuscript.pdf`) are compiled products that may have been built with multi-pass pdflatex+bibtex, hand-verified, and used for submissions. They are **not disposable**.
 
 Rules:
-- **NEVER compile into `paper/` directories** for comparison or testing purposes. Always compile into `tmp/`.
+- **NEVER compile into source directories** (e.g., `paper/`, `book/`) for comparison or testing purposes. Always compile into `tmp/`.
 - **NEVER overwrite a canonical PDF** without explicit user instruction ("rebuild the paper PDF").
 - When you need a "before" PDF, **use the canonical PDF as-is** — do not recompile it.
 - When you need an "after" PDF, **compile the new .tex into `tmp/`** with a clear name.
 - If a canonical PDF is accidentally damaged, restore from git: `git checkout HEAD -- <path>`
-- **Before any pdflatex run**, verify the output directory is `tmp/`, never a `paper/` directory.
+- **Before any pdflatex run**, verify the output directory is `tmp/`, never a source directory.
 
-**Why this rule exists:** Session 106 recompiled ORIGINAL .tex files in `tmp/` without bibtex, producing PDFs with broken citations (`???`). The user's canonical PDFs with resolved citations were also overwritten by a prior build script run. Both "before" and "after" were damaged simultaneously, making comparison impossible.
+**Why this rule exists:** Recompiling original .tex files without the full toolchain (e.g., without bibtex) produces PDFs with broken citations (`???`). If canonical PDFs are also overwritten by a build script, both "before" and "after" are damaged simultaneously, making comparison impossible.
 
 ### Layout review checklist (PDF only)
 
@@ -232,7 +227,7 @@ When launching parallel agents to edit or revise a book-length document:
 | **Model for German text** | Opus only | Weaker models produce translationese |
 | **Output strategy** | Write to numbered tmp files, assemble after | Never have multiple agents edit the same file concurrently |
 
-**Why this rule exists:** Sessions 97 used 200-300 line chunks. 6 of 7 agents hit context limits and wasted tokens. Session 98 used 40-63 line chunks — all 14 agents completed successfully.
+**Why this rule exists:** Using 200-300 line chunks causes most agents to hit context limits and waste tokens. Using 40-63 line chunks allows all agents to complete successfully.
 
 **The math:** A 2400-line book needs ~40-60 agents at 40-60 lines each. This is fine — launch them all in parallel, they write to tmp files, you assemble. The token cost of 40 small agents that succeed is far less than 7 large agents that fail.
 
@@ -251,7 +246,7 @@ When launching parallel agents to edit or revise a book-length document:
 - [ ] New formatting rules (if any) are in .formatting-rules.md
 - [ ] .tex was regenerated from .md + formatting rules (not hand-edited)
 - [ ] .pdf was recompiled from .tex
-- [ ] Content integrity tests pass: `pytest tmp/test_content_integrity.py -v`
+- [ ] Content integrity tests pass (if configured): `pytest tmp/test_content_integrity.py -v`
 - [ ] Review HTML was generated if content review is needed
 - [ ] All four files (.md, .formatting-rules.md, .tex, .pdf) are staged and committed together
 
@@ -261,7 +256,7 @@ When launching parallel agents to edit or revise a book-length document:
 
 Content integrity tests catch silent content loss during .md → .tex conversion. See `~/.claude/domains/publications/test-driven-authoring.md` for the full protocol.
 
-**Quick reference:**
+**Example test scripts — adapt paths and filenames to your project:**
 
 | Command | What it tests |
 |---------|--------------|
