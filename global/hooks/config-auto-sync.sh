@@ -47,6 +47,29 @@ git add -u 2>/dev/null
 git add session-context.md session-history.md docs/ projects/ cross-project/ 2>/dev/null || true
 git diff --cached --quiet 2>/dev/null && sync_success  # Nothing to sync
 
+# Secret scan: check staged diff for obvious secret patterns before committing
+STAGED_DIFF=$(git diff --cached 2>/dev/null)
+SECRET_PATTERNS='sk-[A-Za-z0-9]{20,}|ghp_[A-Za-z0-9]{36,}|gho_[A-Za-z0-9]{36,}|xoxb-[A-Za-z0-9-]+|xoxp-[A-Za-z0-9-]+|password\s*[:=]|secret\s*[:=]|private_key\s*[:=]|BEGIN RSA|BEGIN PRIVATE KEY|[A-Za-z0-9+/]{40,}={0,2}'
+SECRET_HITS=$(printf '%s' "$STAGED_DIFF" | grep -E "$SECRET_PATTERNS" 2>/dev/null | grep '^+' | grep -v '^+++' || true)
+if [ -n "$SECRET_HITS" ]; then
+    # Identify which staged files contain the suspicious content (newline-separated)
+    SUSPICIOUS_FILES=$(git diff --cached --name-only 2>/dev/null | while read -r f; do
+        if git diff --cached -- "$f" 2>/dev/null | grep -qE "$SECRET_PATTERNS"; then
+            echo "$f"
+        fi
+    done)
+    if [ -n "$SUSPICIOUS_FILES" ]; then
+        # Load into array to handle filenames with spaces safely
+        mapfile -t SUSPICIOUS_ARRAY <<< "$SUSPICIOUS_FILES"
+        git restore --staged "${SUSPICIOUS_ARRAY[@]}" 2>/dev/null || true
+        printf 'AUTO-SYNC WARNING: Possible secrets detected in staged files: %s\n' \
+            "${SUSPICIOUS_FILES//$'\n'/ }" >> "$CONFIG_REPO/.sync-warnings.log"
+        printf 'time=%s\n' "$(date -u +'%Y-%m-%d %H:%M:%S UTC')" >> "$CONFIG_REPO/.sync-warnings.log"
+        # If nothing left staged, exit cleanly (no commit needed)
+        git diff --cached --quiet 2>/dev/null && sync_success
+    fi
+fi
+
 # Commit
 git commit -m "Auto-sync: $(date -u +'%Y-%m-%d %H:%M:%S UTC')" 2>/dev/null \
     || sync_fail "commit" "git commit failed"

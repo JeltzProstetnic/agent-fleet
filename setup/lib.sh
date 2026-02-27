@@ -271,6 +271,20 @@ rollback_last() {
         local relative_path="${backup_file#${backup_path}/}"
         local target_path="/${relative_path}"
 
+        # Validate target falls within expected directories (defence-in-depth against
+        # path traversal via crafted backup filenames containing ".." components)
+        local allowed=false
+        for allowed_prefix in "${HOME}/.claude/" "${HOME}/.cc-mirror/" "${HOME}/.claude-setup/"; do
+            if [[ "${target_path}" == "${allowed_prefix}"* ]]; then
+                allowed=true
+                break
+            fi
+        done
+        if [[ "${allowed}" != "true" ]]; then
+            log_warn "Skipping backup file with unexpected target path: ${target_path}"
+            continue
+        fi
+
         mkdir -p "$(dirname "${target_path}")"
         cp -a "${backup_file}" "${target_path}"
         log_info "Restored: ${target_path}"

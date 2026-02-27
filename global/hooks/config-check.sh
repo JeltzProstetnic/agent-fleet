@@ -10,10 +10,10 @@ _detect_config_repo() {
         cd "$(dirname "$hook_real")/../.." && pwd
         return
     fi
-    for d in "$HOME/cfg-agent-fleet" "$HOME/agent-fleet"; do
+    for d in "$HOME/agent-fleet" "$HOME/cfg-agent-fleet"; do
         [[ -f "$d/sync.sh" ]] && echo "$d" && return
     done
-    echo "$HOME/cfg-agent-fleet"  # final fallback
+    echo "$HOME/agent-fleet"  # final fallback
 }
 CONFIG_REPO="$(_detect_config_repo)"
 FAIL_MARKER="$CONFIG_REPO/.sync-failed"
@@ -28,22 +28,30 @@ if [ -f "$FAIL_MARKER" ]; then
     stage=$(grep '^stage=' "$FAIL_MARKER" | cut -d= -f2)
     time=$(grep '^time=' "$FAIL_MARKER" | cut -d= -f2-)
     detail=$(grep '^detail=' "$FAIL_MARKER" | cut -d= -f2-)
-    WARNINGS="CONFIG SYNC FAILED at $time — stage: $stage, detail: $detail. Run 'bash ~/cfg-agent-fleet/sync.sh status' to diagnose. Uncommitted config changes may exist in ~/cfg-agent-fleet/."
+    WARNINGS="CONFIG SYNC FAILED at $time — stage: $stage, detail: $detail. Run 'bash $CONFIG_REPO/sync.sh status' to diagnose. Uncommitted config changes may exist in $CONFIG_REPO/."
 fi
 
 # Check 2: Are symlinks intact?
 if [ ! -L "$HOME/.claude/CLAUDE.md" ]; then
-    WARNINGS="${WARNINGS:+$WARNINGS | }CLAUDE.md is not symlinked to config repo. Run 'bash ~/cfg-agent-fleet/sync.sh setup' to restore."
+    WARNINGS="${WARNINGS:+$WARNINGS | }CLAUDE.md is not symlinked to config repo. Run 'bash $CONFIG_REPO/sync.sh setup' to restore."
 fi
 
 # Check 3: Does config repo exist?
 if [ ! -d "$CONFIG_REPO/.git" ]; then
-    WARNINGS="${WARNINGS:+$WARNINGS | }Config repo not found at ~/cfg-agent-fleet/. Clone your config repo to ~/cfg-agent-fleet/ and run: bash ~/cfg-agent-fleet/sync.sh setup"
+    WARNINGS="${WARNINGS:+$WARNINGS | }Config repo not found at $CONFIG_REPO/. Clone your config repo and run: bash $CONFIG_REPO/sync.sh setup"
 fi
 
-# Check 4: Pull latest config (so inbox is current)
+# Check 4: Pull latest config (so inbox is current), and report changed files
 if [ -d "$CONFIG_REPO/.git" ]; then
+    OLD_HEAD=$(git -C "$CONFIG_REPO" rev-parse HEAD 2>/dev/null || true)
     git -C "$CONFIG_REPO" pull --ff-only origin "$DEFAULT_BRANCH" 2>/dev/null || true
+    NEW_HEAD=$(git -C "$CONFIG_REPO" rev-parse HEAD 2>/dev/null || true)
+    if [ -n "$OLD_HEAD" ] && [ -n "$NEW_HEAD" ] && [ "$OLD_HEAD" != "$NEW_HEAD" ]; then
+        CHANGED_FILES=$(git -C "$CONFIG_REPO" diff --name-only "$OLD_HEAD".."$NEW_HEAD" 2>/dev/null | tr '\n' ' ' | sed 's/ $//')
+        if [ -n "$CHANGED_FILES" ]; then
+            WARNINGS="${WARNINGS:+$WARNINGS | }Config updated from remote: $CHANGED_FILES changed — re-read these files before proceeding."
+        fi
+    fi
 fi
 
 # Check 5: Cross-project inbox — surface pending tasks for current project
@@ -57,7 +65,7 @@ if [ -f "$INBOX" ]; then
     fi
     TOTAL=$(grep -c '\- \[ \]' "$INBOX" 2>/dev/null || echo "0")
     if [ "$TOTAL" -gt 0 ]; then
-        INBOX_MSG="${INBOX_MSG:+$INBOX_MSG | }Cross-project inbox has $TOTAL pending task(s). Read ~/cfg-agent-fleet/cross-project/inbox.md"
+        INBOX_MSG="${INBOX_MSG:+$INBOX_MSG | }Cross-project inbox has $TOTAL pending task(s). Read $CONFIG_REPO/cross-project/inbox.md"
     fi
 fi
 
