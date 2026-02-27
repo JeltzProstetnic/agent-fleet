@@ -30,7 +30,7 @@ cd "$CONFIG_REPO" 2>/dev/null || sync_fail "cd" "Config repo not found at $CONFI
 bash "$CONFIG_REPO/sync.sh" collect 2>/dev/null || sync_fail "collect" "sync.sh collect failed"
 
 # Check for changes
-git add -A 2>/dev/null
+git add -u 2>/dev/null
 git diff --cached --quiet 2>/dev/null && sync_success  # Nothing to sync
 
 # Commit

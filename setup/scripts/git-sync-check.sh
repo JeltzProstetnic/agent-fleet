@@ -51,9 +51,20 @@ fi
 BEHIND=$(git rev-list HEAD..@{u} --count)
 AHEAD=$(git rev-list @{u}..HEAD --count)
 
+# Check diverged FIRST (both ahead and behind)
+if [ "$BEHIND" -gt 0 ] && [ "$AHEAD" -gt 0 ]; then
+  echo "DIVERGED: $AHEAD ahead, $BEHIND behind. Manual resolution needed."
+  echo ""
+  echo "Local commits not on remote:"
+  git log @{u}..HEAD --oneline --no-decorate
+  echo ""
+  echo "Remote commits not local:"
+  git log HEAD..@{u} --oneline --no-decorate
+  exit 2
+fi
+
 if [ "$BEHIND" -gt 0 ]; then
   echo "BEHIND remote by $BEHIND commit(s)."
-  # Show what changed
   echo ""
   echo "Incoming changes:"
   git log HEAD..@{u} --oneline --no-decorate
@@ -80,7 +91,3 @@ if [ "$AHEAD" -gt 0 ]; then
   echo "Ahead of remote by $AHEAD commit(s) (unpushed). No action needed."
   exit 0
 fi
-
-# Diverged
-echo "DIVERGED: $AHEAD ahead, $BEHIND behind. Manual resolution needed."
-exit 2

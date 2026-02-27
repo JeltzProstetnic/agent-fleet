@@ -25,7 +25,7 @@ fi
 
 # Check 3: Does config repo exist?
 if [ ! -d "$CONFIG_REPO/.git" ]; then
-    WARNINGS="${WARNINGS:+$WARNINGS | }Config repo not found at ~/claude-config/. Clone your config repo to ~/claude-config/ and run: bash ~/claude-config/sync.sh setup"
+    WARNINGS="${WARNINGS:+$WARNINGS | }Config repo not found at ~/claude-config/. Clone it: git clone https://github.com/JeltzProstetnic/claude-config ~/claude-config && bash ~/claude-config/sync.sh setup"
 fi
 
 # Check 4: Pull latest config (so inbox is current)

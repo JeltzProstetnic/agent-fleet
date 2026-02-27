@@ -142,6 +142,29 @@ Do NOT embed tokens in this file. All credentials live in `.mcp.json`.
 
 ---
 
+### 10. LinkedIn (Optional)
+
+| Field | Value |
+|-------|-------|
+| **Package** | `linkedin-mcp` (local build from `lurenss/linkedin-mcp`) |
+| **Command** | `node <install-path>/build/index.js` |
+| **Purpose** | Create and manage LinkedIn posts |
+| **Auth** | OAuth (client ID + secret + access token) |
+
+**Setup:**
+1. Clone: `git clone https://github.com/lurenss/linkedin-mcp ~/.local/share/mcp-servers/linkedin-mcp`
+2. Build: `cd ~/.local/share/mcp-servers/linkedin-mcp && npm install && npm run build`
+3. Add to `.mcp.json` with env vars: `LINKEDIN_CLIENT_ID`, `LINKEDIN_CLIENT_SECRET`, `LINKEDIN_ACCESS_TOKEN`, `LINKEDIN_API_VERSION`
+4. Complete LinkedIn OAuth to get access token (see repo README for flow)
+
+**Key gotchas:**
+- **NEVER post to LinkedIn autonomously.** Always get explicit user approval.
+- Access tokens expire (~60 days). When expired: re-run OAuth flow, update token, restart.
+- Scopes needed: `openid`, `profile`, `w_member_social`.
+- To update: `cd ~/.local/share/mcp-servers/linkedin-mcp && git pull && npm install && npm run build`
+
+---
+
 ## Additional Servers (Not Included by Default)
 
 These can be added to `.mcp.json` if needed:

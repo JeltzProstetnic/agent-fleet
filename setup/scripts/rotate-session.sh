@@ -39,13 +39,21 @@ HAS_COMPLETED=$(echo "$CONTENT" | grep -P '^\s*- \[x\]' || true)
 HAS_COMPLETED_SECTION=$(echo "$CONTENT" | awk '/^### Completed/{flag=1; next} /^###|^## |^- \*\*/{flag=0} flag' | grep '^- ' || true)
 HAS_DECISIONS=$(echo "$CONTENT" | awk '/^## Key Decisions/{flag=1; next} /^## /{flag=0} flag' | sed '/^$/d' || true)
 
-if [[ -z "$HAS_GOAL" && -z "$HAS_COMPLETED" && -z "$HAS_COMPLETED_SECTION" && -z "$HAS_DECISIONS" ]]; then
-    echo "ERROR: session-context.md is still a blank template — refusing to rotate."
-    echo "Before rotating, the session MUST populate at minimum:"
-    echo "  - Session Goal (even if just 'No significant activity')"
-    echo "  - At least one completed item OR a note explaining why nothing was done"
+# Require: goal AND (at least one completed item OR at least one decision)
+# Goal alone is not enough — prevents "Quick check" with zero content from creating garbage entries.
+if [[ -z "$HAS_GOAL" ]]; then
+    echo "ERROR: session-context.md has no Session Goal — refusing to rotate."
+    echo "Set Session Goal (even if just 'No significant activity') before rotating."
+    exit 1
+fi
+
+if [[ -z "$HAS_COMPLETED" && -z "$HAS_COMPLETED_SECTION" && -z "$HAS_DECISIONS" ]]; then
+    echo "ERROR: session-context.md has a goal but no completed items or key decisions."
+    echo "Before rotating, add at minimum:"
+    echo "  - At least one completed item (- [x] ...)"
+    echo "  - OR at least one key decision explaining what happened"
     echo ""
-    echo "This prevents useless blank entries in session-history.md and session-log.md."
+    echo "This prevents useless entries in session-history.md and session-log.md."
     exit 1
 fi
 
@@ -75,8 +83,9 @@ fi
 # 1. "- [x] item" checkboxes anywhere in file (may be indented)
 # 2. Plain bullets under "### Completed This Session" or "### Completed" subsection
 COMPLETED=""
-# Format 1: checkbox items (strip indentation and checkbox prefix)
-CHECKBOX_ITEMS=$(echo "$CONTENT" | grep -F '[x]' | sed 's/^[[:space:]]*- \[x\] /- /' || true)
+# Format 1: checkbox items — strict match: line must start with optional whitespace then "- [x]"
+# (Loose grep -F '[x]' would also match template help text like "use `- [x]` checkbox...")
+CHECKBOX_ITEMS=$(echo "$CONTENT" | grep -P '^\s*- \[x\]' | sed 's/^[[:space:]]*- \[x\] /- /' || true)
 # Format 2: plain bullets under ### Completed... subsection (only lines starting with "- ")
 SECTION_ITEMS=$(echo "$CONTENT" | awk '/^### Completed/{flag=1; next} /^###|^## |^- \*\*/{flag=0} flag' | grep '^- ' || true)
 # Combine (prefer checkbox if both exist, deduplicate unlikely but harmless)
@@ -141,12 +150,17 @@ $ENTRY
 EOF
     echo "Created session-history.md with first entry."
 else
-    # Prepend entry after the header (first 3 lines: title + blank + description)
+    # Prepend entry after the header (everything before first ### entry)
     TEMP=$(mktemp)
-    # Extract header (everything before first ### or the first 3 lines)
-    HEADER=$(head -3 "$HISTORY_FILE")
-    # Extract existing entries
-    EXISTING=$(tail -n +4 "$HISTORY_FILE")
+    FIRST_ENTRY_LINE=$(grep -n '^### ' "$HISTORY_FILE" | head -1 | cut -d: -f1)
+    if [[ -n "$FIRST_ENTRY_LINE" ]]; then
+        HEADER=$(head -n $((FIRST_ENTRY_LINE - 1)) "$HISTORY_FILE")
+        EXISTING=$(tail -n +$FIRST_ENTRY_LINE "$HISTORY_FILE")
+    else
+        # No entries yet — header is the whole file
+        HEADER=$(cat "$HISTORY_FILE")
+        EXISTING=""
+    fi
 
     {
         echo "$HEADER"
@@ -185,10 +199,16 @@ $ENTRY
 EOF
     echo "Created docs/session-log.md with first entry."
 else
-    # Prepend entry after the header (first 3 lines)
+    # Prepend entry after the header (everything before first ### entry)
     TEMP=$(mktemp)
-    HEADER=$(head -3 "$LOG_FILE")
-    EXISTING=$(tail -n +4 "$LOG_FILE")
+    FIRST_ENTRY_LINE=$(grep -n '^### ' "$LOG_FILE" | head -1 | cut -d: -f1)
+    if [[ -n "$FIRST_ENTRY_LINE" ]]; then
+        HEADER=$(head -n $((FIRST_ENTRY_LINE - 1)) "$LOG_FILE")
+        EXISTING=$(tail -n +$FIRST_ENTRY_LINE "$LOG_FILE")
+    else
+        HEADER=$(cat "$LOG_FILE")
+        EXISTING=""
+    fi
 
     {
         echo "$HEADER"

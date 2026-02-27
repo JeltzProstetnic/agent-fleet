@@ -69,14 +69,7 @@ cmd_setup() {
     done
 
     # Hooks
-    mkdir -p "$CLAUDE_HOME/hooks"
-    for hook in "$GLOBAL_DIR/hooks/"*.sh; do
-        [ -f "$hook" ] || continue
-        base=$(basename "$hook")
-        cp "$hook" "$CLAUDE_HOME/hooks/$base"
-        chmod +x "$CLAUDE_HOME/hooks/$base"
-        log_info "Deployed hook: $base"
-    done
+    deploy_hooks
 
     # Project-specific rules
     deploy_project_rules
@@ -118,6 +111,9 @@ cmd_deploy() {
         fi
     done
 
+    # Hooks
+    deploy_hooks
+
     # Project-specific rules
     deploy_project_rules
 
@@ -125,6 +121,17 @@ cmd_deploy() {
     check_template_drift
 
     log_info "Deploy complete."
+}
+
+deploy_hooks() {
+    mkdir -p "$CLAUDE_HOME/hooks"
+    for hook in "$GLOBAL_DIR/hooks/"*.sh; do
+        [ -f "$hook" ] || continue
+        base=$(basename "$hook")
+        cp "$hook" "$CLAUDE_HOME/hooks/$base"
+        chmod +x "$CLAUDE_HOME/hooks/$base"
+        log_info "Deployed hook: $base"
+    done
 }
 
 deploy_project_rules() {
@@ -216,6 +223,20 @@ cmd_collect() {
             log_info "Collected: $dir/"
         fi
     done
+
+    # Collect hooks (if not symlinked)
+    if [ -d "$CLAUDE_HOME/hooks" ] && [ ! -L "$CLAUDE_HOME/hooks" ]; then
+        for hook in "$CLAUDE_HOME/hooks/"*.sh; do
+            [ -f "$hook" ] || continue
+            base=$(basename "$hook")
+            if [ -f "$GLOBAL_DIR/hooks/$base" ]; then
+                if ! diff -q "$hook" "$GLOBAL_DIR/hooks/$base" >/dev/null 2>&1; then
+                    cp "$hook" "$GLOBAL_DIR/hooks/$base"
+                    log_info "Collected hook: $base"
+                fi
+            fi
+        done
+    fi
 
     # Collect project-specific rules
     for project_dir in "$PROJECTS_DIR"/*/; do
