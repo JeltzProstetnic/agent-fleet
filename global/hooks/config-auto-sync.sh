@@ -9,7 +9,20 @@
 # On failure: writes a marker to ~/cfg-agent-fleet/.sync-failed
 # The SessionStart hook (config-check.sh) reads this marker and alerts the user.
 
-CONFIG_REPO="$HOME/cfg-agent-fleet"
+# Auto-detect config repo: try symlink source, then known paths
+_detect_config_repo() {
+    local hook_real
+    hook_real="$(readlink -f "${BASH_SOURCE[0]}" 2>/dev/null || echo "")"
+    if [[ -n "$hook_real" && -f "$(dirname "$hook_real")/../../sync.sh" ]]; then
+        cd "$(dirname "$hook_real")/../.." && pwd
+        return
+    fi
+    for d in "$HOME/cfg-agent-fleet" "$HOME/agent-fleet"; do
+        [[ -f "$d/sync.sh" ]] && echo "$d" && return
+    done
+    echo "$HOME/cfg-agent-fleet"  # final fallback
+}
+CONFIG_REPO="$(_detect_config_repo)"
 FAIL_MARKER="$CONFIG_REPO/.sync-failed"
 
 # Clear any previous failure marker on success path

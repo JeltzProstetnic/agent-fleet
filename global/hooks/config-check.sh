@@ -2,7 +2,20 @@
 # SessionStart hook: check for config sync failures, symlink health, and inbox tasks.
 # Outputs JSON with systemMessage so Claude sees the warning in context.
 
-CONFIG_REPO="$HOME/cfg-agent-fleet"
+# Auto-detect config repo: try symlink source, then known paths
+_detect_config_repo() {
+    local hook_real
+    hook_real="$(readlink -f "${BASH_SOURCE[0]}" 2>/dev/null || echo "")"
+    if [[ -n "$hook_real" && -f "$(dirname "$hook_real")/../../sync.sh" ]]; then
+        cd "$(dirname "$hook_real")/../.." && pwd
+        return
+    fi
+    for d in "$HOME/cfg-agent-fleet" "$HOME/agent-fleet"; do
+        [[ -f "$d/sync.sh" ]] && echo "$d" && return
+    done
+    echo "$HOME/cfg-agent-fleet"  # final fallback
+}
+CONFIG_REPO="$(_detect_config_repo)"
 FAIL_MARKER="$CONFIG_REPO/.sync-failed"
 WARNINGS=""
 
