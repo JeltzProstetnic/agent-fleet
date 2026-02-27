@@ -24,6 +24,7 @@ _detect_config_repo() {
 }
 CONFIG_REPO="$(_detect_config_repo)"
 FAIL_MARKER="$CONFIG_REPO/.sync-failed"
+LOCK_FILE="$CONFIG_REPO/.sync-lock"
 
 # Clear any previous failure marker on success path
 sync_success() {
@@ -38,6 +39,14 @@ sync_fail() {
 }
 
 cd "$CONFIG_REPO" 2>/dev/null || sync_fail "cd" "Config repo not found at $CONFIG_REPO"
+
+# Acquire exclusive lock to prevent parallel session-end races.
+# flock -n = non-blocking: if another session holds the lock, skip silently.
+exec 9>"$LOCK_FILE"
+if ! flock -n 9; then
+    # Another session-end hook is already running — skip to avoid conflicts
+    exit 0
+fi
 
 # Collect project-specific rules
 bash "$CONFIG_REPO/sync.sh" collect 2>/dev/null || sync_fail "collect" "sync.sh collect failed"

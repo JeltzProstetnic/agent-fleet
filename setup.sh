@@ -697,12 +697,15 @@ MCP_LIST=""
 [[ "$setup_postgres" == true ]] && MCP_LIST="${MCP_LIST}postgres, "
 MCP_LIST="${MCP_LIST}playwright, memory, diagram, serena"
 
-# Portable sed -i: macOS BSD sed requires space between -i and backup suffix
-if [[ "$PLATFORM" == "macos" ]]; then
-    sed -i '' -e "s/(none configured yet)/${MCP_LIST}/" "$CATALOG_FILE"
-else
-    sed -i'' -e "s/(none configured yet)/${MCP_LIST}/" "$CATALOG_FILE"
-fi
+# Replace placeholder with configured server list (Python avoids sed delimiter issues)
+python3 -c "
+import sys
+p = sys.argv[1]
+r = sys.argv[2]
+with open(p,'r') as f: c = f.read()
+with open(p,'w') as f: f.write(c.replace('(none configured yet)', r))
+" "$CATALOG_FILE" "$MCP_LIST" 2>/dev/null \
+  || sed -i'' -e "s|(none configured yet)|${MCP_LIST}|" "$CATALOG_FILE"
 ok "Wrote ~/.mcp.json ($CONFIGURED_SERVERS)"
 
 # ---------------------------------------------------------------------------
