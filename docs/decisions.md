@@ -1,4 +1,4 @@
-# Decisions & Requirements — cfg-agent-fleet
+# Decisions & Requirements — Agent Fleet
 
 ## Architecture & Design
 

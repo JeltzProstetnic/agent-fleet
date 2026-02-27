@@ -241,7 +241,7 @@ Claude Code walks up from the project directory looking for `.mcp.json`. A proje
 **If restarting doesn't help**, test the token directly:
 
 ```bash
-TOKEN=$(python3 -c "import json; d=json.load(open('$HOME/.claude/.mcp.json')); print(d['mcpServers']['github']['env'].get('GITHUB_PERSONAL_ACCESS_TOKEN', 'MISSING'))")
+TOKEN=$(python3 -c "import json; d=json.load(open('$HOME/.mcp.json')); print(d['mcpServers']['github']['env'].get('GITHUB_PERSONAL_ACCESS_TOKEN', 'MISSING'))")
 curl -sI -H "Authorization: token $TOKEN" https://api.github.com/user | grep x-oauth-scopes
 ```
 

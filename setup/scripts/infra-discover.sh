@@ -178,7 +178,7 @@ if [[ -n "$public_ip" ]]; then
     local_ips=""
     if has_cmd ip; then
         local_ips=$(ip -4 addr show 2>/dev/null \
-            | grep -oP 'inet \K[0-9.]+' \
+            | sed -n 's/.*inet \([0-9.]*\).*/\1/p' \
             | grep -v '^127\.' || true)
     elif has_cmd ifconfig; then
         local_ips=$(ifconfig 2>/dev/null \

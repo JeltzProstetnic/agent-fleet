@@ -77,7 +77,9 @@ If the user says "always do X" or "remember to do Y" → that's a rule → `CLAU
 - **Before converting**: verify which engine is available (`which weasyprint xelatex`). Do NOT guess — check first.
 - **Avoid** Unicode box-drawing characters in code blocks (xelatex chokes) — use tables instead
 - **weasyprint HTML: BMP symbols only** — never use emoji codepoints (U+1F000+) in HTML for weasyprint. Emoji fonts aren't portable across machines. Use BMP Unicode symbols instead: `&#10004;` (checkmark), `&#9654;` (play), `&#9733;` (star), `&#9679;` (bullet). For colored indicators: `<span style="color:green">&#9679;</span>`.
-- **Open**: `xdg-open output.pdf` (Linux) / `open output.pdf` (macOS) / `powershell.exe -Command "Start-Process '\\\\wsl.localhost\\Ubuntu<filepath>'"` (WSL)
+- **Open (WSL)**: `powershell.exe -Command "Start-Process '$(wslpath -w /absolute/path/to/file)'"` — ALWAYS use `wslpath -w` for path conversion
+- **Open (native Linux)**: `xdg-open output.pdf`
+- **Open (macOS)**: `open output.pdf`
 - **Detect environment**: if `/mnt/c/` exists → WSL, elif `uname` is Darwin → macOS, otherwise → native Linux
 - Short text (<10 words) can go inline. Anything longer → file + PDF + open.
 - **Exception — copy-paste content:** Tweet drafts, reply options, and anything the user needs to copy-paste goes in plain text (`.md` or `.txt`, not PDF). Use single-line paragraphs — NO hard line breaks mid-sentence. Wrapped lines look nice in terminal but break copy-paste.

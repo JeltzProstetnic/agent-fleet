@@ -34,10 +34,10 @@ fi
 # This prevents useless "(no completed items recorded)" entries in history.
 CONTENT=$(cat "$SESSION_FILE")
 
-HAS_GOAL=$(echo "$CONTENT" | grep -oP '(?<=\*\*Session Goal\*\*: ).+' | head -1 || true)
-HAS_COMPLETED=$(echo "$CONTENT" | grep -P '^\s*- \[x\]' || true)
-HAS_COMPLETED_SECTION=$(echo "$CONTENT" | awk '/^### Completed/{flag=1; next} /^###|^## |^- \*\*/{flag=0} flag' | grep '^- ' || true)
-HAS_DECISIONS=$(echo "$CONTENT" | awk '/^## Key Decisions/{flag=1; next} /^## /{flag=0} flag' | sed '/^$/d' || true)
+HAS_GOAL=$(printf '%s\n' "$CONTENT" | sed -n 's/.*\*\*Session Goal\*\*: \(.\+\)/\1/p' | head -1 || true)
+HAS_COMPLETED=$(printf '%s\n' "$CONTENT" | grep '^\s*- \[x\]' || true)
+HAS_COMPLETED_SECTION=$(printf '%s\n' "$CONTENT" | awk '/^### Completed/{flag=1; next} /^###|^## |^- \*\*/{flag=0} flag' | grep '^- ' || true)
+HAS_DECISIONS=$(printf '%s\n' "$CONTENT" | awk '/^## Key Decisions/{flag=1; next} /^## /{flag=0} flag' | sed '/^$/d' || true)
 
 # Require: goal AND (at least one completed item OR at least one decision)
 # Goal alone is not enough — prevents "Quick check" with zero content from creating garbage entries.
@@ -60,7 +60,7 @@ fi
 # --- Parse session-context.md ---
 
 # Extract Last Updated timestamp
-TIMESTAMP=$(echo "$CONTENT" | grep -oP '(?<=\*\*Last Updated\*\*: ).*' | head -1)
+TIMESTAMP=$(printf '%s\n' "$CONTENT" | sed -n 's/.*\*\*Last Updated\*\*: \(.*\)/\1/p' | head -1)
 if [[ -z "$TIMESTAMP" ]]; then
     TIMESTAMP=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 fi
@@ -68,13 +68,13 @@ fi
 SHORT_TS=$(echo "$TIMESTAMP" | sed 's/\([0-9]\{4\}-[0-9]\{2\}-[0-9]\{2\}T[0-9]\{2\}:[0-9]\{2\}\).*/\1Z/')
 
 # Extract Machine
-MACHINE=$(echo "$CONTENT" | grep -oP '(?<=\*\*Machine\*\*: ).*' | head -1)
+MACHINE=$(printf '%s\n' "$CONTENT" | sed -n 's/.*\*\*Machine\*\*: \(.*\)/\1/p' | head -1)
 if [[ -z "$MACHINE" ]]; then
     MACHINE=$(hostname)
 fi
 
 # Extract Session Goal
-GOAL=$(echo "$CONTENT" | grep -oP '(?<=\*\*Session Goal\*\*: ).*' | head -1)
+GOAL=$(printf '%s\n' "$CONTENT" | sed -n 's/.*\*\*Session Goal\*\*: \(.*\)/\1/p' | head -1)
 if [[ -z "$GOAL" ]]; then
     GOAL="(no goal recorded)"
 fi
@@ -85,9 +85,9 @@ fi
 COMPLETED=""
 # Format 1: checkbox items — strict match: line must start with optional whitespace then "- [x]"
 # (Loose grep -F '[x]' would also match template help text like "use `- [x]` checkbox...")
-CHECKBOX_ITEMS=$(echo "$CONTENT" | grep -P '^\s*- \[x\]' | sed 's/^[[:space:]]*- \[x\] /- /' || true)
+CHECKBOX_ITEMS=$(printf '%s\n' "$CONTENT" | grep '^\s*- \[x\]' | sed 's/^[[:space:]]*- \[x\] /- /' || true)
 # Format 2: plain bullets under ### Completed... subsection (only lines starting with "- ")
-SECTION_ITEMS=$(echo "$CONTENT" | awk '/^### Completed/{flag=1; next} /^###|^## |^- \*\*/{flag=0} flag' | grep '^- ' || true)
+SECTION_ITEMS=$(printf '%s\n' "$CONTENT" | awk '/^### Completed/{flag=1; next} /^###|^## |^- \*\*/{flag=0} flag' | grep '^- ' || true)
 # Combine (prefer checkbox if both exist, deduplicate unlikely but harmless)
 if [[ -n "$CHECKBOX_ITEMS" && -n "$SECTION_ITEMS" ]]; then
     COMPLETED="$CHECKBOX_ITEMS
@@ -103,17 +103,17 @@ fi
 
 # Extract Key Decisions section content
 # Get everything between "## Key Decisions" and the next "##" heading
-DECISIONS=$(echo "$CONTENT" | awk '/^## Key Decisions/{flag=1; next} /^## /{flag=0} flag' | sed '/^$/d' || true)
+DECISIONS=$(printf '%s\n' "$CONTENT" | awk '/^## Key Decisions/{flag=1; next} /^## /{flag=0} flag' | sed '/^$/d' || true)
 if [[ -z "$DECISIONS" ]]; then
     DECISIONS="- (no decisions recorded)"
 fi
 
 # Extract Recovery Instructions section content
 # Get everything between "## Recovery Instructions" and the next "##" heading (or EOF)
-RECOVERY=$(echo "$CONTENT" | awk '/^## Recovery Instructions/{flag=1; next} /^## /{flag=0} flag' | sed '/^$/d' || true)
+RECOVERY=$(printf '%s\n' "$CONTENT" | awk '/^## Recovery Instructions/{flag=1; next} /^## /{flag=0} flag' | sed '/^$/d' || true)
 
 # Extract Pending items from Current State
-PENDING=$(echo "$CONTENT" | grep -oP '(?<=\*\*Pending\*\*: ).*' | head -1 || true)
+PENDING=$(printf '%s\n' "$CONTENT" | sed -n 's/.*\*\*Pending\*\*: \(.*\)/\1/p' | head -1 || true)
 # Strip placeholder values
 [[ "$PENDING" == "—" || "$PENDING" == "-" || "$PENDING" == "none" || -z "$PENDING" ]] && PENDING=""
 

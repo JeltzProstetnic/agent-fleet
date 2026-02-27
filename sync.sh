@@ -177,7 +177,7 @@ check_template_drift() {
     # Extract tracked file rows from manifest: lines matching "| `path` | `hash` |"
     # Use process substitution to avoid consuming stdin
     local tracked_files
-    tracked_files=$(grep -oP '^\| `[^`]+` \| `[0-9a-f]{8}`' "$manifest" | sed 's/^| `//;s/` | `/|/;s/`$//' || true)
+    tracked_files=$(sed -n 's/^| `\([^`]*\)` | `\([0-9a-f]\{8\}\)`.*/\1|\2/p' "$manifest" || true)
 
     local line file_path hash
     for line in $tracked_files; do

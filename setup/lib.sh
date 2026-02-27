@@ -365,7 +365,9 @@ detect_distro() {
         echo "${DETECTED_DISTRO}"
         return
     fi
-    if [[ -f /etc/os-release ]]; then
+    if [[ "$(uname -s)" == "Darwin" ]]; then
+        DETECTED_DISTRO="macos"
+    elif [[ -f /etc/os-release ]]; then
         # shellcheck source=/dev/null
         . /etc/os-release
         case "${ID:-}" in

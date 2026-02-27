@@ -39,7 +39,7 @@ Claude Code runs inside WSL (Windows Subsystem for Linux). If you haven't set up
 **1. Fork this repo** on GitHub (click the Fork button above), then:
 
 ```bash
-git clone https://github.com/YOUR_USERNAME/cfg-agent-fleet ~/cfg-agent-fleet
+git clone https://github.com/YOUR_USERNAME/agent-fleet ~/cfg-agent-fleet
 cd ~/cfg-agent-fleet
 bash setup.sh
 ```

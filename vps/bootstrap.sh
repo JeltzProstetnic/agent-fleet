@@ -483,11 +483,18 @@ log_info ".mcp.json created with secrets injected"
 # ──────────────────────────────────────────────
 log_step "Step 8/11: Auth credentials"
 
-# API key in .bashrc (if provided)
+# API key in a separate sourced file (not exposed in .bashrc directly)
 if [[ -n "${ANTHROPIC_API_KEY:-}" ]]; then
+    CREDS_FILE="$HOME/.claude-credentials"
+    printf 'export ANTHROPIC_API_KEY=%q\n' "$ANTHROPIC_API_KEY" > "$CREDS_FILE"
+    chmod 600 "$CREDS_FILE"
+    # Source from .bashrc if not already set up
+    if ! grep -q 'claude-credentials' "$HOME/.bashrc" 2>/dev/null; then
+        echo '[ -f "$HOME/.claude-credentials" ] && source "$HOME/.claude-credentials"' >> "$HOME/.bashrc"
+    fi
+    # Remove any old direct export from .bashrc
     sed -i '/^export ANTHROPIC_API_KEY=/d' "$HOME/.bashrc" 2>/dev/null || true
-    echo "export ANTHROPIC_API_KEY='$ANTHROPIC_API_KEY'" >> "$HOME/.bashrc"
-    log_info "ANTHROPIC_API_KEY set in .bashrc"
+    log_info "ANTHROPIC_API_KEY set in ~/.claude-credentials (chmod 600)"
 fi
 
 # OAuth credentials (Claude Max subscription)

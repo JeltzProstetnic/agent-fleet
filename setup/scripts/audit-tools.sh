@@ -58,7 +58,7 @@ simple_row() {
     local cmd="${2:-$name}"
     if command -v "$cmd" &>/dev/null; then
         local ver
-        ver=$("$cmd" --version 2>&1 | head -1 | grep -oP '[\d]+\.[\d]+[.\d]*' | head -1) || ver=""
+        ver=$("$cmd" --version 2>&1 | head -1 | sed -n 's/.*\([0-9]\+\.[0-9]\+[.0-9]*\).*/\1/p' | head -1) || ver=""
         if [[ -n "$ver" ]]; then
             echo "| $name | $ver |"
         else

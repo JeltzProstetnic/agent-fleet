@@ -60,7 +60,7 @@ case "${1:-help}" in
       exit 1
     fi
     do_encrypt
-    echo "Encrypted: $VAULT_ENCRYPTED ($(stat -c%s "$VAULT_ENCRYPTED") bytes)"
+    echo "Encrypted: $VAULT_ENCRYPTED ($(stat -c%s 2>/dev/null || stat -f%z "$VAULT_ENCRYPTED") bytes)"
     echo "You can now safely delete $VAULT_PLAIN (it's gitignored, but still)."
     ;;
 
@@ -167,7 +167,7 @@ PYEOF
       echo "Vault (plaintext): not present"
     fi
     if [ -f "$VAULT_ENCRYPTED" ]; then
-      echo "Vault (encrypted): EXISTS ($(stat -c%s "$VAULT_ENCRYPTED") bytes)"
+      echo "Vault (encrypted): EXISTS ($(stat -c%s 2>/dev/null || stat -f%z "$VAULT_ENCRYPTED") bytes)"
     else
       echo "Vault (encrypted): not present"
     fi

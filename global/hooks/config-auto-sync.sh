@@ -29,8 +29,9 @@ cd "$CONFIG_REPO" 2>/dev/null || sync_fail "cd" "Config repo not found at $CONFI
 # Collect project-specific rules
 bash "$CONFIG_REPO/sync.sh" collect 2>/dev/null || sync_fail "collect" "sync.sh collect failed"
 
-# Check for changes
+# Stage tracked changes + new files in key directories
 git add -u 2>/dev/null
+git add session-context.md session-history.md docs/ projects/ cross-project/ 2>/dev/null || true
 git diff --cached --quiet 2>/dev/null && sync_success  # Nothing to sync
 
 # Commit

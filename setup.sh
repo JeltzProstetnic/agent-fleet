@@ -613,7 +613,7 @@ MCP_LIST=""
 [[ "$setup_postgres" == true ]] && MCP_LIST="${MCP_LIST}postgres, "
 MCP_LIST="${MCP_LIST}playwright, memory, diagram, serena"
 
-sed -i "s/(none configured yet)/${MCP_LIST}/" "$CATALOG_FILE"
+sed -i'' -e "s/(none configured yet)/${MCP_LIST}/" "$CATALOG_FILE"
 ok "Wrote ~/.mcp.json ($CONFIGURED_SERVERS)"
 
 # ---------------------------------------------------------------------------

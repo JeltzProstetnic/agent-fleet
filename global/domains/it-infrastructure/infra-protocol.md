@@ -1,6 +1,6 @@
 # IT Infrastructure Protocol
 
-**Applies to:** nuc project (primary), cfg-agent-fleet (VPS/bootstrap), any infra work
+**Applies to:** cfg-agent-fleet (VPS/bootstrap), any infra work
 
 ## Scope
 
@@ -12,7 +12,7 @@ Home and cloud infrastructure: servers, networking, Docker services, DNS, SSL, s
 
 Key systems:
 - **VPS** (__VPS_IP__): Ubuntu 24.04, Docker, nginx-proxy, ttyd web terminal, Claude Code
-- **NUC**: Win11 (Linux migration pending), Docker Desktop, Home Assistant
+- **Home Server**: Local server for Docker, Home Assistant, etc. (customize per setup)
 - **__WSL_MACHINE__**: Primary dev, WSL2/Ubuntu
 
 ## Operational Rules
@@ -41,7 +41,7 @@ Key systems:
 - After deploying to a new machine: update registry.md + infrastructure-strategy.md
 
 ### Smart Home (Home Assistant)
-- Config lives on NUC, exposed via SSH tunnel to VPS
+- Config lives on home server, exposed via SSH tunnel to VPS
 - Backup HA config before any migration
 - Test automations after any infrastructure change
 

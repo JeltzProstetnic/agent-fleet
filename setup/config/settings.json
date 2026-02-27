@@ -55,8 +55,6 @@
       "Bash(docker:*)",
       "Bash(timeout:*)",
       "Bash(powershell.exe:*)",
-      "Bash(reg.exe:*)",
-      "Bash(cmd.exe:*)",
       "Bash(cc-mirror:*)",
       "Bash(mclaude:*)"
     ]
