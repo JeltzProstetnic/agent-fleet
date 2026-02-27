@@ -42,14 +42,22 @@ get_pass_confirm() {
   fi
 }
 
+_file_size() {
+  stat -c%s "$1" 2>/dev/null || stat -f%z "$1" 2>/dev/null || echo "?"
+}
+
 do_encrypt() {
   get_pass_confirm
-  openssl enc -$CIPHER -salt -pbkdf2 -iter $ITER -in "$VAULT_PLAIN" -out "$VAULT_ENCRYPTED" -pass pass:"$VAULT_PASS"
+  openssl enc -$CIPHER -salt -pbkdf2 -iter $ITER \
+    -in "$VAULT_PLAIN" -out "$VAULT_ENCRYPTED" \
+    -pass fd:3 3<<<"$VAULT_PASS"
 }
 
 do_decrypt() {
   get_pass
-  openssl enc -$CIPHER -d -pbkdf2 -iter $ITER -in "$VAULT_ENCRYPTED" -out "$VAULT_PLAIN" -pass pass:"$VAULT_PASS"
+  openssl enc -$CIPHER -d -pbkdf2 -iter $ITER \
+    -in "$VAULT_ENCRYPTED" -out "$VAULT_PLAIN" \
+    -pass fd:3 3<<<"$VAULT_PASS"
   chmod 600 "$VAULT_PLAIN"
 }
 
@@ -60,7 +68,7 @@ case "${1:-help}" in
       exit 1
     fi
     do_encrypt
-    echo "Encrypted: $VAULT_ENCRYPTED ($(stat -c%s 2>/dev/null || stat -f%z "$VAULT_ENCRYPTED") bytes)"
+    echo "Encrypted: $VAULT_ENCRYPTED ($(_file_size "$VAULT_ENCRYPTED") bytes)"
     echo "You can now safely delete $VAULT_PLAIN (it's gitignored, but still)."
     ;;
 
@@ -191,7 +199,7 @@ PYEOF
       echo "Vault (plaintext): not present"
     fi
     if [ -f "$VAULT_ENCRYPTED" ]; then
-      echo "Vault (encrypted): EXISTS ($(stat -c%s 2>/dev/null || stat -f%z "$VAULT_ENCRYPTED") bytes)"
+      echo "Vault (encrypted): EXISTS ($(_file_size "$VAULT_ENCRYPTED") bytes)"
     else
       echo "Vault (encrypted): not present"
     fi

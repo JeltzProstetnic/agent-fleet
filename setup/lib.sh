@@ -347,8 +347,10 @@ file_exists_nonempty() {
 # Check if two files are identical (by sha256 hash)
 files_identical() {
     local file1="${1}" file2="${2}"
-    [[ -f "${file1}" ]] && [[ -f "${file2}" ]] && \
-        [[ "$(sha256sum "${file1}" | cut -d' ' -f1)" == "$(sha256sum "${file2}" | cut -d' ' -f1)" ]]
+    [[ -f "${file1}" ]] && [[ -f "${file2}" ]] || return 1
+    local hash_cmd="sha256sum"
+    [[ "$(uname -s)" == "Darwin" ]] && hash_cmd="shasum -a 256"
+    [[ "$($hash_cmd "${file1}" | cut -d' ' -f1)" == "$($hash_cmd "${file2}" | cut -d' ' -f1)" ]]
 }
 
 # ============================================================================

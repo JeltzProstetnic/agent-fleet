@@ -383,9 +383,9 @@ find_project_path() {
     done
     # Check registry for custom paths
     if [ -f "$SCRIPT_DIR/registry.md" ]; then
-        # Extract path from registry table (format: | name | ~/path | ...)
+        # Extract path from registry table (format: | name | priority | path | desc | active |)
         local path
-        path=$(grep -F "| $name |" "$SCRIPT_DIR/registry.md" 2>/dev/null | head -1 | awk -F'|' '{print $3}' | xargs | tr -d '`')
+        path=$(grep -F "| $name |" "$SCRIPT_DIR/registry.md" 2>/dev/null | head -1 | awk -F'|' '{print $4}' | xargs | tr -d '`')
         if [ -n "$path" ]; then
             # Expand ~
             path="${path/#\~/$HOME}"

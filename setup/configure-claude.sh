@@ -725,7 +725,11 @@ configure_platform_settings() {
     if grep -q '^#force_color_prompt=yes' "${HOME}/.bashrc" 2>/dev/null; then
         backup_file "${HOME}/.bashrc"
         if [[ "${DRY_RUN}" == "false" ]]; then
-            sed -i'' -e 's/^#force_color_prompt=yes/force_color_prompt=yes/' "${HOME}/.bashrc"
+            if [[ "$(uname -s)" == "Darwin" ]]; then
+                sed -i '' -e 's/^#force_color_prompt=yes/force_color_prompt=yes/' "${HOME}/.bashrc"
+            else
+                sed -i'' -e 's/^#force_color_prompt=yes/force_color_prompt=yes/' "${HOME}/.bashrc"
+            fi
             log_success "Color prompt enabled"
         else
             echo -e "${COLOR_YELLOW}[DRY RUN]${COLOR_RESET} Would enable color prompt in .bashrc"
