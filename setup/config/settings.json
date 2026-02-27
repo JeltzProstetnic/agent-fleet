@@ -71,6 +71,15 @@
     "voltagent-domains@voltagent-subagents": false,
     "voltagent-biz@voltagent-subagents": false,
     "voltagent-meta@voltagent-subagents": false,
-    "voltagent-research@voltagent-subagents": false
+    "voltagent-research@voltagent-subagents": false,
+    "sentry-skills@getsentry": true,
+    "superpowers@superpowers-marketplace": true,
+    "ask-questions-if-underspecified@trailofbits": true,
+    "modern-python@trailofbits": true,
+    "property-based-testing@trailofbits": true,
+    "second-opinion@trailofbits": false,
+    "git-cleanup@trailofbits": true,
+    "static-analysis@trailofbits": true,
+    "differential-review@trailofbits": true
   }
 }
