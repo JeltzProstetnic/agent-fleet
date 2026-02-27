@@ -50,6 +50,7 @@ do_encrypt() {
 do_decrypt() {
   get_pass
   openssl enc -$CIPHER -d -pbkdf2 -iter $ITER -in "$VAULT_ENCRYPTED" -out "$VAULT_PLAIN" -pass pass:"$VAULT_PASS"
+  chmod 600 "$VAULT_PLAIN"
 }
 
 case "${1:-help}" in
@@ -85,14 +86,19 @@ case "${1:-help}" in
 
     echo "Deploying tokens to their target locations..."
 
-    # Deploy to MCP config
+    # Deploy to MCP config (try cc-mirror path first, then standard)
     MCP_CONFIG="$HOME/.cc-mirror/mclaude/config/.mcp.json"
+    [[ ! -f "$MCP_CONFIG" ]] && MCP_CONFIG="$HOME/.mcp.json"
     if [ -f "$MCP_CONFIG" ]; then
       python3 << 'PYEOF'
 import json, os, shutil
 
 vault = json.load(open('vault.json'))
+
+# Find MCP config (cc-mirror path first, then standard)
 mcp_path = os.path.expanduser('~/.cc-mirror/mclaude/config/.mcp.json')
+if not os.path.isfile(mcp_path):
+    mcp_path = os.path.expanduser('~/.mcp.json')
 
 # Backup
 shutil.copy2(mcp_path, mcp_path + '.bak')
@@ -130,12 +136,15 @@ if 'google-workspace' in mcp['mcpServers'] and vault.get('google_workspace', {})
     else:
         print("  [SKIP] Google Workspace — placeholder credentials")
 
-json.dump(mcp, open(mcp_path, 'w'), indent=2)
+with open(mcp_path, 'w') as f:
+    json.dump(mcp, f, indent=2)
+    f.write('\n')
 
-# Also sync to ~/.mcp.json
+# Sync to ~/.mcp.json if we modified a different file (cc-mirror path)
 global_mcp = os.path.expanduser('~/.mcp.json')
-shutil.copy2(mcp_path, global_mcp)
-print("  [OK] Synced to ~/.mcp.json")
+if os.path.abspath(mcp_path) != os.path.abspath(global_mcp):
+    shutil.copy2(mcp_path, global_mcp)
+    print("  [OK] Synced to ~/.mcp.json")
 
 print("\nDone. Restart mclaude to pick up new tokens.")
 PYEOF

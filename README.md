@@ -337,14 +337,14 @@ The setup scripts auto-detect your platform and install dependencies accordingly
 The `secrets/` directory supports an encrypted vault for portable credential storage:
 
 ```bash
-# Create vault from template
-cp secrets/vault-template.json secrets/vault.json
+# Create vault from example
+cp secrets/vault.json.example secrets/vault.json
 # Edit with your tokens
 nano secrets/vault.json
 # Encrypt (vault.json is gitignored; vault.json.enc is committed)
-openssl enc -aes-256-cbc -salt -pbkdf2 -in secrets/vault.json -out secrets/vault.json.enc
-# On another machine: decrypt
-openssl enc -aes-256-cbc -d -salt -pbkdf2 -in secrets/vault.json.enc -out secrets/vault.json
+bash secrets/vault-manage.sh encrypt
+# On another machine: decrypt and deploy tokens to MCP configs
+bash secrets/vault-manage.sh deploy
 ```
 
 ### What to check before pushing

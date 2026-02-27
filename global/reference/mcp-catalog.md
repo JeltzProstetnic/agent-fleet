@@ -1,6 +1,6 @@
 # MCP Server Catalog — Operational Reference
 
-**MCP config location:** `~/.claude/.mcp.json` (or `~/.cc-mirror/<variant>/config/.mcp.json` for cc-mirror users)
+**MCP config location:** `~/.mcp.json` (or `~/.cc-mirror/<variant>/config/.mcp.json` for cc-mirror users)
 
 Do NOT embed tokens in this file. All credentials live in `.mcp.json`.
 
@@ -204,13 +204,13 @@ These can be added to `.mcp.json` if needed:
 
 ### Adding a new server
 
-1. Add the server definition to `~/.claude/.mcp.json` under `mcpServers`
+1. Add the server definition to `~/.mcp.json` under `mcpServers`
 2. Add the server name to `enabledMcpjsonServers` in `settings.local.json`
 3. Restart Claude Code (MCP servers cache env vars at startup)
 
 ### Project-level overrides
 
-Claude Code walks up from the project directory looking for `.mcp.json`. A project-level copy takes precedence over `~/.claude/.mcp.json`.
+Claude Code walks up from the project directory looking for `.mcp.json`. A project-level copy takes precedence over `~/.mcp.json`.
 
 **If MCP tools aren't available in a session**, the servers may have failed to start. Check by restarting Claude Code or reviewing startup output.
 

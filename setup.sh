@@ -77,7 +77,7 @@ backup_if_exists() {
 cmd_info() {
   # Returns "path | version" or "not found"
   local path; path="$(command -v "$1" 2>/dev/null)" || { echo "not found"; return; }
-  local ver; ver="$("$1" --version 2>&1 | grep -oP '[\d]+\.[\d]+[\.\d]*' | head -1 || true)"
+  local ver; ver="$("$1" --version 2>&1 | grep -oE '[0-9]+\.[0-9]+[.0-9]*' | head -1 || true)"
   echo "${path} | ${ver:-unknown}"
 }
 
@@ -335,7 +335,7 @@ else
 fi
 
 # ---------------------------------------------------------------------------
-# Step 6 — Hooks
+# Step 7 — Hooks
 # ---------------------------------------------------------------------------
 step "7/7" "Installing hooks"
 

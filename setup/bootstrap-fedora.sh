@@ -5,8 +5,8 @@
 # Run with sudo: sudo bash bootstrap-fedora.sh
 #
 # Installs everything that needs root on a Fedora workstation so that
-# Claude Code (mclaude via cc-mirror) and the aIware LaTeX toolchain
-# can run as the unprivileged user.
+# Claude Code (mclaude via cc-mirror) and the LaTeX/PDF toolchain
+# can run as the unprivileged user (LaTeX/PDF toolchain, gh CLI, etc.).
 #
 # This script is idempotent — safe to re-run.
 #
@@ -91,8 +91,8 @@ else
     INSTALLED+=(gh)
 fi
 
-# ── Step 3: Pandoc + LaTeX (aIware toolchain) ──────────────────────
-log_step 3 $TOTAL_STEPS "Pandoc + LaTeX (aIware PDF toolchain)"
+# ── Step 3: Pandoc + LaTeX (PDF toolchain) ─────────────────────────
+log_step 3 $TOTAL_STEPS "Pandoc + LaTeX (PDF toolchain)"
 
 latex_packages=(
     pandoc

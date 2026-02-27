@@ -29,7 +29,7 @@ Update `user-profile.md` with their answers. Keep it concise — bullet points, 
 
 ### 3. MCP Server Setup
 
-Read `~/.claude/.mcp.json` to see what was configured during `setup.sh`. Check which servers are present and which are missing.
+Read `~/.mcp.json` to see what was configured during `setup.sh`. Check which servers are present and which are missing.
 
 **Walk through each unconfigured server and offer to set it up:**
 
@@ -48,7 +48,7 @@ Read `~/.claude/.mcp.json` to see what was configured during `setup.sh`. Check w
 **For each server the user wants:**
 1. Explain what credentials are needed and where to get them
 2. Ask the user to paste the credentials
-3. Update `~/.claude/.mcp.json` by reading the current file, adding the new server entry, and writing it back
+3. Update `~/.mcp.json` by reading the current file, adding the new server entry, and writing it back
 4. Tell the user they'll need to restart Claude Code for new servers to take effect
 
 **Important notes for credential collection:**
@@ -114,7 +114,7 @@ Tell the user:
 - What was configured (profile, MCP servers, domains, projects)
 - How to sync across machines (`git push` from here, `git pull` + `bash setup.sh` on the other machine)
 - How to add more projects later
-- How to add more MCP servers later (edit `~/.claude/.mcp.json`, restart Claude)
+- How to add more MCP servers later (edit `~/.mcp.json`, restart Claude)
 - How to customize further (edit files in this repo, then `bash sync.sh deploy`)
 
 ## Important

@@ -113,7 +113,7 @@ To add your own: copy `global/domains/_template/`, edit, and reference it from y
 
 **Claude doesn't see MCP servers:** Restart Claude. MCP servers cache credentials at startup.
 
-**Private GitHub repos return 404:** The env var must be `GITHUB_PERSONAL_ACCESS_TOKEN` (not `GITHUB_TOKEN`). Check `~/.claude/.mcp.json`.
+**Private GitHub repos return 404:** The env var must be `GITHUB_PERSONAL_ACCESS_TOKEN` (not `GITHUB_TOKEN`). Check `~/.mcp.json` (or `~/.cc-mirror/mclaude/config/.mcp.json` if using cc-mirror).
 
 **Session state not persisting:** Make sure you're running Claude from a project directory that has `session-context.md`, or from `~/cfg-agent-fleet/` itself.
 
