@@ -110,18 +110,21 @@ Do NOT embed tokens in this file. All credentials live in `.mcp.json`.
 - Graph persists across sessions in a JSONL file. Set `MEMORY_FILE_PATH` env var to control location.
 - Tools: `create_entities`, `create_relations`, `add_observations`, `delete_entities`, `delete_relations`, `delete_observations`, `read_graph`, `search_nodes`, `open_nodes`.
 
-### 8. Diagram Bridge
+### 8. Diagram (Mermaid)
 
 | Field | Value |
 |-------|-------|
-| **Package** | `diagram-bridge-mcp` |
-| **Command** | `npx -y diagram-bridge-mcp` |
-| **Purpose** | Render diagrams in 30+ formats via Kroki.io (Graphviz, Mermaid, PlantUML, D2, etc.) |
+| **Server name** | `diagram` |
+| **Package** | `mcp-mermaid-image-gen` (via `uvx`) |
+| **Command** | `uvx --from mcp-mermaid-image-gen mcp_mermaid_image_gen` |
+| **Purpose** | Generate Mermaid diagrams as PNG/SVG/PDF files |
 | **Auth** | None |
 
 **Key gotchas:**
-- Requires internet access to reach Kroki.io rendering service.
-- Output is rendered images (SVG/PNG), not editable graph data.
+- **Requires `mmdc` (mermaid-cli) globally installed:** `npm install -g @mermaid-js/mermaid-cli`
+- Tools: `generate_mermaid_diagram_file` (saves to disk), `generate_mermaid_diagram_stream` (SSE only — won't work in stdio mode).
+- Use `generate_mermaid_diagram_file` — pass `code` (Mermaid syntax), `folder` (output dir), `name` (filename), optional `theme` (default/neutral/dark/forest/base), `format` (png/svg/pdf).
+- For non-Mermaid diagrams (PlantUML, Graphviz, D2), fall back to CLI tools or manual rendering. This server is Mermaid-only.
 
 ### 9. PostgreSQL (Optional)
 

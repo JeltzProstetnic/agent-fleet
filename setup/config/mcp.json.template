@@ -93,11 +93,12 @@
         "PATH": "__PATH__"
       }
     },
-    "diagram-bridge": {
-      "command": "__NPX_CMD__",
+    "diagram": {
+      "command": "__UVX_CMD__",
       "args": [
-        "-y",
-        "diagram-bridge-mcp"
+        "--from",
+        "mcp-mermaid-image-gen",
+        "mcp_mermaid_image_gen"
       ],
       "env": {
         "PATH": "__PATH__"

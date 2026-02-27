@@ -426,7 +426,7 @@ configure_mcp_servers() {
     log_info "Deploying settings.local.json with MCP enablement flags..."
 
     # Build the enabledMcpjsonServers list based on what was configured
-    local servers='"serena", "playwright", "memory", "diagram-bridge"'
+    local servers='"serena", "playwright", "memory", "diagram"'
     [[ "${setup_github}" == "true" ]] && servers="${servers}, \"github\""
     [[ "${setup_google}" == "true" ]] && servers="${servers}, \"google-workspace\""
     [[ "${setup_twitter}" == "true" ]] && servers="${servers}, \"twitter\""

@@ -59,3 +59,7 @@ Every project's `CLAUDE.md` follows this format:
 - `.claude/knowledge/<file>.md` — project-specific protocols
 - `backlog.md` — project backlog (read when active TODOs are done)
 ```
+
+## Cross-Project References (if applicable)
+
+- Strategy files: `~/claude-config/cross-project/<name>-strategy.md`

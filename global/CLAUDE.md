@@ -2,6 +2,7 @@
 
 @~/.claude/foundation/user-profile.md
 @~/.claude/foundation/session-protocol.md
+@~/.claude/reference/mcp-catalog.md
 
 Config repo: `~/claude-config/`
 
@@ -18,6 +19,7 @@ If `CLAUDE.local.md` is missing, fall back to reading `~/.claude/machines/<machi
 **Auto-loaded via @import** (no action needed — loaded before you see this):
 - `user-profile.md` — who the user is
 - `session-protocol.md` — session context persistence rules
+- `mcp-catalog.md` — MCP server tools, limitations, and auth details
 - Machine file — via `CLAUDE.local.md` (machine-specific, not synced)
 
 **Manual steps — execute in order:**
@@ -35,7 +37,6 @@ If `CLAUDE.local.md` is missing, fall back to reading `~/.claude/machines/<machi
 5. **Conditional loading (do NOT load unless triggered):**
    - New/unconfigured project detected: `~/.claude/foundation/project-setup.md`
    - Roster changes needed: `~/.claude/foundation/roster-management.md`
-   - MCP tool usage or issues: `~/.claude/reference/mcp-catalog.md`
    - Code project using Serena: `~/.claude/reference/serena.md`
    - WSL troubleshooting: `~/.claude/reference/wsl-environment.md`
    - Subagent permission failures: `~/.claude/reference/permissions.md`
@@ -81,7 +82,7 @@ If the user says "always do X" or "remember to do Y" → that's a rule → `CLAU
 
 **MCP-first rule:** Always prefer MCP server tools over bash/CLI equivalents when available. GitHub MCP for repo/issue/PR operations (not `gh` CLI or `curl`), Google Workspace MCP for email/docs/calendar, Twitter MCP for tweets, Serena for code navigation in code projects. Only fall back to CLI when MCP genuinely can't do the operation (e.g., `git clone` to local filesystem), or when the MCP catalog documents a known limitation for that specific tool.
 
-**URL/service identification rule:** When the user provides a URL or a task involves an external service, FIRST identify the service (github.com → GitHub, docs.google.com/drive.google.com → Google Workspace, etc.). Then check the MCP catalog for matching tools and known limitations. Only after that, decide whether to use MCP tools or fall back to WebFetch/CLI. Never jump straight to generic fetching without this identification step.
+**URL/service identification rule:** When the user provides a URL or a task involves an external service, FIRST identify the service (x.com/twitter.com → Twitter, github.com → GitHub, docs.google.com/drive.google.com → Google Workspace, etc.). Then check the MCP catalog for matching tools and known limitations. Only after that, decide whether to use MCP tools or fall back to WebFetch/CLI. Never jump straight to generic fetching without this identification step.
 
 **Backlog convention:** Every project has `backlog.md` at root. Do NOT read at session start — only when active tasks are done or user asks. All backlogs follow this standard format:
 

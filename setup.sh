@@ -442,8 +442,8 @@ fi
 # --- Auto-included servers (no credentials needed) ---
 ok "Playwright (browser automation): auto-included"
 ok "Memory (knowledge graph): auto-included"
-ok "Diagram Bridge (Graphviz/Mermaid/D2 rendering): auto-included"
-CONFIGURED_SERVERS="$CONFIGURED_SERVERS, playwright, memory, diagram-bridge"
+ok "Diagram (Mermaid diagram generation): auto-included"
+CONFIGURED_SERVERS="$CONFIGURED_SERVERS, playwright, memory, diagram"
 
 # --- Build .mcp.json ---
 # Start with Serena (always present)
@@ -530,9 +530,9 @@ if command -v node &>/dev/null; then
       env: { PATH: '$SAFE_PATH' }
     };
 
-    mcp.mcpServers['diagram-bridge'] = {
-      command: '$NPX_CMD',
-      args: ['-y', 'diagram-bridge-mcp'],
+    mcp.mcpServers['diagram'] = {
+      command: '$UVX_CMD',
+      args: ['--from', 'mcp-mermaid-image-gen', 'mcp_mermaid_image_gen'],
       env: { PATH: '$SAFE_PATH' }
     };
 
@@ -573,7 +573,7 @@ MCP_LIST=""
 [[ "$setup_twitter" == true ]] && MCP_LIST="${MCP_LIST}twitter, "
 [[ "$setup_jira" == true ]] && MCP_LIST="${MCP_LIST}jira, "
 [[ "$setup_postgres" == true ]] && MCP_LIST="${MCP_LIST}postgres, "
-MCP_LIST="${MCP_LIST}playwright, memory, diagram-bridge, serena"
+MCP_LIST="${MCP_LIST}playwright, memory, diagram, serena"
 
 sed -i "s/(none configured yet)/${MCP_LIST}/" "$CATALOG_FILE"
 ok "Wrote ~/.claude/.mcp.json ($CONFIGURED_SERVERS)"
