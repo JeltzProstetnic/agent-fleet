@@ -2,7 +2,7 @@
 # SessionStart hook: check for config sync failures, symlink health, and inbox tasks.
 # Outputs JSON with systemMessage so Claude sees the warning in context.
 
-CONFIG_REPO="$HOME/claude-config"
+CONFIG_REPO="$HOME/cfg-agent-fleet"
 FAIL_MARKER="$CONFIG_REPO/.sync-failed"
 WARNINGS=""
 
@@ -15,17 +15,17 @@ if [ -f "$FAIL_MARKER" ]; then
     stage=$(grep '^stage=' "$FAIL_MARKER" | cut -d= -f2)
     time=$(grep '^time=' "$FAIL_MARKER" | cut -d= -f2-)
     detail=$(grep '^detail=' "$FAIL_MARKER" | cut -d= -f2-)
-    WARNINGS="CONFIG SYNC FAILED at $time — stage: $stage, detail: $detail. Run 'bash ~/claude-config/sync.sh status' to diagnose. Uncommitted config changes may exist in ~/claude-config/."
+    WARNINGS="CONFIG SYNC FAILED at $time — stage: $stage, detail: $detail. Run 'bash ~/cfg-agent-fleet/sync.sh status' to diagnose. Uncommitted config changes may exist in ~/cfg-agent-fleet/."
 fi
 
 # Check 2: Are symlinks intact?
 if [ ! -L "$HOME/.claude/CLAUDE.md" ]; then
-    WARNINGS="${WARNINGS:+$WARNINGS | }CLAUDE.md is not symlinked to config repo. Run 'bash ~/claude-config/sync.sh setup' to restore."
+    WARNINGS="${WARNINGS:+$WARNINGS | }CLAUDE.md is not symlinked to config repo. Run 'bash ~/cfg-agent-fleet/sync.sh setup' to restore."
 fi
 
 # Check 3: Does config repo exist?
 if [ ! -d "$CONFIG_REPO/.git" ]; then
-    WARNINGS="${WARNINGS:+$WARNINGS | }Config repo not found at ~/claude-config/. Clone your config repo to ~/claude-config/ and run: bash ~/claude-config/sync.sh setup"
+    WARNINGS="${WARNINGS:+$WARNINGS | }Config repo not found at ~/cfg-agent-fleet/. Clone your config repo to ~/cfg-agent-fleet/ and run: bash ~/cfg-agent-fleet/sync.sh setup"
 fi
 
 # Check 4: Pull latest config (so inbox is current)
@@ -44,7 +44,7 @@ if [ -f "$INBOX" ]; then
     fi
     TOTAL=$(grep -c '\- \[ \]' "$INBOX" 2>/dev/null || echo "0")
     if [ "$TOTAL" -gt 0 ]; then
-        INBOX_MSG="${INBOX_MSG:+$INBOX_MSG | }Cross-project inbox has $TOTAL pending task(s). Read ~/claude-config/cross-project/inbox.md"
+        INBOX_MSG="${INBOX_MSG:+$INBOX_MSG | }Cross-project inbox has $TOTAL pending task(s). Read ~/cfg-agent-fleet/cross-project/inbox.md"
     fi
 fi
 

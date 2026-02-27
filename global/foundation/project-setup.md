@@ -24,7 +24,7 @@ A project is considered new (and triggers full roster + skill discovery) when **
 4. **Configure MCP servers** — determine which servers are needed (code → Serena; GitHub repo → GitHub MCP; etc.)
 5. **Set up roster** — create `.claude/agents/`, `.claude/skills/`, copy selected files
 6. **Create session-context.md** — initial project state
-7. **Add project to registry**: update `~/claude-config/registry.md`
+7. **Add project to registry**: update `~/cfg-agent-fleet/registry.md`
 8. **Tell the user**: "Roster set up with N agents and M skills. Please restart to load them."
 
 ---
@@ -62,4 +62,4 @@ Every project's `CLAUDE.md` follows this format:
 
 ## Cross-Project References (if applicable)
 
-- Strategy files: `~/claude-config/cross-project/<name>-strategy.md`
+- Strategy files: `~/cfg-agent-fleet/cross-project/<name>-strategy.md`

@@ -141,7 +141,7 @@ print("\nDone. Restart mclaude to pick up new tokens.")
 PYEOF
     else
       echo "WARNING: $MCP_CONFIG not found. Skipping MCP deployment."
-      echo "Run 'bash ~/claude-config/sync.sh setup' first to set up the config structure."
+      echo "Run 'bash ~/cfg-agent-fleet/sync.sh setup' first to set up the config structure."
     fi
 
     # Clean up plaintext

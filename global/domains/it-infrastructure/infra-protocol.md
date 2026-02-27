@@ -1,6 +1,6 @@
 # IT Infrastructure Protocol
 
-**Applies to:** nuc project (primary), claude-config (VPS/bootstrap), any infra work
+**Applies to:** nuc project (primary), cfg-agent-fleet (VPS/bootstrap), any infra work
 
 ## Scope
 
@@ -8,7 +8,7 @@ Home and cloud infrastructure: servers, networking, Docker services, DNS, SSL, s
 
 ## Machines & Services
 
-**Always check current state in:** `~/claude-config/cross-project/infrastructure-strategy.md`
+**Always check current state in:** `~/cfg-agent-fleet/cross-project/infrastructure-strategy.md`
 
 Key systems:
 - **VPS** (__VPS_IP__): Ubuntu 24.04, Docker, nginx-proxy, ttyd web terminal, Claude Code
@@ -18,7 +18,7 @@ Key systems:
 ## Operational Rules
 
 ### Before changing infrastructure:
-1. Read `~/claude-config/cross-project/infrastructure-strategy.md` for current state
+1. Read `~/cfg-agent-fleet/cross-project/infrastructure-strategy.md` for current state
 2. Check which services depend on what you're changing
 3. For VPS: verify SSH access works before making changes
 4. For Docker: `docker ps` before touching containers
@@ -47,4 +47,4 @@ Key systems:
 
 ## Coordination
 
-Infrastructure touches multiple projects. Use `~/claude-config/cross-project/inbox.md` to notify other projects of changes. See `infrastructure-strategy.md` § Coordination Rules for the full protocol.
+Infrastructure touches multiple projects. Use `~/cfg-agent-fleet/cross-project/inbox.md` to notify other projects of changes. See `infrastructure-strategy.md` § Coordination Rules for the full protocol.

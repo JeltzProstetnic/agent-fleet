@@ -14,8 +14,8 @@ You need:
 ## Step 1: Clone and run setup
 
 ```bash
-git clone https://github.com/YOUR_USERNAME/claude-config ~/claude-config
-cd ~/claude-config
+git clone https://github.com/YOUR_USERNAME/cfg-agent-fleet ~/cfg-agent-fleet
+cd ~/cfg-agent-fleet
 bash setup.sh
 ```
 
@@ -63,27 +63,27 @@ The setup script created this structure:
 
 ```
 ~/.claude/
-  CLAUDE.md     -> ~/claude-config/global/CLAUDE.md     (symlink)
-  foundation/   -> ~/claude-config/global/foundation/   (symlink)
-  domains/      -> ~/claude-config/global/domains/       (symlink)
-  reference/    -> ~/claude-config/global/reference/     (symlink)
-  knowledge/    -> ~/claude-config/global/knowledge/     (symlink)
-  machines/     -> ~/claude-config/global/machines/      (symlink)
+  CLAUDE.md     -> ~/cfg-agent-fleet/global/CLAUDE.md     (symlink)
+  foundation/   -> ~/cfg-agent-fleet/global/foundation/   (symlink)
+  domains/      -> ~/cfg-agent-fleet/global/domains/       (symlink)
+  reference/    -> ~/cfg-agent-fleet/global/reference/     (symlink)
+  knowledge/    -> ~/cfg-agent-fleet/global/knowledge/     (symlink)
+  machines/     -> ~/cfg-agent-fleet/global/machines/      (symlink)
   hooks/        (copied from global/hooks/)
 
 ~/.mcp.json     (generated with your MCP server credentials)
 ~/CLAUDE.local.md  (points to your machine file)
 ```
 
-Your config lives in `~/claude-config/` (a git repo). Edit there, and changes propagate to `~/.claude/` via symlinks.
+Your config lives in `~/cfg-agent-fleet/` (a git repo). Edit there, and changes propagate to `~/.claude/` via symlinks.
 
 ## Adding a second machine
 
 On the new machine:
 
 ```bash
-git clone YOUR_REPO_URL ~/claude-config
-cd ~/claude-config
+git clone YOUR_REPO_URL ~/cfg-agent-fleet
+cd ~/cfg-agent-fleet
 bash setup.sh
 ```
 
@@ -94,7 +94,7 @@ Same setup, same config. Session state and knowledge sync via git (push from one
 When Claude is running in any project directory, it automatically picks up the global config. To add project-specific rules:
 
 1. Create `<project>/.claude/CLAUDE.md` with project-specific instructions
-2. Add the project to `~/claude-config/registry.md`
+2. Add the project to `~/cfg-agent-fleet/registry.md`
 
 The example at `projects/_example/rules/CLAUDE.md` shows the format.
 
@@ -115,6 +115,6 @@ To add your own: copy `global/domains/_template/`, edit, and reference it from y
 
 **Private GitHub repos return 404:** The env var must be `GITHUB_PERSONAL_ACCESS_TOKEN` (not `GITHUB_TOKEN`). Check `~/.claude/.mcp.json`.
 
-**Session state not persisting:** Make sure you're running Claude from a project directory that has `session-context.md`, or from `~/claude-config/` itself.
+**Session state not persisting:** Make sure you're running Claude from a project directory that has `session-context.md`, or from `~/cfg-agent-fleet/` itself.
 
-**Need to change MCP credentials:** Edit `~/.mcp.json` directly, or re-run `bash ~/claude-config/setup.sh` (it backs up existing files before overwriting). Restart Claude Code after changes.
+**Need to change MCP credentials:** Edit `~/.mcp.json` directly, or re-run `bash ~/cfg-agent-fleet/setup.sh` (it backs up existing files before overwriting). Restart Claude Code after changes.

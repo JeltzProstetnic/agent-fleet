@@ -39,8 +39,8 @@ Claude Code runs inside WSL (Windows Subsystem for Linux). If you haven't set up
 **1. Fork this repo** on GitHub (click the Fork button above), then:
 
 ```bash
-git clone https://github.com/YOUR_USERNAME/claude-config ~/claude-config
-cd ~/claude-config
+git clone https://github.com/YOUR_USERNAME/cfg-agent-fleet ~/cfg-agent-fleet
+cd ~/cfg-agent-fleet
 bash setup.sh
 ```
 
@@ -134,7 +134,7 @@ This all happens automatically. You just use Claude normally.
 ### Directory Structure
 
 ```
-claude-config/
+cfg-agent-fleet/
 │
 ├── setup.sh                       Run this first — sets everything up
 ├── sync.sh                        Keeps config in sync (automated by hooks)
@@ -233,8 +233,8 @@ Or do it manually: create `<your-project>/.claude/CLAUDE.md` using the example i
 ### Set up a second computer
 
 ```bash
-git clone YOUR_REPO_URL ~/claude-config
-cd ~/claude-config
+git clone YOUR_REPO_URL ~/cfg-agent-fleet
+cd ~/cfg-agent-fleet
 bash setup.sh
 ```
 
@@ -279,8 +279,8 @@ No computer is special. Clone the repo, run `setup.sh`, and any machine is a ful
 ### Setting up a new machine
 
 ```bash
-git clone YOUR_REPO_URL ~/claude-config
-cd ~/claude-config
+git clone YOUR_REPO_URL ~/cfg-agent-fleet
+cd ~/cfg-agent-fleet
 bash setup.sh
 ```
 
@@ -358,7 +358,7 @@ openssl enc -aes-256-cbc -d -salt -pbkdf2 -in secrets/vault.json.enc -out secret
 
 ## Common Mistakes
 
-**Editing files in the wrong place.** The repo (`~/claude-config/`) is the source of truth. Edit there, then `bash sync.sh deploy`. Don't edit the symlink targets directly in `~/.claude/` — those changes get overwritten.
+**Editing files in the wrong place.** The repo (`~/cfg-agent-fleet/`) is the source of truth. Edit there, then `bash sync.sh deploy`. Don't edit the symlink targets directly in `~/.claude/` — those changes get overwritten.
 
 **Forgetting to sync after changes.** After editing global rules or foundation files, run `bash sync.sh deploy` to push changes to live locations. Or let the session hooks handle it automatically.
 
@@ -378,7 +378,7 @@ openssl enc -aes-256-cbc -d -salt -pbkdf2 -in secrets/vault.json.enc -out secret
 
 **GitHub returns "Not Found" on private repos** — The env var must be `GITHUB_PERSONAL_ACCESS_TOKEN` (not `GITHUB_TOKEN`). Check `~/.mcp.json`.
 
-**Session state not persisting** — Make sure you're running Claude from a directory that has `session-context.md`, or from `~/claude-config/` itself.
+**Session state not persisting** — Make sure you're running Claude from a directory that has `session-context.md`, or from `~/cfg-agent-fleet/` itself.
 
 **Symlinks broken after git pull** — Run `bash sync.sh setup` to recreate them.
 

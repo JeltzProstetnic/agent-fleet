@@ -12,7 +12,7 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-CONFIG_REPO="$HOME/claude-config"
+CONFIG_REPO="$HOME/cfg-agent-fleet"
 CC_MIRROR_DIR="$HOME/.cc-mirror/mclaude"
 BIN_DIR="$HOME/.local/bin"
 SKILL_COLLECTIONS_DIR="$HOME/.local/share/skill-collections"
@@ -91,18 +91,18 @@ fi
 log_info "gh: $(gh --version | head -1)"
 
 # ──────────────────────────────────────────────
-# Step 2: Clone claude-config (private repo)
+# Step 2: Clone cfg-agent-fleet (private repo)
 # ──────────────────────────────────────────────
-log_step "Step 2/11: Clone claude-config"
+log_step "Step 2/11: Clone cfg-agent-fleet"
 
 if [[ -d "$CONFIG_REPO/.git" ]]; then
-    log_info "claude-config already exists — pulling..."
+    log_info "cfg-agent-fleet already exists — pulling..."
     git -C "$CONFIG_REPO" pull --quiet
 else
-    log_info "Cloning claude-config (private)..."
-    git clone --quiet "https://${GITHUB_PERSONAL_ACCESS_TOKEN}@github.com/__GITHUB_USERNAME__/claude-config.git" "$CONFIG_REPO"
+    log_info "Cloning cfg-agent-fleet (private)..."
+    git clone --quiet "https://${GITHUB_PERSONAL_ACCESS_TOKEN}@github.com/__GITHUB_USERNAME__/cfg-agent-fleet.git" "$CONFIG_REPO"
 fi
-log_info "claude-config → $CONFIG_REPO"
+log_info "cfg-agent-fleet → $CONFIG_REPO"
 
 # Copy secrets.env into the repo's vps/ dir (gitignored)
 cp "$SECRETS_FILE" "$CONFIG_REPO/vps/secrets.env" 2>/dev/null || true
@@ -601,7 +601,7 @@ git config --global user.name "__YOUR_NAME__"
 git config --global core.autocrlf input
 
 # Store GitHub credentials for push (used by auto-sync hook)
-git -C "$CONFIG_REPO" remote set-url origin "https://${GITHUB_PERSONAL_ACCESS_TOKEN}@github.com/__GITHUB_USERNAME__/claude-config.git"
+git -C "$CONFIG_REPO" remote set-url origin "https://${GITHUB_PERSONAL_ACCESS_TOKEN}@github.com/__GITHUB_USERNAME__/cfg-agent-fleet.git"
 
 # ──────────────────────────────────────────────
 # Bonus: tmux config for persistent sessions
@@ -645,7 +645,7 @@ echo ""
 echo "  To start:"
 echo "    source ~/.bashrc"
 echo "    tmux new -s claude"
-echo "    cd ~/claude-config && mclaude"
+echo "    cd ~/cfg-agent-fleet && mclaude"
 echo ""
 echo "  Note: Google Workspace OAuth will need browser auth on first use."
 echo "  Since this is a headless VPS, you may need to handle the OAuth"

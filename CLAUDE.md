@@ -40,13 +40,13 @@ Claude Code configuration management across all machines and projects.
 
 | File | Purpose |
 |------|---------|
-| `cross-project/infrastructure-strategy.md` | Shared infra strategy (nuc + claude-config). VPS, multi-machine sync, NUC migration. |
+| `cross-project/infrastructure-strategy.md` | Shared infra strategy (nuc + cfg-agent-fleet). VPS, multi-machine sync, NUC migration. |
 | `cross-project/visibility-strategy.md` | Shared visibility strategy. Researchers, conferences, media. |
 | `cross-project/inbox.md` | One-off cross-project tasks (transient, picked up and deleted) |
 
 ## Rules for Claude
 
-- When working on ANY project, be aware this config repo exists at `~/claude-config/`
+- When working on ANY project, be aware this config repo exists at `~/cfg-agent-fleet/`
 - After changing any global rule or CLAUDE.md during a session, remind the user to sync
 - When setting up a new project, add it to the registry
 - When infrastructure or deployment state changes, update `cross-project/infrastructure-strategy.md`

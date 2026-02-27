@@ -12,7 +12,7 @@ The phone book for all projects and machines. Read this when a user mentions a p
 
 | Project | Path | Description | Active |
 |---------|------|-------------|--------|
-| claude-config | `~/claude-config/` | Claude Code configuration management | yes |
+| cfg-agent-fleet | `~/cfg-agent-fleet/` | Claude Code configuration management | yes |
 
 ## Adding a Project
 

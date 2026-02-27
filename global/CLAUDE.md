@@ -4,7 +4,7 @@
 @~/.claude/foundation/session-protocol.md
 @~/.claude/reference/mcp-catalog.md
 
-Config repo: `~/claude-config/`
+Config repo: `~/cfg-agent-fleet/`
 
 ## Machine Identity
 
@@ -24,9 +24,9 @@ If `CLAUDE.local.md` is missing, fall back to reading `~/.claude/machines/<machi
 
 **Manual steps — execute in order:**
 
-0. **ALWAYS check for remote changes — BEFORE reading any files.** Run `bash ~/claude-config/setup/scripts/git-sync-check.sh --pull` in the project directory. This fetches, reports incoming changes, and fast-forward pulls if behind. If it reports changes, re-read affected files. If it fails (diverged, merge conflict), resolve before proceeding. This applies to EVERY project, EVERY session, no exceptions. Reading stale files leads to wrong context, missed tasks, and wasted work.
+0. **ALWAYS check for remote changes — BEFORE reading any files.** Run `bash ~/cfg-agent-fleet/setup/scripts/git-sync-check.sh --pull` in the project directory. This fetches, reports incoming changes, and fast-forward pulls if behind. If it reports changes, re-read affected files. If it fails (diverged, merge conflict), resolve before proceeding. This applies to EVERY project, EVERY session, no exceptions. Reading stale files leads to wrong context, missed tasks, and wasted work.
 
-1. **ALWAYS read cross-project inbox:** `~/claude-config/cross-project/inbox.md` — pick up tasks for this project, delete them after integrating. This is the cross-device task passing mechanism (mobile/VPS/PC all sync via git).
+1. **ALWAYS read cross-project inbox:** `~/cfg-agent-fleet/cross-project/inbox.md` — pick up tasks for this project, delete them after integrating. This is the cross-device task passing mechanism (mobile/VPS/PC all sync via git).
 
 2. **Read the project's `CLAUDE.md`** (manifest) — it declares what domains to load
 
@@ -53,7 +53,7 @@ If `CLAUDE.local.md` is missing, fall back to reading `~/.claude/machines/<machi
 
 - Foundation modules: `~/.claude/foundation/INDEX.md`
 - Domain catalog: `~/.claude/domains/INDEX.md`
-- **Project catalog: `~/claude-config/registry.md`** — read when user mentions other projects
+- **Project catalog: `~/cfg-agent-fleet/registry.md`** — read when user mentions other projects
 
 ## Conventions
 
@@ -65,11 +65,11 @@ If `CLAUDE.local.md` is missing, fall back to reading `~/.claude/machines/<machi
 | Technical decisions & rationale | `docs/decisions.md` in the project | Memory has no structure |
 | Debugging patterns, technical recipes | `~/.claude/knowledge/<topic>.md` | Memory is per-project, knowledge is global |
 | Machine-specific state | `~/.claude/machines/<machine>.md` | Memory doesn't survive machine changes |
-| Cross-project coordination | `~/claude-config/cross-project/` files | Memory can't cross projects |
+| Cross-project coordination | `~/cfg-agent-fleet/cross-project/` files | Memory can't cross projects |
 
 **Auto-memory's only valid use:** Temporary orientation notes for a specific project that don't fit anywhere else (e.g., "this project's CI is flaky on Tuesdays"). Keep it under 50 lines. When in doubt, DON'T write to memory — write to a proper file.
 
-If the user says "always do X" or "remember to do Y" → that's a rule → `CLAUDE.md`. If it's global, route through cross-project inbox for claude-config integration. If project-scoped, write to the project's `CLAUDE.md` directly.
+If the user says "always do X" or "remember to do Y" → that's a rule → `CLAUDE.md`. If it's global, route through cross-project inbox for cfg-agent-fleet integration. If project-scoped, write to the project's `CLAUDE.md` directly.
 
 **Output rule:** Any document, summary, or one-pager MUST be delivered as **PDF**, not markdown. The user does not read `.md` files. Write the `.md` as source, convert to PDF, open the PDF:
 - **Convert (preferred — weasyprint)**: `pandoc input.md -o input.html --standalone && weasyprint input.html output.pdf`
@@ -115,17 +115,17 @@ If the user says "always do X" or "remember to do Y" → that's a rule → `CLAU
 - **Open section**: flat list sorted by priority (P1 first), no subsections. Keep it scannable.
 - **Done section**: group by date, most recent first. Move tasks here when completed — don't delete them.
 
-**Cross-project boundary rule — HARD CONSTRAINT:** You may ONLY write to files inside your current working project. Writing to ANY file in another project's directory is FORBIDDEN — even if you know the path, even if it seems convenient, even for "shared" files in `~/claude-config/`. The ONLY legal way to affect another project is through the cross-project inbox. Violations of this rule cause silent data corruption and task loss.
+**Cross-project boundary rule — HARD CONSTRAINT:** You may ONLY write to files inside your current working project. Writing to ANY file in another project's directory is FORBIDDEN — even if you know the path, even if it seems convenient, even for "shared" files in `~/cfg-agent-fleet/`. The ONLY legal way to affect another project is through the cross-project inbox. Violations of this rule cause silent data corruption and task loss.
 
 Path ownership (concrete mapping):
-- `~/claude-config/*` and `~/.claude/*` — owned by **claude-config** project
+- `~/cfg-agent-fleet/*` and `~/.claude/*` — owned by **cfg-agent-fleet** project
 - `~/<project>/*` — owned by that specific project (writable only when working in it)
-- `~/claude-config/cross-project/inbox.md` — writable from any project (always)
-- `~/claude-config/cross-project/*.md` strategy files — writable during shutdown only (see shutdown checklist)
+- `~/cfg-agent-fleet/cross-project/inbox.md` — writable from any project (always)
+- `~/cfg-agent-fleet/cross-project/*.md` strategy files — writable during shutdown only (see shutdown checklist)
 
 Reading files and executing scripts from any project is always permitted. Only writing/editing files outside your current working project is forbidden (except the inbox and shutdown strategy files listed above).
 
-**Cross-project inbox:** `~/claude-config/cross-project/inbox.md`
+**Cross-project inbox:** `~/cfg-agent-fleet/cross-project/inbox.md`
 - The inbox is the ONLY mechanism for cross-project communication
 - Tasks are per-project (one entry per project, not broadcasts)
 - Pick up YOUR project's tasks, delete them from inbox after integrating
@@ -139,12 +139,12 @@ Reading files and executing scripts from any project is always permitted. Only w
 **Session shutdown checklist — MANDATORY.** When the user says "prepare for shutdown", "exit", "auto-compact restart", or anything suggesting session end → run ALL 7 steps from `~/.claude/foundation/session-protocol.md` Section "Session Shutdown Checklist", without asking. That file is the canonical, detailed checklist. Quick summary:
 
 1. Update `session-context.md` with final state and recovery instructions
-2. Run `bash ~/claude-config/setup/scripts/rotate-session.sh` + update `docs/decisions.md` if needed
+2. Run `bash ~/cfg-agent-fleet/setup/scripts/rotate-session.sh` + update `docs/decisions.md` if needed
 3. Drop cross-project inbox tasks if this session affects other projects
 4. Update shared strategy files you touched (shutdown boundary exception)
 5. Update machine file (`~/.claude/machines/<machine>.md`) if machine state changed
 6. `git add`, commit, push
-7. Run `bash ~/claude-config/sync.sh collect` to verify
+7. Run `bash ~/cfg-agent-fleet/sync.sh collect` to verify
 
 No exceptions. No asking "want me to commit?" — just do it.
 
@@ -154,13 +154,13 @@ No exceptions. No asking "want me to commit?" — just do it.
 
 **Protocol creation:** When domain-complexity mistakes happen, create a protocol. See `~/.claude/foundation/protocol-creation.md`.
 
-**Adding domains:** Create dir under `~/claude-config/global/domains/`, add protocols, update `domains/INDEX.md`, reference from project manifests. These operations require being in the claude-config project context. From other projects, route domain creation requests through the cross-project inbox.
+**Adding domains:** Create dir under `~/cfg-agent-fleet/global/domains/`, add protocols, update `domains/INDEX.md`, reference from project manifests. These operations require being in the cfg-agent-fleet project context. From other projects, route domain creation requests through the cross-project inbox.
 
-**Sync:** `bash ~/claude-config/sync.sh setup|deploy|collect|status`
+**Sync:** `bash ~/cfg-agent-fleet/sync.sh setup|deploy|collect|status`
 
-**New project:** Add to `~/claude-config/registry.md`. See `~/.claude/foundation/project-setup.md`.
+**New project:** Add to `~/cfg-agent-fleet/registry.md`. See `~/.claude/foundation/project-setup.md`.
 
-**New machine:** Populate `~/.claude/machines/<machine>.md` from `machines/_template.md`. Create `~/CLAUDE.local.md` containing `@~/.claude/machines/<machine>.md`. Add hostname pattern to Machine Identity table. Run `bash ~/claude-config/sync.sh setup` to link config. See machine file template for required sections.
+**New machine:** Populate `~/.claude/machines/<machine>.md` from `machines/_template.md`. Create `~/CLAUDE.local.md` containing `@~/.claude/machines/<machine>.md`. Add hostname pattern to Machine Identity table. Run `bash ~/cfg-agent-fleet/sync.sh setup` to link config. See machine file template for required sections.
 
 ## Platform Notes
 

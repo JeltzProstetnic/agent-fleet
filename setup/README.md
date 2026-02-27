@@ -5,7 +5,7 @@ These are internal setup scripts used by `setup.sh` at the repo root. **You shou
 ## Canonical entry point
 
 ```bash
-cd ~/claude-config && bash setup.sh
+cd ~/cfg-agent-fleet && bash setup.sh
 ```
 
 ## What's in here

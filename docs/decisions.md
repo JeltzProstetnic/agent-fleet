@@ -1,4 +1,4 @@
-# Decisions & Requirements — claude-config
+# Decisions & Requirements — cfg-agent-fleet
 
 ## Architecture & Design
 

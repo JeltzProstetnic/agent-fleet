@@ -239,10 +239,10 @@ fi
 log_success "Plugin registration complete"
 
 # ============================================================================
-# STEP 4: UPDATE SETTINGS TEMPLATE (if in claude-config repo)
+# STEP 4: UPDATE SETTINGS TEMPLATE (if in cfg-agent-fleet repo)
 # ============================================================================
 
-# If we're running from within the claude-config repo, also update the template
+# If we're running from within the cfg-agent-fleet repo, also update the template
 TEMPLATE_SETTINGS="${SCRIPT_DIR}/../config/settings.json"
 if [[ -f "${TEMPLATE_SETTINGS}" ]]; then
     print_header "Step 4: Update settings.json template"
@@ -276,7 +276,7 @@ print(f'  Added {added} new entries to template, {len(entries) - added} already 
 
     log_success "Template updated"
 else
-    log_info "Not in claude-config repo — skipping template update"
+    log_info "Not in cfg-agent-fleet repo — skipping template update"
 fi
 
 # ============================================================================

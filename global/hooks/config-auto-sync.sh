@@ -1,11 +1,11 @@
 #!/bin/bash
-# Auto-sync claude-config repo on session end.
+# Auto-sync cfg-agent-fleet repo on session end.
 # Runs as a SessionEnd hook — silent, zero context cost.
 #
-# On failure: writes a marker to ~/claude-config/.sync-failed
+# On failure: writes a marker to ~/cfg-agent-fleet/.sync-failed
 # The SessionStart hook (config-check.sh) reads this marker and alerts the user.
 
-CONFIG_REPO="$HOME/claude-config"
+CONFIG_REPO="$HOME/cfg-agent-fleet"
 FAIL_MARKER="$CONFIG_REPO/.sync-failed"
 
 # Clear any previous failure marker on success path
