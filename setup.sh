@@ -84,7 +84,7 @@ cmd_info() {
 # ---------------------------------------------------------------------------
 # Step 1 — Detect platform
 # ---------------------------------------------------------------------------
-step "1/6" "Detecting platform"
+step "1/7" "Detecting platform"
 
 PLATFORM="linux"
 [[ "$OSTYPE" == "darwin"* ]] && PLATFORM="macos"
@@ -94,7 +94,7 @@ ok "Platform: ${PLATFORM}"
 # ---------------------------------------------------------------------------
 # Step 2 — Check prerequisites
 # ---------------------------------------------------------------------------
-step "2/6" "Checking prerequisites"
+step "2/7" "Checking prerequisites"
 
 command -v git &>/dev/null || die "git is not installed. Please install git first."
 ok "git: $(command -v git)"
@@ -105,7 +105,7 @@ mkdir -p "$CLAUDE_DIR"/{foundation,domains,reference,hooks}
 # ---------------------------------------------------------------------------
 # Step 3 — User profile
 # ---------------------------------------------------------------------------
-step "3/6" "User profile setup"
+step "3/7" "User profile setup"
 
 PROFILE_FILE="$REPO_DIR/global/foundation/user-profile.md"
 
@@ -145,7 +145,7 @@ fi
 # ---------------------------------------------------------------------------
 # Step 4 — Machine catalog
 # ---------------------------------------------------------------------------
-step "4/6" "Machine catalog"
+step "4/7" "Machine catalog"
 
 CLAUDE_MACHINE_ID="${CLAUDE_MACHINE_ID:-}"
 prompt CLAUDE_MACHINE_ID "Machine ID (hostname or custom label)" "$(hostname)"
@@ -192,9 +192,89 @@ EOF
 ok "Wrote machine-catalog.md (machine: ${CLAUDE_MACHINE_ID})"
 
 # ---------------------------------------------------------------------------
-# Step 5 — Symlinks
+# Step 5 — Infrastructure discovery
 # ---------------------------------------------------------------------------
-step "5/6" "Creating symlinks in ${CLAUDE_DIR}"
+step "5/7" "Infrastructure discovery"
+
+INFRA_DIR="$HOME/infrastructure"
+INFRA_SCRIPT="$REPO_DIR/setup/scripts/infra-discover.sh"
+
+if [[ -d "$INFRA_DIR" ]]; then
+  warn "~/infrastructure/ already exists — skipping creation"
+  if [[ "$NON_INTERACTIVE" != true ]]; then
+    read -r -p "  Re-run infrastructure discovery? [y/N]: " _rediscover
+    if [[ "${_rediscover,,}" == "y" && -x "$INFRA_SCRIPT" ]]; then
+      bash "$INFRA_SCRIPT" > "$INFRA_DIR/infrastructure-map.md"
+      ok "Re-discovered infrastructure → infrastructure-map.md"
+    fi
+  fi
+else
+  mkdir -p "$INFRA_DIR/.claude"
+  if [[ -x "$INFRA_SCRIPT" ]]; then
+    bash "$INFRA_SCRIPT" > "$INFRA_DIR/infrastructure-map.md"
+    ok "Discovered infrastructure → infrastructure-map.md"
+  else
+    warn "infra-discover.sh not found or not executable — skipping discovery"
+  fi
+
+  # Copy project template if available
+  INFRA_TEMPLATE="$REPO_DIR/projects/infrastructure/rules/CLAUDE.md"
+  if [[ -f "$INFRA_TEMPLATE" ]]; then
+    cp "$INFRA_TEMPLATE" "$INFRA_DIR/.claude/CLAUDE.md"
+    ok "Installed infrastructure project CLAUDE.md"
+  fi
+
+  # Create starter files
+  cat > "$INFRA_DIR/session-context.md" <<SEOF
+# Session Context
+
+## Session Info
+- **Last Updated**: ${DATE}
+- **Machine**: ${CLAUDE_MACHINE_ID}
+- **Working Directory**: ~/infrastructure
+- **Session Goal**: Initial setup
+
+## Current State
+- **Active Task**: Review infrastructure-map.md
+- **Progress**:
+  - [x] Infrastructure discovery completed
+- **Pending**: Review discovered topology, annotate roles
+
+## Key Decisions
+
+## Recovery Instructions
+1. Review infrastructure-map.md for discovered network topology
+2. Update CLAUDE.md with project-specific access details
+SEOF
+
+  cat > "$INFRA_DIR/backlog.md" <<BEOF
+# Backlog — infrastructure
+
+## Open
+
+- [ ] [P3] **Review infrastructure map**: Review auto-discovered network topology, annotate device roles
+- [ ] [P3] **Set up secrets vault**: Create encrypted vault for credentials (age or openssl)
+
+## Done
+
+### ${DATE}
+- [x] Project created by setup.sh with infrastructure discovery
+BEOF
+
+  # Initialize git repo
+  cd "$INFRA_DIR"
+  git init --quiet
+  git add -A
+  git commit -m "Initial infrastructure project from setup.sh" --quiet 2>/dev/null || true
+  cd "$REPO_DIR"
+
+  ok "Created ~/infrastructure/ with discovery results, backlog, and git repo"
+fi
+
+# ---------------------------------------------------------------------------
+# Step 6 — Symlinks
+# ---------------------------------------------------------------------------
+step "6/7" "Creating symlinks in ${CLAUDE_DIR}"
 
 if [[ -f "$REPO_DIR/global/CLAUDE.md" ]]; then
   backup_if_exists "$CLAUDE_DIR/CLAUDE.md"
@@ -219,7 +299,7 @@ done
 # ---------------------------------------------------------------------------
 # Step 6 — Hooks
 # ---------------------------------------------------------------------------
-step "6/6" "Installing hooks"
+step "7/7" "Installing hooks"
 
 HOOKS_SRC="$REPO_DIR/global/hooks"
 if [[ -d "$HOOKS_SRC" ]]; then
@@ -530,6 +610,7 @@ echo "  Claude can now help you personalize your configuration:"
 echo "  - Refine your user profile with real preferences"
 echo "  - Set up additional MCP servers you skipped above"
 echo "  - Choose which knowledge domains to enable"
+echo "  - Review your infrastructure map and annotate device roles"
 echo "  - Set up your first project"
 echo "  - Add global rules (e.g. 'always use bun', 'never auto-commit')"
 echo ""
