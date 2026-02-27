@@ -25,10 +25,9 @@
 #   Step 2: Configure MCP servers (GitHub, Jira, Serena, Playwright, Memory,
 #           Diagram Bridge, Postgres) with credentials
 #   Step 3: Patch mclaude launcher with MCP enablement + update-checker
-#   Step 4: Install and patch happy-coder for mobile access
-#   Step 5: Deploy helper scripts (update-checker, happy-coder-patch)
-#   Step 6: Deploy global CLAUDE.md configuration
-#   Step 7: Configure WSL settings (git, credentials, bashrc, /etc/wsl.conf)
+#   Step 4: Deploy helper scripts (update-checker)
+#   Step 5: Deploy global CLAUDE.md configuration
+#   Step 6: Configure WSL settings (git, credentials, bashrc, /etc/wsl.conf)
 #
 
 set -euo pipefail
@@ -53,7 +52,7 @@ SCRIPTS_DIR="${HOME}/.cc-mirror/${CC_MIRROR_VARIANT}/scripts"
 LAUNCHER="${HOME}/.local/bin/${CC_MIRROR_VARIANT}"
 
 RECONFIGURE_MCP=false
-TOTAL_STEPS=7
+TOTAL_STEPS=6
 
 # Step tracking for summary
 INSTALLED_STEPS=()
@@ -87,10 +86,9 @@ WHAT THIS SCRIPT DOES:
   2. Configure MCP servers (GitHub, Google Workspace, Twitter, Jira, Serena,
      Playwright, Memory, Diagram Bridge, Postgres)
   3. Patch mclaude launcher with MCP enablement + update-checker
-  4. Install and patch happy-coder for mobile access
-  5. Deploy helper scripts (update-checker, happy-coder-patch)
-  6. Deploy global CLAUDE.md configuration
-  7. Configure WSL settings (git, credentials, bashrc, /etc/wsl.conf)
+  4. Deploy helper scripts (update-checker)
+  5. Deploy global CLAUDE.md configuration
+  6. Configure WSL settings (git, credentials, bashrc, /etc/wsl.conf)
 
 IDEMPOTENCY:
   This script can be run multiple times safely. It will:
@@ -607,63 +605,16 @@ LAUNCHER_PATCH
 }
 
 # ============================================================================
-# STEP 4: INSTALL HAPPY-CODER
-# ============================================================================
-
-install_happy_coder() {
-    log_step 4 "${TOTAL_STEPS}" "Install happy-coder"
-
-    local was_installed=false
-    if command -v happy &>/dev/null; then
-        log_info "happy-coder already installed, checking for updates..."
-        run_cmd npm update -g happy-coder 2>/dev/null || run_cmd npm install -g happy-coder
-        was_installed=true
-    else
-        log_info "Installing happy-coder from npm..."
-        run_cmd npm install -g happy-coder
-    fi
-
-    log_info "Applying cc-mirror patch to happy-coder..."
-    require_file "${SCRIPT_DIR}/scripts/happy-coder-patch.js" "happy-coder patch script"
-
-    run_cmd node "${SCRIPT_DIR}/scripts/happy-coder-patch.js"
-
-    log_success "happy-coder installed and patched"
-
-    if [[ "${was_installed}" == "true" ]]; then
-        INSTALLED_STEPS+=("happy-coder (updated and patched)")
-    else
-        INSTALLED_STEPS+=("happy-coder")
-    fi
-}
-
-# ============================================================================
-# STEP 5: DEPLOY HELPER SCRIPTS
+# STEP 4: DEPLOY HELPER SCRIPTS
 # ============================================================================
 
 deploy_helper_scripts() {
-    log_step 5 "${TOTAL_STEPS}" "Deploy Helper Scripts"
+    log_step 4 "${TOTAL_STEPS}" "Deploy Helper Scripts"
 
     run_cmd mkdir -p "${SCRIPTS_DIR}"
 
     local deployed_count=0
     local skipped_count=0
-
-    # happy-coder-patch.js
-    local src_patch="${SCRIPT_DIR}/scripts/happy-coder-patch.js"
-    local dest_patch="${SCRIPTS_DIR}/happy-coder-patch.js"
-
-    require_file "${src_patch}" "happy-coder-patch.js"
-
-    if files_identical "${src_patch}" "${dest_patch}"; then
-        log_info "happy-coder-patch.js already up to date, skipping"
-        ((skipped_count++))
-    else
-        backup_file "${dest_patch}"
-        run_cmd cp "${src_patch}" "${dest_patch}"
-        log_success "Deployed: happy-coder-patch.js"
-        ((deployed_count++))
-    fi
 
     # update-checker.sh
     local src_checker="${SCRIPT_DIR}/scripts/update-checker.sh"
@@ -708,11 +659,11 @@ deploy_helper_scripts() {
 }
 
 # ============================================================================
-# STEP 6: DEPLOY GLOBAL CLAUDE.md
+# STEP 5: DEPLOY GLOBAL CLAUDE.md
 # ============================================================================
 
 deploy_claude_md() {
-    log_step 6 "${TOTAL_STEPS}" "Deploy Global CLAUDE.md"
+    log_step 5 "${TOTAL_STEPS}" "Deploy Global CLAUDE.md"
 
     local src="${SCRIPT_DIR}/config/CLAUDE.md"
     local dest="${HOME}/.claude/CLAUDE.md"
@@ -737,11 +688,11 @@ deploy_claude_md() {
 }
 
 # ============================================================================
-# STEP 7: CONFIGURE WSL SETTINGS
+# STEP 6: CONFIGURE WSL SETTINGS
 # ============================================================================
 
 configure_wsl_settings() {
-    log_step 7 "${TOTAL_STEPS}" "Configure WSL Settings"
+    log_step 6 "${TOTAL_STEPS}" "Configure WSL Settings"
 
     local changes_made=false
 
@@ -839,9 +790,6 @@ print_summary() {
     echo "  1. Open a new terminal (or run: source ~/.bashrc)"
     echo "  2. Run: mclaude"
     echo ""
-    echo -e "${COLOR_BLUE}For mobile access via happy-coder:${COLOR_RESET}"
-    echo "  Run: happy"
-    echo ""
     echo -e "${COLOR_BLUE}MCP servers are available in ALL projects automatically.${COLOR_RESET}"
     echo "  Server definitions: ${CONFIG_DIR}/.mcp.json"
     echo "  Enablement flags:   ${CONFIG_DIR}/settings.local.json"
@@ -901,7 +849,6 @@ main() {
     # Verify template files
     require_file "${SCRIPT_DIR}/config/settings.json" "settings.json template"
     require_file "${SCRIPT_DIR}/config/mcp.json.template" "MCP template"
-    require_file "${SCRIPT_DIR}/scripts/happy-coder-patch.js" "happy-coder patch script"
     require_file "${SCRIPT_DIR}/scripts/update-checker.sh" "update-checker script"
 
     log_success "Prerequisites verified"
@@ -911,7 +858,6 @@ main() {
     deploy_voltagent_config
     configure_mcp_servers
     patch_mclaude_launcher
-    install_happy_coder
     deploy_helper_scripts
     deploy_claude_md
     configure_wsl_settings

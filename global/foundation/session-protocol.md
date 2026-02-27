@@ -96,7 +96,7 @@ Session information is organized in 3 layers to balance startup speed with histo
 
 ### 4. Shared strategy files
 - [ ] If infrastructure, deployment, or shared state changed → update `~/claude-config/cross-project/infrastructure-strategy.md`
-- [ ] If visibility/outreach state changed → update `~/claude-config/cross-project/fmt-visibility-strategy.md`
+- [ ] If visibility/outreach state changed → update `~/claude-config/cross-project/visibility-strategy.md`
 - [ ] Only update strategy files you actually touched this session — don't speculatively refresh them
 
 ### 5. Machine knowledge

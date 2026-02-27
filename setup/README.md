@@ -1,32 +1,28 @@
-# WSL Claude Code Complete Setup
+# Setup Scripts (Internal)
 
-> **Note:** This repository has been absorbed into the `claude-config` global configuration repo.
-> Location: `~/claude-config/setup/`
-> Status: Reference copy maintained for reusability across machines
+These are internal setup scripts used by `setup.sh` at the repo root. **You should not need to run them directly.**
 
-Complete, reproducible setup for running Claude Code on WSL with cc-mirror, VoltAgent subagents, MCP servers, and happy-coder mobile access.
-
-## Installation
-
-For the full installation guide and documentation, see the original README at:
-**https://github.com/__GITHUB_USERNAME__/wsl-claude-setup/blob/main/README.md**
-
-## Quick Start (from claude-config)
+## Canonical entry point
 
 ```bash
-# Step 1: Install system dependencies (may prompt for sudo)
-cd ~/claude-config/setup && bash install-base.sh
-
-# Step 2: Configure Claude Code (prompts for tokens)
-bash configure-claude.sh
+cd ~/claude-config && bash setup.sh
 ```
 
-## Repository Status
+## What's in here
 
-This setup has been integrated into the unified `~/claude-config/` repository:
+| Script | Purpose |
+|--------|---------|
+| `install-base.sh` | Phase 1: system deps, Node.js, npm, cc-mirror, mclaude variant |
+| `configure-claude.sh` | Phase 2: VoltAgent, MCP servers, launcher patches, CLAUDE.md, WSL settings |
+| `install.sh` | Orchestrator that runs Phase 1 + Phase 2 in sequence |
+| `lib.sh` | Shared utility functions (logging, backup, prompts) |
+| `scripts/` | Helper scripts deployed to `~/.cc-mirror/mclaude/scripts/` |
+| `config/` | Template configs (settings.json, mcp.json.template, CLAUDE.md) |
 
-- **Original standalone repo**: `~/wsl-claude-setup/` (archived)
-- **New location**: `~/claude-config/setup/` (active)
-- **Purpose**: Portable setup scripts deployable to any WSL machine
+## When to use these directly
 
-All future updates should be made to `~/claude-config/setup/` and synced via the config repo's sync tooling.
+- **Re-running only Phase 2** (e.g., after changing MCP credentials): `bash setup/configure-claude.sh --reconfigure-mcp`
+- **Dry run preview**: `bash setup/install.sh --dry-run`
+- **Rollback**: `bash setup/install.sh --rollback`
+
+For fresh installs, always use `setup.sh` at the repo root.

@@ -13,17 +13,13 @@ detect_machine() {
     local user
     user=$(whoami)
 
-    if [[ "$hostname" == "srv943133" ]]; then
-        echo "hostinger-vps"
-    elif [[ "$hostname" == JELTZ* ]] || [[ -d /mnt/c && "$user" != "gruber" ]]; then
-        echo "wsl-jeltz"
-    elif [[ "$hostname" == fedora* && "$user" == "jeltz" ]]; then
-        echo "fedora-home"
-    elif [[ "$hostname" == *ivoclar* || "$user" == "gruber" ]]; then
-        echo "ivoclar-main"
-    else
-        echo "unknown-${hostname}"
-    fi
+    # Add your own machine detection rules here.
+    # Match hostname patterns, usernames, or other environment signals.
+    # Examples:
+    #   if [[ "$hostname" == "myserver" ]]; then echo "my-server"; return; fi
+    #   if [[ "$hostname" == WORK* ]]; then echo "work-laptop"; return; fi
+    #   if [[ -d /mnt/c ]]; then echo "wsl"; return; fi
+    echo "${hostname}"
 }
 
 # --- Helper: check if command exists, return version or "NOT INSTALLED" ---

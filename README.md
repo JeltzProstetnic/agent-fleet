@@ -5,7 +5,7 @@
 Works on Linux, macOS, and WSL.
 
 ```bash
-git clone https://github.com/JeltzProstetnic/claude-config-template ~/claude-config
+git clone https://github.com/YOUR_USERNAME/claude-config ~/claude-config
 cd ~/claude-config && bash setup.sh
 ```
 
@@ -110,7 +110,7 @@ Hooks automate start and end. No manual git commands needed.
 ## Quick Start
 
 ```bash
-git clone https://github.com/JeltzProstetnic/claude-config-template ~/claude-config
+git clone https://github.com/YOUR_USERNAME/claude-config ~/claude-config
 cd ~/claude-config && bash setup.sh
 ```
 
@@ -127,6 +127,8 @@ cd ~/claude-config && bash setup.sh
 | 7 | **Launches Claude for interactive refinement** — personalize profile, choose domains, set up first project |
 
 Non-interactive: `bash setup.sh --non-interactive`
+
+**New to Claude Code?** See [docs/getting-started.md](docs/getting-started.md) for a step-by-step walkthrough.
 
 ---
 

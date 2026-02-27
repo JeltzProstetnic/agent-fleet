@@ -39,7 +39,7 @@ Claude Code configuration management across all machines and projects.
 | File | Purpose |
 |------|---------|
 | `cross-project/infrastructure-strategy.md` | Shared infra strategy (nuc + claude-config). VPS, multi-machine sync, NUC migration. |
-| `cross-project/fmt-visibility-strategy.md` | Shared FMT visibility strategy (aIware + social). Researchers, conferences, media. |
+| `cross-project/visibility-strategy.md` | Shared visibility strategy. Researchers, conferences, media. |
 | `cross-project/inbox.md` | One-off cross-project tasks (transient, picked up and deleted) |
 
 ## Rules for Claude
