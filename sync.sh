@@ -189,7 +189,11 @@ check_template_drift() {
         [ -f "$full_path" ] || continue
 
         local current_hash
-        current_hash=$(sha256sum "$full_path" | cut -c1-8)
+        if [[ "$PLATFORM" == "macos" ]]; then
+            current_hash=$(shasum -a 256 "$full_path" | cut -c1-8)
+        else
+            current_hash=$(sha256sum "$full_path" | cut -c1-8)
+        fi
 
         if [ "$current_hash" != "$hash" ]; then
             log_warn "$file_path changed since last template sync (was: $hash, now: $current_hash)"

@@ -585,29 +585,103 @@ if command -v node &>/dev/null; then
     process.stdout.write(JSON.stringify(mcp, null, 2) + '\n');
   " > "$MCP_FILE"
 elif command -v python3 &>/dev/null; then
+  # Export credentials so Python can read them via os.environ
+  export CLAUDE_GOOGLE_CLIENT_ID CLAUDE_GOOGLE_CLIENT_SECRET CLAUDE_GOOGLE_EMAIL
+  export CLAUDE_TWITTER_API_KEY CLAUDE_TWITTER_API_SECRET CLAUDE_TWITTER_ACCESS_TOKEN CLAUDE_TWITTER_ACCESS_SECRET
+  export CLAUDE_JIRA_URL CLAUDE_JIRA_EMAIL CLAUDE_JIRA_API_TOKEN
+  export CLAUDE_POSTGRES_URL
   python3 -c "
-import json, sys
+import json, sys, os
 
 mcp = {'mcpServers': {}}
 
+safe_path = '$SAFE_PATH'
+serena_cmd = '$SERENA_CMD'
+npx_cmd = '$NPX_CMD'
+uvx_cmd = '$UVX_CMD'
+
 mcp['mcpServers']['serena'] = {
-    'command': '$SERENA_CMD',
+    'command': serena_cmd,
     'args': ['--from', 'git+https://github.com/oraios/serena', 'serena-mcp-server', '--context', 'claude-code'],
-    'env': {'PATH': '$SAFE_PATH'}
+    'env': {'PATH': safe_path}
 }
 
 if '$setup_github' == 'true':
+    pat = sys.stdin.readline().strip()
     mcp['mcpServers']['github'] = {
-        'command': '$NPX_CMD',
+        'command': npx_cmd,
         'args': ['-y', '@modelcontextprotocol/server-github'],
-        'env': {'GITHUB_PERSONAL_ACCESS_TOKEN': sys.stdin.readline().strip(), 'PATH': '$SAFE_PATH'}
+        'env': {'GITHUB_PERSONAL_ACCESS_TOKEN': pat, 'PATH': safe_path}
     }
+
+if '$setup_google' == 'true':
+    mcp['mcpServers']['google-workspace'] = {
+        'command': uvx_cmd,
+        'args': ['workspace-mcp'],
+        'env': {
+            'GOOGLE_OAUTH_CLIENT_ID': os.environ.get('CLAUDE_GOOGLE_CLIENT_ID', ''),
+            'GOOGLE_OAUTH_CLIENT_SECRET': os.environ.get('CLAUDE_GOOGLE_CLIENT_SECRET', ''),
+            'USER_GOOGLE_EMAIL': os.environ.get('CLAUDE_GOOGLE_EMAIL', ''),
+            'PATH': safe_path
+        }
+    }
+
+if '$setup_twitter' == 'true':
+    mcp['mcpServers']['twitter'] = {
+        'command': npx_cmd,
+        'args': ['-y', '@enescinar/twitter-mcp'],
+        'env': {
+            'API_KEY': os.environ.get('CLAUDE_TWITTER_API_KEY', ''),
+            'API_SECRET_KEY': os.environ.get('CLAUDE_TWITTER_API_SECRET', ''),
+            'ACCESS_TOKEN': os.environ.get('CLAUDE_TWITTER_ACCESS_TOKEN', ''),
+            'ACCESS_TOKEN_SECRET': os.environ.get('CLAUDE_TWITTER_ACCESS_SECRET', ''),
+            'PATH': safe_path
+        }
+    }
+
+if '$setup_jira' == 'true':
+    mcp['mcpServers']['jira'] = {
+        'command': uvx_cmd,
+        'args': ['mcp-atlassian'],
+        'env': {
+            'JIRA_URL': os.environ.get('CLAUDE_JIRA_URL', ''),
+            'JIRA_USERNAME': os.environ.get('CLAUDE_JIRA_EMAIL', ''),
+            'JIRA_API_TOKEN': os.environ.get('CLAUDE_JIRA_API_TOKEN', ''),
+            'PATH': safe_path
+        }
+    }
+
+if '$setup_postgres' == 'true':
+    pg_url = os.environ.get('CLAUDE_POSTGRES_URL', '')
+    mcp['mcpServers']['postgres'] = {
+        'command': npx_cmd,
+        'args': ['-y', '@modelcontextprotocol/server-postgres', pg_url],
+        'env': {'PATH': safe_path}
+    }
+
+# Auto-included servers (no credentials)
+mcp['mcpServers']['playwright'] = {
+    'command': npx_cmd,
+    'args': ['-y', '@playwright/mcp'],
+    'env': {'PATH': safe_path}
+}
+
+mcp['mcpServers']['memory'] = {
+    'command': npx_cmd,
+    'args': ['-y', '@modelcontextprotocol/server-memory'],
+    'env': {'PATH': safe_path}
+}
+
+mcp['mcpServers']['diagram'] = {
+    'command': uvx_cmd,
+    'args': ['--from', 'mcp-mermaid-image-gen', 'mcp_mermaid_image_gen'],
+    'env': {'PATH': safe_path}
+}
 
 json.dump(mcp, open('$MCP_FILE', 'w'), indent=2)
 print()
 " <<< "$CLAUDE_GITHUB_PAT"
-  warn "Python fallback: only GitHub and Serena were configured."
-  warn "Dropped servers (add manually or re-run with Node.js): Google Workspace, Twitter, Jira, PostgreSQL, Playwright, Memory, Diagram"
+  ok "Python fallback: all configured servers written"
 else
   warn "Neither node nor python3 found — skipping .mcp.json generation."
   warn "Claude's interactive setup will help you configure MCP servers."
@@ -622,7 +696,12 @@ MCP_LIST=""
 [[ "$setup_postgres" == true ]] && MCP_LIST="${MCP_LIST}postgres, "
 MCP_LIST="${MCP_LIST}playwright, memory, diagram, serena"
 
-sed -i'' -e "s/(none configured yet)/${MCP_LIST}/" "$CATALOG_FILE"
+# Portable sed -i: macOS BSD sed requires space between -i and backup suffix
+if [[ "$PLATFORM" == "macos" ]]; then
+    sed -i '' -e "s/(none configured yet)/${MCP_LIST}/" "$CATALOG_FILE"
+else
+    sed -i'' -e "s/(none configured yet)/${MCP_LIST}/" "$CATALOG_FILE"
+fi
 ok "Wrote ~/.mcp.json ($CONFIGURED_SERVERS)"
 
 # ---------------------------------------------------------------------------
