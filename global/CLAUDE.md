@@ -76,6 +76,7 @@ If the user says "always do X" or "remember to do Y" → that's a rule → `CLAU
 - **Convert (fallback — xelatex, if installed)**: `pandoc input.md -o output.pdf --pdf-engine=xelatex -V geometry:margin=1.8cm -V mainfont="Liberation Sans" -V monofont="Liberation Mono" --highlight-style=tango`
 - **Before converting**: verify which engine is available (`which weasyprint xelatex`). Do NOT guess — check first.
 - **Avoid** Unicode box-drawing characters in code blocks (xelatex chokes) — use tables instead
+- **weasyprint HTML: BMP symbols only** — never use emoji codepoints (U+1F000+) in HTML for weasyprint. Emoji fonts aren't portable across machines. Use BMP Unicode symbols instead: `&#10004;` (checkmark), `&#9654;` (play), `&#9733;` (star), `&#9679;` (bullet). For colored indicators: `<span style="color:green">&#9679;</span>`.
 - **Open**: `xdg-open output.pdf` (Linux) / `open output.pdf` (macOS) / `powershell.exe -Command "Start-Process '\\\\wsl.localhost\\Ubuntu<filepath>'"` (WSL)
 - **Detect environment**: if `/mnt/c/` exists → WSL, elif `uname` is Darwin → macOS, otherwise → native Linux
 - Short text (<10 words) can go inline. Anything longer → file + PDF + open.
@@ -83,7 +84,11 @@ If the user says "always do X" or "remember to do Y" → that's a rule → `CLAU
 
 **MCP-first rule:** Always prefer MCP server tools over bash/CLI equivalents when available. GitHub MCP for repo/issue/PR operations (not `gh` CLI or `curl`), Google Workspace MCP for email/docs/calendar, Twitter MCP for tweets, Serena for code navigation in code projects. Only fall back to CLI when MCP genuinely can't do the operation (e.g., `git clone` to local filesystem), or when the MCP catalog documents a known limitation for that specific tool.
 
-**Subagent file delivery rule:** When a subagent (Task tool) already opens or delivers a file (PDF, image, etc.), do not open it again in the parent context. Check the subagent's output for delivery confirmation before performing redundant opens.
+**Subagent file delivery rule:** When a subagent (Task tool) produces a file (PDF, image, etc.), do NOT open it again in the parent context. **Check procedure — run BEFORE any file-open command:**
+1. Scan the subagent's returned output for open/delivery commands (`Start-Process`, `xdg-open`, `open`, or any shell command targeting the file).
+2. If found → file already delivered. Do nothing.
+3. If NOT found → subagent created but didn't open the file. Only then may the parent open it.
+4. When in doubt, do NOT open — a missing open is a minor annoyance, a duplicate open is a visible bug.
 
 **URL/service identification rule:** When the user provides a URL or a task involves an external service, FIRST identify the service (x.com/twitter.com → Twitter, github.com → GitHub, docs.google.com/drive.google.com → Google Workspace, etc.). Then check the MCP catalog for matching tools and known limitations. Only after that, decide whether to use MCP tools or fall back to WebFetch/CLI. Never jump straight to generic fetching without this identification step.
 
