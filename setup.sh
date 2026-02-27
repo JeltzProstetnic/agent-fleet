@@ -16,14 +16,16 @@ NON_INTERACTIVE=false
 for arg in "$@"; do
   case "$arg" in
     --non-interactive) NON_INTERACTIVE=true ;;
+    --skip-infra) SKIP_INFRA=true ;;
     --help)
       cat <<'EOF'
-Usage: bash setup.sh [--non-interactive] [--help]
+Usage: bash setup.sh [--non-interactive] [--skip-infra] [--help]
 
 Bootstraps the agent-fleet system on Linux, macOS, or WSL.
 
 Flags:
   --non-interactive   Skip all prompts; use env vars or defaults
+  --skip-infra        Skip infrastructure discovery (Step 5)
   --help              Show this message
 
 Environment variables (non-interactive mode):
@@ -214,6 +216,10 @@ ok "Wrote machine-catalog.md (machine: ${CLAUDE_MACHINE_ID})"
 # ---------------------------------------------------------------------------
 step "5/7" "Infrastructure discovery"
 
+if [[ "${SKIP_INFRA:-false}" == true ]]; then
+  warn "Skipping infrastructure discovery (--skip-infra)"
+else
+
 INFRA_DIR="$HOME/infrastructure"
 INFRA_SCRIPT="$REPO_DIR/setup/scripts/infra-discover.sh"
 
@@ -288,6 +294,8 @@ BEOF
 
   ok "Created ~/infrastructure/ with discovery results, backlog, and git repo"
 fi
+
+fi  # end --skip-infra guard
 
 # ---------------------------------------------------------------------------
 # Step 6 — Symlinks
@@ -598,7 +606,8 @@ if '$setup_github' == 'true':
 json.dump(mcp, open('$MCP_FILE', 'w'), indent=2)
 print()
 " <<< "$CLAUDE_GITHUB_PAT"
-  warn "Python fallback: only GitHub supported. Add other servers via Claude's interactive setup."
+  warn "Python fallback: only GitHub and Serena were configured."
+  warn "Dropped servers (add manually or re-run with Node.js): Google Workspace, Twitter, Jira, PostgreSQL, Playwright, Memory, Diagram"
 else
   warn "Neither node nor python3 found — skipping .mcp.json generation."
   warn "Claude's interactive setup will help you configure MCP servers."

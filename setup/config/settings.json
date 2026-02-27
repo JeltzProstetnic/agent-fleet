@@ -59,6 +59,30 @@
       "Bash(mclaude:*)"
     ]
   },
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash ~/.claude/hooks/config-check.sh"
+          }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash ~/.claude/hooks/config-auto-sync.sh"
+          }
+        ]
+      }
+    ]
+  },
   "enabledPlugins": {
     "voltagent-lang@voltagent-subagents": false,
     "voltagent-infra@voltagent-subagents": false,

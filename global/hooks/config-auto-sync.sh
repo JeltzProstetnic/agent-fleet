@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # Auto-sync cfg-agent-fleet repo on session end.
 # Runs as a SessionEnd hook — silent, zero context cost.
 #

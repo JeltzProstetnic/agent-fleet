@@ -1,6 +1,15 @@
-# Setup Scripts (Internal)
+# Setup Scripts
 
-These are internal setup scripts used by `setup.sh` at the repo root. **You should not need to run them directly.**
+## Two entry points — which to use
+
+| Entry point | What it does | When to use |
+|-------------|-------------|-------------|
+| **`setup.sh`** (repo root) | Profile, infrastructure, symlinks, MCP config | Fresh install on a new machine, or re-linking after a git clone |
+| **`setup/install.sh`** | System deps, Node.js, cc-mirror, VoltAgent, launcher patches | Full system setup (installs packages), or upgrading Claude Code components |
+
+**For a brand-new machine:** Run `setup/install.sh` first (installs dependencies), then `setup.sh` (configures everything). Or just run `setup.sh` — it works without `install.sh` if deps are already present.
+
+**For an existing machine:** Usually `setup.sh` is enough (re-links config, updates MCP). Only run `install.sh` if you need to update system dependencies or the Claude Code installation.
 
 ## Canonical entry point
 

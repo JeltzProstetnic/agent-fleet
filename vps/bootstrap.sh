@@ -47,7 +47,7 @@ if [[ -z "${ANTHROPIC_API_KEY:-}" ]] && [[ -z "${CLAUDE_OAUTH_CREDENTIALS:-}" ]]
 fi
 
 if [[ -z "${GITHUB_PERSONAL_ACCESS_TOKEN:-}" ]]; then
-    log_error "GITHUB_PERSONAL_ACCESS_TOKEN is empty in secrets.env (needed to clone private repo)"
+    log_error "GITHUB_PERSONAL_ACCESS_TOKEN is empty in secrets.env (needed for authenticated git push by auto-sync hook)"
     exit 1
 fi
 
@@ -528,9 +528,9 @@ mkdir -p "$SKILL_COLLECTIONS_DIR"
 declare -A SKILL_REPOS=(
     ["anthropic-skills"]="https://github.com/anthropics/skills"
     ["voltagent-skills"]="https://github.com/VoltAgent/awesome-agent-skills"
-    ["getsentry-skills"]="https://github.com/getsentry/seer-skills"
-    ["obra-superpowers"]="https://github.com/obra/agent-skills"
-    ["trailofbits-skills"]="https://github.com/trailofbits/claude-code-skills"
+    ["getsentry-skills"]="https://github.com/getsentry/skills"
+    ["obra-superpowers"]="https://github.com/obra/superpowers"
+    ["trailofbits-skills"]="https://github.com/trailofbits/skills"
 )
 for name in "${!SKILL_REPOS[@]}"; do
     dir="$SKILL_COLLECTIONS_DIR/$name"
@@ -603,6 +603,7 @@ cd "$CONFIG_REPO"
 bash sync.sh setup
 
 # Configure git for auto-sync hook
+# TODO: Consider sourcing these from secrets.env for automated deployment
 git config --global user.email "__YOUR_EMAIL__"
 git config --global user.name "__YOUR_NAME__"
 git config --global core.autocrlf input

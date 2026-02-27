@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # SessionStart hook: check for config sync failures, symlink health, and inbox tasks.
 # Outputs JSON with systemMessage so Claude sees the warning in context.
 
@@ -59,15 +59,14 @@ fi
 # Output JSON if there are warnings or inbox items
 SYSTEM_MSG=""
 if [ -n "$WARNINGS" ]; then
-    SYSTEM_MSG="WARNING: $(echo "$WARNINGS" | sed 's/"/\\"/g' | tr '\n' ' ') Tell the user about this issue immediately before doing any other work."
+    SYSTEM_MSG="WARNING: $(printf '%s' "$WARNINGS" | tr '\n' ' ') Tell the user about this issue immediately before doing any other work."
 fi
 if [ -n "$INBOX_MSG" ]; then
-    INBOX_JSON=$(echo "$INBOX_MSG" | sed 's/"/\\"/g' | tr '\n' ' ')
-    SYSTEM_MSG="${SYSTEM_MSG:+$SYSTEM_MSG | }$INBOX_JSON"
+    SYSTEM_MSG="${SYSTEM_MSG:+$SYSTEM_MSG | }$(printf '%s' "$INBOX_MSG" | tr '\n' ' ')"
 fi
 
 if [ -n "$SYSTEM_MSG" ]; then
-    echo "{\"systemMessage\": \"$SYSTEM_MSG\"}"
+    python3 -c "import json,sys; print(json.dumps({'systemMessage': sys.argv[1]}))" "$SYSTEM_MSG"
 fi
 
 exit 0

@@ -51,8 +51,8 @@ Shared fixtures live in `tmp/conftest.py`.
 Constants in `test_content_integrity.py` define plausible ranges:
 
 ```python
-FMT_BODY_WORD_RANGE = (13_000, 21_000)
-INTEL_BODY_WORD_RANGE = (5_500, 10_500)
+PAPER_BODY_WORD_RANGE = (13_000, 21_000)    # Adjust to your paper's expected length
+SHORT_PAPER_WORD_RANGE = (5_500, 10_500)    # Adjust for shorter papers
 ```
 
 **Update protocol:** If a Tier 2 test fails, ask: "Did I intentionally add/remove a large amount of content?"

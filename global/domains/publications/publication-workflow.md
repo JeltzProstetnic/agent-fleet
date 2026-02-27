@@ -148,8 +148,8 @@ A typical project has review scripts in `tmp/` for generating change-tracked HTM
 # Native Linux:
 python3 tmp/<script>.py && xdg-open tmp/<output>.html
 
-# WSL (adjust __USERNAME__ and __PROJECT__ to match your setup):
-python3 tmp/<script>.py && powershell.exe -Command "Start-Process '\\\\wsl.localhost\\Ubuntu\\home\\__USERNAME__\\__PROJECT__\\tmp\\<output>.html'"
+# WSL (uses wslpath -w for reliable path conversion):
+python3 tmp/<script>.py && powershell.exe -Command "Start-Process '$(wslpath -w "$(pwd)/tmp/<output>.html")'"
 ```
 
 ---

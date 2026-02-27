@@ -184,7 +184,7 @@ MCP servers let Claude interact with external services. Setup prompts you for ea
 | **Twitter/X** | Post tweets | Yes (API keys) |
 | **Jira** | Issues, sprints, Confluence | Yes (API token) |
 | **PostgreSQL** | Database queries | Yes (connection URL) |
-| **LinkedIn** | Create posts | Yes (OAuth) |
+| **LinkedIn** | Create posts | Yes (OAuth, manual setup) |
 | **Serena** | Navigate code semantically | No |
 | **Playwright** | Automate browsers, take screenshots | No |
 | **Memory** | Persistent knowledge graph | No |
@@ -211,11 +211,27 @@ Third-party skill packs extend Claude Code with domain-specific capabilities. Sk
 
 | Collection | What it adds | Source |
 |-----------|-------------|--------|
-| **getsentry** | Sentry debugging skills | [getsentry/sentry-skills](https://github.com/getsentry/sentry-skills) |
-| **obra** | Superpowers skill pack | [obra/claude-code-skill-collections](https://github.com/obra/claude-code-skill-collections) |
-| **trailofbits** | Security analysis, static analysis, binary analysis | [trailofbits/claude-code-skill-collections](https://github.com/trailofbits/claude-code-skill-collections) |
+| **getsentry** | Sentry debugging skills | [getsentry/skills](https://github.com/getsentry/skills) |
+| **obra** | Superpowers skill pack | [obra/superpowers](https://github.com/obra/superpowers) |
+| **trailofbits** | Security analysis, static analysis, binary analysis | [trailofbits/skills](https://github.com/trailofbits/skills) |
 
 Install all at once: `bash setup/scripts/install-skill-collections.sh`
+
+---
+
+## Customization Guide
+
+After setup, customize these files first:
+
+| File | What to change |
+|------|---------------|
+| `global/foundation/user-profile.md` | Your name, background, communication preferences |
+| `global/CLAUDE.md` | Machine identity table (add your hostnames) |
+| `global/reference/mcp-catalog.md` | Your MCP server accounts and tokens |
+| `registry.md` | Add your projects |
+| `global/domains/` | Enable/disable domain protocols per project |
+
+The setup script handles most of this interactively. For fine-tuning, edit the files directly — changes take effect next session.
 
 ---
 

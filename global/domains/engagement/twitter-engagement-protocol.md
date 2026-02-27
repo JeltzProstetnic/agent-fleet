@@ -64,12 +64,12 @@ Store scan results in `tmp/discourse-scan-<date>-<time>.txt` for reference acros
 - This BUILDS credibility — academics respect people who update on evidence
 - Never double down on a point that was fairly corrected
 
-### FMT positioning
+### Theory positioning
 
-- Do NOT name-drop FMT in cold engagement replies
-- Plant "architectural criteria" / "architectural conditions" / "decision procedure" — let people ask
-- If someone asks "what criteria?" or "what theory?" — that's the natural opening
-- FMT name-drops are for: your own threads, direct questions, academic contexts
+- Do NOT name-drop your theory/framework in cold engagement replies
+- Plant conceptual hooks (e.g., "architectural criteria" / "decision procedure") — let people ask
+- If someone asks "what criteria?" or "what framework?" — that's the natural opening
+- Direct name-drops are for: your own threads, direct questions, academic contexts
 
 ---
 
@@ -106,9 +106,9 @@ At low follower counts (<100), organic reach from your own tweets is near zero. 
 
 | Tier | Who | Approach |
 |------|-----|----------|
-| 1 | Named researchers (Seth, Hoel, Chalmers, Koch, Tononi) | Substantive, precise, deferential but not sycophantic |
-| 2 | Science communicators (Pollan, Alexander, podcasters) | Accessible, bridges pop and academic |
-| 3 | Tech/AI figures (Amodei, Suleyman, labs) | Sharp, quotable, positions you as the theory person |
+| 1 | Domain researchers (leading academics in your field) | Substantive, precise, deferential but not sycophantic |
+| 2 | Science communicators (popular authors, podcasters) | Accessible, bridges pop and academic |
+| 3 | Tech/AI figures (lab leaders, industry voices) | Sharp, quotable, positions you as the theory person |
 | 4 | Viral/news threads | Corrective, adds depth to shallow discourse |
 
 ---

@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # Check if the current git repo has remote changes that need pulling.
 # Usage: bash git-sync-check.sh [--pull]
 #   No args:  fetch + report (non-destructive)

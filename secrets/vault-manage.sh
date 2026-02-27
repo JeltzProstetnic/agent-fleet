@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # Token vault management
 # Uses openssl AES-256-CBC with PBKDF2 for symmetric encryption
 #
@@ -135,6 +135,30 @@ if 'google-workspace' in mcp['mcpServers'] and vault.get('google_workspace', {})
         print("  [OK] Google Workspace credentials")
     else:
         print("  [SKIP] Google Workspace — placeholder credentials")
+
+# Jira/Atlassian
+if 'jira' in mcp.get('mcpServers', {}) and vault.get('jira', {}).get('api_token'):
+    jira = vault['jira']
+    if not jira['api_token'].startswith('PASTE'):
+        env = mcp['mcpServers']['jira']['env']
+        if 'url' in jira: env['JIRA_URL'] = jira['url']
+        if 'email' in jira: env['JIRA_EMAIL'] = jira['email']
+        env['JIRA_API_TOKEN'] = jira['api_token']
+        print("  [OK] Jira credentials")
+    else:
+        print("  [SKIP] Jira — placeholder credentials")
+
+# LinkedIn
+if 'linkedin' in mcp.get('mcpServers', {}) and vault.get('linkedin', {}).get('access_token'):
+    li = vault['linkedin']
+    if not li['access_token'].startswith('PASTE'):
+        env = mcp['mcpServers']['linkedin']['env']
+        if 'client_id' in li: env['LINKEDIN_CLIENT_ID'] = li['client_id']
+        if 'client_secret' in li: env['LINKEDIN_CLIENT_SECRET'] = li['client_secret']
+        env['LINKEDIN_ACCESS_TOKEN'] = li['access_token']
+        print("  [OK] LinkedIn credentials")
+    else:
+        print("  [SKIP] LinkedIn — placeholder credentials")
 
 with open(mcp_path, 'w') as f:
     json.dump(mcp, f, indent=2)
