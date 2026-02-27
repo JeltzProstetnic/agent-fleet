@@ -1,19 +1,24 @@
 #!/usr/bin/env bash
 #
-# install-base.sh - WSL Claude Code Base System Setup
-# =====================================================
+# install-base.sh - Claude Code Base System Setup
+# =================================================
 # Installs system dependencies, Node.js (via nvm), npm config, and cc-mirror.
-# This is phase 1 of the WSL Claude setup - run this before configure-claude.sh.
+# This is phase 1 of the setup - run this before configure-claude.sh.
+#
+# Supported platforms:
+#   - Debian/Ubuntu (including WSL)
+#   - Arch Linux / SteamOS (Steam Deck)
+#   - Fedora / RHEL (best-effort)
 #
 # This script handles:
-#   1. WSL environment verification
-#   2. System dependencies (apt packages)
+#   1. Environment detection (distro, WSL, SteamOS)
+#   2. System dependencies (apt/pacman/dnf)
 #   3. Node.js via nvm
 #   4. npm global prefix configuration
 #   5. cc-mirror installation
 #
 # Usage:
-#   cd ~/demo/wsl-claude-setup && bash install-base.sh [options]
+#   bash install-base.sh [options]
 #
 # Options:
 #   --dry-run        Show what would be done without making changes
@@ -52,12 +57,14 @@ declare -a SKIPPED_STEPS=()
 
 show_help() {
     cat << 'EOF'
-install-base.sh - WSL Claude Code Base System Setup
+install-base.sh - Claude Code Base System Setup
 
-This script installs the foundation for Claude Code on WSL:
+This script installs the foundation for Claude Code:
   - System dependencies (socat, bubblewrap, curl, git, etc.)
   - Node.js (via nvm) with user-local npm configuration
   - cc-mirror (npm package for Claude Code variant management)
+
+Supported platforms: Debian/Ubuntu (including WSL), Arch/SteamOS, Fedora/RHEL.
 
 This is PHASE 1 of the setup. After this completes, run configure-claude.sh
 to set up the mclaude variant, MCP servers, and VoltAgent subagents.
@@ -72,12 +79,12 @@ OPTIONS:
   --help, -h       Show this help message
 
 REQUIREMENTS:
-  - Running on WSL (warning shown if not detected)
-  - sudo access for apt-get package installation
+  - Supported Linux distribution (or manual dependency installation)
+  - sudo access for package installation
   - Internet connection for downloads
 
 WHAT GETS INSTALLED:
-  1. System packages: socat, bubblewrap, curl, git, build-essential, python3, pipx
+  1. System packages: socat, bubblewrap, curl, git, build tools, python3, pipx
   2. NVM (Node Version Manager) v0.40.1
   3. Node.js v22 (via nvm)
   4. npm global prefix configured to ~/.npm-global
@@ -92,39 +99,40 @@ NEXT STEPS:
 NOTES:
   - All steps are idempotent (safe to re-run)
   - Existing installations are detected and skipped
-  - sudo password will be required for apt-get operations
+  - sudo password will be required for package operations
   - No credentials needed for this phase (credentials in configure-claude.sh)
+  - On SteamOS: system packages may need re-installation after OS updates
+    (use reprovision-steamos.sh for recovery)
 
 EOF
 }
 
 # ============================================================================
-# STEP 1: WSL ENVIRONMENT CHECK
+# STEP 1: ENVIRONMENT CHECK
 # ============================================================================
 
-check_wsl() {
-    log_step 1 "${TOTAL_STEPS}" "Verify WSL Environment"
+check_environment() {
+    log_step 1 "${TOTAL_STEPS}" "Verify Environment"
 
-    if grep -qi microsoft /proc/version 2>/dev/null; then
-        log_info "Running on WSL"
-        INSTALLED_STEPS+=("wsl-check")
+    local distro
+    distro=$(detect_distro)
+
+    if is_wsl; then
+        log_info "Running on WSL (distro family: ${distro})"
+    elif is_steamos; then
+        log_info "Running on SteamOS (Arch-based, immutable root FS)"
+        log_warn "System packages installed via pacman will be lost on OS updates"
+        log_warn "Use reprovision-steamos.sh to re-install after SteamOS updates"
     else
-        log_warn "This doesn't appear to be WSL (no 'microsoft' in /proc/version)"
-        log_warn "Some WSL-specific optimizations may not apply"
-
-        if [[ "${DRY_RUN}" == "true" ]]; then
-            log_warn "Dry-run mode: would prompt to continue"
-            SKIPPED_STEPS+=("wsl-check (non-WSL)")
-        else
-            read -r -p "Continue anyway? [y/N]: " response
-            if [[ ! "$response" =~ ^[Yy] ]]; then
-                log_error "Installation cancelled by user"
-                exit 1
-            fi
-            SKIPPED_STEPS+=("wsl-check (non-WSL, user continued)")
-        fi
+        log_info "Running on native Linux (distro family: ${distro})"
     fi
 
+    if [[ "${distro}" == "unknown" ]]; then
+        log_warn "Unrecognized distribution — package installation will be skipped"
+        log_warn "You may need to install dependencies manually (see --help)"
+    fi
+
+    INSTALLED_STEPS+=("environment-check (${distro})")
     log_success "Environment check complete"
 }
 
@@ -135,6 +143,26 @@ check_wsl() {
 install_system_deps() {
     log_step 2 "${TOTAL_STEPS}" "Install System Dependencies"
 
+    local distro
+    distro=$(detect_distro)
+
+    case "${distro}" in
+        debian) _install_deps_debian ;;
+        arch)   _install_deps_arch ;;
+        fedora) _install_deps_fedora ;;
+        *)
+            log_warn "Unsupported distro family: ${distro}"
+            log_warn "Please install these manually: socat bubblewrap curl git python3 pipx"
+            log_warn "Plus build tools (gcc, make) and python3-pip"
+            SKIPPED_STEPS+=("system-deps (unsupported distro, manual install needed)")
+            return 0
+            ;;
+    esac
+
+    log_success "System dependencies installed"
+}
+
+_install_deps_debian() {
     local packages=(
         socat
         bubblewrap
@@ -146,10 +174,9 @@ install_system_deps() {
         pipx
     )
 
-    # Check which packages are already installed
     local needed_packages=()
     for pkg in "${packages[@]}"; do
-        if ! dpkg-query -W -f='${Status}' "${pkg}" 2>/dev/null | grep -q "install ok installed"; then
+        if ! check_pkg_installed "${pkg}"; then
             needed_packages+=("${pkg}")
         else
             [[ "${VERBOSE}" == "true" ]] && log_info "Package already installed: ${pkg}"
@@ -159,7 +186,6 @@ install_system_deps() {
     if [[ ${#needed_packages[@]} -eq 0 ]]; then
         log_info "All required system packages already installed"
         SKIPPED_STEPS+=("system-deps (already installed)")
-        log_success "System dependencies verified"
         return 0
     fi
 
@@ -178,18 +204,135 @@ install_system_deps() {
             exit 1
         }
 
-        # Ensure pipx is in PATH
         run_cmd pipx ensurepath 2>/dev/null || true
-
-        INSTALLED_STEPS+=("system-deps")
+        INSTALLED_STEPS+=("system-deps (apt)")
     else
         log_info "[DRY RUN] Would run: sudo apt-get update -qq"
         log_info "[DRY RUN] Would run: sudo apt-get install -y -qq ${needed_packages[*]}"
         log_info "[DRY RUN] Would run: pipx ensurepath"
         INSTALLED_STEPS+=("system-deps (dry-run)")
     fi
+}
 
-    log_success "System dependencies installed"
+_install_deps_arch() {
+    local packages=(
+        socat
+        bubblewrap
+        curl
+        git
+        base-devel
+        python
+        python-pip
+        python-pipx
+    )
+
+    local needed_packages=()
+    for pkg in "${packages[@]}"; do
+        if ! check_pkg_installed "${pkg}"; then
+            needed_packages+=("${pkg}")
+        else
+            [[ "${VERBOSE}" == "true" ]] && log_info "Package already installed: ${pkg}"
+        fi
+    done
+
+    if [[ ${#needed_packages[@]} -eq 0 ]]; then
+        log_info "All required system packages already installed"
+        SKIPPED_STEPS+=("system-deps (already installed)")
+        return 0
+    fi
+
+    log_info "Need to install ${#needed_packages[@]} package(s): ${needed_packages[*]}"
+
+    if [[ "${DRY_RUN}" == "false" ]]; then
+        # SteamOS has an immutable root FS — must disable read-only mode
+        if is_steamos; then
+            log_info "SteamOS detected: disabling read-only filesystem..."
+            sudo steamos-readonly disable || {
+                log_error "Failed to disable SteamOS read-only mode"
+                exit 1
+            }
+
+            # Initialize pacman keyring if needed (fresh SteamOS installs)
+            if ! pacman-key --list-keys &>/dev/null; then
+                log_info "Initializing pacman keyring..."
+                sudo pacman-key --init
+                sudo pacman-key --populate archlinux
+            fi
+        fi
+
+        log_info "Installing packages via pacman (requires sudo)..."
+        sudo pacman -S --noconfirm --needed "${needed_packages[@]}" || {
+            log_error "Failed to install system packages"
+            # Re-enable read-only on SteamOS even on failure
+            is_steamos && sudo steamos-readonly enable 2>/dev/null || true
+            exit 1
+        }
+
+        # Re-enable read-only FS on SteamOS
+        if is_steamos; then
+            log_info "Re-enabling SteamOS read-only filesystem..."
+            sudo steamos-readonly enable || true
+            echo ""
+            log_info "NOTE: SteamOS system packages are lost on OS updates."
+            log_info "      After a SteamOS update, run: bash reprovision-steamos.sh"
+        fi
+
+        run_cmd pipx ensurepath 2>/dev/null || true
+        INSTALLED_STEPS+=("system-deps (pacman)")
+    else
+        is_steamos && log_info "[DRY RUN] Would run: sudo steamos-readonly disable"
+        log_info "[DRY RUN] Would run: sudo pacman -S --noconfirm --needed ${needed_packages[*]}"
+        is_steamos && log_info "[DRY RUN] Would run: sudo steamos-readonly enable"
+        log_info "[DRY RUN] Would run: pipx ensurepath"
+        INSTALLED_STEPS+=("system-deps (dry-run)")
+    fi
+}
+
+_install_deps_fedora() {
+    local packages=(
+        socat
+        bubblewrap
+        curl
+        git
+        gcc
+        gcc-c++
+        make
+        python3
+        python3-pip
+        pipx
+    )
+
+    local needed_packages=()
+    for pkg in "${packages[@]}"; do
+        if ! check_pkg_installed "${pkg}"; then
+            needed_packages+=("${pkg}")
+        else
+            [[ "${VERBOSE}" == "true" ]] && log_info "Package already installed: ${pkg}"
+        fi
+    done
+
+    if [[ ${#needed_packages[@]} -eq 0 ]]; then
+        log_info "All required system packages already installed"
+        SKIPPED_STEPS+=("system-deps (already installed)")
+        return 0
+    fi
+
+    log_info "Need to install ${#needed_packages[@]} package(s): ${needed_packages[*]}"
+
+    if [[ "${DRY_RUN}" == "false" ]]; then
+        log_info "Installing packages via dnf (requires sudo)..."
+        sudo dnf install -y "${needed_packages[@]}" || {
+            log_error "Failed to install system packages"
+            exit 1
+        }
+
+        run_cmd pipx ensurepath 2>/dev/null || true
+        INSTALLED_STEPS+=("system-deps (dnf)")
+    else
+        log_info "[DRY RUN] Would run: sudo dnf install -y ${needed_packages[*]}"
+        log_info "[DRY RUN] Would run: pipx ensurepath"
+        INSTALLED_STEPS+=("system-deps (dry-run)")
+    fi
 }
 
 # ============================================================================
@@ -453,7 +596,7 @@ print_summary() {
         echo -e "${COLOR_BLUE}What configure-claude.sh will do:${COLOR_RESET}"
         echo "  - Install VoltAgent subagents (100+ specialized agents)"
         echo "  - Set up MCP servers (GitHub, Jira, Serena)"
-        echo "  - Configure WSL optimizations"
+        echo "  - Configure platform-specific settings"
         echo "  - Deploy helper scripts and documentation"
         echo ""
     fi
@@ -476,7 +619,7 @@ main() {
     # Initialize logging
     log_init
 
-    print_header "WSL Claude Code - Base Installation"
+    print_header "Claude Code - Base Installation"
 
     if [[ "${DRY_RUN}" == "true" ]]; then
         log_warn "DRY RUN MODE - No changes will be made"
@@ -495,7 +638,7 @@ main() {
     echo ""
 
     # Run installation steps
-    check_wsl
+    check_environment
     install_system_deps
     install_nodejs
     setup_npm_global

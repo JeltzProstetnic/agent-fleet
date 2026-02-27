@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# lib.sh - Shared utility library for WSL Claude Code setup scripts
+# lib.sh - Shared utility library for Claude Code setup scripts
 #
 # This library provides logging, dry-run mode, backup/rollback, dependency
 # checking, idempotency helpers, and argument parsing for installer scripts.
@@ -22,8 +22,8 @@ DRY_RUN="${DRY_RUN:-false}"
 VERBOSE="${VERBOSE:-false}"
 NO_COLOR="${NO_COLOR:-false}"
 LOG_FILE=""
-BACKUP_ROOT="${HOME}/.wsl-claude-setup/backups"
-LOG_ROOT="${HOME}/.wsl-claude-setup/logs"
+BACKUP_ROOT="${HOME}/.claude-setup/backups"
+LOG_ROOT="${HOME}/.claude-setup/logs"
 BACKUP_SESSION_ID=""
 
 # ============================================================================
@@ -59,7 +59,7 @@ log_init() {
     # Write header to log file
     {
         echo "========================================"
-        echo "WSL Claude Code Setup - Log"
+        echo "Claude Code Setup - Log"
         echo "Started: $(date '+%Y-%m-%d %H:%M:%S')"
         echo "========================================"
         echo ""
@@ -349,6 +349,58 @@ files_identical() {
     local file1="${1}" file2="${2}"
     [[ -f "${file1}" ]] && [[ -f "${file2}" ]] && \
         [[ "$(sha256sum "${file1}" | cut -d' ' -f1)" == "$(sha256sum "${file2}" | cut -d' ' -f1)" ]]
+}
+
+# ============================================================================
+# DISTRO DETECTION
+# ============================================================================
+
+# Cached distro family
+DETECTED_DISTRO=""
+
+# Detect distro family from /etc/os-release
+# Returns: debian, arch, fedora, or unknown
+detect_distro() {
+    if [[ -n "${DETECTED_DISTRO}" ]]; then
+        echo "${DETECTED_DISTRO}"
+        return
+    fi
+    if [[ -f /etc/os-release ]]; then
+        # shellcheck source=/dev/null
+        . /etc/os-release
+        case "${ID:-}" in
+            ubuntu|debian|linuxmint|pop) DETECTED_DISTRO="debian" ;;
+            arch|steamos|endeavouros|manjaro) DETECTED_DISTRO="arch" ;;
+            fedora|rhel|centos|rocky|alma) DETECTED_DISTRO="fedora" ;;
+            *) DETECTED_DISTRO="unknown" ;;
+        esac
+    else
+        DETECTED_DISTRO="unknown"
+    fi
+    echo "${DETECTED_DISTRO}"
+}
+
+# Check if running on SteamOS (Arch-based, immutable root FS)
+is_steamos() {
+    [[ -f /etc/os-release ]] && grep -qi 'steamos\|holo' /etc/os-release 2>/dev/null
+}
+
+# Check if running on WSL
+is_wsl() {
+    grep -qi microsoft /proc/version 2>/dev/null
+}
+
+# Cross-distro package installed check
+check_pkg_installed() {
+    local pkg="$1"
+    local distro
+    distro=$(detect_distro)
+    case "${distro}" in
+        debian) dpkg-query -W -f='${Status}' "${pkg}" 2>/dev/null | grep -q "install ok installed" ;;
+        arch)   pacman -Qi "${pkg}" &>/dev/null ;;
+        fedora) rpm -q "${pkg}" &>/dev/null ;;
+        *)      command -v "${pkg}" &>/dev/null ;;
+    esac
 }
 
 # ============================================================================

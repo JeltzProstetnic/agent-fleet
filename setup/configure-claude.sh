@@ -27,7 +27,7 @@
 #   Step 3: Patch mclaude launcher with MCP enablement + update-checker
 #   Step 4: Deploy helper scripts (update-checker)
 #   Step 5: Deploy global CLAUDE.md configuration
-#   Step 6: Configure WSL settings (git, credentials, bashrc, /etc/wsl.conf)
+#   Step 6: Configure platform settings (git, credentials, bashrc, WSL/SteamOS specifics)
 #
 
 set -euo pipefail
@@ -88,7 +88,7 @@ WHAT THIS SCRIPT DOES:
   3. Patch mclaude launcher with MCP enablement + update-checker
   4. Deploy helper scripts (update-checker)
   5. Deploy global CLAUDE.md configuration
-  6. Configure WSL settings (git, credentials, bashrc, /etc/wsl.conf)
+  6. Configure platform settings (git, credentials, bashrc, WSL/SteamOS specifics)
 
 IDEMPOTENCY:
   This script can be run multiple times safely. It will:
@@ -688,16 +688,16 @@ deploy_claude_md() {
 }
 
 # ============================================================================
-# STEP 6: CONFIGURE WSL SETTINGS
+# STEP 6: CONFIGURE PLATFORM SETTINGS
 # ============================================================================
 
-configure_wsl_settings() {
-    log_step 6 "${TOTAL_STEPS}" "Configure WSL Settings"
+configure_platform_settings() {
+    log_step 6 "${TOTAL_STEPS}" "Configure Platform Settings"
 
     local changes_made=false
 
-    # Git configuration
-    log_info "Configuring git for WSL..."
+    # --- Git configuration (all platforms) ---
+    log_info "Configuring git..."
     run_cmd git config --global core.autocrlf input
     run_cmd git config --global color.ui auto
     run_cmd git config --global color.diff always
@@ -720,7 +720,7 @@ configure_wsl_settings() {
 
     changes_made=true
 
-    # Bash color prompt
+    # --- Bash color prompt (all platforms) ---
     log_info "Enabling color prompt in bashrc..."
     if grep -q '^#force_color_prompt=yes' "${HOME}/.bashrc" 2>/dev/null; then
         backup_file "${HOME}/.bashrc"
@@ -734,30 +734,43 @@ configure_wsl_settings() {
         log_info "Color prompt already enabled or not found in .bashrc"
     fi
 
-    # Check /etc/wsl.conf
-    if [[ ! -f /etc/wsl.conf ]] || ! grep -q "metadata" /etc/wsl.conf 2>/dev/null; then
-        log_warn "WSL configuration may need updating."
-        echo ""
-        echo "  Recommended /etc/wsl.conf:"
-        echo '    [automount]'
-        echo '    enabled = true'
-        echo '    options = "metadata,umask=22,fmask=11"'
-        echo '    [interop]'
-        echo '    enabled = true'
-        echo '    appendWindowsPath = true'
-        echo ""
-        echo "  Then restart WSL: wsl --shutdown"
-        echo ""
-    else
-        log_info "/etc/wsl.conf looks good"
+    # --- WSL-specific: /etc/wsl.conf check ---
+    if is_wsl; then
+        if [[ ! -f /etc/wsl.conf ]] || ! grep -q "metadata" /etc/wsl.conf 2>/dev/null; then
+            log_warn "WSL configuration may need updating."
+            echo ""
+            echo "  Recommended /etc/wsl.conf:"
+            echo '    [automount]'
+            echo '    enabled = true'
+            echo '    options = "metadata,umask=22,fmask=11"'
+            echo '    [interop]'
+            echo '    enabled = true'
+            echo '    appendWindowsPath = true'
+            echo ""
+            echo "  Then restart WSL: wsl --shutdown"
+            echo ""
+        else
+            log_info "/etc/wsl.conf looks good"
+        fi
     fi
 
-    log_success "WSL settings configured"
+    # --- SteamOS-specific notes ---
+    if is_steamos; then
+        echo ""
+        log_info "SteamOS post-install notes:"
+        log_info "  - NVM and npm-global persist in ~ (survives OS updates)"
+        log_info "  - System packages (socat, bubblewrap, etc.) do NOT survive OS updates"
+        log_info "  - After a SteamOS update, run: bash reprovision-steamos.sh"
+        log_info "  - Shell config lives in ~/.bashrc (not ~/.bash_profile)"
+        echo ""
+    fi
+
+    log_success "Platform settings configured"
 
     if [[ "${changes_made}" == "true" ]]; then
-        INSTALLED_STEPS+=("WSL settings (git, bashrc)")
+        INSTALLED_STEPS+=("Platform settings (git, bashrc)")
     else
-        SKIPPED_STEPS+=("WSL settings (already configured)")
+        SKIPPED_STEPS+=("Platform settings (already configured)")
     fi
 }
 
@@ -860,7 +873,7 @@ main() {
     patch_mclaude_launcher
     deploy_helper_scripts
     deploy_claude_md
-    configure_wsl_settings
+    configure_platform_settings
 
     # Show summary
     print_summary
