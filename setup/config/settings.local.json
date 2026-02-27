@@ -9,6 +9,7 @@
     "playwright",
     "postgres",
     "memory",
-    "diagram"
+    "diagram",
+    "linkedin"
   ]
 }

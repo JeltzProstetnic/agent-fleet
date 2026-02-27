@@ -35,9 +35,9 @@ fi
 CONTENT=$(cat "$SESSION_FILE")
 
 HAS_GOAL=$(printf '%s\n' "$CONTENT" | sed -n 's/.*\*\*Session Goal\*\*: \(.\+\)/\1/p' | head -1 || true)
-HAS_COMPLETED=$(printf '%s\n' "$CONTENT" | grep '^\s*- \[x\]' || true)
+HAS_COMPLETED=$(printf '%s\n' "$CONTENT" | grep -i '^\s*- \[x\]' || true)
 HAS_COMPLETED_SECTION=$(printf '%s\n' "$CONTENT" | awk '/^### Completed/{flag=1; next} /^###|^## |^- \*\*/{flag=0} flag' | grep '^- ' || true)
-HAS_DECISIONS=$(printf '%s\n' "$CONTENT" | awk '/^## Key Decisions/{flag=1; next} /^## /{flag=0} flag' | sed '/^$/d' || true)
+HAS_DECISIONS=$(printf '%s\n' "$CONTENT" | awk '/^##+ Key Decisions/{flag=1; next} /^## /{flag=0} flag' | sed '/^$/d' || true)
 
 # Require: goal AND (at least one completed item OR at least one decision)
 # Goal alone is not enough — prevents "Quick check" with zero content from creating garbage entries.
@@ -85,7 +85,7 @@ fi
 COMPLETED=""
 # Format 1: checkbox items — strict match: line must start with optional whitespace then "- [x]"
 # (Loose grep -F '[x]' would also match template help text like "use `- [x]` checkbox...")
-CHECKBOX_ITEMS=$(printf '%s\n' "$CONTENT" | grep '^\s*- \[x\]' | sed 's/^[[:space:]]*- \[x\] /- /' || true)
+CHECKBOX_ITEMS=$(printf '%s\n' "$CONTENT" | grep -i '^\s*- \[x\]' | sed 's/^[[:space:]]*- \[[xX]\] /- /' || true)
 # Format 2: plain bullets under ### Completed... subsection (only lines starting with "- ")
 SECTION_ITEMS=$(printf '%s\n' "$CONTENT" | awk '/^### Completed/{flag=1; next} /^###|^## |^- \*\*/{flag=0} flag' | grep '^- ' || true)
 # Combine (prefer checkbox if both exist, deduplicate unlikely but harmless)
@@ -103,7 +103,7 @@ fi
 
 # Extract Key Decisions section content
 # Get everything between "## Key Decisions" and the next "##" heading
-DECISIONS=$(printf '%s\n' "$CONTENT" | awk '/^## Key Decisions/{flag=1; next} /^## /{flag=0} flag' | sed '/^$/d' || true)
+DECISIONS=$(printf '%s\n' "$CONTENT" | awk '/^##+ Key Decisions/{flag=1; next} /^## /{flag=0} flag' | sed '/^$/d' || true)
 if [[ -z "$DECISIONS" ]]; then
     DECISIONS="- (no decisions recorded)"
 fi
@@ -244,3 +244,5 @@ EOF
 
 echo "Reset session-context.md to blank template."
 echo "Rotation complete."
+echo ""
+echo "Reminder: if significant decisions were made, update docs/decisions.md."

@@ -17,6 +17,9 @@ Thumbs.db
 # secrets/ has its own .gitignore (tracks scaffold, ignores actual secrets)
 credentials/
 
+# Temporary files (review outputs, scratch)
+tmp/
+
 # Logs
 *.log
 logs/

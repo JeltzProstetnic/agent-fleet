@@ -48,7 +48,9 @@ bash setup.sh
 
 **3. Optionally set up integrations** — the script asks about GitHub, Gmail, and other services. Skip any you don't need; you can add them later.
 
-**4. Done.** Open Claude Code in any project and it will automatically use your new configuration.
+**4. Set up credentials** — Copy `secrets/vault.json.example` to `secrets/vault.json`, fill in your tokens, then encrypt with `bash secrets/vault-manage.sh encrypt`. Or configure MCP servers manually in `~/.mcp.json`.
+
+**5. Done.** Open Claude Code in any project and it will automatically use your new configuration.
 
 > New to all of this? See [docs/getting-started.md](docs/getting-started.md) for a detailed walkthrough.
 

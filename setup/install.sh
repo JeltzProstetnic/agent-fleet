@@ -188,8 +188,7 @@ echo "    2. Configure MCP servers (GitHub, Jira, Serena)"
 echo "       - Will prompt for credentials if not already configured"
 echo "    3. Patch mclaude launcher (MCP enablement + update-checker)"
 echo "    4. Deploy helper scripts"
-echo "    5. Deploy global CLAUDE.md"
-echo "    6. Configure platform settings (git, credentials, bashrc)"
+echo "    5. Configure platform settings (git, credentials, bashrc)"
 echo ""
 
 if [[ "${RECONFIGURE_MCP}" == "true" ]]; then

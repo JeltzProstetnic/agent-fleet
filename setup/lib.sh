@@ -420,6 +420,7 @@ check_pkg_installed() {
             # Try individual package first, then check as group.
             pacman -Qi "${pkg}" &>/dev/null || { pacman -Sg "${pkg}" &>/dev/null && pacman -Qg "${pkg}" &>/dev/null; } ;;
         fedora) rpm -q "${pkg}" &>/dev/null ;;
+        macos)  brew list --formula "${pkg}" &>/dev/null ;;
         *)      command -v "${pkg}" &>/dev/null ;;
     esac
 }

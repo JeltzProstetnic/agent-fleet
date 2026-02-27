@@ -49,7 +49,7 @@ if ! flock -n 9; then
 fi
 
 # Collect project-specific rules
-bash "$CONFIG_REPO/sync.sh" collect 2>/dev/null || sync_fail "collect" "sync.sh collect failed"
+COLLECT_OUTPUT=$(bash "$CONFIG_REPO/sync.sh" collect 2>&1) || sync_fail "collect" "sync.sh collect failed: $(echo "$COLLECT_OUTPUT" | tail -1)"
 
 # Stage only expected directories and files — avoid staging unintended changes
 git add session-context.md session-history.md 2>/dev/null || true
@@ -59,7 +59,7 @@ git diff --cached --quiet 2>/dev/null && sync_success  # Nothing to sync
 
 # Secret scan: check staged diff for obvious secret patterns before committing
 STAGED_DIFF=$(git diff --cached 2>/dev/null)
-SECRET_PATTERNS='sk-[A-Za-z0-9]{20,}|ghp_[A-Za-z0-9]{36,}|gho_[A-Za-z0-9]{36,}|xoxb-[A-Za-z0-9-]+|xoxp-[A-Za-z0-9-]+|password\s*[:=]|secret\s*[:=]|private_key\s*[:=]|BEGIN RSA|BEGIN PRIVATE KEY|[A-Za-z0-9+/]{40,}={0,2}'
+SECRET_PATTERNS='sk-ant-[A-Za-z0-9-]{20,}|sk-[A-Za-z0-9]{20,}|AKIA[0-9A-Z]{16}|AIzaSy[A-Za-z0-9_-]{33}|ghp_[A-Za-z0-9]{36,}|gho_[A-Za-z0-9]{36,}|xoxb-[A-Za-z0-9-]+|xoxp-[A-Za-z0-9-]+|password\s*[:=]|secret\s*[:=]|private_key\s*[:=]|BEGIN RSA|BEGIN PRIVATE KEY|(key|token|secret)\s*[:=]\s*[A-Za-z0-9+/]{40,}={0,2}'
 SECRET_HITS=$(printf '%s' "$STAGED_DIFF" | grep -E "$SECRET_PATTERNS" 2>/dev/null | grep '^+' | grep -v '^+++' || true)
 if [ -n "$SECRET_HITS" ]; then
     # Identify which staged files contain the suspicious content (newline-separated)

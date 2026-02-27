@@ -9,6 +9,7 @@
 #   - Debian/Ubuntu (including WSL)
 #   - Arch Linux / SteamOS (Steam Deck)
 #   - Fedora / RHEL (best-effort)
+#   - macOS (Homebrew)
 #
 # This script handles:
 #   1. Environment detection (distro, WSL, SteamOS)
@@ -64,7 +65,7 @@ This script installs the foundation for Claude Code:
   - Node.js (via nvm) with user-local npm configuration
   - cc-mirror (npm package for Claude Code variant management)
 
-Supported platforms: Debian/Ubuntu (including WSL), Arch/SteamOS, Fedora/RHEL.
+Supported platforms: Debian/Ubuntu (including WSL), Arch/SteamOS, Fedora/RHEL, macOS (Homebrew).
 
 This is PHASE 1 of the setup. After this completes, run configure-claude.sh
 to set up the mclaude variant, MCP servers, and VoltAgent subagents.
@@ -150,6 +151,7 @@ install_system_deps() {
         debian) _install_deps_debian ;;
         arch)   _install_deps_arch ;;
         fedora) _install_deps_fedora ;;
+        macos)  _install_deps_macos ;;
         *)
             log_warn "Unsupported distro family: ${distro}"
             log_warn "Please install these manually: socat bubblewrap curl git python3 pipx"
@@ -330,6 +332,58 @@ _install_deps_fedora() {
         INSTALLED_STEPS+=("system-deps (dnf)")
     else
         log_info "[DRY RUN] Would run: sudo dnf install -y ${needed_packages[*]}"
+        log_info "[DRY RUN] Would run: pipx ensurepath"
+        INSTALLED_STEPS+=("system-deps (dry-run)")
+    fi
+}
+
+_install_deps_macos() {
+    # Homebrew package names for the same set of tools as the Linux paths.
+    # socat and bubblewrap: socat is in homebrew core; bubblewrap is Linux-only
+    # (sandbox isolation is not needed the same way on macOS), so we skip it.
+    local packages=(
+        socat
+        curl
+        git
+        python3
+        pipx
+    )
+
+    if ! command -v brew &>/dev/null; then
+        log_error "Homebrew is not installed. Install it first:"
+        log_error "  /bin/bash -c \"\$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)\""
+        exit 1
+    fi
+
+    local needed_packages=()
+    for pkg in "${packages[@]}"; do
+        # brew list checks installed formulae; use --formula to avoid cask confusion
+        if ! brew list --formula "${pkg}" &>/dev/null; then
+            needed_packages+=("${pkg}")
+        else
+            [[ "${VERBOSE}" == "true" ]] && log_info "Package already installed: ${pkg}"
+        fi
+    done
+
+    if [[ ${#needed_packages[@]} -eq 0 ]]; then
+        log_info "All required system packages already installed"
+        SKIPPED_STEPS+=("system-deps (already installed)")
+        return 0
+    fi
+
+    log_info "Need to install ${#needed_packages[@]} package(s): ${needed_packages[*]}"
+
+    if [[ "${DRY_RUN}" == "false" ]]; then
+        log_info "Installing packages via Homebrew..."
+        brew install "${needed_packages[@]}" || {
+            log_error "Failed to install system packages via Homebrew"
+            exit 1
+        }
+
+        run_cmd pipx ensurepath 2>/dev/null || true
+        INSTALLED_STEPS+=("system-deps (brew)")
+    else
+        log_info "[DRY RUN] Would run: brew install ${needed_packages[*]}"
         log_info "[DRY RUN] Would run: pipx ensurepath"
         INSTALLED_STEPS+=("system-deps (dry-run)")
     fi

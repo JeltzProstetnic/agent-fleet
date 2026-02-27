@@ -103,6 +103,19 @@
       "env": {
         "PATH": "__PATH__"
       }
+    },
+    "linkedin": {
+      "command": "node",
+      "args": [
+        "__LINKEDIN_SERVER_PATH__"
+      ],
+      "env": {
+        "LINKEDIN_CLIENT_ID": "__LINKEDIN_CLIENT_ID__",
+        "LINKEDIN_CLIENT_SECRET": "__LINKEDIN_CLIENT_SECRET__",
+        "LINKEDIN_ACCESS_TOKEN": "__LINKEDIN_ACCESS_TOKEN__",
+        "LINKEDIN_API_VERSION": "202302",
+        "PATH": "__PATH__"
+      }
     }
   }
 }

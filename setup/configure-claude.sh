@@ -5,7 +5,7 @@
 # This script configures the mclaude variant created by install-base.sh.
 # It sets up VoltAgent subagents, MCP servers (GitHub, Google Workspace,
 # Twitter, Jira, Serena, Playwright, Memory, Diagram Bridge, Postgres),
-# helper scripts, global CLAUDE.md, and WSL settings.
+# helper scripts, and platform settings (git, credentials, WSL/SteamOS).
 #
 # PREREQUISITE: Run install-base.sh first to install Node.js, cc-mirror,
 # and create the mclaude variant.
@@ -26,8 +26,7 @@
 #           Diagram Bridge, Postgres) with credentials
 #   Step 3: Patch mclaude launcher with MCP enablement + update-checker
 #   Step 4: Deploy helper scripts (update-checker)
-#   Step 5: Deploy global CLAUDE.md configuration
-#   Step 6: Configure platform settings (git, credentials, bashrc, WSL/SteamOS specifics)
+#   Step 5: Configure platform settings (git, credentials, bashrc, WSL/SteamOS specifics)
 #
 
 set -euo pipefail
@@ -52,7 +51,7 @@ SCRIPTS_DIR="${HOME}/.cc-mirror/${CC_MIRROR_VARIANT}/scripts"
 LAUNCHER="${HOME}/.local/bin/${CC_MIRROR_VARIANT}"
 
 RECONFIGURE_MCP=false
-TOTAL_STEPS=6
+TOTAL_STEPS=5
 
 # Step tracking for summary
 INSTALLED_STEPS=()
@@ -87,8 +86,7 @@ WHAT THIS SCRIPT DOES:
      Playwright, Memory, Diagram Bridge, Postgres)
   3. Patch mclaude launcher with MCP enablement + update-checker
   4. Deploy helper scripts (update-checker)
-  5. Deploy global CLAUDE.md configuration
-  6. Configure platform settings (git, credentials, bashrc, WSL/SteamOS specifics)
+  5. Configure platform settings (git, credentials, bashrc, WSL/SteamOS specifics)
 
 IDEMPOTENCY:
   This script can be run multiple times safely. It will:
@@ -369,29 +367,62 @@ configure_mcp_servers() {
         fi
     fi
 
-    # Build .mcp.json from template
+    # Build .mcp.json from template using Python for safe value substitution.
+    # Python string replacement avoids sed delimiter collisions when token values
+    # contain special characters (|, /, &, etc.). Values are passed via environment
+    # variables to avoid shell quoting issues in the heredoc.
     log_info "Generating .mcp.json..."
 
     local mcp_json
-    mcp_json=$(sed \
-        -e "s|__SERENA_CMD__|${uvx_cmd}|g" \
-        -e "s|__UVX_CMD__|${uvx_cmd}|g" \
-        -e "s|__NPX_CMD__|${npx_cmd}|g" \
-        -e "s|__JIRA_CMD__|${uvx_cmd}|g" \
-        -e "s|__PATH__|${safe_path}|g" \
-        -e "s|__GITHUB_TOKEN__|${github_token}|g" \
-        -e "s|__GOOGLE_CLIENT_ID__|${google_client_id}|g" \
-        -e "s|__GOOGLE_CLIENT_SECRET__|${google_client_secret}|g" \
-        -e "s|__GOOGLE_EMAIL__|${google_email}|g" \
-        -e "s|__TWITTER_API_KEY__|${twitter_api_key}|g" \
-        -e "s|__TWITTER_API_SECRET__|${twitter_api_secret}|g" \
-        -e "s|__TWITTER_ACCESS_TOKEN__|${twitter_access_token}|g" \
-        -e "s|__TWITTER_ACCESS_SECRET__|${twitter_access_secret}|g" \
-        -e "s|__JIRA_URL__|${jira_url}|g" \
-        -e "s|__JIRA_USERNAME__|${jira_email}|g" \
-        -e "s|__JIRA_API_TOKEN__|${jira_api_token}|g" \
-        -e "s|__POSTGRES_URL__|${postgres_url}|g" \
-        "${template}")
+    mcp_json=$(
+        MCP_SERENA_CMD="${uvx_cmd}" \
+        MCP_UVX_CMD="${uvx_cmd}" \
+        MCP_NPX_CMD="${npx_cmd}" \
+        MCP_SAFE_PATH="${safe_path}" \
+        MCP_GITHUB_TOKEN="${github_token}" \
+        MCP_GOOGLE_CLIENT_ID="${google_client_id}" \
+        MCP_GOOGLE_CLIENT_SECRET="${google_client_secret}" \
+        MCP_GOOGLE_EMAIL="${google_email}" \
+        MCP_TWITTER_API_KEY="${twitter_api_key}" \
+        MCP_TWITTER_API_SECRET="${twitter_api_secret}" \
+        MCP_TWITTER_ACCESS_TOKEN="${twitter_access_token}" \
+        MCP_TWITTER_ACCESS_SECRET="${twitter_access_secret}" \
+        MCP_JIRA_URL="${jira_url}" \
+        MCP_JIRA_USERNAME="${jira_email}" \
+        MCP_JIRA_API_TOKEN="${jira_api_token}" \
+        MCP_POSTGRES_URL="${postgres_url}" \
+        python3 - "${template}" <<'PYEOF'
+import sys, os
+
+with open(sys.argv[1], 'r') as f:
+    content = f.read()
+
+replacements = {
+    '__SERENA_CMD__':           os.environ.get('MCP_SERENA_CMD', ''),
+    '__UVX_CMD__':              os.environ.get('MCP_UVX_CMD', ''),
+    '__NPX_CMD__':              os.environ.get('MCP_NPX_CMD', ''),
+    '__JIRA_CMD__':             os.environ.get('MCP_UVX_CMD', ''),
+    '__PATH__':                 os.environ.get('MCP_SAFE_PATH', ''),
+    '__GITHUB_TOKEN__':         os.environ.get('MCP_GITHUB_TOKEN', ''),
+    '__GOOGLE_CLIENT_ID__':     os.environ.get('MCP_GOOGLE_CLIENT_ID', ''),
+    '__GOOGLE_CLIENT_SECRET__': os.environ.get('MCP_GOOGLE_CLIENT_SECRET', ''),
+    '__GOOGLE_EMAIL__':         os.environ.get('MCP_GOOGLE_EMAIL', ''),
+    '__TWITTER_API_KEY__':      os.environ.get('MCP_TWITTER_API_KEY', ''),
+    '__TWITTER_API_SECRET__':   os.environ.get('MCP_TWITTER_API_SECRET', ''),
+    '__TWITTER_ACCESS_TOKEN__': os.environ.get('MCP_TWITTER_ACCESS_TOKEN', ''),
+    '__TWITTER_ACCESS_SECRET__':os.environ.get('MCP_TWITTER_ACCESS_SECRET', ''),
+    '__JIRA_URL__':             os.environ.get('MCP_JIRA_URL', ''),
+    '__JIRA_USERNAME__':        os.environ.get('MCP_JIRA_USERNAME', ''),
+    '__JIRA_API_TOKEN__':       os.environ.get('MCP_JIRA_API_TOKEN', ''),
+    '__POSTGRES_URL__':         os.environ.get('MCP_POSTGRES_URL', ''),
+}
+
+for placeholder, value in replacements.items():
+    content = content.replace(placeholder, value)
+
+print(content, end='')
+PYEOF
+    )
 
     # Remove unconfigured servers from JSON
     for server_flag in "github:${setup_github}" "google-workspace:${setup_google}" "twitter:${setup_twitter}" "jira:${setup_jira}" "postgres:${setup_postgres}"; do
@@ -399,9 +430,9 @@ configure_mcp_servers() {
         local server_enabled="${server_flag##*:}"
         if [[ "${server_enabled}" != "true" ]]; then
             if command -v node &>/dev/null; then
-                mcp_json=$(printf '%s' "${mcp_json}" | node -e "
+                mcp_json=$(printf '%s' "${mcp_json}" | MCP_SERVER_NAME="${server_name}" node -e "
                     const d = JSON.parse(require('fs').readFileSync('/dev/stdin','utf8'));
-                    delete d.mcpServers['${server_name}'];
+                    delete d.mcpServers[process.env.MCP_SERVER_NAME];
                     process.stdout.write(JSON.stringify(d, null, 2));
                 ")
             else
@@ -659,40 +690,11 @@ deploy_helper_scripts() {
 }
 
 # ============================================================================
-# STEP 5: DEPLOY GLOBAL CLAUDE.md
-# ============================================================================
-
-deploy_claude_md() {
-    log_step 5 "${TOTAL_STEPS}" "Deploy Global CLAUDE.md"
-
-    local src="${SCRIPT_DIR}/config/CLAUDE.md"
-    local dest="${HOME}/.claude/CLAUDE.md"
-
-    run_cmd mkdir -p "${HOME}/.claude"
-
-    if [[ ! -f "${src}" ]]; then
-        log_warn "config/CLAUDE.md not found in setup folder, skipping"
-        SKIPPED_STEPS+=("Global CLAUDE.md (source not found)")
-        return 0
-    fi
-
-    if files_identical "${src}" "${dest}"; then
-        log_info "CLAUDE.md already up to date, skipping"
-        SKIPPED_STEPS+=("Global CLAUDE.md (already up to date)")
-    else
-        backup_file "${dest}"
-        run_cmd cp "${src}" "${dest}"
-        log_success "CLAUDE.md deployed to ~/.claude/CLAUDE.md"
-        INSTALLED_STEPS+=("Global CLAUDE.md")
-    fi
-}
-
-# ============================================================================
-# STEP 6: CONFIGURE PLATFORM SETTINGS
+# STEP 5: CONFIGURE PLATFORM SETTINGS
 # ============================================================================
 
 configure_platform_settings() {
-    log_step 6 "${TOTAL_STEPS}" "Configure Platform Settings"
+    log_step 5 "${TOTAL_STEPS}" "Configure Platform Settings"
 
     local changes_made=false
 
@@ -725,11 +727,7 @@ configure_platform_settings() {
     if grep -q '^#force_color_prompt=yes' "${HOME}/.bashrc" 2>/dev/null; then
         backup_file "${HOME}/.bashrc"
         if [[ "${DRY_RUN}" == "false" ]]; then
-            if [[ "$(uname -s)" == "Darwin" ]]; then
-                sed -i '' -e 's/^#force_color_prompt=yes/force_color_prompt=yes/' "${HOME}/.bashrc"
-            else
-                sed -i'' -e 's/^#force_color_prompt=yes/force_color_prompt=yes/' "${HOME}/.bashrc"
-            fi
+            sed -i'' -e 's/^#force_color_prompt=yes/force_color_prompt=yes/' "${HOME}/.bashrc"
             log_success "Color prompt enabled"
         else
             echo -e "${COLOR_YELLOW}[DRY RUN]${COLOR_RESET} Would enable color prompt in .bashrc"
@@ -762,6 +760,9 @@ configure_platform_settings() {
     if is_steamos; then
         echo ""
         log_info "SteamOS post-install notes:"
+        log_info "  - Set a sudo password if you haven't: run 'passwd' (deck user has none by default)"
+        log_info "  - Root filesystem is read-only; system writes need: sudo steamos-readonly disable"
+        log_info "    Writes outside ~ are WIPED on OS updates — keep everything in your home directory"
         log_info "  - NVM and npm-global persist in ~ (survives OS updates)"
         log_info "  - System packages (socat, bubblewrap, etc.) do NOT survive OS updates"
         log_info "  - After a SteamOS update, run: bash reprovision-steamos.sh"
@@ -876,7 +877,6 @@ main() {
     configure_mcp_servers
     patch_mclaude_launcher
     deploy_helper_scripts
-    deploy_claude_md
     configure_platform_settings
 
     # Show summary

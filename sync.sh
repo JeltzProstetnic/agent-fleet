@@ -186,7 +186,8 @@ check_template_drift() {
     tracked_files=$(sed -n 's/^| `\([^`]*\)` | `\([0-9a-f]\{8\}\)`.*/\1|\2/p' "$manifest" || true)
 
     local line file_path hash
-    for line in $tracked_files; do
+    while IFS= read -r line; do
+        [ -n "$line" ] || continue
         file_path="${line%%|*}"
         hash="${line##*|}"
         [ -n "$file_path" ] && [ -n "$hash" ] || continue
@@ -201,7 +202,7 @@ check_template_drift() {
             log_warn "$file_path changed since last template sync (was: $hash, now: $current_hash)"
             drift_count=$((drift_count + 1))
         fi
-    done
+    done <<< "$tracked_files"
 
     if [ "$drift_count" -gt 0 ]; then
         log_warn "$drift_count file(s) drifted. Review template-sync-manifest.md and propagate changes."
