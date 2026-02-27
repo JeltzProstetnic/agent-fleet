@@ -99,8 +99,26 @@ step "2/7" "Checking prerequisites"
 command -v git &>/dev/null || die "git is not installed. Please install git first."
 ok "git: $(command -v git)"
 
-[[ -d "$CLAUDE_DIR" ]] || mkdir -p "$CLAUDE_DIR" && ok "Config dir: ${CLAUDE_DIR}"
-mkdir -p "$CLAUDE_DIR"/{foundation,domains,reference,hooks}
+# Ensure git user.name and email are configured (needed for auto-sync hooks)
+if [[ -z "$(git config --global user.name 2>/dev/null)" ]]; then
+  if [[ "$NON_INTERACTIVE" == true ]]; then
+    warn "git user.name not set — auto-sync commits may fail"
+  else
+    read -r -p "  git user.name not set. Your name for commits: " _gitname
+    [[ -n "$_gitname" ]] && git config --global user.name "$_gitname" && ok "Set git user.name"
+  fi
+fi
+if [[ -z "$(git config --global user.email 2>/dev/null)" ]]; then
+  if [[ "$NON_INTERACTIVE" == true ]]; then
+    warn "git user.email not set — auto-sync commits may fail"
+  else
+    read -r -p "  git user.email not set. Your email for commits: " _gitemail
+    [[ -n "$_gitemail" ]] && git config --global user.email "$_gitemail" && ok "Set git user.email"
+  fi
+fi
+
+mkdir -p "$CLAUDE_DIR"/{foundation,domains,reference,knowledge,machines,hooks}
+ok "Config dir: ${CLAUDE_DIR}"
 
 # ---------------------------------------------------------------------------
 # Step 3 — User profile
@@ -284,7 +302,7 @@ else
   warn "global/CLAUDE.md not found — skipping"
 fi
 
-for dir in foundation domains reference; do
+for dir in foundation domains reference knowledge machines; do
   src="$REPO_DIR/global/$dir"
   dst="$CLAUDE_DIR/$dir"
   if [[ -d "$src" ]]; then
@@ -295,6 +313,26 @@ for dir in foundation domains reference; do
     warn "global/$dir/ not found — skipping"
   fi
 done
+
+# Create CLAUDE.local.md pointing to machine file
+MACHINE_FILE="$REPO_DIR/global/machines/${CLAUDE_MACHINE_ID}.md"
+LOCAL_MD="$HOME/CLAUDE.local.md"
+if [[ ! -f "$LOCAL_MD" ]]; then
+  # Create machine file from template if it doesn't exist yet
+  MACHINE_TEMPLATE="$REPO_DIR/global/machines/_template.md"
+  if [[ -f "$MACHINE_TEMPLATE" && ! -f "$MACHINE_FILE" ]]; then
+    sed "s/<hostname-pattern>/${CLAUDE_MACHINE_ID}/g" "$MACHINE_TEMPLATE" \
+      | sed "s/- \*\*Platform\*\*:/- **Platform**: ${PLATFORM}/" \
+      | sed "s/- \*\*Hostname pattern\*\*:/- **Hostname pattern**: $(hostname)/" \
+      | sed "s/- \*\*User\*\*:/- **User**: $(whoami)/" \
+      > "$MACHINE_FILE"
+    ok "Created machine file: machines/${CLAUDE_MACHINE_ID}.md"
+  fi
+  echo "@~/.claude/machines/${CLAUDE_MACHINE_ID}.md" > "$LOCAL_MD"
+  ok "Created ~/CLAUDE.local.md -> machines/${CLAUDE_MACHINE_ID}.md"
+else
+  warn "~/CLAUDE.local.md already exists — keeping existing"
+fi
 
 # ---------------------------------------------------------------------------
 # Step 6 — Hooks
@@ -330,7 +368,7 @@ echo "  Serena (code navigation) is always included — no credentials needed."
 echo "  You can skip all of these now and set them up later via Claude's interactive setup."
 echo ""
 
-MCP_FILE="$CLAUDE_DIR/.mcp.json"
+MCP_FILE="$HOME/.mcp.json"
 MCP_SERVERS='{}' # Will be built up as JSON
 CONFIGURED_SERVERS="serena"
 
@@ -576,7 +614,7 @@ MCP_LIST=""
 MCP_LIST="${MCP_LIST}playwright, memory, diagram, serena"
 
 sed -i "s/(none configured yet)/${MCP_LIST}/" "$CATALOG_FILE"
-ok "Wrote ~/.claude/.mcp.json ($CONFIGURED_SERVERS)"
+ok "Wrote ~/.mcp.json ($CONFIGURED_SERVERS)"
 
 # ---------------------------------------------------------------------------
 # Create first-run marker
@@ -600,6 +638,8 @@ echo "  CLAUDE.md   ->  global/CLAUDE.md"
 echo "  foundation/ ->  global/foundation/"
 echo "  domains/    ->  global/domains/"
 echo "  reference/  ->  global/reference/"
+echo "  knowledge/  ->  global/knowledge/"
+echo "  machines/   ->  global/machines/"
 
 # ---------------------------------------------------------------------------
 # Offer interactive refinement

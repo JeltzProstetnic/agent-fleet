@@ -29,6 +29,8 @@ Claude Code configuration management across all machines and projects.
 | `global/foundation/` | `~/.claude/foundation/` | Core protocols (symlinked) |
 | `global/domains/` | `~/.claude/domains/` | Domain knowledge (symlinked) |
 | `global/reference/` | `~/.claude/reference/` | Conditional references (symlinked) |
+| `global/knowledge/` | `~/.claude/knowledge/` | Operational knowledge (symlinked) |
+| `global/machines/` | `~/.claude/machines/` | Per-machine config (symlinked) |
 | `global/hooks/` | `~/.claude/hooks/` | Session hooks (copied) |
 | `projects/<name>/rules/` | `<project>/.claude/` | Project-specific rules (copied) |
 | `setup/scripts/audit-tools.sh` | (stays in repo) | Generates per-machine tool inventory |

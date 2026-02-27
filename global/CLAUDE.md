@@ -82,6 +82,8 @@ If the user says "always do X" or "remember to do Y" → that's a rule → `CLAU
 
 **MCP-first rule:** Always prefer MCP server tools over bash/CLI equivalents when available. GitHub MCP for repo/issue/PR operations (not `gh` CLI or `curl`), Google Workspace MCP for email/docs/calendar, Twitter MCP for tweets, Serena for code navigation in code projects. Only fall back to CLI when MCP genuinely can't do the operation (e.g., `git clone` to local filesystem), or when the MCP catalog documents a known limitation for that specific tool.
 
+**Subagent file delivery rule:** When a subagent (Task tool) already opens or delivers a file (PDF, image, etc.), do not open it again in the parent context. Check the subagent's output for delivery confirmation before performing redundant opens.
+
 **URL/service identification rule:** When the user provides a URL or a task involves an external service, FIRST identify the service (x.com/twitter.com → Twitter, github.com → GitHub, docs.google.com/drive.google.com → Google Workspace, etc.). Then check the MCP catalog for matching tools and known limitations. Only after that, decide whether to use MCP tools or fall back to WebFetch/CLI. Never jump straight to generic fetching without this identification step.
 
 **Backlog convention:** Every project has `backlog.md` at root. Do NOT read at session start — only when active tasks are done or user asks. All backlogs follow this standard format:

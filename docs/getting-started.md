@@ -8,9 +8,8 @@ You need:
 
 1. **A terminal** — Linux, macOS, or WSL on Windows
 2. **git** — `sudo apt install git` (Ubuntu/WSL) or `brew install git` (macOS)
-3. **A Claude Code subscription** — [claude.ai/claude-code](https://claude.ai/claude-code)
-
-That's it. The setup script handles everything else (Node.js, npm, tool installs).
+3. **Node.js 18+** — `sudo apt install nodejs npm` (Ubuntu/WSL) or `brew install node` (macOS). Needed for MCP servers.
+4. **Claude Code installed** — See [claude.ai/claude-code](https://claude.ai/claude-code) for installation
 
 ## Step 1: Clone and run setup
 
@@ -68,8 +67,12 @@ The setup script created this structure:
   foundation/   -> ~/claude-config/global/foundation/   (symlink)
   domains/      -> ~/claude-config/global/domains/       (symlink)
   reference/    -> ~/claude-config/global/reference/     (symlink)
+  knowledge/    -> ~/claude-config/global/knowledge/     (symlink)
+  machines/     -> ~/claude-config/global/machines/      (symlink)
   hooks/        (copied from global/hooks/)
-  .mcp.json     (generated with your credentials)
+
+~/.mcp.json     (generated with your MCP server credentials)
+~/CLAUDE.local.md  (points to your machine file)
 ```
 
 Your config lives in `~/claude-config/` (a git repo). Edit there, and changes propagate to `~/.claude/` via symlinks.
@@ -114,4 +117,4 @@ To add your own: copy `global/domains/_template/`, edit, and reference it from y
 
 **Session state not persisting:** Make sure you're running Claude from a project directory that has `session-context.md`, or from `~/claude-config/` itself.
 
-**Need to change MCP credentials:** Run `bash ~/claude-config/setup/configure-claude.sh --reconfigure-mcp`.
+**Need to change MCP credentials:** Edit `~/.mcp.json` directly, or re-run `bash ~/claude-config/setup.sh` (it backs up existing files before overwriting). Restart Claude Code after changes.
