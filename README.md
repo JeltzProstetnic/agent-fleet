@@ -1,6 +1,6 @@
-# Claude Config Template
+# Agent Fleet
 
-**Multi-project, multi-machine configuration system for Claude Code.**
+**Multi-project, multi-machine configuration system for AI coding agents.**
 
 Claude Code now has built-in memory — it remembers project patterns and preferences across sessions. That's a great foundation. But if you work across multiple projects, use multiple computers, or want Claude to follow domain-specific workflows, you need more structure.
 

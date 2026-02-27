@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# setup.sh — Bootstrap claude-config-template on Linux, macOS, or WSL
+# setup.sh — Bootstrap agent-fleet on Linux, macOS, or WSL
 # Usage: bash setup.sh [--non-interactive] [--help]
 
 set -euo pipefail
@@ -20,7 +20,7 @@ for arg in "$@"; do
       cat <<'EOF'
 Usage: bash setup.sh [--non-interactive] [--help]
 
-Bootstraps the claude-config-template system on Linux, macOS, or WSL.
+Bootstraps the agent-fleet system on Linux, macOS, or WSL.
 
 Flags:
   --non-interactive   Skip all prompts; use env vars or defaults

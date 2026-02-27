@@ -1,4 +1,4 @@
-# Backlog — claude-config-template
+# Backlog — agent-fleet
 
 ## Open
 
