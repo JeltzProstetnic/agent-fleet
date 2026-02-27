@@ -42,7 +42,7 @@ source "${SCRIPT_DIR}/lib.sh"
 # CONFIGURATION
 # ============================================================================
 
-readonly NVM_VERSION="v0.40.1"
+readonly NVM_VERSION="v0.40.3"
 readonly NODE_VERSION="22"
 readonly CC_MIRROR_VARIANT="mclaude"
 readonly TOTAL_STEPS=6
@@ -482,7 +482,7 @@ install_cc_mirror() {
     # Check if cc-mirror is already installed
     if command -v cc-mirror &> /dev/null; then
         local current_version
-        current_version=$(cc-mirror --version 2>/dev/null || echo "unknown")
+        current_version=$(npm list -g cc-mirror --depth=0 2>/dev/null | grep cc-mirror | sed 's/.*@//' || echo "unknown")
         log_info "cc-mirror already installed (version: ${current_version})"
 
         log_info "Checking for updates..."

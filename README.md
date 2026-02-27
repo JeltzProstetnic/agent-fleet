@@ -149,6 +149,13 @@ claude-config/
 │   ├── machines/                  Per-computer configuration
 │   └── hooks/                     Auto-sync scripts
 │
+├── setup/
+│   ├── install-base.sh            Phase 1: system deps, Node.js
+│   ├── configure-claude.sh        Phase 2: MCP, launchers, hooks
+│   ├── lib.sh                     Shared utilities (multi-distro detection)
+│   ├── config/                    Template configs (.mcp.json, settings.json)
+│   └── scripts/                   Operational scripts (session rotation, skill installer)
+│
 ├── projects/
 │   └── _example/rules/CLAUDE.md   Example project config
 │
@@ -177,10 +184,11 @@ MCP servers let Claude interact with external services. Setup prompts you for ea
 | **Twitter/X** | Post tweets | Yes (API keys) |
 | **Jira** | Issues, sprints, Confluence | Yes (API token) |
 | **PostgreSQL** | Database queries | Yes (connection URL) |
+| **LinkedIn** | Create posts | Yes (OAuth) |
 | **Serena** | Navigate code semantically | No |
 | **Playwright** | Automate browsers, take screenshots | No |
 | **Memory** | Persistent knowledge graph | No |
-| **Diagram** | Generate Mermaid diagrams | No |
+| **Diagram** | Generate Mermaid diagrams (PNG/SVG/PDF) | No |
 
 Skip any you don't need. You can add them later.
 
@@ -196,6 +204,18 @@ Domains are topic-specific rule sets. Each project declares which ones it needs.
 | **IT Infrastructure** | Server management, Docker, DNS, deployment |
 
 Add your own: copy `global/domains/_template/`, edit it, reference it from your project's config.
+
+### Skill Collections (optional)
+
+Third-party skill packs extend Claude Code with domain-specific capabilities. Skills are lightweight — only short descriptions load at startup, full context loads on demand.
+
+| Collection | What it adds | Source |
+|-----------|-------------|--------|
+| **getsentry** | Sentry debugging skills | [getsentry/sentry-skills](https://github.com/getsentry/sentry-skills) |
+| **obra** | Superpowers skill pack | [obra/claude-code-skill-collections](https://github.com/obra/claude-code-skill-collections) |
+| **trailofbits** | Security analysis, static analysis, binary analysis | [trailofbits/claude-code-skill-collections](https://github.com/trailofbits/claude-code-skill-collections) |
+
+Install all at once: `bash setup/scripts/install-skill-collections.sh`
 
 ---
 
@@ -280,11 +300,23 @@ The setup script detects your platform, creates machine-specific config, and lin
 
 ## Platform Support
 
-| | Linux | macOS | WSL (Windows) |
-|--|:-----:|:-----:|:-------------:|
-| **Works?** | Yes | Yes | Yes |
-| **Open files** | `xdg-open` | `open` | `powershell.exe` |
-| **Note** | — | — | Avoid working in `/mnt/c/` (slow) |
+The setup scripts auto-detect your platform and install dependencies accordingly.
+
+| Platform | Package Manager | Status |
+|----------|----------------|:------:|
+| **Ubuntu / Debian** | apt | Tested |
+| **WSL (Windows)** | apt (inside WSL) | Tested |
+| **Fedora / RHEL** | dnf | Tested |
+| **Arch / SteamOS** | pacman | Tested |
+| **macOS** | Homebrew | Supported |
+
+**Windows users:** Claude Code runs inside WSL, not natively. See the Quick Start section for WSL setup.
+
+**SteamOS note:** The immutable filesystem requires temporary unlock (`steamos-readonly disable`) during setup. The script handles this automatically and re-locks after installation.
+
+**File opening:** `xdg-open` on Linux, `open` on macOS, `powershell.exe` on WSL.
+
+**WSL tip:** Always work in the Linux filesystem (`~/`), not `/mnt/c/` — Windows paths are 10-15x slower.
 
 ---
 

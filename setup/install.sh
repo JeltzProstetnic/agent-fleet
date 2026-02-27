@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 #
-# install.sh - WSL Claude Code Unified Installer
-# ================================================
+# install.sh - Claude Code Unified Installer
+# ============================================
 # Single entry point that orchestrates install-base.sh and configure-claude.sh.
+# Supports Debian/Ubuntu, Arch/SteamOS, Fedora/RHEL, and macOS.
 #
 # Workflow:
 #   1. Preview Phase 1 (base system) via dry-run
@@ -47,9 +48,10 @@ CONFIGURE_ARGS=()
 
 show_help() {
     cat << 'EOF'
-install.sh - WSL Claude Code Unified Installer
+install.sh - Claude Code Unified Installer
 
-Single entry point for setting up Claude Code on WSL with cc-mirror.
+Single entry point for setting up Claude Code with cc-mirror.
+Supports Debian/Ubuntu, Arch/SteamOS, Fedora/RHEL, and macOS.
 
 WORKFLOW:
   1. Shows a preview of what Phase 1 (base system) would install
@@ -73,7 +75,7 @@ NOTES:
   - Phase 2 will prompt for MCP credentials (GitHub PAT, Jira token)
     during execution, not during preview
   - Both phases are idempotent (safe to re-run)
-  - Phase 1 requires sudo for apt-get operations
+  - Phase 1 requires sudo for package installation (apt/pacman/dnf/brew)
   - If only Phase 2 needs re-running, use: bash configure-claude.sh
 
 EOF
@@ -157,9 +159,9 @@ fi
 # Initialize logging (needed for log_warn/log_info to work under set -e)
 log_init
 
-print_header "WSL Claude Code Setup - Preview"
+print_header "Claude Code Setup - Preview"
 
-echo "This installer will set up Claude Code on WSL in two phases."
+echo "This installer will set up Claude Code in two phases."
 echo ""
 
 # --- Phase 1 Preview: Run install-base.sh --dry-run ---
@@ -187,7 +189,7 @@ echo "       - Will prompt for credentials if not already configured"
 echo "    3. Patch mclaude launcher (MCP enablement + update-checker)"
 echo "    4. Deploy helper scripts"
 echo "    5. Deploy global CLAUDE.md"
-echo "    6. Configure WSL settings (git, credentials, bashrc)"
+echo "    6. Configure platform settings (git, credentials, bashrc)"
 echo ""
 
 if [[ "${RECONFIGURE_MCP}" == "true" ]]; then
@@ -211,8 +213,8 @@ fi
 
 echo -e "${COLOR_BOLD}Ready to install.${COLOR_RESET}"
 echo ""
-echo "  Phase 1 requires sudo for apt-get package installation."
-echo "  Phase 2 will prompt for MCP credentials (GitHub PAT, Jira token)."
+echo "  Phase 1 requires sudo for package installation."
+echo "  Phase 2 will prompt for MCP credentials (GitHub PAT, etc.)."
 echo ""
 
 if ! prompt_yes_no "Proceed with installation?" "y"; then

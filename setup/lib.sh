@@ -397,7 +397,10 @@ check_pkg_installed() {
     distro=$(detect_distro)
     case "${distro}" in
         debian) dpkg-query -W -f='${Status}' "${pkg}" 2>/dev/null | grep -q "install ok installed" ;;
-        arch)   pacman -Qi "${pkg}" &>/dev/null ;;
+        arch)
+            # pacman -Qi doesn't work on package groups (e.g. base-devel).
+            # Try individual package first, then check as group.
+            pacman -Qi "${pkg}" &>/dev/null || pacman -Sg "${pkg}" &>/dev/null && pacman -Qg "${pkg}" &>/dev/null ;;
         fedora) rpm -q "${pkg}" &>/dev/null ;;
         *)      command -v "${pkg}" &>/dev/null ;;
     esac
