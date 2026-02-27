@@ -322,7 +322,7 @@ cmd_status() {
     log_info "Agent rosters:"
     for d in "$HOME"/*/; do
         [ -d "$d/.claude/agents" ] || continue
-        count=$(ls "$d/.claude/agents/"*.md 2>/dev/null | wc -l)
+        count=$(find "$d/.claude/agents/" -maxdepth 1 -name "*.md" 2>/dev/null | wc -l)
         [ "$count" -gt 0 ] && echo "  $(basename "$d"): $count agents"
     done
 
