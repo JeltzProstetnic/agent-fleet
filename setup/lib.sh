@@ -400,7 +400,7 @@ check_pkg_installed() {
         arch)
             # pacman -Qi doesn't work on package groups (e.g. base-devel).
             # Try individual package first, then check as group.
-            pacman -Qi "${pkg}" &>/dev/null || pacman -Sg "${pkg}" &>/dev/null && pacman -Qg "${pkg}" &>/dev/null ;;
+            pacman -Qi "${pkg}" &>/dev/null || { pacman -Sg "${pkg}" &>/dev/null && pacman -Qg "${pkg}" &>/dev/null; } ;;
         fedora) rpm -q "${pkg}" &>/dev/null ;;
         *)      command -v "${pkg}" &>/dev/null ;;
     esac

@@ -85,7 +85,7 @@ REQUIREMENTS:
 
 WHAT GETS INSTALLED:
   1. System packages: socat, bubblewrap, curl, git, build tools, python3, pipx
-  2. NVM (Node Version Manager) v0.40.1
+  2. NVM (Node Version Manager) v0.40.3
   3. Node.js v22 (via nvm)
   4. npm global prefix configured to ~/.npm-global
   5. cc-mirror package (globally via npm)

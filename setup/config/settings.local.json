@@ -5,6 +5,10 @@
     "google-workspace",
     "twitter",
     "jira",
-    "serena"
+    "serena",
+    "playwright",
+    "postgres",
+    "memory",
+    "diagram"
   ]
 }
