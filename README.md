@@ -1,16 +1,16 @@
 # Claude Config Template
 
-**Make Claude Code remember things, work across projects, and sync between computers.**
+**Multi-project, multi-machine configuration system for Claude Code.**
 
-Out of the box, Claude Code forgets everything when you close it. Open it again tomorrow and it has no idea what you were doing. Work on multiple projects? Each one is a silo. Switch computers? Start over.
+Claude Code now has built-in memory — it remembers project patterns and preferences across sessions. That's a great foundation. But if you work across multiple projects, use multiple computers, or want Claude to follow domain-specific workflows, you need more structure.
 
-This system fixes that. One setup, and Claude Code gets:
+This system adds:
 
-- **Memory** — picks up where it left off, even after crashes
-- **Multi-project awareness** — projects can pass tasks to each other
-- **Multi-machine sync** — close your laptop, open your desktop, same context
-- **Smart knowledge loading** — only loads what the current project needs (keeps it fast)
-- **Self-healing** — when Claude makes the same mistake twice, it auto-generates a rule to prevent it
+- **Multi-project coordination** — projects pass tasks to each other via an inbox
+- **Multi-machine sync** — close your laptop, open your desktop, same context (via git)
+- **Layered knowledge** — domain rules (coding, infra, writing) load only when the project needs them
+- **Session persistence** — structured state that survives crashes and context resets, with recovery instructions
+- **Self-healing protocols** — when Claude makes the same mistake twice, it auto-generates a rule to prevent it
 - **MCP servers** — GitHub, Gmail, browser automation, diagrams, and more, pre-configured
 
 ---
@@ -56,21 +56,21 @@ bash setup.sh
 
 ## What Changes After Setup
 
-### Before (stock Claude Code)
+### Stock Claude Code
 
-- Every session starts from scratch
-- One flat `CLAUDE.md` file per project
+- Per-project auto memory and CLAUDE.md
 - No connection between projects
 - No sync between computers
 - MCP servers configured per-project
 
-### After (this system)
+### With this system
 
-- Sessions resume where they left off (even after crashes)
-- Knowledge is organized in layers — loads only what's needed
-- Projects can pass tasks to each other via an inbox
+- Structured session state with crash recovery and handoff instructions
+- Knowledge organized in 5 layers — domain rules load only when needed
+- Projects pass tasks to each other via a cross-project inbox
 - Config syncs across all your computers via git
 - MCP servers configured once, work everywhere
+- Domain protocols (TDD, publishing, infrastructure) enforce quality automatically
 
 ---
 
