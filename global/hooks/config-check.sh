@@ -7,7 +7,7 @@ _detect_config_repo() {
     local hook_real
     hook_real="$(readlink -f "${BASH_SOURCE[0]}" 2>/dev/null || echo "")"
     if [[ -n "$hook_real" && -f "$(dirname "$hook_real")/../../sync.sh" ]]; then
-        cd "$(dirname "$hook_real")/../.." && pwd
+        echo "$(cd "$(dirname "$hook_real")/../.." && pwd)"
         return
     fi
     for d in "$HOME/agent-fleet" "$HOME/cfg-agent-fleet"; do
@@ -43,8 +43,14 @@ fi
 
 # Check 4: Pull latest config (so inbox is current), and report changed files
 if [ -d "$CONFIG_REPO/.git" ]; then
+    # Respect dual-remote projects: pull from private remote, never public
+    SYNC_REMOTE="origin"
+    if [ -f "$CONFIG_REPO/.push-filter.conf" ]; then
+        PR=$(grep '^private_remote=' "$CONFIG_REPO/.push-filter.conf" 2>/dev/null | head -1 | cut -d= -f2 | xargs)
+        [ -n "$PR" ] && SYNC_REMOTE="$PR"
+    fi
     OLD_HEAD=$(git -C "$CONFIG_REPO" rev-parse HEAD 2>/dev/null || true)
-    git -C "$CONFIG_REPO" pull --ff-only origin "$DEFAULT_BRANCH" 2>/dev/null || true
+    git -C "$CONFIG_REPO" pull --ff-only "$SYNC_REMOTE" "$DEFAULT_BRANCH" 2>/dev/null || true
     NEW_HEAD=$(git -C "$CONFIG_REPO" rev-parse HEAD 2>/dev/null || true)
     if [ -n "$OLD_HEAD" ] && [ -n "$NEW_HEAD" ] && [ "$OLD_HEAD" != "$NEW_HEAD" ]; then
         CHANGED_FILES=$(git -C "$CONFIG_REPO" diff --name-only "$OLD_HEAD".."$NEW_HEAD" 2>/dev/null | tr '\n' ' ' | sed 's/ $//')

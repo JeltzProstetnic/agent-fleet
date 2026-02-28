@@ -16,7 +16,7 @@ _detect_config_repo() {
     local hook_real
     hook_real="$(readlink -f "${BASH_SOURCE[0]}" 2>/dev/null || echo "")"
     if [[ -n "$hook_real" && -f "$(dirname "$hook_real")/../../sync.sh" ]]; then
-        cd "$(dirname "$hook_real")/../.." && pwd
+        echo "$(cd "$(dirname "$hook_real")/../.." && pwd)"
         return
     fi
     for d in "$HOME/cfg-agent-fleet" "$HOME/agent-fleet"; do
@@ -91,7 +91,7 @@ git diff --cached --quiet 2>/dev/null && sync_success  # Nothing to sync
 
 # Secret scan: check staged diff for obvious secret patterns before committing
 STAGED_DIFF=$(git diff --cached 2>/dev/null)
-SECRET_PATTERNS='sk-ant-[A-Za-z0-9-]{20,}|sk-[A-Za-z0-9]{20,}|AKIA[0-9A-Z]{16}|AIzaSy[A-Za-z0-9_-]{33}|ghp_[A-Za-z0-9]{36,}|gho_[A-Za-z0-9]{36,}|xoxb-[A-Za-z0-9-]+|xoxp-[A-Za-z0-9-]+|password\s*[:=]|secret\s*[:=]|private_key\s*[:=]|BEGIN RSA|BEGIN PRIVATE KEY|(key|token|secret)\s*[:=]\s*[A-Za-z0-9+/]{40,}={0,2}'
+SECRET_PATTERNS='sk-ant-[A-Za-z0-9-]{20,}|sk-[A-Za-z0-9]{20,}|AKIA[0-9A-Z]{16}|AIzaSy[A-Za-z0-9_-]{33}|ghp_[A-Za-z0-9]{36,}|gho_[A-Za-z0-9]{36,}|xoxb-[A-Za-z0-9-]+|xoxp-[A-Za-z0-9-]+|password\s*[:=]|secret\s*[:=]|private_key\s*[:=]|-----BEGIN RSA|-----BEGIN PRIVATE KEY|(key|token|secret)\s*[:=]\s*[A-Za-z0-9+/]{40,}={0,2}'
 SECRET_HITS=$(printf '%s' "$STAGED_DIFF" | grep -E "$SECRET_PATTERNS" 2>/dev/null | grep '^+' | grep -v '^+++' || true)
 if [ -n "$SECRET_HITS" ]; then
     # Identify which staged files contain the suspicious content (newline-separated)
@@ -117,9 +117,15 @@ git commit -m "Auto-sync: $(date -u +'%Y-%m-%d %H:%M:%S UTC')" 2>/dev/null \
     || sync_fail "commit" "git commit failed"
 
 # Push (auto-detect default branch: main or master)
-DEFAULT_BRANCH=$(git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's|refs/remotes/origin/||')
+# Respect dual-remote projects: push to private remote, never public
+PUSH_REMOTE="origin"
+if [ -f "$CONFIG_REPO/.push-filter.conf" ]; then
+    PR=$(grep '^private_remote=' "$CONFIG_REPO/.push-filter.conf" 2>/dev/null | head -1 | cut -d= -f2 | xargs)
+    [ -n "$PR" ] && PUSH_REMOTE="$PR"
+fi
+DEFAULT_BRANCH=$(git symbolic-ref "refs/remotes/$PUSH_REMOTE/HEAD" 2>/dev/null | sed "s|refs/remotes/$PUSH_REMOTE/||")
 [ -z "$DEFAULT_BRANCH" ] && DEFAULT_BRANCH="main"
-git push origin "$DEFAULT_BRANCH" 2>/dev/null \
+git push "$PUSH_REMOTE" "$DEFAULT_BRANCH" 2>/dev/null \
     || sync_fail "push" "git push failed (network? auth?)"
 
 sync_success

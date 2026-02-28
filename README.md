@@ -78,8 +78,6 @@ bash setup.sh
 
 **5. Done.** Open Claude Code in any project and it will automatically use your new configuration.
 
-> New to all of this? See [docs/getting-started.md](docs/getting-started.md) for a detailed walkthrough.
-
 ---
 
 ## What Changes After Setup

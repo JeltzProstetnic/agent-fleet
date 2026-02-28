@@ -237,6 +237,11 @@ cmd_collect() {
             [ -f "$hook" ] || continue
             base=$(basename "$hook")
             if [ -f "$GLOBAL_DIR/hooks/$base" ]; then
+                # Safety: skip if the source has uncommitted changes (editing hazard)
+                if git -C "$SCRIPT_DIR" diff --name-only 2>/dev/null | grep -q "global/hooks/$base"; then
+                    log_warn "Skipping hook collect: $base has uncommitted edits in repo"
+                    continue
+                fi
                 if ! diff -q "$hook" "$GLOBAL_DIR/hooks/$base" >/dev/null 2>&1; then
                     cp "$hook" "$GLOBAL_DIR/hooks/$base"
                     log_info "Collected hook: $base"
@@ -386,7 +391,7 @@ find_project_path() {
     done
     # Check registry for custom paths
     if [ -f "$SCRIPT_DIR/registry.md" ]; then
-        # Extract path from registry table (format: | name | priority | path | desc | active |)
+        # Extract path from registry table (format: | Project | Priority | Path | GitHub Remote | Machines | Type | Phase | Notes |)
         local path
         path=$(grep -F "| $name |" "$SCRIPT_DIR/registry.md" 2>/dev/null | head -1 | awk -F'|' '{print $4}' | xargs | tr -d '`')
         if [ -n "$path" ]; then

@@ -150,7 +150,7 @@ if 'jira' in mcp.get('mcpServers', {}) and vault.get('jira', {}).get('api_token'
     if not jira['api_token'].startswith('PASTE'):
         env = mcp['mcpServers']['jira']['env']
         if 'url' in jira: env['JIRA_URL'] = jira['url']
-        if 'email' in jira: env['JIRA_EMAIL'] = jira['email']
+        if 'email' in jira: env['JIRA_USERNAME'] = jira['email']
         env['JIRA_API_TOKEN'] = jira['api_token']
         print("  [OK] Jira credentials")
     else:

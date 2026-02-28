@@ -711,7 +711,10 @@ ok "Wrote ~/.mcp.json ($CONFIGURED_SERVERS)"
 # ---------------------------------------------------------------------------
 # Create first-run marker
 # ---------------------------------------------------------------------------
-touch "$REPO_DIR/.setup-pending"
+# Only create first-run marker if this is truly the first run
+if [[ ! -f "$REPO_DIR/.setup-pending" ]] && [[ ! -f "$REPO_DIR/session-history.md" ]]; then
+    touch "$REPO_DIR/.setup-pending"
+fi
 
 # ---------------------------------------------------------------------------
 # Summary
