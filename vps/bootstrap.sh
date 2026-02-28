@@ -64,7 +64,15 @@ sudo apt-get install -y -qq \
 # Node.js 22 (LTS) via NodeSource
 if ! command -v node &>/dev/null || [[ "$(node -v | cut -d. -f1 | tr -d v)" -lt 18 ]]; then
     log_info "Installing Node.js 22 LTS..."
-    curl -fsSL https://deb.nodesource.com/setup_22.x | sudo -E bash - 2>/dev/null
+    NODESOURCE_SCRIPT=$(mktemp)
+    curl -fsSL https://deb.nodesource.com/setup_22.x -o "$NODESOURCE_SCRIPT"
+    if [[ $(wc -c < "$NODESOURCE_SCRIPT") -lt 10000 ]]; then
+        log_error "NodeSource script too small — possible download failure"
+        rm -f "$NODESOURCE_SCRIPT"
+        exit 1
+    fi
+    sudo -E bash "$NODESOURCE_SCRIPT" 2>/dev/null
+    rm -f "$NODESOURCE_SCRIPT"
     sudo apt-get install -y -qq nodejs 2>/dev/null
 fi
 log_info "Node.js: $(node -v)"
@@ -72,7 +80,15 @@ log_info "Node.js: $(node -v)"
 # uv/uvx (Python tool runner, needed for Serena + Google Workspace MCP)
 if ! command -v uvx &>/dev/null; then
     log_info "Installing uv..."
-    curl -LsSf https://astral.sh/uv/install.sh | sh
+    UV_SCRIPT=$(mktemp)
+    curl -LsSf https://astral.sh/uv/install.sh -o "$UV_SCRIPT"
+    if [[ $(wc -c < "$UV_SCRIPT") -lt 10000 ]]; then
+        log_error "uv install script too small — possible download failure"
+        rm -f "$UV_SCRIPT"
+        exit 1
+    fi
+    sh "$UV_SCRIPT"
+    rm -f "$UV_SCRIPT"
     export PATH="$HOME/.local/bin:$PATH"
 fi
 log_info "uv: $(uv --version 2>/dev/null || echo 'installed')"
@@ -100,7 +116,14 @@ if [[ -d "$CONFIG_REPO/.git" ]]; then
     git -C "$CONFIG_REPO" pull --quiet
 else
     log_info "Cloning cfg-agent-fleet (private)..."
-    git clone --quiet "https://${GITHUB_PERSONAL_ACCESS_TOKEN}@github.com/__GITHUB_USERNAME__/cfg-agent-fleet.git" "$CONFIG_REPO"
+    # Store PAT via git credential-store so it's not embedded in the remote URL
+    CRED_FILE="$HOME/.git-credentials"
+    GITHUB_USER="${GITHUB_USER:-__GITHUB_USERNAME__}"
+    printf 'https://%s:%s@github.com\n' "${GITHUB_USER}" "${GITHUB_PERSONAL_ACCESS_TOKEN}" > "$CRED_FILE"
+    chmod 600 "$CRED_FILE"
+    git config --global credential.helper "store --file=$CRED_FILE"
+    CONFIG_REPO_URL="${CONFIG_REPO_URL:-https://github.com/${GITHUB_USER}/cfg-agent-fleet.git}"
+    git clone --quiet "$CONFIG_REPO_URL" "$CONFIG_REPO"
 fi
 log_info "cfg-agent-fleet → $CONFIG_REPO"
 
@@ -417,63 +440,73 @@ UVX_PATH="$(which uvx 2>/dev/null || echo "$HOME/.local/bin/uvx")"
 NPX_PATH="$(which npx 2>/dev/null || echo "/usr/bin/npx")"
 SYSTEM_PATH="$HOME/.local/bin:$HOME/.npm-global/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 
-cat > "$CC_MIRROR_DIR/config/.mcp.json" <<MCPJSON
-{
-  "mcpServers": {
-    "serena": {
-      "command": "$UVX_PATH",
-      "args": [
-        "--from",
-        "git+https://github.com/oraios/serena",
-        "serena-mcp-server",
-        "--context",
-        "claude-code",
-        "--open-web-dashboard",
-        "False"
-      ],
-      "env": {
-        "PATH": "$SYSTEM_PATH"
-      }
-    },
-    "github": {
-      "command": "$NPX_PATH",
-      "args": [
-        "-y",
-        "@modelcontextprotocol/server-github"
-      ],
-      "env": {
-        "GITHUB_PERSONAL_ACCESS_TOKEN": "${GITHUB_PERSONAL_ACCESS_TOKEN}",
-        "PATH": "$SYSTEM_PATH"
-      }
-    },
-    "twitter": {
-      "command": "$NPX_PATH",
-      "args": [
-        "-y",
-        "@enescinar/twitter-mcp"
-      ],
-      "env": {
-        "API_KEY": "${TWITTER_API_KEY:-}",
-        "API_SECRET_KEY": "${TWITTER_API_SECRET_KEY:-}",
-        "ACCESS_TOKEN": "${TWITTER_ACCESS_TOKEN:-}",
-        "ACCESS_TOKEN_SECRET": "${TWITTER_ACCESS_TOKEN_SECRET:-}",
-        "PATH": "$SYSTEM_PATH"
-      }
-    },
-    "google-workspace": {
-      "command": "$UVX_PATH",
-      "args": ["workspace-mcp"],
-      "env": {
-        "GOOGLE_OAUTH_CLIENT_ID": "${GOOGLE_OAUTH_CLIENT_ID:-}",
-        "GOOGLE_OAUTH_CLIENT_SECRET": "${GOOGLE_OAUTH_CLIENT_SECRET:-}",
-        "OAUTHLIB_INSECURE_TRANSPORT": "1",
-        "USER_GOOGLE_EMAIL": "${GOOGLE_USER_EMAIL:-__YOUR_EMAIL__}",
-        "PATH": "$SYSTEM_PATH"
-      }
+# Generate .mcp.json via python3 so token values are JSON-encoded safely.
+# Tokens containing double quotes, backslashes, or newlines are handled correctly.
+MCP_UVX_PATH="$UVX_PATH" \
+MCP_NPX_PATH="$NPX_PATH" \
+MCP_SYSTEM_PATH="$SYSTEM_PATH" \
+MCP_GITHUB_PAT="${GITHUB_PERSONAL_ACCESS_TOKEN}" \
+MCP_TWITTER_API_KEY="${TWITTER_API_KEY:-}" \
+MCP_TWITTER_API_SECRET_KEY="${TWITTER_API_SECRET_KEY:-}" \
+MCP_TWITTER_ACCESS_TOKEN="${TWITTER_ACCESS_TOKEN:-}" \
+MCP_TWITTER_ACCESS_TOKEN_SECRET="${TWITTER_ACCESS_TOKEN_SECRET:-}" \
+MCP_GOOGLE_OAUTH_CLIENT_ID="${GOOGLE_OAUTH_CLIENT_ID:-}" \
+MCP_GOOGLE_OAUTH_CLIENT_SECRET="${GOOGLE_OAUTH_CLIENT_SECRET:-}" \
+MCP_GOOGLE_USER_EMAIL="${GOOGLE_USER_EMAIL:-}" \
+python3 - > "$CC_MIRROR_DIR/config/.mcp.json" <<'PYEOF'
+import json, os
+e = os.environ
+mcp = {
+    "mcpServers": {
+        "serena": {
+            "command": e["MCP_UVX_PATH"],
+            "args": [
+                "--from",
+                "git+https://github.com/oraios/serena",
+                "serena-mcp-server",
+                "--context",
+                "claude-code",
+                "--open-web-dashboard",
+                "False"
+            ],
+            "env": {
+                "PATH": e["MCP_SYSTEM_PATH"]
+            }
+        },
+        "github": {
+            "command": e["MCP_NPX_PATH"],
+            "args": ["-y", "@modelcontextprotocol/server-github"],
+            "env": {
+                "GITHUB_PERSONAL_ACCESS_TOKEN": e["MCP_GITHUB_PAT"],
+                "PATH": e["MCP_SYSTEM_PATH"]
+            }
+        },
+        "twitter": {
+            "command": e["MCP_NPX_PATH"],
+            "args": ["-y", "@enescinar/twitter-mcp"],
+            "env": {
+                "API_KEY": e["MCP_TWITTER_API_KEY"],
+                "API_SECRET_KEY": e["MCP_TWITTER_API_SECRET_KEY"],
+                "ACCESS_TOKEN": e["MCP_TWITTER_ACCESS_TOKEN"],
+                "ACCESS_TOKEN_SECRET": e["MCP_TWITTER_ACCESS_TOKEN_SECRET"],
+                "PATH": e["MCP_SYSTEM_PATH"]
+            }
+        },
+        "google-workspace": {
+            "command": e["MCP_UVX_PATH"],
+            "args": ["workspace-mcp"],
+            "env": {
+                "GOOGLE_OAUTH_CLIENT_ID": e["MCP_GOOGLE_OAUTH_CLIENT_ID"],
+                "GOOGLE_OAUTH_CLIENT_SECRET": e["MCP_GOOGLE_OAUTH_CLIENT_SECRET"],
+                "OAUTHLIB_INSECURE_TRANSPORT": "1",
+                "USER_GOOGLE_EMAIL": e["MCP_GOOGLE_USER_EMAIL"],
+                "PATH": e["MCP_SYSTEM_PATH"]
+            }
+        }
     }
-  }
 }
-MCPJSON
+print(json.dumps(mcp, indent=2))
+PYEOF
 
 log_info "settings.json created"
 log_info ".mcp.json created with secrets injected"
@@ -603,13 +636,29 @@ cd "$CONFIG_REPO"
 bash sync.sh setup
 
 # Configure git for auto-sync hook
-# TODO: Consider sourcing these from secrets.env for automated deployment
-git config --global user.email "__YOUR_EMAIL__"
-git config --global user.name "__YOUR_NAME__"
+# Override via GIT_USER_NAME / GIT_USER_EMAIL env vars or in secrets.env
+if [[ -z "${GIT_USER_NAME:-}" || -z "${GIT_USER_EMAIL:-}" ]]; then
+    log_warn "GIT_USER_NAME and/or GIT_USER_EMAIL not set in secrets.env"
+    log_warn "Set them now or configure later with: git config --global user.name/email"
+fi
+GIT_USER_NAME="${GIT_USER_NAME:-}"
+GIT_USER_EMAIL="${GIT_USER_EMAIL:-}"
+[[ -n "$GIT_USER_EMAIL" ]] && git config --global user.email "$GIT_USER_EMAIL"
+[[ -n "$GIT_USER_NAME" ]] && git config --global user.name "$GIT_USER_NAME"
 git config --global core.autocrlf input
 
 # Store GitHub credentials for push (used by auto-sync hook)
-git -C "$CONFIG_REPO" remote set-url origin "https://${GITHUB_PERSONAL_ACCESS_TOKEN}@github.com/__GITHUB_USERNAME__/cfg-agent-fleet.git"
+# PAT is stored via git credential-store (set up in Step 2), not embedded in the remote URL.
+# Ensure credential-store is configured and the remote URL is clean.
+CRED_FILE="$HOME/.git-credentials"
+GITHUB_USER="${GITHUB_USER:-__GITHUB_USERNAME__}"
+if [[ ! -f "$CRED_FILE" ]] || ! grep -q 'github.com' "$CRED_FILE" 2>/dev/null; then
+    printf 'https://%s:%s@github.com\n' "${GITHUB_USER}" "${GITHUB_PERSONAL_ACCESS_TOKEN}" > "$CRED_FILE"
+    chmod 600 "$CRED_FILE"
+fi
+git config --global credential.helper "store --file=$CRED_FILE"
+CONFIG_REPO_URL="${CONFIG_REPO_URL:-https://github.com/${GITHUB_USER}/cfg-agent-fleet.git}"
+git -C "$CONFIG_REPO" remote set-url origin "$CONFIG_REPO_URL"
 
 # ──────────────────────────────────────────────
 # Bonus: tmux config for persistent sessions
