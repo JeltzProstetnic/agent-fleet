@@ -9,8 +9,8 @@
 
 ## Adding a New Domain
 
-1. Create directory under `~/cfg-agent-fleet/global/domains/`
+1. Create directory under `~/agent-fleet/global/domains/`
 2. Add protocol files as `.md`
 3. Update this INDEX.md
 4. Reference from project manifests
-5. Run `bash ~/cfg-agent-fleet/sync.sh setup` to deploy
+5. Run `bash ~/agent-fleet/sync.sh setup` to deploy

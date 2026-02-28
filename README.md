@@ -49,6 +49,7 @@ The `cls`/`end` commands give you the **full cognitive shutdown** (cross-project
 - **Claude Code** installed ([installation guide](https://docs.anthropic.com/en/docs/claude-code/getting-started))
 - **git** installed (`sudo apt install git` on Ubuntu/WSL, `brew install git` on macOS)
 - **Node.js 18+** installed (`sudo apt install nodejs npm` on Ubuntu/WSL, `brew install node` on macOS)
+- **Python 3** (optional but recommended) — enhances setup and sync scripts. Most systems have it pre-installed.
 
 ### Windows users
 
@@ -65,8 +66,8 @@ Claude Code runs inside WSL (Windows Subsystem for Linux). If you haven't set up
 **1. Fork this repo** on GitHub (click the Fork button above), then:
 
 ```bash
-git clone https://github.com/YOUR_USERNAME/agent-fleet ~/cfg-agent-fleet
-cd ~/cfg-agent-fleet
+git clone https://github.com/YOUR_USERNAME/agent-fleet ~/agent-fleet
+cd ~/agent-fleet
 bash setup.sh
 ```
 
@@ -160,7 +161,7 @@ This all happens automatically. You just use Claude normally.
 ### Directory Structure
 
 ```
-cfg-agent-fleet/
+agent-fleet/
 │
 ├── setup.sh                       Run this first — sets everything up
 ├── sync.sh                        Keeps config in sync (automated by hooks)
@@ -275,8 +276,8 @@ Or do it manually: create `<your-project>/.claude/CLAUDE.md` using the example i
 ### Set up a second computer
 
 ```bash
-git clone YOUR_REPO_URL ~/cfg-agent-fleet
-cd ~/cfg-agent-fleet
+git clone YOUR_REPO_URL ~/agent-fleet
+cd ~/agent-fleet
 bash setup.sh
 ```
 
@@ -321,8 +322,8 @@ No computer is special. Clone the repo, run `setup.sh`, and any machine is a ful
 ### Setting up a new machine
 
 ```bash
-git clone YOUR_REPO_URL ~/cfg-agent-fleet
-cd ~/cfg-agent-fleet
+git clone YOUR_REPO_URL ~/agent-fleet
+cd ~/agent-fleet
 bash setup.sh
 ```
 
@@ -422,7 +423,7 @@ The exact percentage depends on how many MCP servers you configure and how large
 
 ## Common Mistakes
 
-**Editing files in the wrong place.** The repo (`~/cfg-agent-fleet/`) is the source of truth. Edit there, then `bash sync.sh deploy`. Don't edit the symlink targets directly in `~/.claude/` — those changes get overwritten.
+**Editing files in the wrong place.** The repo (`~/agent-fleet/`) is the source of truth. Edit there, then `bash sync.sh deploy`. Don't edit the symlink targets directly in `~/.claude/` — those changes get overwritten.
 
 **Forgetting to sync after changes.** After editing global rules or foundation files, run `bash sync.sh deploy` to push changes to live locations. Or let the session hooks handle it automatically.
 
@@ -442,7 +443,7 @@ The exact percentage depends on how many MCP servers you configure and how large
 
 **GitHub returns "Not Found" on private repos** — The env var must be `GITHUB_PERSONAL_ACCESS_TOKEN` (not `GITHUB_TOKEN`). Check `~/.mcp.json`.
 
-**Session state not persisting** — Make sure you're running Claude from a directory that has `session-context.md`, or from `~/cfg-agent-fleet/` itself.
+**Session state not persisting** — Make sure you're running Claude from a directory that has `session-context.md`, or from `~/agent-fleet/` itself.
 
 **Symlinks broken after git pull** — Run `bash sync.sh setup` to recreate them.
 

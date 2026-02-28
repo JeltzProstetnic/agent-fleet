@@ -6,7 +6,7 @@
 # a filtered commit for the public remote.
 #
 # Usage:
-#   bash ~/cfg-agent-fleet/setup/scripts/filtered-push.sh [--dry-run]
+#   bash ~/agent-fleet/setup/scripts/filtered-push.sh [--dry-run]
 #
 # Run from any project directory that has a .push-filter.conf file.
 #

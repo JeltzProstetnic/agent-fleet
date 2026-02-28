@@ -1,5 +1,10 @@
 # Setup Scripts
 
+> **Note:** Most users only need `setup.sh` at the repo root. The scripts in this
+> directory install Claude Code itself (via cc-mirror) and are for advanced users
+> who want a custom Claude Code installation. Skip this directory unless you know
+> you need it.
+
 ## Two entry points — which to use
 
 | Entry point | What it does | When to use |
@@ -14,7 +19,7 @@
 ## Canonical entry point
 
 ```bash
-cd ~/cfg-agent-fleet && bash setup.sh
+cd ~/agent-fleet && bash setup.sh
 ```
 
 ## What's in here

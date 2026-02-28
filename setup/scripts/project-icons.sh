@@ -17,7 +17,7 @@
 #   P5 = dim (#6B7280)    — dormant
 #
 # Architecture:
-#   - Icons stored in ~/cfg-agent-fleet/setup/icons/ (committed to repo)
+#   - Icons stored in ~/agent-fleet/setup/icons/ (committed to repo)
 #   - Windows: shortcut hub on NTFS at C:\Users\<user>\Projects\ (desktop.ini
 #     doesn't work on \\wsl.localhost ext4 paths — Windows file attributes
 #     don't persist on non-NTFS filesystems)
@@ -48,7 +48,7 @@ generate_icons() {
 import os
 from PIL import Image, ImageDraw
 
-ICON_DIR = os.environ.get("ICON_DIR", os.path.expanduser("~/cfg-agent-fleet/setup/icons"))
+ICON_DIR = os.environ.get("ICON_DIR", os.path.expanduser("~/agent-fleet/setup/icons"))
 os.makedirs(ICON_DIR, exist_ok=True)
 
 # Priority color map: (R, G, B)

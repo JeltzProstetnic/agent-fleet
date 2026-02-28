@@ -86,17 +86,17 @@ Session information is organized in 3 layers to balance startup speed with histo
 - [ ] Update `session-context.md` with final state, completed work, and recovery instructions
 
 ### 2. Session rotation
-- [ ] Run `bash ~/cfg-agent-fleet/setup/scripts/rotate-session.sh` to archive session to history/log and reset template
+- [ ] Run `bash ~/agent-fleet/setup/scripts/rotate-session.sh` to archive session to history/log and reset template
 - [ ] If significant decisions were made, add entries to `docs/decisions.md`
 
 ### 3. Cross-project inbox
-- [ ] If this session's work affects other projects, drop tasks in `~/cfg-agent-fleet/cross-project/inbox.md`
+- [ ] If this session's work affects other projects, drop tasks in `~/agent-fleet/cross-project/inbox.md`
 - [ ] Each entry targets ONE project — never broadcast
 - [ ] Format: `- [ ] **project-name**: description of what they need to do`
 
 ### 4. Shared strategy files
-- [ ] If infrastructure, deployment, or shared state changed → update `~/cfg-agent-fleet/cross-project/infrastructure-strategy.md`
-- [ ] If visibility/outreach state changed → update `~/cfg-agent-fleet/cross-project/visibility-strategy.md`
+- [ ] If infrastructure, deployment, or shared state changed → update `~/agent-fleet/cross-project/infrastructure-strategy.md`
+- [ ] If visibility/outreach state changed → update `~/agent-fleet/cross-project/visibility-strategy.md`
 - [ ] Only update strategy files you actually touched this session — don't speculatively refresh them
 
 ### 5. Machine knowledge
@@ -109,7 +109,7 @@ Session information is organized in 3 layers to balance startup speed with histo
 - [ ] If publication files were modified, follow the extended checklist in `publication-workflow.md` Section 6
 
 ### 7. Verify sync (if applicable)
-- [ ] Run `bash ~/cfg-agent-fleet/sync.sh collect` to verify it exits cleanly
+- [ ] Run `bash ~/agent-fleet/sync.sh collect` to verify it exits cleanly
 - [ ] If it fails, fix the issue or clear `.sync-failed` marker with explanation
 
 **The user must be able to open consistent, up-to-date files after the session ends.** Stale context, missing inbox tasks, or outdated strategy files are unacceptable.

@@ -4,7 +4,7 @@
 
 1. **Immediately write a protocol document** capturing the rule that prevents recurrence
 2. **Place it in the appropriate location:**
-   - **Global** (applies across projects): `~/cfg-agent-fleet/global/domains/<domain>/<protocol>.md`
+   - **Global** (applies across projects): `~/agent-fleet/global/domains/<domain>/<protocol>.md`
    - **Project-specific**: `<project>/.claude/knowledge/<domain>-protocol.md`
 3. **Reference it from the project's `CLAUDE.md`** with "load when" criteria
 4. **Do NOT rely on memory files for operational rules** — memory is for orientation and pointers, protocols are for rules

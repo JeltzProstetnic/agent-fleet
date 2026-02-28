@@ -46,7 +46,7 @@ Claude Code configuration management across all machines and projects.
 
 ## Rules for Claude
 
-- When working on ANY project, be aware this config repo exists at `~/cfg-agent-fleet/`
+- When working on ANY project, be aware this config repo exists at `~/agent-fleet/`
 - After changing any global rule or CLAUDE.md during a session, remind the user to sync
 - When setting up a new project, add it to the registry
 - When infrastructure or deployment state changes, update `cross-project/infrastructure-strategy.md`

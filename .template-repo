@@ -1,0 +1,3 @@
+# This is the template repository — not a live deployment.
+# The hooks in this repo should NOT be used directly.
+# Live config lives in ~/cfg-agent-fleet/ (the developer's private fork).

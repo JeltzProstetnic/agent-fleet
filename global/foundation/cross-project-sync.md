@@ -26,7 +26,7 @@ Projects sometimes overlap in scope but differ in channel or phase:
 
 ### 1. Create a shared strategy file
 
-Location: `~/cfg-agent-fleet/cross-project/<name>-strategy.md`
+Location: `~/agent-fleet/cross-project/<name>-strategy.md`
 
 This file is the **single source of truth** for anything that spans both projects. Neither project duplicates this content in their own backlog.
 
@@ -86,7 +86,7 @@ When either project modifies anything in the shared file's scope:
 |---------|----------|-----|
 | Shared targets + status | Strategy file | Single source of truth, prevents divergence |
 | Project-specific tasks | Project backlog | Only that project acts on them |
-| One-off cross-project tasks | `~/cfg-agent-fleet/cross-project/inbox.md` | Transient, picked up and deleted |
+| One-off cross-project tasks | `~/agent-fleet/cross-project/inbox.md` | Transient, picked up and deleted |
 | Persistent shared state | Strategy file | Survives across sessions |
 | Detailed dossiers/profiles | Owning project's `tmp/` or `docs/` | Too detailed for the strategy overview |
 

@@ -4,8 +4,8 @@
 #
 # What this hook does (in order):
 # 1. Auto-rotate the CURRENT PROJECT's session (if it has session-context.md)
-# 2. Commit session files in current project (if different from config repo)
-# 3. Auto-rotate config repo's own session
+# 2. Commit session files in current project (if different from the config repo)
+# 3. Auto-rotate the config repo's own session
 # 4. Collect project rules, commit config repo changes, and push
 #
 # On failure: writes a marker to .sync-failed
@@ -19,10 +19,10 @@ _detect_config_repo() {
         echo "$(cd "$(dirname "$hook_real")/../.." && pwd)"
         return
     fi
-    for d in "$HOME/cfg-agent-fleet" "$HOME/agent-fleet"; do
-        [[ -f "$d/sync.sh" ]] && echo "$d" && return
+    for d in "$HOME/agent-fleet" "$HOME/cfg-agent-fleet"; do
+        [[ -f "$d/sync.sh" && ! -f "$d/.template-repo" ]] && echo "$d" && return
     done
-    echo "$HOME/cfg-agent-fleet"  # final fallback
+    echo "$HOME/agent-fleet"  # final fallback
 }
 CONFIG_REPO="$(_detect_config_repo)"
 FAIL_MARKER="$CONFIG_REPO/.sync-failed"

@@ -3,7 +3,7 @@
 @~/.claude/foundation/user-profile.md
 @~/.claude/foundation/session-protocol.md
 
-Config repo: `~/cfg-agent-fleet/`
+Config repo: `~/agent-fleet/`
 
 ## Machine Identity
 
@@ -22,9 +22,9 @@ If `CLAUDE.local.md` is missing, fall back to reading `~/.claude/machines/<machi
 
 **Manual steps — execute in order:**
 
-0. **ALWAYS check for remote changes — BEFORE reading any files.** Run `bash ~/cfg-agent-fleet/setup/scripts/git-sync-check.sh --pull` in the project directory. This fetches, reports incoming changes, and fast-forward pulls if behind. If it reports changes, re-read affected files. If it fails (diverged, merge conflict), resolve before proceeding. This applies to EVERY project, EVERY session, no exceptions. Reading stale files leads to wrong context, missed tasks, and wasted work.
+0. **ALWAYS check for remote changes — BEFORE reading any files.** Run `bash ~/agent-fleet/setup/scripts/git-sync-check.sh --pull` in the project directory. This fetches, reports incoming changes, and fast-forward pulls if behind. If it reports changes, re-read affected files. If it fails (diverged, merge conflict), resolve before proceeding. This applies to EVERY project, EVERY session, no exceptions. Reading stale files leads to wrong context, missed tasks, and wasted work.
 
-1. **ALWAYS read cross-project inbox:** `~/cfg-agent-fleet/cross-project/inbox.md` — pick up tasks for this project, delete them after integrating. This is the cross-device task passing mechanism (mobile/VPS/PC all sync via git).
+1. **ALWAYS read cross-project inbox:** `~/agent-fleet/cross-project/inbox.md` — pick up tasks for this project, delete them after integrating. This is the cross-device task passing mechanism (mobile/VPS/PC all sync via git).
 
 2. **Read the project's `CLAUDE.md`** (manifest) — it declares what domains to load
 
@@ -52,7 +52,7 @@ If `CLAUDE.local.md` is missing, fall back to reading `~/.claude/machines/<machi
 
 - Foundation modules: `~/.claude/foundation/INDEX.md`
 - Domain catalog: `~/.claude/domains/INDEX.md`
-- **Project catalog: `~/cfg-agent-fleet/registry.md`** — read when user mentions other projects
+- **Project catalog: `~/agent-fleet/registry.md`** — read when user mentions other projects
 
 ## Conventions
 
@@ -64,11 +64,11 @@ If `CLAUDE.local.md` is missing, fall back to reading `~/.claude/machines/<machi
 | Technical decisions & rationale | `docs/decisions.md` in the project | Memory has no structure |
 | Debugging patterns, technical recipes | `~/.claude/knowledge/<topic>.md` | Memory is per-project, knowledge is global |
 | Machine-specific state | `~/.claude/machines/<machine>.md` | Memory doesn't survive machine changes |
-| Cross-project coordination | `~/cfg-agent-fleet/cross-project/` files | Memory can't cross projects |
+| Cross-project coordination | `~/agent-fleet/cross-project/` files | Memory can't cross projects |
 
 **Auto-memory's only valid use:** Temporary orientation notes for a specific project that don't fit anywhere else (e.g., "this project's CI is flaky on Tuesdays"). Keep it under 50 lines. When in doubt, DON'T write to memory — write to a proper file.
 
-If the user says "always do X" or "remember to do Y" → that's a rule → `CLAUDE.md`. If it's global, route through cross-project inbox for cfg-agent-fleet integration. If project-scoped, write to the project's `CLAUDE.md` directly.
+If the user says "always do X" or "remember to do Y" → that's a rule → `CLAUDE.md`. If it's global, route through cross-project inbox for agent-fleet integration. If project-scoped, write to the project's `CLAUDE.md` directly.
 
 **Output rule:** Any document, summary, or one-pager MUST be delivered as **PDF**, not markdown. The user does not read `.md` files. Write the `.md` as source, convert to PDF, open the PDF:
 - **Convert (preferred — weasyprint)**: `pandoc input.md -o input.html --standalone && weasyprint input.html output.pdf`
@@ -118,17 +118,17 @@ If the user says "always do X" or "remember to do Y" → that's a rule → `CLAU
 - **Open section**: flat list sorted by priority (P1 first), no subsections. Keep it scannable.
 - **Done section**: group by date, most recent first. Move tasks here when completed — don't delete them.
 
-**Cross-project boundary rule — HARD CONSTRAINT:** You may ONLY write to files inside your current working project. Writing to ANY file in another project's directory is FORBIDDEN — even if you know the path, even if it seems convenient, even for "shared" files in `~/cfg-agent-fleet/`. The ONLY legal way to affect another project is through the cross-project inbox. Violations of this rule cause silent data corruption and task loss.
+**Cross-project boundary rule — HARD CONSTRAINT:** You may ONLY write to files inside your current working project. Writing to ANY file in another project's directory is FORBIDDEN — even if you know the path, even if it seems convenient, even for "shared" files in `~/agent-fleet/`. The ONLY legal way to affect another project is through the cross-project inbox. Violations of this rule cause silent data corruption and task loss.
 
 Path ownership (concrete mapping):
-- `~/cfg-agent-fleet/*` and `~/.claude/*` — owned by **cfg-agent-fleet** project
+- `~/agent-fleet/*` and `~/.claude/*` — owned by **agent-fleet** project
 - `~/<project>/*` — owned by that specific project (writable only when working in it)
-- `~/cfg-agent-fleet/cross-project/inbox.md` — writable from any project (always)
-- `~/cfg-agent-fleet/cross-project/*.md` strategy files — writable during shutdown only (see shutdown checklist)
+- `~/agent-fleet/cross-project/inbox.md` — writable from any project (always)
+- `~/agent-fleet/cross-project/*.md` strategy files — writable during shutdown only (see shutdown checklist)
 
 Reading files and executing scripts from any project is always permitted. Only writing/editing files outside your current working project is forbidden (except the inbox and shutdown strategy files listed above).
 
-**Cross-project inbox:** `~/cfg-agent-fleet/cross-project/inbox.md`
+**Cross-project inbox:** `~/agent-fleet/cross-project/inbox.md`
 - The inbox is the ONLY mechanism for cross-project communication
 - Tasks are per-project (one entry per project, not broadcasts)
 - Pick up YOUR project's tasks, delete them from inbox after integrating
@@ -137,7 +137,7 @@ Reading files and executing scripts from any project is always permitted. Only w
 
 **Public/private sync direction rule:** When a project has both public and private repos, diffs between them are NOT always bugs. Before syncing, classify each diff: (1) **intentional personalization** — private has personal names/accounts/paths, public has generic placeholders → leave both as-is; (2) **structural improvement in private** that public should get → propagate after stripping personal details; (3) **public-only change** → backport to private. Never blindly sync private→public — that leaks personal data. Never blindly sync public→private — that overwrites intentional customizations.
 
-**Dual-remote push rule — HARD CONSTRAINT:** For projects with a filtered public remote (identified by `.push-filter.conf` in project root): NEVER `git pull`, `git fetch --merge`, or `git merge` from the public remote into the working branch. The public remote is **write-only** — it contains a filtered subset and merging it contaminates the working tree (deletes files that were intentionally excluded). Only pull/merge from the private remote. Push to public ONLY via `bash ~/cfg-agent-fleet/setup/scripts/filtered-push.sh`. If `git-sync-check.sh` runs in a dual-remote project, it must ONLY sync with the private remote, never the public one.
+**Dual-remote push rule — HARD CONSTRAINT:** For projects with a filtered public remote (identified by `.push-filter.conf` in project root): NEVER `git pull`, `git fetch --merge`, or `git merge` from the public remote into the working branch. The public remote is **write-only** — it contains a filtered subset and merging it contaminates the working tree (deletes files that were intentionally excluded). Only pull/merge from the private remote. Push to public ONLY via `bash ~/agent-fleet/setup/scripts/filtered-push.sh`. If `git-sync-check.sh` runs in a dual-remote project, it must ONLY sync with the private remote, never the public one.
 
 **Session context:** Maintain `session-context.md` in every project. Update before and after every significant action. Reference project docs, don't duplicate them.
 
@@ -147,19 +147,19 @@ Reading files and executing scripts from any project is always permitted. Only w
 |---------|-------------|
 | `cls` | Execute full 7-step shutdown checklist, then say "Shutdown complete — run /clear whenever you're ready." |
 | `end` | Execute full 7-step shutdown checklist, then say "Shutdown complete — you can exit now." |
-| `lsd` | **Project manager.** Read `~/cfg-agent-fleet/registry.md`, display projects grouped by priority (P1-P5) with: name, type, path, short description (from Notes column). Show active projects (P1-P3) by default, mention count of paused/dormant. Offer actions: **switch** (user picks a project by number/name), **new** (create project), **details** (show full info for one project). |
+| `lsd` | **Project manager.** Read `~/agent-fleet/registry.md`, display projects grouped by priority (P1-P5) with: name, type, path, short description (from Notes column). Show active projects (P1-P3) by default, mention count of paused/dormant. Offer actions: **switch** (user picks a project by number/name), **new** (create project), **details** (show full info for one project). |
 
 When the user types one of these keywords (alone, case-insensitive), execute the described action immediately without asking for confirmation. These are shortcuts, not conversation starters.
 
 **Session shutdown checklist — MANDATORY.** When the user says "prepare for shutdown", "exit", "auto-compact restart", `cls`, `end`, or anything suggesting session end → run ALL 7 steps from `~/.claude/foundation/session-protocol.md` Section "Session Shutdown Checklist", without asking. That file is the canonical, detailed checklist. Quick summary:
 
 1. Update `session-context.md` with final state and recovery instructions
-2. Run `bash ~/cfg-agent-fleet/setup/scripts/rotate-session.sh` + update `docs/decisions.md` if needed
+2. Run `bash ~/agent-fleet/setup/scripts/rotate-session.sh` + update `docs/decisions.md` if needed
 3. Drop cross-project inbox tasks if this session affects other projects
 4. Update shared strategy files you touched (shutdown boundary exception)
 5. Update machine file (`~/.claude/machines/<machine>.md`) if machine state changed
 6. `git add`, commit, push
-7. Run `bash ~/cfg-agent-fleet/sync.sh collect` to verify
+7. Run `bash ~/agent-fleet/sync.sh collect` to verify
 
 No exceptions. No asking "want me to commit?" — just do it.
 
@@ -169,13 +169,13 @@ No exceptions. No asking "want me to commit?" — just do it.
 
 **Protocol creation:** When domain-complexity mistakes happen, create a protocol. See `~/.claude/foundation/protocol-creation.md`.
 
-**Adding domains:** Create dir under `~/cfg-agent-fleet/global/domains/`, add protocols, update `domains/INDEX.md`, reference from project manifests. These operations require being in the cfg-agent-fleet project context. From other projects, route domain creation requests through the cross-project inbox.
+**Adding domains:** Create dir under `~/agent-fleet/global/domains/`, add protocols, update `domains/INDEX.md`, reference from project manifests. These operations require being in the agent-fleet project context. From other projects, route domain creation requests through the cross-project inbox.
 
-**Sync:** `bash ~/cfg-agent-fleet/sync.sh setup|deploy|collect|status`
+**Sync:** `bash ~/agent-fleet/sync.sh setup|deploy|collect|status`
 
-**New project:** Add to `~/cfg-agent-fleet/registry.md`. See `~/.claude/foundation/project-setup.md`.
+**New project:** Add to `~/agent-fleet/registry.md`. See `~/.claude/foundation/project-setup.md`.
 
-**New machine:** Populate `~/.claude/machines/<machine>.md` from `machines/_template.md`. Create `~/CLAUDE.local.md` containing `@~/.claude/machines/<machine>.md`. Add hostname pattern to Machine Identity table. Run `bash ~/cfg-agent-fleet/sync.sh setup` to link config. See machine file template for required sections.
+**New machine:** Populate `~/.claude/machines/<machine>.md` from `machines/_template.md`. Create `~/CLAUDE.local.md` containing `@~/.claude/machines/<machine>.md`. Add hostname pattern to Machine Identity table. Run `bash ~/agent-fleet/sync.sh setup` to link config. See machine file template for required sections.
 
 ## Platform Notes
 

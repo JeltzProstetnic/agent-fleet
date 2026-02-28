@@ -12,21 +12,18 @@ RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'
 BLUE='\033[0;34m'; BOLD='\033[1m'; RESET='\033[0m'
 
 NON_INTERACTIVE=false
-SKIP_INFRA=false
 
 for arg in "$@"; do
   case "$arg" in
     --non-interactive) NON_INTERACTIVE=true ;;
-    --skip-infra) SKIP_INFRA=true ;;
     --help)
       cat <<'EOF'
-Usage: bash setup.sh [--non-interactive] [--skip-infra] [--help]
+Usage: bash setup.sh [--non-interactive] [--help]
 
 Bootstraps the agent-fleet system on Linux, macOS, or WSL.
 
 Flags:
   --non-interactive   Skip all prompts; use env vars or defaults
-  --skip-infra        Skip infrastructure discovery (Step 5)
   --help              Show this message
 
 Environment variables (non-interactive mode):
@@ -213,90 +210,12 @@ EOF
 ok "Wrote machine-catalog.md (machine: ${CLAUDE_MACHINE_ID})"
 
 # ---------------------------------------------------------------------------
-# Step 5 — Infrastructure discovery
+# Step 5 — First project (deferred to Claude's interactive first-run)
 # ---------------------------------------------------------------------------
-step "5/7" "Infrastructure discovery"
+step "5/7" "Project setup"
 
-if [[ "${SKIP_INFRA:-false}" == true ]]; then
-  warn "Skipping infrastructure discovery (--skip-infra)"
-else
-
-INFRA_DIR="$HOME/infrastructure"
-INFRA_SCRIPT="$REPO_DIR/setup/scripts/infra-discover.sh"
-
-if [[ -d "$INFRA_DIR" ]]; then
-  warn "~/infrastructure/ already exists — skipping creation"
-  if [[ "$NON_INTERACTIVE" != true ]]; then
-    read -r -p "  Re-run infrastructure discovery? [y/N]: " _rediscover
-    if [[ "${_rediscover,,}" == "y" && -x "$INFRA_SCRIPT" ]]; then
-      bash "$INFRA_SCRIPT" > "$INFRA_DIR/infrastructure-map.md"
-      ok "Re-discovered infrastructure → infrastructure-map.md"
-    fi
-  fi
-else
-  mkdir -p "$INFRA_DIR/.claude"
-  if [[ -x "$INFRA_SCRIPT" ]]; then
-    bash "$INFRA_SCRIPT" > "$INFRA_DIR/infrastructure-map.md"
-    ok "Discovered infrastructure → infrastructure-map.md"
-  else
-    warn "infra-discover.sh not found or not executable — skipping discovery"
-  fi
-
-  # Copy project template if available
-  INFRA_TEMPLATE="$REPO_DIR/projects/infrastructure/rules/CLAUDE.md"
-  if [[ -f "$INFRA_TEMPLATE" ]]; then
-    cp "$INFRA_TEMPLATE" "$INFRA_DIR/.claude/CLAUDE.md"
-    ok "Installed infrastructure project CLAUDE.md"
-  fi
-
-  # Create starter files
-  cat > "$INFRA_DIR/session-context.md" <<SEOF
-# Session Context
-
-## Session Info
-- **Last Updated**: ${DATE}
-- **Machine**: ${CLAUDE_MACHINE_ID}
-- **Working Directory**: ~/infrastructure
-- **Session Goal**: Initial setup
-
-## Current State
-- **Active Task**: Review infrastructure-map.md
-- **Progress**:
-  - [x] Infrastructure discovery completed
-- **Pending**: Review discovered topology, annotate roles
-
-## Key Decisions
-
-## Recovery Instructions
-1. Review infrastructure-map.md for discovered network topology
-2. Update CLAUDE.md with project-specific access details
-SEOF
-
-  cat > "$INFRA_DIR/backlog.md" <<BEOF
-# Backlog — infrastructure
-
-## Open
-
-- [ ] [P3] **Review infrastructure map**: Review auto-discovered network topology, annotate device roles
-- [ ] [P3] **Set up secrets vault**: Create encrypted vault for credentials (age or openssl)
-
-## Done
-
-### ${DATE}
-- [x] Project created by setup.sh with infrastructure discovery
-BEOF
-
-  # Initialize git repo — stage only known safe files (not secrets/)
-  cd "$INFRA_DIR"
-  git init --quiet
-  git add infrastructure-map.md session-context.md backlog.md .claude/ 2>/dev/null || true
-  git commit -m "Initial infrastructure project from setup.sh" --quiet 2>/dev/null || true
-  cd "$REPO_DIR"
-
-  ok "Created ~/infrastructure/ with discovery results, backlog, and git repo"
-fi
-
-fi  # end --skip-infra guard
+ok "Claude will help you set up your first project on first launch"
+ok "You can also set up projects anytime by telling Claude 'set up this project'"
 
 # ---------------------------------------------------------------------------
 # Step 6 — Symlinks
@@ -745,7 +664,6 @@ echo "  Claude can now help you personalize your configuration:"
 echo "  - Refine your user profile with real preferences"
 echo "  - Set up additional MCP servers you skipped above"
 echo "  - Choose which knowledge domains to enable"
-echo "  - Review your infrastructure map and annotate device roles"
 echo "  - Set up your first project"
 echo "  - Add global rules (e.g. 'always use bun', 'never auto-commit')"
 echo ""

@@ -175,4 +175,4 @@ These are **Windows-side** mechanisms. Within WSL's Linux filesystem (`/home/`),
 
 ---
 
-*Generated 2026-02-25. Source: agent-fleet + cfg-agent-fleet analysis.*
+*Generated 2026-02-25. Source: agent-fleet + agent-fleet analysis.*

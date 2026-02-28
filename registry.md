@@ -14,7 +14,7 @@ The phone book for all projects and machines. Read this when a user mentions a p
 
 | Project | Priority | Path | Description | Active |
 |---------|----------|------|-------------|--------|
-| cfg-agent-fleet | P1 | `~/cfg-agent-fleet/` | Claude Code configuration management | yes |
+| agent-fleet | P1 | `~/agent-fleet/` | Claude Code configuration management | yes |
 
 ## Adding a Project
 

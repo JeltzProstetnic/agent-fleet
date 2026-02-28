@@ -12,7 +12,7 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-CONFIG_REPO="$HOME/cfg-agent-fleet"
+CONFIG_REPO="$HOME/agent-fleet"
 CC_MIRROR_DIR="$HOME/.cc-mirror/mclaude"
 BIN_DIR="$HOME/.local/bin"
 SKILL_COLLECTIONS_DIR="$HOME/.local/share/skill-collections"
@@ -107,25 +107,25 @@ fi
 log_info "gh: $(gh --version | head -1)"
 
 # ──────────────────────────────────────────────
-# Step 2: Clone cfg-agent-fleet (private repo)
+# Step 2: Clone agent-fleet (private repo)
 # ──────────────────────────────────────────────
-log_step "Step 2/11: Clone cfg-agent-fleet"
+log_step "Step 2/11: Clone agent-fleet"
 
 if [[ -d "$CONFIG_REPO/.git" ]]; then
-    log_info "cfg-agent-fleet already exists — pulling..."
+    log_info "agent-fleet already exists — pulling..."
     git -C "$CONFIG_REPO" pull --quiet
 else
-    log_info "Cloning cfg-agent-fleet (private)..."
+    log_info "Cloning agent-fleet (private)..."
     # Store PAT via git credential-store so it's not embedded in the remote URL
     CRED_FILE="$HOME/.git-credentials"
     GITHUB_USER="${GITHUB_USER:-__GITHUB_USERNAME__}"
     printf 'https://%s:%s@github.com\n' "${GITHUB_USER}" "${GITHUB_PERSONAL_ACCESS_TOKEN}" > "$CRED_FILE"
     chmod 600 "$CRED_FILE"
     git config --global credential.helper "store --file=$CRED_FILE"
-    CONFIG_REPO_URL="${CONFIG_REPO_URL:-https://github.com/${GITHUB_USER}/cfg-agent-fleet.git}"
+    CONFIG_REPO_URL="${CONFIG_REPO_URL:-https://github.com/${GITHUB_USER}/agent-fleet.git}"
     git clone --quiet "$CONFIG_REPO_URL" "$CONFIG_REPO"
 fi
-log_info "cfg-agent-fleet → $CONFIG_REPO"
+log_info "agent-fleet → $CONFIG_REPO"
 
 # Copy secrets.env into the repo's vps/ dir (gitignored)
 cp "$SECRETS_FILE" "$CONFIG_REPO/vps/secrets.env" 2>/dev/null || true
@@ -657,7 +657,7 @@ if [[ ! -f "$CRED_FILE" ]] || ! grep -q 'github.com' "$CRED_FILE" 2>/dev/null; t
     chmod 600 "$CRED_FILE"
 fi
 git config --global credential.helper "store --file=$CRED_FILE"
-CONFIG_REPO_URL="${CONFIG_REPO_URL:-https://github.com/${GITHUB_USER}/cfg-agent-fleet.git}"
+CONFIG_REPO_URL="${CONFIG_REPO_URL:-https://github.com/${GITHUB_USER}/agent-fleet.git}"
 git -C "$CONFIG_REPO" remote set-url origin "$CONFIG_REPO_URL"
 
 # ──────────────────────────────────────────────
@@ -702,7 +702,7 @@ echo ""
 echo "  To start:"
 echo "    source ~/.bashrc"
 echo "    tmux new -s claude"
-echo "    cd ~/cfg-agent-fleet && mclaude"
+echo "    cd ~/agent-fleet && mclaude"
 echo ""
 echo "  Note: Google Workspace OAuth will need browser auth on first use."
 echo "  Since this is a headless VPS, you may need to handle the OAuth"
