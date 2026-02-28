@@ -92,6 +92,8 @@ If the user says "always do X" or "remember to do Y" → that's a rule → `CLAU
 3. If NOT found → subagent created but didn't open the file. Only then may the parent open it.
 4. When in doubt, do NOT open — a missing open is a minor annoyance, a duplicate open is a visible bug.
 
+**Plain-language startup/shutdown messages:** Startup and shutdown status lines must be human-readable, not internal jargon. Say "Last session shut down correctly" not "clean template, properly rotated". Say "Last session may have ended unexpectedly — checking recovery notes" not "stale context found". Say "2 tasks waiting for other projects" not "inbox has 2 entries for non-current projects". These messages should make sense to any user, not just someone who knows the rotation/archival internals. The rest of the session can be as technical as the context requires.
+
 **URL/service identification rule:** When the user provides a URL or a task involves an external service, FIRST identify the service (x.com/twitter.com → Twitter, github.com → GitHub, docs.google.com/drive.google.com → Google Workspace, etc.). Then check the MCP catalog for matching tools and known limitations. Only after that, decide whether to use MCP tools or fall back to WebFetch/CLI. Never jump straight to generic fetching without this identification step.
 
 **Backlog convention:** Every project has `backlog.md` at root. Do NOT read at session start — only when active tasks are done or user asks. All backlogs follow this standard format:
