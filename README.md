@@ -398,6 +398,28 @@ bash secrets/vault-manage.sh deploy
 
 ---
 
+## Context Budget
+
+The system uses approximately **30-40% of a 200k-token context window at session start**. Here's where it goes:
+
+| Category | Est. tokens | Notes |
+|----------|----------:|-------|
+| Claude Code system prompt | ~15-20k | Built-in tools, agent descriptions (not controllable) |
+| MCP tool schemas | ~3-5k | Active servers, deferred tool list |
+| Global CLAUDE.md | ~3-5k | Loading rules, conventions, quick commands |
+| Foundation files | ~2-3k | User profile, session protocol |
+| MCP catalog (if used) | ~4k | Loaded via @import — server details, troubleshooting |
+| Machine file | ~1k | Platform-specific state |
+| Project CLAUDE.md | ~1-2k | Per-project manifest |
+| Startup tool calls | ~5-15k | File reads, git pull, inbox check |
+| **Total at startup** | **~35-55k** | **~18-28% of 200k** |
+
+The exact percentage depends on how many MCP servers you configure and how large your CLAUDE.md files grow. With a minimal setup (2-3 MCP servers, short user profile), you'll be on the low end. With 10+ MCP servers and detailed machine files, closer to the high end.
+
+**The key tradeoff:** More rules and context at startup = less room for conversation, but Claude makes fewer mistakes and needs fewer corrections (which also consume tokens). Finding the right balance depends on your workflow.
+
+---
+
 ## Common Mistakes
 
 **Editing files in the wrong place.** The repo (`~/cfg-agent-fleet/`) is the source of truth. Edit there, then `bash sync.sh deploy`. Don't edit the symlink targets directly in `~/.claude/` — those changes get overwritten.

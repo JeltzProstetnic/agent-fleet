@@ -2,7 +2,6 @@
 
 @~/.claude/foundation/user-profile.md
 @~/.claude/foundation/session-protocol.md
-@~/.claude/reference/mcp-catalog.md
 
 Config repo: `~/cfg-agent-fleet/`
 
@@ -19,7 +18,6 @@ If `CLAUDE.local.md` is missing, fall back to reading `~/.claude/machines/<machi
 **Auto-loaded via @import** (no action needed — loaded before you see this):
 - `user-profile.md` — who the user is
 - `session-protocol.md` — session context persistence rules
-- `mcp-catalog.md` — MCP server tools, limitations, and auth details
 - Machine file — via `CLAUDE.local.md` (machine-specific, not synced)
 
 **Manual steps — execute in order:**
@@ -36,6 +34,7 @@ If `CLAUDE.local.md` is missing, fall back to reading `~/.claude/machines/<machi
 
 5. **Conditional loading (do NOT load unless triggered):**
    - **First run after setup** (`.setup-pending` exists in repo root): `~/.claude/foundation/first-run-refinement.md` — run this FIRST, before any user task
+   - MCP server issue, auth problem, or first MCP tool use in session: `~/.claude/reference/mcp-catalog.md`
    - New/unconfigured project detected: `~/.claude/foundation/project-setup.md`
    - Roster changes needed: `~/.claude/foundation/roster-management.md`
    - Code project using Serena: `~/.claude/reference/serena.md`

@@ -117,10 +117,45 @@ cmd_deploy() {
     # Project-specific rules
     deploy_project_rules
 
+    # Apply project folder icons (platform-appropriate)
+    apply_project_icons
+
     # Template drift check
     check_template_drift
 
     log_info "Deploy complete."
+}
+
+# ---- PROJECT FOLDER ICONS ----
+# Applies priority-colored badge icons to project folders.
+# Platform-detected: Windows (shortcut hub on NTFS) and/or KDE (.directory files).
+apply_project_icons() {
+    local icon_script="$SCRIPT_DIR/setup/scripts/project-icons.sh"
+    [ -f "$icon_script" ] || return 0
+
+    # Generate icons if they don't exist yet
+    if [ ! -f "$SCRIPT_DIR/setup/icons/p1.ico" ]; then
+        if python3 -c "from PIL import Image" 2>/dev/null; then
+            log_info "Generating project badge icons..."
+            bash "$icon_script" generate 2>/dev/null || log_warn "Icon generation failed (Pillow missing?)"
+        else
+            log_warn "Pillow not installed — skipping icon generation (pip install Pillow)"
+            return 0
+        fi
+    fi
+
+    # Apply based on platform
+    if [ -d /mnt/c/ ]; then
+        # WSL — apply Windows shortcut hub
+        log_info "Applying project folder icons (Windows shortcut hub)..."
+        bash "$icon_script" apply-windows 2>/dev/null || log_warn "Windows icon application failed"
+    fi
+
+    if command -v kwriteconfig6 >/dev/null 2>&1 || command -v kwriteconfig5 >/dev/null 2>&1; then
+        # KDE — apply .directory files
+        log_info "Applying project folder icons (KDE Dolphin)..."
+        bash "$icon_script" apply-kde 2>/dev/null || log_warn "KDE icon application failed"
+    fi
 }
 
 deploy_hooks() {
