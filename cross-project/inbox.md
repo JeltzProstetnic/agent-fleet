@@ -20,4 +20,6 @@ One-off tasks passed between projects and machines. Tasks are picked up by the t
 
 ---
 
-<!-- No tasks currently -->
+## agent-fleet
+- [ ] **Commit and push vault.json.enc**: The gitignore fix to allowlist `vault.json.enc` has been committed from the Deck. Pull it, then `git add secrets/vault.json.enc && git commit -m "Add encrypted vault for cross-machine token deployment" && git push`. After that, the Deck can `git pull && bash secrets/vault-manage.sh deploy`.
+  From: SteamDeckBedroom

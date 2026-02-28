@@ -152,7 +152,7 @@ EOF
 else
     # Prepend entry after the header (everything before first ### entry)
     TEMP=$(mktemp)
-    FIRST_ENTRY_LINE=$(grep -n '^### ' "$HISTORY_FILE" | head -1 | cut -d: -f1)
+    FIRST_ENTRY_LINE=$(grep -n '^### ' "$HISTORY_FILE" | head -1 | cut -d: -f1 || true)
     if [[ -n "$FIRST_ENTRY_LINE" ]]; then
         HEADER=$(head -n $((FIRST_ENTRY_LINE - 1)) "$HISTORY_FILE")
         EXISTING=$(tail -n +$FIRST_ENTRY_LINE "$HISTORY_FILE")
@@ -201,7 +201,7 @@ EOF
 else
     # Prepend entry after the header (everything before first ### entry)
     TEMP=$(mktemp)
-    FIRST_ENTRY_LINE=$(grep -n '^### ' "$LOG_FILE" | head -1 | cut -d: -f1)
+    FIRST_ENTRY_LINE=$(grep -n '^### ' "$LOG_FILE" | head -1 | cut -d: -f1 || true)
     if [[ -n "$FIRST_ENTRY_LINE" ]]; then
         HEADER=$(head -n $((FIRST_ENTRY_LINE - 1)) "$LOG_FILE")
         EXISTING=$(tail -n +$FIRST_ENTRY_LINE "$LOG_FILE")
