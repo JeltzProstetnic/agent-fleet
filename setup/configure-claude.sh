@@ -247,7 +247,7 @@ configure_mcp_servers() {
         if command -v jq &>/dev/null; then
             github_token=$(jq -r '.mcpServers.github.env.GITHUB_PERSONAL_ACCESS_TOKEN' "${target}")
         else
-            github_token=$(grep -o '"GITHUB_PERSONAL_ACCESS_TOKEN"[[:space:]]*:[[:space:]]*"[^"]*"' "${target}" | sed 's/.*"\([^"]*\)"$/\1/')
+            github_token=$(grep -o '"GITHUB_PERSONAL_ACCESS_TOKEN"[[:space:]]*:[[:space:]]*"[^"]*"' "${target}" 2>/dev/null | sed 's/.*"\([^"]*\)"$/\1/' || echo "")
         fi
     else
         echo ""
@@ -326,9 +326,9 @@ configure_mcp_servers() {
             jira_email=$(jq -r '.mcpServers.jira.env.JIRA_USERNAME' "${target}")
             jira_api_token=$(jq -r '.mcpServers.jira.env.JIRA_API_TOKEN' "${target}")
         else
-            jira_url=$(grep -o '"JIRA_URL"[[:space:]]*:[[:space:]]*"[^"]*"' "${target}" | sed 's/.*"\([^"]*\)"$/\1/')
-            jira_email=$(grep -o '"JIRA_USERNAME"[[:space:]]*:[[:space:]]*"[^"]*"' "${target}" | sed 's/.*"\([^"]*\)"$/\1/')
-            jira_api_token=$(grep -o '"JIRA_API_TOKEN"[[:space:]]*:[[:space:]]*"[^"]*"' "${target}" | sed 's/.*"\([^"]*\)"$/\1/')
+            jira_url=$(grep -o '"JIRA_URL"[[:space:]]*:[[:space:]]*"[^"]*"' "${target}" 2>/dev/null | sed 's/.*"\([^"]*\)"$/\1/' || echo "")
+            jira_email=$(grep -o '"JIRA_USERNAME"[[:space:]]*:[[:space:]]*"[^"]*"' "${target}" 2>/dev/null | sed 's/.*"\([^"]*\)"$/\1/' || echo "")
+            jira_api_token=$(grep -o '"JIRA_API_TOKEN"[[:space:]]*:[[:space:]]*"[^"]*"' "${target}" 2>/dev/null | sed 's/.*"\([^"]*\)"$/\1/' || echo "")
         fi
     else
         echo ""

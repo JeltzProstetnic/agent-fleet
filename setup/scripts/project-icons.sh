@@ -140,7 +140,7 @@ apply_windows() {
     fi
 
     # Find Windows username
-    WIN_USER=$(powershell.exe -NoProfile -Command '[Environment]::UserName' 2>/dev/null | tr -d '\r')
+    WIN_USER=$(powershell.exe -NoProfile -Command '[Environment]::UserName' 2>/dev/null | tr -d '\r' || echo "")
     if [ -z "$WIN_USER" ]; then
         echo "ERROR: Could not determine Windows username."
         exit 1
@@ -242,7 +242,7 @@ INI
 }
 
 clean_windows() {
-    WIN_USER=$(powershell.exe -NoProfile -Command '[Environment]::UserName' 2>/dev/null | tr -d '\r')
+    WIN_USER=$(powershell.exe -NoProfile -Command '[Environment]::UserName' 2>/dev/null | tr -d '\r' || echo "")
     WIN_HUB_LINUX="/mnt/c/Users/${WIN_USER}/${WIN_HUB_NAME}"
 
     if [ -d "$WIN_HUB_LINUX" ]; then
