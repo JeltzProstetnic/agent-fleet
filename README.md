@@ -10,8 +10,34 @@ This system adds:
 - **Multi-machine sync** — close your laptop, open your desktop, same context (via git)
 - **Layered knowledge** — domain rules (coding, infra, writing) load only when the project needs them
 - **Session persistence** — structured state that survives crashes and context resets, with recovery instructions
+- **Context rot protection** — auto-archival on `/clear`, unclean shutdown detection, live context usage meter
 - **Self-healing protocols** — when Claude makes the same mistake twice, it auto-generates a rule to prevent it
 - **MCP servers** — GitHub, Gmail, browser automation, diagrams, and more, pre-configured
+
+---
+
+## You Only Need Three Commands
+
+```
+cls     shut down cleanly, then /clear
+end     shut down cleanly, then exit
+lsd     project manager — list, switch, create projects
+```
+
+Type any of these as your entire message. No arguments, no syntax. `cls` and `end` run the full shutdown protocol (save state, archive session, commit, push) before clearing or exiting — so you never lose work. `lsd` reads the project registry and lets you browse, switch, or create projects.
+
+### Context Rot Awareness
+
+Claude Code sessions degrade silently. The context window fills up, auto-compact fires, `/clear` wipes everything — and the next session starts blind. This system fights back:
+
+| Protection | How |
+|-----------|-----|
+| **Continuous archival** | SessionEnd hooks auto-rotate session state to history — even on `/clear`, crashes, or unexpected exits. Whatever was on disk gets archived. |
+| **Unclean shutdown detection** | SessionStart hooks detect when the previous session didn't shut down properly and warn Claude to review what was lost. |
+| **Cross-project commit** | Session files in the current project get committed automatically at session end — not just the config repo. |
+| **Live context meter** | Status line shows model name, context usage %, and kilotokens used — color-coded green/yellow/red so you know when to wrap up. |
+
+The `cls`/`end` commands give you the **full cognitive shutdown** (cross-project coordination, curated decisions, strategy updates). The hooks give you the **mechanical safety net** when you forget or the session dies unexpectedly.
 
 ---
 
