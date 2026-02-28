@@ -258,17 +258,33 @@ _install_deps_arch() {
             # Initialize pacman keyring if needed (fresh SteamOS installs)
             if ! pacman-key --list-keys &>/dev/null; then
                 log_info "Initializing pacman keyring..."
-                sudo pacman-key --init
-                sudo pacman-key --populate archlinux holo 2>/dev/null || sudo pacman-key --populate archlinux
+                sudo pacman-key --init || log_warn "pacman-key --init failed, continuing..."
+                sudo pacman-key --populate archlinux holo 2>/dev/null || {
+                    log_warn "Failed to populate holo keyring, trying archlinux only..."
+                    sudo pacman-key --populate archlinux || log_warn "pacman-key populate failed, continuing..."
+                }
             fi
         fi
 
         log_info "Installing packages via pacman (requires sudo)..."
         if is_steamos; then
             # SteamOS repos are a subset of Arch — some packages may be unavailable
-            sudo pacman -S --noconfirm --needed "${needed_packages[@]}" 2>/dev/null || {
+            sudo pacman -S --noconfirm --needed "${needed_packages[@]}" || {
                 log_warn "Some packages may have failed (SteamOS repos are a subset of Arch)"
-                log_warn "Core functionality should still work"
+                # Verify critical packages actually installed
+                local missing_critical=0
+                for critical_pkg in socat curl git; do
+                    if ! command -v "${critical_pkg}" &>/dev/null; then
+                        log_error "Critical package missing: ${critical_pkg}"
+                        missing_critical=$((missing_critical + 1))
+                    fi
+                done
+                if [[ ${missing_critical} -gt 0 ]]; then
+                    log_error "Cannot continue without critical packages"
+                    is_steamos && sudo steamos-readonly enable 2>/dev/null || true
+                    exit 1
+                fi
+                log_warn "Non-critical packages may be missing, core functionality verified"
             }
         else
             sudo pacman -S --noconfirm --needed "${needed_packages[@]}" || {
@@ -409,23 +425,33 @@ install_nodejs() {
     # Check if nvm is already installed
     if [[ -s "${NVM_DIR}/nvm.sh" ]]; then
         log_info "NVM already installed at ${NVM_DIR}"
-        source "${NVM_DIR}/nvm.sh"
 
-        # Check if correct Node version is installed
-        if nvm list | grep -q "${NODE_VERSION}"; then
-            local current_version
-            current_version=$(node --version 2>/dev/null || echo "none")
-            log_info "Node.js ${NODE_VERSION} already installed (current: ${current_version})"
+        # Source nvm.sh with error protection (nvm init can return non-zero)
+        if ! source "${NVM_DIR}/nvm.sh" 2>/dev/null; then
+            log_warn "Failed to source nvm.sh — NVM may be corrupted, re-installing..."
+            rm -rf "${NVM_DIR}"
+            # Fall through to install block below
+        else
+            # Check if correct Node version is installed
+            # Capture output first to avoid grep pipeline failures under set -euo pipefail
+            local node_versions
+            node_versions=$(nvm list 2>/dev/null || true)
 
-            # Make sure it's the default
-            if ! nvm list | grep -q "default -> ${NODE_VERSION}"; then
-                log_info "Setting Node.js ${NODE_VERSION} as default..."
-                run_cmd nvm alias default "${NODE_VERSION}"
+            if echo "${node_versions}" | grep -q "${NODE_VERSION}"; then
+                local current_version
+                current_version=$(node --version 2>/dev/null || echo "none")
+                log_info "Node.js ${NODE_VERSION} already installed (current: ${current_version})"
+
+                # Make sure it's the default
+                if ! echo "${node_versions}" | grep -q "default -> ${NODE_VERSION}"; then
+                    log_info "Setting Node.js ${NODE_VERSION} as default..."
+                    run_cmd nvm alias default "${NODE_VERSION}"
+                fi
+
+                SKIPPED_STEPS+=("nodejs (already installed)")
+                log_success "Node.js verified"
+                return 0
             fi
-
-            SKIPPED_STEPS+=("nodejs (already installed)")
-            log_success "Node.js verified"
-            return 0
         fi
     else
         # Install nvm
@@ -454,7 +480,10 @@ install_nodejs() {
                 exit 1
             }
             rm -f "$nvm_installer"
-            source "${NVM_DIR}/nvm.sh"
+            source "${NVM_DIR}/nvm.sh" || {
+                log_error "Failed to source NVM after installation"
+                exit 1
+            }
         else
             log_info "[DRY RUN] Would download and install NVM ${NVM_VERSION}"
         fi
@@ -609,23 +638,24 @@ create_mclaude_variant() {
         return 0
     fi
 
-    log_info "Creating mclaude variant with team mode..."
+    log_info "Creating mclaude variant (provider: mirror, team mode)..."
     if [[ "${DRY_RUN}" == "false" ]]; then
-        run_cmd cc-mirror create "${CC_MIRROR_VARIANT}" --team-mode || {
+        run_cmd cc-mirror quick --provider mirror --name "${CC_MIRROR_VARIANT}" || {
             log_error "Failed to create mclaude variant"
+            log_error "You can create it manually: cc-mirror quick --provider mirror --name ${CC_MIRROR_VARIANT}"
             exit 1
         }
 
         # Verify launcher was created
-        if [[ ! -f "${HOME}/.local/bin/mclaude" ]]; then
+        if [[ ! -f "${HOME}/.local/bin/${CC_MIRROR_VARIANT}" ]]; then
             log_error "mclaude launcher not found after creation"
             exit 1
         fi
 
-        log_info "mclaude launcher created at ~/.local/bin/mclaude"
+        log_info "mclaude launcher created at ~/.local/bin/${CC_MIRROR_VARIANT}"
         INSTALLED_STEPS+=("mclaude-variant")
     else
-        log_info "[DRY RUN] Would run: cc-mirror create ${CC_MIRROR_VARIANT} --team-mode"
+        log_info "[DRY RUN] Would run: cc-mirror quick --provider mirror --name ${CC_MIRROR_VARIANT}"
         INSTALLED_STEPS+=("mclaude-variant (dry-run)")
     fi
 
@@ -685,9 +715,20 @@ print_summary() {
 # MAIN
 # ============================================================================
 
+_handle_error() {
+    local exit_code="${1:-1}"
+    local line_num="${2:-unknown}"
+    if [[ "$exit_code" -eq 130 ]]; then
+        log_error "Installation cancelled by user (line ${line_num})"
+    else
+        log_error "Installation failed at line ${line_num} (exit code: ${exit_code})"
+        [[ -n "${LOG_FILE:-}" ]] && log_error "Check log file: ${LOG_FILE}"
+    fi
+}
+
 main() {
-    # Set up error trap for cleanup
-    trap 'log_error "Installation interrupted. Check log file for details."' ERR INT TERM
+    # Set up error trap with line info for debugging
+    trap '_handle_error $? $LINENO' ERR INT TERM
 
     # Parse command-line arguments
     if ! parse_common_args "$@"; then

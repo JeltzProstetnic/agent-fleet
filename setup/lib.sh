@@ -71,9 +71,12 @@ log_init() {
     log_info "Logging initialized: ${LOG_FILE}"
 }
 
-# Strip ANSI color codes from string
+# Strip ANSI color codes from string (portable — avoids sed regex issues on SteamOS)
 _strip_ansi() {
-    echo -e "$*" | sed 's/\x1b\[[0-9;]*m//g'
+    local text="$*"
+    # Use tr to delete ESC characters, then sed for the bracket sequences
+    # This two-step approach avoids \x1b escaping issues across sed versions
+    printf '%s\n' "${text}" | tr -d '\033' | sed 's/\[[0-9;]*m//g'
 }
 
 # Get timestamp for log entries
@@ -89,7 +92,7 @@ log_info() {
     else
         echo -e "${COLOR_GREEN}[INFO]${COLOR_RESET} ${msg}"
     fi
-    [[ -n "${LOG_FILE}" ]] && echo "[INFO] $(_timestamp) ${msg}" | _strip_ansi >> "${LOG_FILE}"
+    [[ -n "${LOG_FILE}" ]] && { _strip_ansi "[INFO] $(_timestamp) ${msg}" >> "${LOG_FILE}" 2>/dev/null || true; }
 }
 
 # Log warning message (yellow)
@@ -100,7 +103,7 @@ log_warn() {
     else
         echo -e "${COLOR_YELLOW}[WARN]${COLOR_RESET} ${msg}" >&2
     fi
-    [[ -n "${LOG_FILE}" ]] && echo "[WARN] $(_timestamp) ${msg}" | _strip_ansi >> "${LOG_FILE}"
+    [[ -n "${LOG_FILE}" ]] && { _strip_ansi "[WARN] $(_timestamp) ${msg}" >> "${LOG_FILE}" 2>/dev/null || true; }
 }
 
 # Log error message (red)
@@ -111,7 +114,7 @@ log_error() {
     else
         echo -e "${COLOR_RED}[ERROR]${COLOR_RESET} ${msg}" >&2
     fi
-    [[ -n "${LOG_FILE}" ]] && echo "[ERROR] $(_timestamp) ${msg}" | _strip_ansi >> "${LOG_FILE}"
+    [[ -n "${LOG_FILE}" ]] && { _strip_ansi "[ERROR] $(_timestamp) ${msg}" >> "${LOG_FILE}" 2>/dev/null || true; }
 }
 
 # Log success message (green, bold)
@@ -122,7 +125,7 @@ log_success() {
     else
         echo -e "${COLOR_GREEN}${COLOR_BOLD}[SUCCESS]${COLOR_RESET} ${msg}"
     fi
-    [[ -n "${LOG_FILE}" ]] && echo "[SUCCESS] $(_timestamp) ${msg}" | _strip_ansi >> "${LOG_FILE}"
+    [[ -n "${LOG_FILE}" ]] && { _strip_ansi "[SUCCESS] $(_timestamp) ${msg}" >> "${LOG_FILE}" 2>/dev/null || true; }
 }
 
 # Print numbered step header

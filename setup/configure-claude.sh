@@ -831,12 +831,23 @@ print_summary() {
 # MAIN
 # ============================================================================
 
+_handle_config_error() {
+    local exit_code="${1:-1}"
+    local line_num="${2:-unknown}"
+    if [[ "$exit_code" -eq 130 ]]; then
+        log_error "Configuration cancelled by user (line ${line_num})"
+    else
+        log_error "Configuration failed at line ${line_num} (exit code: ${exit_code})"
+        [[ -n "${LOG_FILE:-}" ]] && log_error "Check log file: ${LOG_FILE}"
+    fi
+}
+
 main() {
     # Initialize logging
     log_init
 
-    # Set up cleanup trap for interruptions
-    trap 'log_error "Configuration interrupted. Check log file for details: ${LOG_FILE}"' ERR INT TERM
+    # Set up cleanup trap with line info for debugging
+    trap '_handle_config_error $? $LINENO' ERR INT TERM
 
     # Parse arguments
     while [[ $# -gt 0 ]]; do
