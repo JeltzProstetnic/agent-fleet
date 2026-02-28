@@ -765,7 +765,8 @@ configure_platform_settings() {
         log_info "    Writes outside ~ are WIPED on OS updates — keep everything in your home directory"
         log_info "  - NVM and npm-global persist in ~ (survives OS updates)"
         log_info "  - System packages (socat, bubblewrap, etc.) do NOT survive OS updates"
-        log_info "  - After a SteamOS update, run: bash reprovision-steamos.sh"
+        log_info "  - After a SteamOS update, run: bash setup/scripts/reprovision-steamos.sh"
+        log_info "    (from your agent-fleet directory)"
         log_info "  - Shell config lives in ~/.bashrc (not ~/.bash_profile)"
         echo ""
     fi

@@ -26,10 +26,18 @@
 
 set -euo pipefail
 
-VPS_IP="__VPS_IP__"
-DOMAIN="__WEB_TERMINAL_DOMAIN__"
-CERTBOT_EMAIL="__YOUR_EMAIL__"
+VPS_IP="${VPS_IP:-__VPS_IP__}"
+DOMAIN="${DOMAIN:-__WEB_TERMINAL_DOMAIN__}"
+CERTBOT_EMAIL="${CERTBOT_EMAIL:-__YOUR_EMAIL__}"
 TTYD_VERSION="1.7.7"
+
+# Validate that placeholders have been replaced
+for _var in VPS_IP DOMAIN CERTBOT_EMAIL; do
+  if [[ "${!_var}" == __*__ ]]; then
+    echo "ERROR: $_var is still set to a placeholder. Set it via env var or edit this script."
+    exit 1
+  fi
+done
 TTYD_BIN="/usr/local/bin/ttyd"
 TTYD_PORT="7681"
 TMUX_SESSION="claude"

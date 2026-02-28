@@ -85,7 +85,7 @@ REQUIREMENTS:
   - Internet connection for downloads
 
 WHAT GETS INSTALLED:
-  1. System packages: socat, bubblewrap, curl, git, build tools, python3, pipx
+  1. System packages: socat, bubblewrap, curl, git, jq, build tools, python3, pipx
   2. NVM (Node Version Manager) v0.40.3
   3. Node.js v22 (via nvm)
   4. npm global prefix configured to ~/.npm-global
@@ -222,6 +222,7 @@ _install_deps_arch() {
         bubblewrap
         curl
         git
+        jq
         base-devel
         python
         python-pip
@@ -258,17 +259,23 @@ _install_deps_arch() {
             if ! pacman-key --list-keys &>/dev/null; then
                 log_info "Initializing pacman keyring..."
                 sudo pacman-key --init
-                sudo pacman-key --populate archlinux
+                sudo pacman-key --populate archlinux holo 2>/dev/null || sudo pacman-key --populate archlinux
             fi
         fi
 
         log_info "Installing packages via pacman (requires sudo)..."
-        sudo pacman -S --noconfirm --needed "${needed_packages[@]}" || {
-            log_error "Failed to install system packages"
-            # Re-enable read-only on SteamOS even on failure
-            is_steamos && sudo steamos-readonly enable 2>/dev/null || true
-            exit 1
-        }
+        if is_steamos; then
+            # SteamOS repos are a subset of Arch — some packages may be unavailable
+            sudo pacman -S --noconfirm --needed "${needed_packages[@]}" 2>/dev/null || {
+                log_warn "Some packages may have failed (SteamOS repos are a subset of Arch)"
+                log_warn "Core functionality should still work"
+            }
+        else
+            sudo pacman -S --noconfirm --needed "${needed_packages[@]}" || {
+                log_error "Failed to install system packages"
+                exit 1
+            }
+        fi
 
         # Re-enable read-only FS on SteamOS
         if is_steamos; then
@@ -276,7 +283,8 @@ _install_deps_arch() {
             sudo steamos-readonly enable || true
             echo ""
             log_info "NOTE: SteamOS system packages are lost on OS updates."
-            log_info "      After a SteamOS update, run: bash reprovision-steamos.sh"
+            log_info "      After a SteamOS update, run: bash setup/scripts/reprovision-steamos.sh"
+            log_info "      (from your agent-fleet directory)"
         fi
 
         run_cmd pipx ensurepath 2>/dev/null || true

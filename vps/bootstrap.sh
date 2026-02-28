@@ -119,6 +119,10 @@ else
     # Store PAT via git credential-store so it's not embedded in the remote URL
     CRED_FILE="$HOME/.git-credentials"
     GITHUB_USER="${GITHUB_USER:-__GITHUB_USERNAME__}"
+    if [[ "$GITHUB_USER" == __*__ ]]; then
+        log_error "GITHUB_USER is not set — add it to secrets.env"
+        exit 1
+    fi
     printf 'https://%s:%s@github.com\n' "${GITHUB_USER}" "${GITHUB_PERSONAL_ACCESS_TOKEN}" > "$CRED_FILE"
     chmod 600 "$CRED_FILE"
     git config --global credential.helper "store --file=$CRED_FILE"
@@ -652,7 +656,9 @@ git config --global core.autocrlf input
 # Ensure credential-store is configured and the remote URL is clean.
 CRED_FILE="$HOME/.git-credentials"
 GITHUB_USER="${GITHUB_USER:-__GITHUB_USERNAME__}"
-if [[ ! -f "$CRED_FILE" ]] || ! grep -q 'github.com' "$CRED_FILE" 2>/dev/null; then
+if [[ "$GITHUB_USER" == __*__ ]]; then
+    log_warn "GITHUB_USER placeholder — skipping credential store update"
+elif [[ ! -f "$CRED_FILE" ]] || ! grep -q 'github.com' "$CRED_FILE" 2>/dev/null; then
     printf 'https://%s:%s@github.com\n' "${GITHUB_USER}" "${GITHUB_PERSONAL_ACCESS_TOKEN}" > "$CRED_FILE"
     chmod 600 "$CRED_FILE"
 fi

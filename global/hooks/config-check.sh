@@ -50,7 +50,9 @@ if [ -d "$CONFIG_REPO/.git" ]; then
         [ -n "$PR" ] && SYNC_REMOTE="$PR"
     fi
     OLD_HEAD=$(git -C "$CONFIG_REPO" rev-parse HEAD 2>/dev/null || true)
-    git -C "$CONFIG_REPO" pull --ff-only "$SYNC_REMOTE" "$DEFAULT_BRANCH" 2>/dev/null || true
+    if ! git -C "$CONFIG_REPO" pull --ff-only "$SYNC_REMOTE" "$DEFAULT_BRANCH" 2>/dev/null; then
+        WARNINGS="${WARNINGS:+$WARNINGS | }Config repo could not fast-forward — branches may have diverged"
+    fi
     NEW_HEAD=$(git -C "$CONFIG_REPO" rev-parse HEAD 2>/dev/null || true)
     if [ -n "$OLD_HEAD" ] && [ -n "$NEW_HEAD" ] && [ "$OLD_HEAD" != "$NEW_HEAD" ]; then
         CHANGED_FILES=$(git -C "$CONFIG_REPO" diff --name-only "$OLD_HEAD".."$NEW_HEAD" 2>/dev/null | tr '\n' ' ' | sed 's/ $//')
@@ -77,7 +79,7 @@ INBOX="$CONFIG_REPO/cross-project/inbox.md"
 INBOX_MSG=""
 if [ -f "$INBOX" ]; then
     PROJECT_NAME=$(basename "$(pwd)")
-    TASKS=$(grep -i "\- \[ \].*\*\*$PROJECT_NAME\*\*" "$INBOX" 2>/dev/null || true)
+    TASKS=$(grep "\- \[ \].*\*\*$PROJECT_NAME\*\*" "$INBOX" 2>/dev/null || true)
     if [ -n "$TASKS" ]; then
         INBOX_MSG="INBOX TASKS for $PROJECT_NAME: $TASKS"
     fi

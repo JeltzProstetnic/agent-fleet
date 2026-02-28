@@ -223,8 +223,7 @@ ok "You can also set up projects anytime by telling Claude 'set up this project'
 step "6/7" "Creating symlinks in ${CLAUDE_DIR}"
 
 if [[ -f "$REPO_DIR/global/CLAUDE.md" ]]; then
-  backup_if_exists "$CLAUDE_DIR/CLAUDE.md"
-  ln -s "$REPO_DIR/global/CLAUDE.md" "$CLAUDE_DIR/CLAUDE.md"
+  ln -sf "$REPO_DIR/global/CLAUDE.md" "$CLAUDE_DIR/CLAUDE.md"
   ok "Linked CLAUDE.md"
 else
   warn "global/CLAUDE.md not found — skipping"
@@ -234,7 +233,8 @@ for dir in foundation domains reference knowledge machines; do
   src="$REPO_DIR/global/$dir"
   dst="$CLAUDE_DIR/$dir"
   if [[ -d "$src" ]]; then
-    backup_if_exists "$dst"
+    # Remove existing symlink/dir before creating new one (ln -sf doesn't work on dirs)
+    [[ -L "$dst" ]] && rm -f "$dst"
     ln -s "$src" "$dst"
     ok "Linked $dir/"
   else
@@ -417,69 +417,74 @@ backup_if_exists "$MCP_FILE"
 
 # Use node if available, otherwise python3, otherwise raw cat
 if command -v node &>/dev/null; then
+  export SERENA_CMD SAFE_PATH NPX_CMD UVX_CMD
   node -e "
     const mcp = { mcpServers: {} };
 
     // Serena — always included
+    const serenaCmd = process.env.SERENA_CMD || 'uvx';
+    const safePath = process.env.SAFE_PATH || '';
+    const npxCmd = process.env.NPX_CMD || 'npx';
+    const uvxCmd = process.env.UVX_CMD || 'uvx';
     mcp.mcpServers.serena = {
-      command: '$SERENA_CMD',
+      command: serenaCmd,
       args: ['--from', 'git+https://github.com/oraios/serena', 'serena-mcp-server', '--context', 'claude-code'],
-      env: { PATH: '$SAFE_PATH' }
+      env: { PATH: safePath }
     };
 
     if ('$setup_github' === 'true') {
       mcp.mcpServers.github = {
-        command: '$NPX_CMD',
+        command: npxCmd,
         args: ['-y', '@modelcontextprotocol/server-github'],
-        env: { GITHUB_PERSONAL_ACCESS_TOKEN: $(printf '%s' "$CLAUDE_GITHUB_PAT" | node -e "process.stdout.write(JSON.stringify(require('fs').readFileSync('/dev/stdin','utf8')))"), PATH: '$SAFE_PATH' }
+        env: { GITHUB_PERSONAL_ACCESS_TOKEN: $(printf '%s' "$CLAUDE_GITHUB_PAT" | node -e "process.stdout.write(JSON.stringify(require('fs').readFileSync('/dev/stdin','utf8')))"), PATH: safePath }
       };
     }
 
     if ('$setup_google' === 'true') {
       mcp.mcpServers['google-workspace'] = {
-        command: '$UVX_CMD',
+        command: uvxCmd,
         args: ['workspace-mcp'],
         env: {
           GOOGLE_OAUTH_CLIENT_ID: $(printf '%s' "$CLAUDE_GOOGLE_CLIENT_ID" | node -e "process.stdout.write(JSON.stringify(require('fs').readFileSync('/dev/stdin','utf8')))"),
           GOOGLE_OAUTH_CLIENT_SECRET: $(printf '%s' "$CLAUDE_GOOGLE_CLIENT_SECRET" | node -e "process.stdout.write(JSON.stringify(require('fs').readFileSync('/dev/stdin','utf8')))"),
           USER_GOOGLE_EMAIL: $(printf '%s' "$CLAUDE_GOOGLE_EMAIL" | node -e "process.stdout.write(JSON.stringify(require('fs').readFileSync('/dev/stdin','utf8')))"),
-          PATH: '$SAFE_PATH'
+          PATH: safePath
         }
       };
     }
 
     if ('$setup_twitter' === 'true') {
       mcp.mcpServers.twitter = {
-        command: '$NPX_CMD',
+        command: npxCmd,
         args: ['-y', '@enescinar/twitter-mcp'],
         env: {
           API_KEY: $(printf '%s' "$CLAUDE_TWITTER_API_KEY" | node -e "process.stdout.write(JSON.stringify(require('fs').readFileSync('/dev/stdin','utf8')))"),
           API_SECRET_KEY: $(printf '%s' "$CLAUDE_TWITTER_API_SECRET" | node -e "process.stdout.write(JSON.stringify(require('fs').readFileSync('/dev/stdin','utf8')))"),
           ACCESS_TOKEN: $(printf '%s' "$CLAUDE_TWITTER_ACCESS_TOKEN" | node -e "process.stdout.write(JSON.stringify(require('fs').readFileSync('/dev/stdin','utf8')))"),
           ACCESS_TOKEN_SECRET: $(printf '%s' "$CLAUDE_TWITTER_ACCESS_SECRET" | node -e "process.stdout.write(JSON.stringify(require('fs').readFileSync('/dev/stdin','utf8')))"),
-          PATH: '$SAFE_PATH'
+          PATH: safePath
         }
       };
     }
 
     if ('$setup_jira' === 'true') {
       mcp.mcpServers.jira = {
-        command: '$UVX_CMD',
+        command: uvxCmd,
         args: ['mcp-atlassian'],
         env: {
           JIRA_URL: $(printf '%s' "$CLAUDE_JIRA_URL" | node -e "process.stdout.write(JSON.stringify(require('fs').readFileSync('/dev/stdin','utf8')))"),
           JIRA_USERNAME: $(printf '%s' "$CLAUDE_JIRA_EMAIL" | node -e "process.stdout.write(JSON.stringify(require('fs').readFileSync('/dev/stdin','utf8')))"),
           JIRA_API_TOKEN: $(printf '%s' "$CLAUDE_JIRA_API_TOKEN" | node -e "process.stdout.write(JSON.stringify(require('fs').readFileSync('/dev/stdin','utf8')))"),
-          PATH: '$SAFE_PATH'
+          PATH: safePath
         }
       };
     }
 
     if ('$setup_postgres' === 'true') {
       mcp.mcpServers.postgres = {
-        command: '$NPX_CMD',
+        command: npxCmd,
         args: ['-y', '@modelcontextprotocol/server-postgres', $(printf '%s' "$CLAUDE_POSTGRES_URL" | node -e "process.stdout.write(JSON.stringify(require('fs').readFileSync('/dev/stdin','utf8')))")],
-        env: { PATH: '$SAFE_PATH' }
+        env: { PATH: safePath }
       };
     }
 
@@ -487,38 +492,40 @@ if command -v node &>/dev/null; then
     mcp.mcpServers.playwright = {
       command: '$NPX_CMD',
       args: ['-y', '@playwright/mcp'],
-      env: { PATH: '$SAFE_PATH' }
+      env: { PATH: safePath }
     };
 
     mcp.mcpServers.memory = {
       command: '$NPX_CMD',
       args: ['-y', '@modelcontextprotocol/server-memory'],
-      env: { PATH: '$SAFE_PATH' }
+      env: { PATH: safePath }
     };
 
     mcp.mcpServers['diagram'] = {
       command: '$UVX_CMD',
       args: ['--from', 'mcp-mermaid-image-gen', 'mcp_mermaid_image_gen'],
-      env: { PATH: '$SAFE_PATH' }
+      env: { PATH: safePath }
     };
 
     process.stdout.write(JSON.stringify(mcp, null, 2) + '\n');
   " > "$MCP_FILE"
 elif command -v python3 &>/dev/null; then
-  # Export credentials so Python can read them via os.environ
+  # Export credentials and paths so Python can read them via os.environ
+  export CLAUDE_GITHUB_PAT
   export CLAUDE_GOOGLE_CLIENT_ID CLAUDE_GOOGLE_CLIENT_SECRET CLAUDE_GOOGLE_EMAIL
   export CLAUDE_TWITTER_API_KEY CLAUDE_TWITTER_API_SECRET CLAUDE_TWITTER_ACCESS_TOKEN CLAUDE_TWITTER_ACCESS_SECRET
   export CLAUDE_JIRA_URL CLAUDE_JIRA_EMAIL CLAUDE_JIRA_API_TOKEN
   export CLAUDE_POSTGRES_URL
+  export SERENA_CMD SAFE_PATH NPX_CMD UVX_CMD
   python3 -c "
 import json, sys, os
 
 mcp = {'mcpServers': {}}
 
-safe_path = '$SAFE_PATH'
-serena_cmd = '$SERENA_CMD'
-npx_cmd = '$NPX_CMD'
-uvx_cmd = '$UVX_CMD'
+safe_path = os.environ.get('SAFE_PATH', '')
+serena_cmd = os.environ.get('SERENA_CMD', 'uvx')
+npx_cmd = os.environ.get('NPX_CMD', 'npx')
+uvx_cmd = os.environ.get('UVX_CMD', 'uvx')
 
 mcp['mcpServers']['serena'] = {
     'command': serena_cmd,
@@ -527,7 +534,10 @@ mcp['mcpServers']['serena'] = {
 }
 
 if '$setup_github' == 'true':
-    pat = sys.stdin.readline().strip()
+    pat = os.environ.get('CLAUDE_GITHUB_PAT', '').strip()
+    if not pat:
+        print('ERROR: GitHub PAT is empty', file=sys.stderr)
+        sys.exit(1)
     mcp['mcpServers']['github'] = {
         'command': npx_cmd,
         'args': ['-y', '@modelcontextprotocol/server-github'],
@@ -598,9 +608,9 @@ mcp['mcpServers']['diagram'] = {
     'env': {'PATH': safe_path}
 }
 
-json.dump(mcp, open('$MCP_FILE', 'w'), indent=2)
+json.dump(mcp, open(os.path.expanduser('$MCP_FILE'), 'w'), indent=2)
 print()
-" <<< "$CLAUDE_GITHUB_PAT"
+"
   ok "Python fallback: all configured servers written"
 else
   warn "Neither node nor python3 found — skipping .mcp.json generation."

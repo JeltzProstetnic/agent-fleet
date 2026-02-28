@@ -48,7 +48,9 @@ sync_fail() {
 # If the project has a populated session-context.md, archive it before it goes stale.
 # rotate-session.sh validates content and fails safely if template is blank.
 if [[ -f "$ORIGINAL_DIR/session-context.md" && -s "$ORIGINAL_DIR/session-context.md" ]]; then
-    bash "$ROTATE_SCRIPT" "$ORIGINAL_DIR" 2>/dev/null || true
+    if ! bash "$ROTATE_SCRIPT" "$ORIGINAL_DIR" 2>/dev/null; then
+        echo "$(date -u +'%Y-%m-%d %H:%M:%S UTC') rotate-session failed for $ORIGINAL_DIR" >> "$CONFIG_REPO/.sync-warnings.log"
+    fi
 fi
 
 # --- Phase 2: Commit session files in current project (if separate from config repo) ---
@@ -77,7 +79,9 @@ fi
 
 # Auto-rotate config repo's own session (if different from original project)
 if [[ "$ORIGINAL_DIR" != "$CONFIG_REPO" && -f "$CONFIG_REPO/session-context.md" && -s "$CONFIG_REPO/session-context.md" ]]; then
-    bash "$ROTATE_SCRIPT" "$CONFIG_REPO" 2>/dev/null || true
+    if ! bash "$ROTATE_SCRIPT" "$CONFIG_REPO" 2>/dev/null; then
+        echo "$(date -u +'%Y-%m-%d %H:%M:%S UTC') rotate-session failed for $CONFIG_REPO" >> "$CONFIG_REPO/.sync-warnings.log"
+    fi
 fi
 
 # Collect project-specific rules
