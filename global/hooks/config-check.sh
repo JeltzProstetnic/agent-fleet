@@ -54,7 +54,19 @@ if [ -d "$CONFIG_REPO/.git" ]; then
     fi
 fi
 
-# Check 5: Cross-project inbox — surface pending tasks for current project
+# Check 5: Detect unclean shutdown — session-context.md has content but wasn't rotated
+# If session-context.md has a Session Goal filled in, it means the previous session's
+# auto-rotate either failed or the session had too little content to archive.
+# Either way, the next session should know about it.
+PROJECT_DIR="$(pwd)"
+if [[ -f "$PROJECT_DIR/session-context.md" && -s "$PROJECT_DIR/session-context.md" ]]; then
+    PREV_GOAL=$(sed -n 's/.*\*\*Session Goal\*\*: \(.\+\)/\1/p' "$PROJECT_DIR/session-context.md" 2>/dev/null | head -1)
+    if [[ -n "$PREV_GOAL" ]]; then
+        WARNINGS="${WARNINGS:+$WARNINGS | }Previous session may have ended unexpectedly (session-context.md still has content from goal: '$PREV_GOAL'). Review it and decide whether to continue that work or start fresh. If continuing, read session-context.md for recovery instructions. If starting fresh, the old state will be preserved in session-history.md after rotation."
+    fi
+fi
+
+# Check 6: Cross-project inbox — surface pending tasks for current project
 INBOX="$CONFIG_REPO/cross-project/inbox.md"
 INBOX_MSG=""
 if [ -f "$INBOX" ]; then
@@ -69,7 +81,7 @@ if [ -f "$INBOX" ]; then
     fi
 fi
 
-# Check 6: Detect unmerged branches (mobile sessions create branches, not commits to main)
+# Check 7: Detect unmerged branches (mobile sessions create branches, not commits to main)
 if [ -d "$CONFIG_REPO/.git" ]; then
     UNMERGED=$(git -C "$CONFIG_REPO" branch -r --no-merged "$DEFAULT_BRANCH" 2>/dev/null | grep -v HEAD | sed 's/^ *//' | tr '\n' ', ' | sed 's/, $//')
     if [ -n "$UNMERGED" ]; then

@@ -1,12 +1,14 @@
 #!/usr/bin/env bash
-# Auto-sync cfg-agent-fleet repo on session end.
+# Auto-sync config repo on session end.
 # Runs as a SessionEnd hook — silent, zero context cost.
 #
-# NOTE: This hook always operates on ~/cfg-agent-fleet/, NOT the current project.
-# It collects project rules, commits cfg-agent-fleet changes, and pushes.
-# Dual-remote projects are not affected — this hook doesn't push them.
+# What this hook does (in order):
+# 1. Auto-rotate the CURRENT PROJECT's session (if it has session-context.md)
+# 2. Commit session files in current project (if different from config repo)
+# 3. Auto-rotate config repo's own session
+# 4. Collect project rules, commit config repo changes, and push
 #
-# On failure: writes a marker to ~/cfg-agent-fleet/.sync-failed
+# On failure: writes a marker to .sync-failed
 # The SessionStart hook (config-check.sh) reads this marker and alerts the user.
 
 # Auto-detect config repo: try symlink source, then known paths
@@ -25,6 +27,10 @@ _detect_config_repo() {
 CONFIG_REPO="$(_detect_config_repo)"
 FAIL_MARKER="$CONFIG_REPO/.sync-failed"
 LOCK_FILE="$CONFIG_REPO/.sync-lock"
+ROTATE_SCRIPT="$CONFIG_REPO/setup/scripts/rotate-session.sh"
+
+# Capture the original working directory (the project the user was in)
+ORIGINAL_DIR="$(pwd)"
 
 # Clear any previous failure marker on success path
 sync_success() {
@@ -38,6 +44,27 @@ sync_fail() {
     exit 0  # Still exit 0 — don't block session end
 }
 
+# --- Phase 1: Auto-rotate current project's session ---
+# If the project has a populated session-context.md, archive it before it goes stale.
+# rotate-session.sh validates content and fails safely if template is blank.
+if [[ -f "$ORIGINAL_DIR/session-context.md" && -s "$ORIGINAL_DIR/session-context.md" ]]; then
+    bash "$ROTATE_SCRIPT" "$ORIGINAL_DIR" 2>/dev/null || true
+fi
+
+# --- Phase 2: Commit session files in current project (if separate from config repo) ---
+# Only commits session-related files. Does NOT push (avoids dual-remote/auth issues).
+if [[ "$ORIGINAL_DIR" != "$CONFIG_REPO" && -d "$ORIGINAL_DIR/.git" ]]; then
+    (
+        cd "$ORIGINAL_DIR" || exit 0
+        git add session-context.md session-history.md 2>/dev/null || true
+        git add docs/session-log.md 2>/dev/null || true
+        if ! git diff --cached --quiet 2>/dev/null; then
+            git commit -m "Auto-sync: session rotation $(date -u +'%Y-%m-%d %H:%M:%S UTC')" 2>/dev/null || true
+        fi
+    )
+fi
+
+# --- Phase 3: Config repo sync ---
 cd "$CONFIG_REPO" 2>/dev/null || sync_fail "cd" "Config repo not found at $CONFIG_REPO"
 
 # Acquire exclusive lock to prevent parallel session-end races.
@@ -46,6 +73,11 @@ exec 9>"$LOCK_FILE"
 if ! flock -n 9; then
     # Another session-end hook is already running — skip to avoid conflicts
     exit 0
+fi
+
+# Auto-rotate config repo's own session (if different from original project)
+if [[ "$ORIGINAL_DIR" != "$CONFIG_REPO" && -f "$CONFIG_REPO/session-context.md" && -s "$CONFIG_REPO/session-context.md" ]]; then
+    bash "$ROTATE_SCRIPT" "$CONFIG_REPO" 2>/dev/null || true
 fi
 
 # Collect project-specific rules

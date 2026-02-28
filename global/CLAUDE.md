@@ -142,7 +142,17 @@ Reading files and executing scripts from any project is always permitted. Only w
 
 **Session context:** Maintain `session-context.md` in every project. Update before and after every significant action. Reference project docs, don't duplicate them.
 
-**Session shutdown checklist — MANDATORY.** When the user says "prepare for shutdown", "exit", "auto-compact restart", or anything suggesting session end → run ALL 7 steps from `~/.claude/foundation/session-protocol.md` Section "Session Shutdown Checklist", without asking. That file is the canonical, detailed checklist. Quick summary:
+**Quick commands — keyword shortcuts the user can type as their entire message:**
+
+| Keyword | What it does |
+|---------|-------------|
+| `cls` | Execute full 7-step shutdown checklist, then say "Shutdown complete — run /clear whenever you're ready." |
+| `end` | Execute full 7-step shutdown checklist, then say "Shutdown complete — you can exit now." |
+| `lsd` | **Project manager.** Read `~/cfg-agent-fleet/registry.md`, display projects grouped by priority (P1-P5) with: name, type, path, short description (from Notes column). Show active projects (P1-P3) by default, mention count of paused/dormant. Offer actions: **switch** (user picks a project by number/name), **new** (create project), **details** (show full info for one project). |
+
+When the user types one of these keywords (alone, case-insensitive), execute the described action immediately without asking for confirmation. These are shortcuts, not conversation starters.
+
+**Session shutdown checklist — MANDATORY.** When the user says "prepare for shutdown", "exit", "auto-compact restart", `cls`, `end`, or anything suggesting session end → run ALL 7 steps from `~/.claude/foundation/session-protocol.md` Section "Session Shutdown Checklist", without asking. That file is the canonical, detailed checklist. Quick summary:
 
 1. Update `session-context.md` with final state and recovery instructions
 2. Run `bash ~/cfg-agent-fleet/setup/scripts/rotate-session.sh` + update `docs/decisions.md` if needed
