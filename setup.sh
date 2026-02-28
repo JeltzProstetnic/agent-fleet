@@ -117,7 +117,8 @@ if [[ -z "$(git config --global user.email 2>/dev/null)" ]]; then
   fi
 fi
 
-mkdir -p "$CLAUDE_DIR"/{foundation,domains,reference,knowledge,machines,hooks}
+# Only create hooks dir here — other dirs will be replaced by symlinks in Step 6
+mkdir -p "$CLAUDE_DIR/hooks"
 ok "Config dir: ${CLAUDE_DIR}"
 
 # ---------------------------------------------------------------------------
@@ -233,9 +234,14 @@ for dir in foundation domains reference knowledge machines; do
   src="$REPO_DIR/global/$dir"
   dst="$CLAUDE_DIR/$dir"
   if [[ -d "$src" ]]; then
-    # Remove existing symlink/dir before creating new one (ln -sf doesn't work on dirs)
-    [[ -L "$dst" ]] && rm -f "$dst"
-    ln -s "$src" "$dst"
+    # Remove whatever exists at dst — symlink, directory, or file
+    if [[ -L "$dst" ]]; then
+      rm -f "$dst"
+    elif [[ -d "$dst" ]]; then
+      warn "Backing up existing $dir/ directory"
+      mv "$dst" "${dst}.bak.${DATE}"
+    fi
+    ln -sfn "$src" "$dst"
     ok "Linked $dir/"
   else
     warn "global/$dir/ not found — skipping"

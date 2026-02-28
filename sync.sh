@@ -54,16 +54,25 @@ cmd_setup() {
     ln -sf "$GLOBAL_DIR/CLAUDE.md" "$CLAUDE_HOME/CLAUDE.md"
     log_info "Linked: $CLAUDE_HOME/CLAUDE.md → $GLOBAL_DIR/CLAUDE.md"
 
+    # Ensure ~/.claude exists as a real directory (not a symlink)
+    if [ -L "$CLAUDE_HOME" ]; then
+        log_warn "$CLAUDE_HOME is a symlink — removing and creating directory"
+        rm "$CLAUDE_HOME"
+    fi
+    mkdir -p "$CLAUDE_HOME"
+
     # Knowledge architecture directories (directory symlinks)
     for dir in foundation reference domains knowledge machines; do
         if [ -d "$GLOBAL_DIR/$dir" ]; then
+            # Remove whatever exists at the target — symlink, directory, or file
             if [ -L "$CLAUDE_HOME/$dir" ]; then
-                rm "$CLAUDE_HOME/$dir"
+                rm -f "$CLAUDE_HOME/$dir"
             elif [ -d "$CLAUDE_HOME/$dir" ]; then
                 log_warn "$CLAUDE_HOME/$dir exists as directory — backing up"
-                mv "$CLAUDE_HOME/$dir" "$CLAUDE_HOME/${dir}.bak"
+                mv "$CLAUDE_HOME/$dir" "$CLAUDE_HOME/${dir}.bak.$(date +%s)"
             fi
-            ln -sf "$GLOBAL_DIR/$dir" "$CLAUDE_HOME/$dir"
+            # Use ln -sfn: -n prevents following existing symlink-to-dir
+            ln -sfn "$GLOBAL_DIR/$dir" "$CLAUDE_HOME/$dir"
             log_info "Linked: $CLAUDE_HOME/$dir → $GLOBAL_DIR/$dir"
         fi
     done
