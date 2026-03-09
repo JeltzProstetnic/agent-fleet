@@ -10,7 +10,7 @@
 #   --collect   Merge outbox tasks from mobile repo into the main cross-project inbox
 #
 # Options:
-#   --config-repo PATH   Config repo root (default: auto-detect or ~/cfg-agent-fleet)
+#   --config-repo PATH   Config repo root (default: auto-detect or ~/agent-fleet)
 #   --target PATH        Mobile repo location (default: ~/agent-fleet-mobile)
 #   --home PATH          Home directory for finding projects (default: $HOME)
 
@@ -43,11 +43,18 @@ if [[ -z "$CONFIG_REPO" ]]; then
     if [[ -f "$SCRIPT_DIR/../../sync.sh" ]]; then
         CONFIG_REPO="$(cd "$SCRIPT_DIR/../.." && pwd)"
     else
-        CONFIG_REPO="$HOME/cfg-agent-fleet"
+        CONFIG_REPO="$HOME/agent-fleet"
     fi
 fi
 
 [[ -z "$TARGET" ]] && TARGET="${USER_HOME:-$HOME}/agent-fleet-mobile"
+
+# Defensive check: verify config repo exists
+if [[ ! -f "$CONFIG_REPO/sync.sh" ]]; then
+    echo "ERROR: Config repo not found at $CONFIG_REPO (sync.sh missing)." >&2
+    echo "Set --config-repo or clone agent-fleet to ~/agent-fleet" >&2
+    exit 2
+fi
 [[ -z "$USER_HOME" ]] && USER_HOME="$HOME"
 
 # ── Colors ───────────────────────────────────────────────────────────────────
@@ -75,33 +82,115 @@ stamp_file() {
 
 # ── COLLECT MODE ─────────────────────────────────────────────────────────────
 
+# Merge any unmerged claude/* branches into main
+merge_claude_branches() {
+    # Skip if not a git repo
+    if ! git -C "$TARGET" rev-parse --git-dir >/dev/null 2>&1; then
+        return 0
+    fi
+
+    # Find claude/* branches
+    local branches
+    branches=$(git -C "$TARGET" branch --list "claude/*" 2>/dev/null | sed 's/^[* ]*//')
+
+    if [[ -z "$branches" ]]; then
+        return 0
+    fi
+
+    # Ensure we're on main
+    local current_branch
+    current_branch=$(git -C "$TARGET" branch --show-current 2>/dev/null)
+    if [[ "$current_branch" != "main" ]]; then
+        git -C "$TARGET" checkout main >/dev/null 2>&1
+    fi
+
+    local merged_count=0
+    while IFS= read -r branch; do
+        [[ -z "$branch" ]] && continue
+        log_info "Merging branch: $branch"
+        if git -C "$TARGET" merge "$branch" --no-edit >/dev/null 2>&1; then
+            git -C "$TARGET" branch -d "$branch" >/dev/null 2>&1
+            merged_count=$((merged_count + 1))
+        else
+            log_warn "Failed to merge $branch — may have conflicts. Skipping."
+            git -C "$TARGET" merge --abort >/dev/null 2>&1 || true
+        fi
+    done <<< "$branches"
+
+    if [[ "$merged_count" -gt 0 ]]; then
+        log_info "Merged $merged_count claude/* branch(es) into main"
+    fi
+}
+
+# Collect session-log entries from mobile repo
+collect_session_log() {
+    local mobile_log="$TARGET/inbox/session-log.md"
+    local config_log="$CONFIG_REPO/docs/mobile-session-log.md"
+
+    if [[ ! -f "$mobile_log" ]]; then
+        return 0
+    fi
+
+    # Check if there are any session entries (### headers mark individual sessions)
+    if ! grep -q '^### ' "$mobile_log" 2>/dev/null; then
+        log_info "Session log has no entries — nothing to collect"
+        return 0
+    fi
+
+    # Extract session entries: everything after the header block
+    # Skip lines until we find the first ### entry (preserves all entries)
+    local entries
+    entries=$(sed -n '/^### /,$ p' "$mobile_log")
+
+    # Append to config repo's mobile session log
+    mkdir -p "$(dirname "$config_log")"
+    if [[ ! -f "$config_log" ]]; then
+        echo "# Mobile Session Log" > "$config_log"
+        echo "" >> "$config_log"
+        echo "Collected from mobile Claude app sessions via \`sync.sh mobile-collect\`." >> "$config_log"
+    fi
+    echo "" >> "$config_log"
+    echo "$entries" >> "$config_log"
+    local count
+    count=$(echo "$entries" | grep -c '^### ') || count=0
+    log_info "Collected $count session log entry/entries → docs/mobile-session-log.md"
+
+    # Reset mobile session log (keep header + comment marker)
+    cat > "$mobile_log" <<'SLOG'
+# Mobile Session Log
+
+Append-only log of mobile Claude app sessions. Collected by `sync.sh mobile-collect`.
+
+<!-- Entries below, newest first -->
+SLOG
+    log_info "Mobile session log cleared"
+}
+
 cmd_collect() {
     local outbox="$TARGET/inbox/outbox.md"
     local inbox="$CONFIG_REPO/cross-project/inbox.md"
 
+    # Step 1: Merge any claude/* branches before collecting
+    merge_claude_branches
+
+    # Step 2: Collect outbox tasks
     if [[ ! -f "$outbox" ]]; then
         log_warn "No outbox found at $outbox"
-        return 0
-    fi
+    else
+        local tasks
+        tasks=$(grep '^\- \[ \]' "$outbox" 2>/dev/null || true)
 
-    # Extract task lines (- [ ] entries)
-    local tasks
-    tasks=$(grep '^\- \[ \]' "$outbox" 2>/dev/null || true)
+        if [[ -z "$tasks" ]]; then
+            log_info "Outbox is empty — nothing to collect"
+        else
+            echo "" >> "$inbox"
+            echo "$tasks" >> "$inbox"
+            local count
+            count=$(echo "$tasks" | wc -l)
+            log_info "Merged $count task(s) from outbox into inbox"
 
-    if [[ -z "$tasks" ]]; then
-        log_info "Outbox is empty — nothing to collect"
-        return 0
-    fi
-
-    # Append tasks to inbox
-    echo "" >> "$inbox"
-    echo "$tasks" >> "$inbox"
-    local count
-    count=$(echo "$tasks" | wc -l)
-    log_info "Merged $count task(s) from outbox into inbox"
-
-    # Reset outbox (keep header)
-    cat > "$outbox" <<'OUTBOX'
+            # Reset outbox (keep header)
+            cat > "$outbox" <<'OUTBOX'
 # Mobile Outbox
 
 Tasks posted here will be merged into the main cross-project inbox
@@ -110,7 +199,12 @@ when `sync.sh mobile-collect` runs on any full machine.
 ## Pending
 
 OUTBOX
-    log_info "Outbox cleared"
+            log_info "Outbox cleared"
+        fi
+    fi
+
+    # Step 3: Collect session-log entries
+    collect_session_log
 }
 
 # ── DEPLOY MODE ──────────────────────────────────────────────────────────────

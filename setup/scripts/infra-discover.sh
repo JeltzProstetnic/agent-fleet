@@ -35,6 +35,9 @@ try_cmd() {
 # has_cmd: check if a command exists
 has_cmd() { command -v "$1" &>/dev/null; }
 
+# get_hostname: portable hostname (SteamOS has no hostname binary)
+get_hostname() { hostname 2>/dev/null || cat /etc/hostname 2>/dev/null || cat /proc/sys/kernel/hostname 2>/dev/null || echo "unknown"; }
+
 # section_header: print a markdown section header
 section_header() { printf '\n## %s\n\n' "$1"; }
 
@@ -65,7 +68,7 @@ cat <<EOF
 # Infrastructure Map
 
 Generated: $(date -u '+%Y-%m-%d %H:%M:%S UTC')
-Machine: $(hostname 2>/dev/null || cat /etc/hostname 2>/dev/null || echo "unknown")
+Machine: $(get_hostname)
 Platform: ${PLATFORM}
 EOF
 

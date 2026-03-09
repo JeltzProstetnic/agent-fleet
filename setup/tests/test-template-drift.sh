@@ -100,10 +100,11 @@ run_test "drift detection handles missing tracked file gracefully" test_drift_ha
 test_leak_check_detects_personal_data() {
     # Create a mock template dir with personal data
     mkdir -p "$TEST_TMPDIR/template"
-    echo "Contact: jeltz.prostetnic@gmail.com" > "$TEST_TMPDIR/template/README.md"
+    echo "Contact: test-user@example.com" > "$TEST_TMPDIR/template/README.md"
 
+    # PERSONAL_DATA_PATTERNS must be set for the leak check to activate
     local out rc=0
-    out=$(bash "$SYNC_SCRIPT" check --template-dir "$TEST_TMPDIR/template" --repo-root "$TEST_TMPDIR/repo" 2>&1) || rc=$?
+    out=$(PERSONAL_DATA_PATTERNS='test-user@example\.com' bash "$SYNC_SCRIPT" check --template-dir "$TEST_TMPDIR/template" --repo-root "$TEST_TMPDIR/repo" 2>&1) || rc=$?
     assert_contains "$out" "personal"
 }
 run_test "leak check detects personal data in template" test_leak_check_detects_personal_data

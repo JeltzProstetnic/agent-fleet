@@ -29,6 +29,10 @@ fi
 # Target locations (adjust per platform if needed)
 CLAUDE_HOME="$HOME/.claude"
 
+# Verification markers
+SETUP_VERIFIED_MARKER="$CLAUDE_HOME/.setup-verified"
+SETUP_FAILED_MARKER="$CLAUDE_HOME/.setup-failed"
+
 # Colors
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -91,6 +95,12 @@ cmd_setup() {
     # Project-specific rules
     deploy_project_rules
 
+    # Shared shell aliases
+    deploy_aliases
+
+    # afleet launcher
+    deploy_afleet
+
     # Create CLAUDE.local.md if missing (machine-specific @import)
     if [[ ! -f "$HOME/CLAUDE.local.md" ]]; then
         # Auto-detect machine file from hostname
@@ -140,8 +150,99 @@ cmd_setup() {
     # Clean unwanted marketplace plugins
     clean_marketplace_plugins
 
-    log_info "Setup complete. Live locations now symlinked to repo."
-    log_warn "Restart Claude Code for changes to take effect."
+    # Verify setup was successful
+    if verify_setup; then
+        log_info "Setup complete. Live locations now symlinked to repo."
+        log_warn "Restart Claude Code for changes to take effect."
+    else
+        log_error "Setup completed but verification FAILED."
+        log_error "Some checks did not pass. Review the errors above."
+        log_error "DO NOT start a Claude Code session until this is fixed."
+        exit 1
+    fi
+}
+
+# ---- VERIFY: Check that setup completed correctly ----
+verify_setup() {
+    local failed_checks=()
+    local all_passed=true
+
+    # V1: CLAUDE.md symlink exists
+    if [ ! -L "$CLAUDE_HOME/CLAUDE.md" ]; then
+        failed_checks+=("V1:CLAUDE.md not symlinked")
+        all_passed=false
+    fi
+
+    # V2: CLAUDE.md symlink target valid
+    if [ -L "$CLAUDE_HOME/CLAUDE.md" ] && [ ! -f "$(readlink -f "$CLAUDE_HOME/CLAUDE.md")" ]; then
+        failed_checks+=("V2:CLAUDE.md symlink target missing")
+        all_passed=false
+    fi
+
+    # V3-V7: Knowledge architecture directories
+    local idx=3
+    for dir in foundation reference domains knowledge machines; do
+        if [ ! -L "$CLAUDE_HOME/$dir" ]; then
+            failed_checks+=("V${idx}:$dir not symlinked")
+            all_passed=false
+        fi
+        ((idx++))
+    done
+
+    # V8: CLAUDE.local.md exists
+    if [ ! -f "$HOME/CLAUDE.local.md" ]; then
+        failed_checks+=("V8:CLAUDE.local.md missing")
+        all_passed=false
+    fi
+
+    # V9: CLAUDE.local.md target valid (if it exists)
+    if [ -f "$HOME/CLAUDE.local.md" ]; then
+        local import_target
+        import_target=$(grep '^@' "$HOME/CLAUDE.local.md" | head -1 | sed 's/^@//' | sed "s|~|$HOME|g")
+        if [ -n "$import_target" ] && [ ! -f "$import_target" ]; then
+            failed_checks+=("V9:CLAUDE.local.md @import target missing: $import_target")
+            all_passed=false
+        fi
+    fi
+
+    # V10: Hooks deployed
+    if [ ! -f "$CLAUDE_HOME/hooks/config-check.sh" ]; then
+        failed_checks+=("V10:SessionStart hook not deployed")
+        all_passed=false
+    fi
+
+    # V11: Hooks executable
+    if [ -f "$CLAUDE_HOME/hooks/config-check.sh" ] && [ ! -x "$CLAUDE_HOME/hooks/config-check.sh" ]; then
+        failed_checks+=("V11:SessionStart hook not executable")
+        all_passed=false
+    fi
+
+    if $all_passed; then
+        # Write success marker with metadata
+        cat > "$SETUP_VERIFIED_MARKER" << EOF
+verified=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+machine=$(get_hostname)
+config_repo=$SCRIPT_DIR
+checks_passed=11
+EOF
+        rm -f "$SETUP_FAILED_MARKER"
+        log_info "Setup verification PASSED (11 checks)"
+        return 0
+    else
+        # Write failure marker with details
+        {
+            echo "failed=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+            echo "machine=$(get_hostname)"
+            echo "config_repo=$SCRIPT_DIR"
+            printf 'failed_checks=%s\n' "${failed_checks[*]}"
+        } > "$SETUP_FAILED_MARKER"
+        rm -f "$SETUP_VERIFIED_MARKER"
+        log_error "Setup verification FAILED:"
+        for check in "${failed_checks[@]}"; do
+            log_error "  - $check"
+        done
+        return 1
+    fi
 }
 
 # ---- DEPLOY: Copy from repo → live (for non-symlink setups or project rules) ----
@@ -175,6 +276,15 @@ cmd_deploy() {
     # Project-specific rules
     deploy_project_rules
 
+    # Shared shell aliases
+    deploy_aliases
+
+    # DMS inbox drop folder
+    if [ ! -d "$HOME/dms-inbox" ]; then
+        mkdir -p "$HOME/dms-inbox"
+        log_info "Created: ~/dms-inbox/ (DMS drop folder)"
+    fi
+
     # Statusline script
     if [ -f "$SCRIPT_DIR/setup/config/statusline.sh" ]; then
         cp "$SCRIPT_DIR/setup/config/statusline.sh" "$CLAUDE_HOME/statusline.sh"
@@ -199,6 +309,12 @@ cmd_deploy() {
 
     # Personal-data leak check on template
     check_personal_data_leaks
+
+    # AFD client and library
+    deploy_afd
+
+    # afleet launcher
+    deploy_afleet
 
     log_info "Deploy complete."
 }
@@ -255,6 +371,81 @@ deploy_hooks() {
         chmod +x "$CLAUDE_HOME/hooks/$base"
         log_info "Deployed hook: $base"
     done
+}
+
+deploy_afd() {
+    local afd_dir="$SCRIPT_DIR/afd"
+    if [ ! -d "$afd_dir" ]; then
+        return 0
+    fi
+
+    mkdir -p "$HOME/.local/bin" "$HOME/.local/lib"
+
+    if [ -f "$afd_dir/client/afd" ]; then
+        cp "$afd_dir/client/afd" "$HOME/.local/bin/afd"
+        chmod +x "$HOME/.local/bin/afd"
+        log_info "Deployed: afd client → ~/.local/bin/"
+    fi
+
+    if [ -f "$afd_dir/lib/afd-lib.sh" ]; then
+        cp "$afd_dir/lib/afd-lib.sh" "$HOME/.local/lib/afd-lib.sh"
+        log_info "Deployed: afd-lib.sh → ~/.local/lib/"
+    fi
+}
+
+deploy_afleet() {
+    local afleet_src="$SCRIPT_DIR/setup/scripts/afleet.sh"
+    local nav_src="$SCRIPT_DIR/setup/scripts/afleet-nav.sh"
+    local desktop_src="$SCRIPT_DIR/setup/config/afleet.desktop"
+
+    mkdir -p "$HOME/.local/bin"
+
+    if [ -f "$afleet_src" ]; then
+        ln -sf "$afleet_src" "$HOME/.local/bin/afleet"
+        log_info "Deployed: afleet → ~/.local/bin/ (symlink)"
+    fi
+
+    if [ -f "$nav_src" ]; then
+        ln -sf "$nav_src" "$HOME/.local/bin/afleet-nav"
+        log_info "Deployed: afleet-nav → ~/.local/bin/ (symlink)"
+    fi
+
+    # Deploy .desktop file on KDE/GNOME (not WSL, not VPS)
+    if [ -f "$desktop_src" ] && [ -d "$HOME/.local/share/applications" ] && [ -z "${WSL_DISTRO_NAME:-}" ]; then
+        cp "$desktop_src" "$HOME/.local/share/applications/afleet.desktop"
+        log_info "Deployed: afleet.desktop → ~/.local/share/applications/"
+    fi
+
+    # Deploy Windows .bat bridge (WSL only)
+    local bat_src="$SCRIPT_DIR/setup/scripts/afleet.bat"
+    if [ -f "$bat_src" ] && [ -n "${WSL_DISTRO_NAME:-}" ]; then
+        local win_apps="/mnt/c/Users/$(powershell.exe -NoProfile -Command '[Environment]::UserName' 2>/dev/null | tr -d '\r')/AppData/Local/Microsoft/WindowsApps"
+        if [ -d "$win_apps" ]; then
+            cp "$bat_src" "$win_apps/afleet.bat"
+            log_info "Deployed: afleet.bat → WindowsApps/ (Windows PATH)"
+        fi
+    fi
+}
+
+deploy_aliases() {
+    local aliases_src="$SCRIPT_DIR/setup/config/aliases.sh"
+    local aliases_dst="$HOME/.cfg-aliases.sh"
+    local bashrc="$HOME/.bashrc"
+    local marker="# agent-fleet: shared aliases"
+
+    if [ ! -f "$aliases_src" ]; then
+        return 0
+    fi
+
+    cp "$aliases_src" "$aliases_dst"
+    log_info "Deployed: aliases.sh → ~/.cfg-aliases.sh"
+
+    if ! grep -qF "$marker" "$bashrc" 2>/dev/null; then
+        printf '\n%s\n[ -f ~/.cfg-aliases.sh ] && source ~/.cfg-aliases.sh\n' "$marker" >> "$bashrc"
+        log_info "Added shared aliases source line to .bashrc"
+    else
+        log_info "Shared aliases already sourced in .bashrc"
+    fi
 }
 
 deploy_project_rules() {
@@ -361,19 +552,75 @@ check_personal_data_leaks() {
     [ -d "$template_dir" ] || return 0  # Template not on this machine
 
     # Patterns must be configured by the user — skip if empty
-    local pattern="${PERSONAL_DATA_PATTERNS:-}"
-    if [[ -z "$pattern" ]]; then
+    local check_pattern="${PERSONAL_DATA_PATTERNS:-}"
+    if [[ -z "$check_pattern" ]]; then
         return 0
     fi
+
+    # Check for personal machine files (anything in machines/ that isn't _template.md or INDEX.md)
+    local personal_machines=()
+    if [ -d "$template_dir/global/machines" ]; then
+        while IFS= read -r mfile; do
+            local bname
+            bname="$(basename "$mfile")"
+            [[ "$bname" == "_template.md" || "$bname" == "INDEX.md" ]] && continue
+            personal_machines+=("$mfile")
+        done < <(find "$template_dir/global/machines" -name "*.md" -type f 2>/dev/null)
+    fi
+
+    if [ ${#personal_machines[@]} -gt 0 ]; then
+        log_warn "Personal machine files in template (should only have _template.md + INDEX.md):"
+        for mf in "${personal_machines[@]}"; do
+            log_warn "  $(basename "$mf")"
+        done
+    fi
+
+    # Check for personal content in volatile files that should be clean in the template.
+    local vpath
+    # inbox.md: personal tasks show up as "- [ ] **project**:" entries
+    vpath="$template_dir/cross-project/inbox.md"
+    if [ -f "$vpath" ]; then
+        local task_lines
+        task_lines=$(grep -c '^\- \[.\] \*\*' "$vpath" 2>/dev/null) || task_lines=0
+        if [ "$task_lines" -gt 0 ]; then
+            log_warn "Volatile file has personal tasks: cross-project/inbox.md ($task_lines task entries)"
+        fi
+    fi
+    # session-log.md: personal sessions show up as "### YYYY-MM-DD" entries
+    vpath="$template_dir/docs/session-log.md"
+    if [ -f "$vpath" ]; then
+        local session_lines
+        session_lines=$(grep -c '^### [0-9]\{4\}-[0-9]\{2\}-[0-9]\{2\}' "$vpath" 2>/dev/null) || session_lines=0
+        if [ "$session_lines" -gt 0 ]; then
+            log_warn "Volatile file has personal sessions: docs/session-log.md ($session_lines session entries)"
+        fi
+    fi
+    # dashboard-cache.md: personal data shows up as non-header table rows with actual project names
+    vpath="$template_dir/cross-project/dashboard-cache.md"
+    if [ -f "$vpath" ]; then
+        local data_rows
+        data_rows=$(grep -c '^|[^-]' "$vpath" 2>/dev/null) || data_rows=0
+        # Header row counts as 1, so >1 means actual data
+        if [ "$data_rows" -gt 1 ]; then
+            log_warn "Volatile file has personal data: cross-project/dashboard-cache.md ($((data_rows - 1)) data rows)"
+        fi
+    fi
+    # session-context.md / session-history.md: should not exist in template
+    for vf in session-context.md session-history.md; do
+        vpath="$template_dir/$vf"
+        if [ -f "$vpath" ] && [ -s "$vpath" ]; then
+            log_warn "Volatile file should not exist in template: $vf"
+        fi
+    done
 
     local leak_count=0
     local hits
     hits=$(grep -rn --include='*.md' --include='*.sh' --include='*.json' --include='*.yml' --include='*.yaml' \
-        -E "$pattern" \
+        -E "$check_pattern" \
         "$template_dir" 2>/dev/null \
         | grep -v '\.git/' \
         | grep -v "PERSONAL_DATA_PATTERNS" \
-        | grep -v 'tests/.*\.sh:.*echo.*Contact' \
+        | grep -v 'setup/tests/.*\.sh:.*echo.*Contact' \
         | grep -v 'github\.com/.*/agent-fleet\.git' \
         || true)
 
@@ -672,16 +919,16 @@ cmd_check() {
 
     # ── 2. Personal data leak check ──────────────────────────────────────
     # Patterns must be configured by user in sync.local.sh (PERSONAL_DATA_PATTERNS)
-    local pattern="${PERSONAL_DATA_PATTERNS:-}"
-    if [ -d "$check_template_dir" ] && [ -n "$pattern" ]; then
+    local check_pattern="${PERSONAL_DATA_PATTERNS:-}"
+    if [ -d "$check_template_dir" ] && [ -n "$check_pattern" ]; then
         log_info "Checking template for sensitive patterns..."
         local hits
         hits=$(grep -rn --include='*.md' --include='*.sh' --include='*.json' --include='*.yml' --include='*.yaml' \
-            -E "$pattern" \
+            -E "$check_pattern" \
             "$check_template_dir" 2>/dev/null \
             | grep -v '\.git/' \
             | grep -v "PERSONAL_DATA_PATTERNS" \
-            | grep -v 'tests/.*\.sh:.*echo.*Contact' \
+            | grep -v 'setup/tests/.*\.sh:.*echo.*Contact' \
             | grep -v 'github\.com/.*/agent-fleet\.git' \
             || true)
 

@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Agent Fleet
+Comment=AI Agent Fleet Launcher
+Exec=bash -c 'source ~/.nvm/nvm.sh 2>/dev/null; ~/.local/bin/afleet --dash'
+Icon=utilities-terminal
+Terminal=true
+Categories=Development;System;
+Keywords=claude;ai;agent;

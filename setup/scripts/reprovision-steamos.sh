@@ -18,7 +18,7 @@ log_info()  { echo -e "${GREEN}[INFO]${NC} $*"; }
 log_warn()  { echo -e "${YELLOW}[WARN]${NC} $*"; }
 log_error() { echo -e "${RED}[ERROR]${NC} $*"; }
 
-echo -e "${GREEN}=== SteamOS Re-provisioning ===${NC}"
+echo -e "${GREEN}═══ SteamOS Re-provisioning ═══${NC}"
 echo ""
 
 # Check we're on SteamOS
@@ -57,7 +57,7 @@ sudo pacman -Sy --noconfirm --needed \
     jq base-devel \
     socat bubblewrap curl git \
     python python-pip python-pipx \
-    2>/dev/null || log_warn "Some packages may have failed (SteamOS repos are a subset of Arch)"
+    2>/dev/null || log_warn "Some packages may have failed (non-critical ones like socat may not be in SteamOS repos)"
 
 log_info "Re-enabling read-only filesystem..."
 sudo steamos-readonly enable 2>/dev/null || true
@@ -80,14 +80,22 @@ checks_passed=true
 if command -v node &>/dev/null; then
     log_info "Node.js: $(node -v)"
 else
-    log_error "Node.js not found -- run: nvm install 22"
+    log_error "Node.js not found — run: nvm install 22"
     checks_passed=false
 fi
 
 if command -v mclaude &>/dev/null; then
     log_info "mclaude: found at $(command -v mclaude)"
 else
-    log_error "mclaude not found -- check ~/.local/bin/mclaude"
+    log_error "mclaude not found — check ~/.local/bin/mclaude"
+    checks_passed=false
+fi
+
+if [[ -d "${HOME}/agent-fleet/.git" ]]; then
+    log_info "agent-fleet: present"
+    git -C "${HOME}/agent-fleet" pull --quiet 2>/dev/null || true
+else
+    log_error "agent-fleet not found — re-clone needed"
     checks_passed=false
 fi
 
@@ -97,9 +105,59 @@ else
     log_warn "jq not installed (pacman step may have failed)"
 fi
 
+if command -v uvx &>/dev/null; then
+    log_info "uvx: $(uvx --version 2>&1)"
+else
+    log_info "Installing uv/uvx via pipx (needed for MCP servers)..."
+    pipx install uv 2>/dev/null && log_info "uvx: installed" || log_warn "uvx install failed"
+fi
+
+# ---------------------------------------------------------------------------
+# Step 4: Validate settings.json has critical blocks
+# ---------------------------------------------------------------------------
+log_info "Validating settings.json..."
+SETTINGS_FILE="${HOME}/.cc-mirror/mclaude/config/settings.json"
+if [[ -f "$SETTINGS_FILE" ]]; then
+    settings_ok=true
+    for block in permissions hooks enabledPlugins; do
+        if ! grep -q "\"$block\"" "$SETTINGS_FILE" 2>/dev/null; then
+            log_warn "settings.json is missing '$block' block"
+            settings_ok=false
+        fi
+    done
+    if [[ "$settings_ok" == false ]]; then
+        CONFIG_REPO="${HOME}/agent-fleet"
+        TEMPLATE="$CONFIG_REPO/setup/config/settings.json"
+        if [[ -f "$TEMPLATE" ]]; then
+            log_info "Redeploying settings.json from template..."
+            sed "s|__HOME__|${HOME}|g" "$TEMPLATE" > "$SETTINGS_FILE"
+            log_info "settings.json restored from template"
+        else
+            log_warn "Template not found — run: bash ~/agent-fleet/setup/configure-claude.sh"
+            checks_passed=false
+        fi
+    else
+        log_info "settings.json: all critical blocks present"
+    fi
+else
+    log_warn "settings.json not found at $SETTINGS_FILE"
+    checks_passed=false
+fi
+
+# ---------------------------------------------------------------------------
+# Step 5: Update version marker (for auto-recovery detection)
+# ---------------------------------------------------------------------------
+if [[ "$checks_passed" == true ]]; then
+    _current_version=$(grep "^VERSION_ID=" /etc/os-release 2>/dev/null | cut -d= -f2)
+    if [[ -n "$_current_version" ]]; then
+        echo "$_current_version" > "${HOME}/.steamos-provisioned-version"
+        log_info "Version marker updated to ${_current_version}"
+    fi
+fi
+
 echo ""
 if [[ "$checks_passed" == true ]]; then
-    echo -e "${GREEN}=== Re-provisioning complete. All tools verified. ===${NC}"
+    echo -e "${GREEN}═══ Re-provisioning complete. All tools verified. ═══${NC}"
 else
-    echo -e "${YELLOW}=== Re-provisioning done with warnings. Check errors above. ===${NC}"
+    echo -e "${YELLOW}═══ Re-provisioning done with warnings. Check errors above. ═══${NC}"
 fi

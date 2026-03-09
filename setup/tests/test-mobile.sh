@@ -50,6 +50,10 @@ INBOX
     # Machine files
     echo "# Machine: test" > "$config/global/machines/test.md"
 
+    # Minimal sync.sh (required by defensive check in mobile-deploy.sh)
+    echo '#!/usr/bin/env bash' > "$config/sync.sh"
+    echo 'echo "mock sync.sh"' >> "$config/sync.sh"
+
     # Mobile CLAUDE.md template
     echo "# Mobile Mode" > "$config/setup/config/mobile-CLAUDE.md"
     echo "You are in MOBILE MODE." >> "$config/setup/config/mobile-CLAUDE.md"

@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Check if the current git repo has remote changes that need pulling.
-# Usage: bash git-sync-check.sh [--pull]
-#   No args:  fetch + report (non-destructive)
-#   --pull:   fetch + pull if behind
+# Usage: bash git-sync-check.sh [--pull] [path]
+#   --pull:   fetch + pull if behind (default: fetch + report only)
+#   path:     git repo path (default: current directory)
 #
 # Exit codes:
 #   0 = up to date (or pulled successfully)
@@ -11,8 +11,26 @@
 
 set -euo pipefail
 
+# Never use a pager — this script is non-interactive
+export GIT_PAGER=cat
+
 AUTO_PULL=false
-[ "${1:-}" = "--pull" ] && AUTO_PULL=true
+REPO_PATH=""
+for arg in "$@"; do
+  case "$arg" in
+    --pull) AUTO_PULL=true ;;
+    *) REPO_PATH="$arg" ;;
+  esac
+done
+
+# Change to repo path if provided
+if [ -n "$REPO_PATH" ]; then
+  if [ ! -d "$REPO_PATH" ]; then
+    echo "ERROR: Not a directory: $REPO_PATH"
+    exit 2
+  fi
+  cd "$REPO_PATH"
+fi
 
 # Verify we're in a git repo
 if ! git rev-parse --is-inside-work-tree &>/dev/null; then
@@ -101,23 +119,43 @@ if [ "$BEHIND" -gt 0 ]; then
   if [ "$AUTO_PULL" = true ]; then
     echo ""
     echo "Pulling..."
+
+    # Auto-stash dirty worktree to prevent pull failures (multi-device pattern)
+    STASHED=false
+    if ! git diff --quiet 2>/dev/null || ! git diff --cached --quiet 2>/dev/null; then
+      echo "Stashing local changes..."
+      git stash push --quiet -m "git-sync-check auto-stash" 2>/dev/null && STASHED=true
+    fi
+
+    PULL_OK=false
     if [ -n "$SYNC_REMOTE" ]; then
       # Dual-remote: explicit merge from private remote only
       if git merge --ff-only "$COMPARE_REF" 2>/dev/null; then
         echo "Pulled successfully (from $SYNC_REMOTE)."
-        exit 0
+        PULL_OK=true
       else
         echo "WARNING: Fast-forward merge from $SYNC_REMOTE failed. Manual merge may be needed."
-        exit 2
       fi
     else
       if git pull --ff-only --quiet 2>/dev/null; then
         echo "Pulled successfully."
-        exit 0
+        PULL_OK=true
       else
         echo "WARNING: Fast-forward pull failed. Manual merge may be needed."
-        exit 2
       fi
+    fi
+
+    # Restore stashed changes
+    if [ "$STASHED" = true ]; then
+      if ! git stash pop --quiet 2>/dev/null; then
+        echo "WARNING: Stash pop had conflicts — resolve manually (changes in 'git stash list')."
+      fi
+    fi
+
+    if [ "$PULL_OK" = true ]; then
+      exit 0
+    else
+      exit 2
     fi
   else
     exit 1

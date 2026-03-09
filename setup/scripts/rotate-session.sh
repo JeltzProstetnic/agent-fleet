@@ -250,6 +250,24 @@ else
     echo "Prepended entry to docs/session-log.md."
 fi
 
+# --- Check for multiple pending files from today ---
+TODAY=$(date +%Y-%m-%d)
+PENDING_TODAY=0
+PENDING_LIST=""
+for pf in "$PROJECT_DIR"/docs/pending-*.md; do
+    [[ -f "$pf" ]] || continue
+    PF_DATE=$(date -r "$pf" +%Y-%m-%d 2>/dev/null || true)
+    if [[ "$PF_DATE" == "$TODAY" ]]; then
+        PENDING_TODAY=$((PENDING_TODAY + 1))
+        PENDING_LIST="${PENDING_LIST:+$PENDING_LIST, }$(basename "$pf")"
+    fi
+done
+if [[ "$PENDING_TODAY" -gt 1 ]]; then
+    echo "WARNING: Multiple pending files from today ($PENDING_TODAY): $PENDING_LIST" >&2
+    echo "Consider consolidating into a single handoff file with headers." >&2
+    echo "" >&2
+fi
+
 # --- Reset session-context.md to blank template ---
 cat > "$SESSION_FILE" <<'EOF'
 # Session Context

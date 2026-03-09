@@ -36,6 +36,16 @@
         "PATH": "__PATH__"
       }
     },
+    "context7": {
+      "command": "__NPX_CMD__",
+      "args": [
+        "-y",
+        "@upstash/context7-mcp"
+      ],
+      "env": {
+        "PATH": "__PATH__"
+      }
+    },
     "twitter": {
       "command": "__NPX_CMD__",
       "args": [
