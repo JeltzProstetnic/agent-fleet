@@ -4,6 +4,27 @@ Full session history. Newest first. Never pruned.
 
 <!-- Sessions are appended here by rotate-session.sh -->
 
+### 2026-03-09T16:45Z — WSL
+**Goal:** S5 — Test Suite Sync + Security Audit (AFT-21 through AFT-24)
+**Completed:**
+- AFT-21: Synced 5 test files from cfg → template (70+ new test functions)
+- AFT-22: Added 5 new test suites (afleet, afleet-nav, clean-pending, plugin-inventory, lrn-command)
+- AFT-23: Verified 4 template-only test suites (all passing)
+- AFT-24: Security audit — all HIGH/MEDIUM fixed, most LOW fixed
+- Inbox: passphrase masking rule + check-template + .push-filter.conf propagated
+- Fixed config-check.sh: 6 gaps (else clauses, dashboard marker, persona default)
+- Fixed sync.sh: smart template-aware drift detection + check-template subcommand
+- 22 test suites, all passing
+**Key Decisions:**
+- Template persona default = "Assistant" (not "Bartl")
+- Statusline persona colors use "Assistant"/"Supporter" (matching template personas.md)
+- 4 cfg-only tests excluded (aliases, media-catalog, upgrade, youtube-tabs) — no matching template scripts
+- test-template-publish.sh deferred — can be added with check-template tests in S6
+- session-log.md and pending-multi-session-plan.md LOW findings accepted (dev artifacts, no actionable personal data)
+**Pending at shutdown:** S6 work (AFT-25 through AFT-28)
+**Recovery/Next session:**
+Next: S6 — Quality Review + Docs + lrn Audit (AFT-25 through AFT-28). See docs/pending-multi-session-plan.md.
+
 ### 2026-03-09 15:45 — WSL
 **Goal:** S4 — Scripts + Hooks propagation (AFT-14 through AFT-20)
 **Completed:**
