@@ -87,7 +87,7 @@ These are shortcuts, not the interface. The interface is conversation.
 | "Deploy my config to the other machine" | Commits, pushes; the other machine auto-pulls on next launch |
 | "Always use bun instead of npm in this project" | Adds a permanent rule to the project config |
 | "Something's wrong with the GitHub MCP server" | Diagnoses the issue -- checks config, tokens, permissions, whitelist |
-| "Prepare for shutdown" | Runs the full 7-step shutdown checklist without being asked twice |
+| "Prepare for shutdown" | Runs the full shutdown checklist without being asked twice |
 
 The agent knows about all your projects (via the registry), all your machines (via machine files), and all cross-project state (via the inbox and strategy files). You don't need to memorize paths or commands.
 
@@ -277,8 +277,10 @@ bash upgrade.sh --dry-run
 agent-fleet/
 |
 |-- setup.sh                       Run once -- sets everything up
+|-- upgrade.sh                     Pull upstream updates, run migrations
 |-- sync.sh                        Config sync (automated by hooks)
-|-- registry.md                    All your projects
+|-- registry.md                    All your projects (created at setup)
+|-- .agent-fleet-version           Version tracking for upgrades
 |
 |-- global/
 |   |-- CLAUDE.md                  The main prompt (the "dispatcher")
@@ -290,16 +292,26 @@ agent-fleet/
 |   `-- hooks/                     SessionStart/End automation
 |
 |-- setup/
+|   |-- install.sh                 Main installer (called by setup.sh)
 |   |-- install-base.sh            Phase 1: system deps, Node.js
 |   |-- configure-claude.sh        Phase 2: MCP, launchers, hooks
 |   |-- lib.sh                     Shared utilities (multi-distro detection)
-|   |-- config/                    Template configs
+|   |-- config/                    Template configs (settings, statusline, etc.)
 |   |-- scripts/                   Operational scripts (rotation, dashboard, etc.)
+|   |-- secrets/                   Vault scaffold (vault.json.example)
+|   |-- vps/                       VPS bootstrap and web terminal setup
 |   |-- projects/
 |   |   `-- _example/rules/CLAUDE.md   Example project config
 |   `-- tests/
 |       |-- run.sh                 Test runner
 |       `-- test-*.sh              Individual suites
+|
+|-- docs/
+|   |-- getting-started.md         Detailed walkthrough
+|   |-- onboarding-guide.md        Quick onboarding overview
+|   `-- security-one-pager.md      Security architecture reference
+|
+|-- migrations/                    Version migration scripts
 |
 `-- cross-project/
     |-- inbox.md                   Task passing between projects
@@ -314,6 +326,11 @@ agent-fleet/
 | `bash sync.sh deploy` | Push config changes to live locations. Safe to repeat. |
 | `bash sync.sh collect` | Pull changes from live locations back into the repo. |
 | `bash sync.sh status` | Health check -- shows what's linked, what's out of sync. |
+| `bash sync.sh check` | Aggregated drift/staleness check across all propagation chains. |
+| `bash sync.sh check-template` | Pre-publish validation (scans for personal data leaks). |
+| `bash sync.sh stamp` | Refresh manifest hashes after template sync. |
+| `bash sync.sh mobile-deploy` | Create read-only mobile snapshot repo. |
+| `bash sync.sh mobile-collect` | Merge outbox tasks from mobile back to inbox. |
 
 You rarely need to run these manually. The session hooks handle sync automatically. But they're there if you want direct control.
 
@@ -332,6 +349,7 @@ MCP servers let the agent interact with external services. All are optional -- c
 | **Serena** | Semantic code navigation | No |
 | **Playwright** | Browser automation, screenshots | No |
 | **Memory** | Persistent knowledge graph | No |
+| **Context7** | Library documentation lookup | No |
 | **Diagram** | Mermaid diagram generation (PNG/SVG/PDF) | No |
 
 ### Domains
@@ -353,7 +371,7 @@ Add your own: copy `global/domains/_template/`, edit it, reference it from your 
 
 ### Test Suite
 
-362 tests across 22 suites, run via `setup/tests/run.sh`:
+365 tests across 22 suites, run via `setup/tests/run.sh`:
 
 | Suite | Tests | Covers |
 |-------|------:|--------|
@@ -449,7 +467,7 @@ bash setup/secrets/vault-manage.sh deploy
 
 ## Context Budget
 
-The system uses approximately 30-40% of a 200k-token context window at session start:
+The system uses approximately 18-28% of a 200k-token context window at session start:
 
 | Category | Est. tokens | Notes |
 |----------|----------:|-------|

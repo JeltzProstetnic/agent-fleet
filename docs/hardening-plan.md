@@ -1,11 +1,12 @@
 # Deployment Hardening Plan — 3-Day Sprint
 
 Created: 2026-03-01
-Status: Planned (saved for next session)
+Updated: 2026-03-09
+Status: Partially implemented
 
 ## Problem Statement
 
-25 shell scripts, ~6000 lines, 80+ external commands, 50+ hardcoded paths, 5 platform families, **zero automated tests**. Every bug so far was discovered by manual testing on real machines after code review missed it. Code review cannot find runtime bugs on platforms you don't have.
+25+ shell scripts, ~6000 lines, 80+ external commands, 50+ hardcoded paths, 5 platform families. Originally had zero automated tests — now has **365 tests across 22 suites** covering session rotation, config sync, dashboard, permissions, filtered push, mobile deploy, and more. Portable command wrappers (`get_hostname()`, `portable_sed_i()`, `portable_timeout()`) implemented in `lib.sh`. Remaining items below focus on CI/CD and Docker-based cross-platform validation.
 
 ### Bugs Found by Running (Not Reading)
 - `hostname` binary missing on SteamOS (BUG-1, fixed)
@@ -103,16 +104,16 @@ Add functions for every command that varies across platforms:
 
 ## Platform Coverage Matrix
 
-| Platform | Docker Test | CI Runner | Manual Test Machine |
-|----------|------------|-----------|---------------------|
-| Ubuntu 24.04 | Yes | GitHub Actions | VPS |
-| Debian 12 | Yes | — | — |
-| Fedora 42 | Yes (Docker) | — | Office + Home |
-| Arch Linux | Yes | — | — |
-| SteamOS | — (no Docker) | — | Steam Deck |
-| macOS (ARM) | — | GitHub Actions | — (iPad only) |
-| macOS (Intel) | — | GitHub Actions | — |
-| WSL | — | — | Home PC |
+| Platform | Docker Test | CI Runner | Notes |
+|----------|------------|-----------|-------|
+| Ubuntu 24.04 | Yes | GitHub Actions | Primary target |
+| Debian 12 | Yes | — | |
+| Fedora 42 | Yes (Docker) | — | |
+| Arch Linux | Yes | — | |
+| SteamOS | — (no Docker) | — | Immutable FS, manual testing only |
+| macOS (ARM) | — | GitHub Actions | |
+| macOS (Intel) | — | GitHub Actions | |
+| WSL | — | — | Runs inside Ubuntu, shares apt path |
 | Windows (native) | — | — | Not supported (WSL required) |
 
 ## Known Gaps That Won't Be Covered

@@ -78,7 +78,7 @@ This runs a health check. You should see symlinks confirmed and no errors. If an
 If you configured MCP servers that need tokens:
 
 ```bash
-cp setup/secrets/vault.json.example secrets/vault.json
+cp setup/secrets/vault.json.example setup/secrets/vault.json
 # Edit vault.json with your tokens
 bash setup/secrets/vault-manage.sh encrypt
 ```
@@ -213,7 +213,7 @@ Create the project config file:
 mkdir -p ~/my-new-project/.claude
 ```
 
-Copy the example from `projects/_example/rules/CLAUDE.md` into `~/my-new-project/.claude/CLAUDE.md` and edit it. At minimum, declare a knowledge loading table that lists which domains this project needs.
+Copy the example from `setup/projects/_example/rules/CLAUDE.md` into `~/my-new-project/.claude/CLAUDE.md` and edit it. At minimum, declare a knowledge loading table that lists which domains this project needs.
 
 Add a row to `registry.md` with the project name, path, priority, and type. Session tracking begins the next time you open Claude Code in that directory.
 
@@ -270,7 +270,7 @@ No machine is special. Any machine with the repo cloned and `setup.sh` run is a 
 | Check system health | `bash sync.sh status` |
 | Pass a task to another project | Add `- [ ] **project-name**: task` to `cross-project/inbox.md` |
 | Add a new machine | Clone repo, run `bash setup.sh` |
-| Update MCP tokens | Edit `secrets/vault.json`, then `bash setup/secrets/vault-manage.sh encrypt` |
+| Update MCP tokens | Edit `setup/secrets/vault.json`, then `bash setup/secrets/vault-manage.sh encrypt` |
 | Deploy tokens to MCP configs | `bash setup/secrets/vault-manage.sh deploy` |
 | Add a domain protocol | Copy `global/domains/_template/`, edit, reference from project manifest |
 | Install skill collections | `bash setup/scripts/install-skill-collections.sh` |

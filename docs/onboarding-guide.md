@@ -22,7 +22,7 @@ That's it. The script detects your OS, installs dependencies, creates symlinks, 
 ## Launch and talk
 
 ```bash
-mclaude              # or: claude
+claude
 ```
 
 Launch from the agent-fleet directory or any project directory. The agent handles everything from there.
@@ -140,6 +140,7 @@ Same two commands. The agent detects the new machine, creates a machine file, an
 | Serena | Semantic code navigation |
 | Playwright | Browser automation |
 | Memory | Persistent knowledge graph |
+| Context7 | Library documentation lookup |
 | Diagram | Mermaid diagram generation |
 
 ### Credential vault
@@ -153,7 +154,7 @@ bash setup/secrets/vault-manage.sh deploy     # Decrypt + write to MCP configs
 
 ### Test suite
 
-125 tests across 10 suites covering session rotation, config sync, dashboard, permissions, and more. The agent enforces TDD -- tell it to write code and it writes tests first.
+365 tests across 22 suites covering session rotation, config sync, dashboard, permissions, filtered push, mobile deploy, and more. The agent enforces TDD -- tell it to write code and it writes tests first.
 
 ### Skill collections
 
