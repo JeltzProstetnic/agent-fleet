@@ -22,6 +22,10 @@ All template placeholders use **double-underscore** (dunder) format: `__VARIABLE
 | `__JIRA_USERNAME__` | configure-claude | Jira username/email |
 | `__JIRA_API_TOKEN__` | configure-claude | Jira API token |
 | `__POSTGRES_URL__` | configure-claude | PostgreSQL connection URL |
+| `__LINKEDIN_CLIENT_ID__` | configure-claude, vault | LinkedIn OAuth client ID |
+| `__LINKEDIN_CLIENT_SECRET__` | configure-claude, vault | LinkedIn OAuth client secret |
+| `__LINKEDIN_ACCESS_TOKEN__` | configure-claude, vault | LinkedIn access token |
+| `__LINKEDIN_SERVER_PATH__` | configure-claude, vault | LinkedIn MCP server path |
 | `__VPS_IP__` | setup-web-terminal, infra-protocol | VPS IP address |
 | `__WEB_TERMINAL_DOMAIN__` | setup-web-terminal | Domain for web terminal |
 | `__WSL_MACHINE__` | infra-protocol | WSL machine identifier |

@@ -40,7 +40,7 @@ The script detects your OS, installs dependencies, creates symlinks, and sets up
 
 **2. Set up credentials** (optional)
 
-Copy `setup/setup/secrets/vault.json.example` to `setup/secrets/vault.json`, add your tokens, then encrypt:
+Copy `setup/secrets/vault.json.example` to `setup/secrets/vault.json`, add your tokens, then encrypt:
 
 ```bash
 bash setup/secrets/vault-manage.sh encrypt
@@ -353,19 +353,31 @@ Add your own: copy `global/domains/_template/`, edit it, reference it from your 
 
 ### Test Suite
 
-125 tests across 10 suites, run via `setup/tests/run.sh`:
+362 tests across 22 suites, run via `setup/tests/run.sh`:
 
 | Suite | Tests | Covers |
 |-------|------:|--------|
 | harness | 13 | Test runner itself |
-| rotate-session | 19 | Session archival, history rotation, template parsing |
-| git-sync-check | 10 | Remote detection, fast-forward, divergence handling |
-| sync | 10 | Deploy, collect, symlinks, hook copying |
+| rotate-session | 31 | Session archival, history rotation, template parsing |
+| git-sync-check | 15 | Remote detection, fast-forward, divergence handling |
+| sync | 24 | Deploy, collect, symlinks, hook copying |
 | persona | 6 | Persona file parsing, switching logic |
 | lsd-refresh | 9 | Dashboard cache generation, backlog scanning |
-| statusline | 18 | Context meter, persona display, color coding |
-| config-check | 24 | Symlink validation, stale session detection, permission cleanup |
+| statusline | 27 | Context meter, persona display, color coding |
+| config-check | 65 | Symlink validation, stale session detection, permission cleanup |
 | filtered-push | 16 | Dual-remote push, path exclusion, config parsing, safety checks |
+| afleet | 21 | Fleet launcher, project detection, picker |
+| afleet-nav | 14 | Cross-project navigation, info, notify, switch |
+| clean-marketplace-plugins | 10 | Plugin cleanup, dry-run, stale enabledPlugins |
+| clean-pending-files | 7 | Pending file cleanup after resolution |
+| clean-permissions | 8 | Permission block removal from settings.local.json |
+| git-credential-mcp | 8 | MCP credential extraction |
+| install-base | 7 | cc-mirror variant creation |
+| install-fixes | 16 | Setup edge cases |
+| lrn-command | 22 | Self-audit quick command parsing |
+| mobile | 28 | Mobile deploy/collect, outbox merge, idempotency |
+| plugin-inventory | 9 | Plugin audit and inventory |
+| template-drift | 9 | Template vs instance drift detection |
 
 TDD is enforced -- the agent writes tests before implementation code.
 
@@ -418,7 +430,7 @@ Never commit secrets. API tokens, passwords, and credentials stay out of tracked
 Encrypted credential storage that travels with the repo:
 
 ```bash
-cp setup/setup/secrets/vault.json.example setup/secrets/vault.json
+cp setup/secrets/vault.json.example setup/secrets/vault.json
 # Add your tokens
 bash setup/secrets/vault-manage.sh encrypt
 # On another machine:

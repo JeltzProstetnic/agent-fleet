@@ -4,6 +4,23 @@ Full session history. Newest first. Never pruned.
 
 <!-- Sessions are appended here by rotate-session.sh -->
 
+### 2026-03-09 17:16 UTC — WSL
+**Goal:** S6 — Quality Review + Docs + lrn Audit (AFT-25 through AFT-28)
+**Completed:**
+- AFT-25: Documentation propagated — README test counts updated (362/22), double setup/ typo fixed, hook editing hazard rule added to project CLAUDE.md
+- AFT-26: All template-only content evaluated — all current and useful, no changes needed
+- AFT-27: statusline.sh already in template, correctly divergent (generic vs personal personas). No action
+- AFT-28: CRITICAL fixed (missing cross-project-nav.md ref removed), HIGH fixed (dms → docs/dms-guide.md), MEDIUM fixed (LinkedIn placeholders)
+- Context exhaustion UX concern → inbox item for cfg-agent-fleet
+**Key Decisions:**
+- Multi-session sync plan (S1-S6) fully complete — all 28 AFT items resolved
+- cross-project-nav.md correctly excluded from template (personal navigation)
+- DMS guide created as generic replacement for personal dms/README.md reference
+- Context exhaustion UX flagged as cfg-agent-fleet design task for non-expert users
+**Pending at shutdown:** None — S1-S6 complete
+**Recovery/Next session:**
+Multi-session plan: docs/pending-multi-session-plan.md. S1-S5 complete. This is the final session.
+
 ### 2026-03-09 17:13 UTC — WSL
 **Goal:** Cleanup session — previous S6 attempt ran out of context, finishing shutdown for fresh restart
 **Completed:**

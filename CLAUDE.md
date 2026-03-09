@@ -76,6 +76,7 @@ Claude Code displays a live context usage indicator in the terminal status bar, 
 - After changing any global rule or CLAUDE.md during a session, remind the user to sync
 - When setting up a new project, add it to the registry
 - When infrastructure or deployment state changes, update `cross-project/infrastructure-strategy.md`
+- **Hook source editing hazard:** Files in `global/hooks/` are deployed (copied) to `~/.claude/hooks/`. The SessionEnd auto-sync hook runs `sync.sh collect`, which copies deployed hooks BACK to `global/hooks/`, overwriting any uncommitted edits. When editing hook sources, commit immediately after editing — do not leave them uncommitted across tool calls.
 
 ## Workflow
 

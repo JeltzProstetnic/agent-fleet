@@ -74,10 +74,9 @@ If hostname doesn't match any pattern, state the hostname and ask. If `CLAUDE.lo
    | Writing outside project, sync | `reference/cross-project-rules.md` |
    | Upstream deps, version tracking | `reference/upstream-dependencies.md` |
    | Email drafts, social posts, formal correspondence | `reference/communication-policy.md` |
-   | Document management, catalog | `~/agent-fleet/dms/README.md` |
+   | Document management, catalog | `~/agent-fleet/docs/dms-guide.md` |
    | Audit, self-audit, meta-audit | `knowledge/audit-protocol.md` |
    | `lrn` command issued | `knowledge/learn-protocol.md` |
-   | Cross-project navigation, project switching | `reference/cross-project-nav.md` |
    | Self-awareness, plugin recommendation, agent roster gaps, "can I do X?" capability questions | `knowledge/fleet-capabilities.md` |
 
    All paths relative to `~/.claude/` unless absolute. Do NOT load unless triggered.
@@ -164,7 +163,7 @@ Personas are loaded from `~/.claude/foundation/personas.md` (or machine file ove
 
 **Session context:** Maintain `session-context.md` in every project. Update before/after significant actions. Reference docs, don't duplicate.
 
-**Document artifacts → DMS.** All documents produced for the user (drafts, letters, reports, PDFs — everything) must be cataloged and stored in a durable, cross-machine-accessible location. Project `tmp/` dirs are only for throwaway artifacts — never for documents the user needs to act on. Load `~/agent-fleet/dms/README.md` for intake protocol.
+**Document artifacts → durable storage.** All documents produced for the user (drafts, letters, reports, PDFs — everything) must be cataloged and stored in a durable, cross-machine-accessible location. Project `tmp/` dirs are only for throwaway artifacts — never for documents the user needs to act on. Load `~/agent-fleet/docs/dms-guide.md` for intake protocol.
 
 **Quick commands — keyword shortcuts the user can type as their entire message:**
 
