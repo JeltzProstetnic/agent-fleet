@@ -4,6 +4,28 @@ Full session history. Newest first. Never pruned.
 
 <!-- Sessions are appended here by rotate-session.sh -->
 
+### 2026-03-09 15:45 — WSL
+**Goal:** S4 — Scripts + Hooks propagation (AFT-14 through AFT-20)
+**Completed:**
+- AFT-14: setup.sh → thin wrapper (13 lines replacing 773)
+- AFT-15: sync.sh propagated (verify_setup, deploy_afd/afleet/aliases, enhanced leak checks, volatile file checks, test fix)
+- AFT-16: No forward propagation needed (template ahead in all 4 files)
+- AFT-17: 4 utility scripts propagated (git-sync-check, rotate-session, infra-discover, mobile-deploy)
+- AFT-18: Config files updated (settings.local.json, mcp.json.template)
+- AFT-19: 6 new scripts added to template, 4 excluded as personal
+- AFT-20: reprovision-steamos.sh updated with cfg additions
+- Inbox item marked [x] (template propagation — already done in S2/S3)
+- All 17 test suites passing
+**Key Decisions:**
+- AFT-16: Template is ahead of cfg for configure-claude.sh, install.sh, install-base.sh, bootstrap-fedora.sh — reverse propagation needed by cfg, not our problem
+- AFT-19 exclusions: unmount-drives.sh (personal hardware), telegram-notify.sh (hardcoded tokens), youtube-tabs.sh (niche), media-catalog.sh (personal workflow)
+- AFT-19 inclusions: afleet.sh/nav/bat/desktop (core launcher), clean-pending-files.sh (session protocol), plugin-inventory.sh (audit tool)
+- deploy_aliases marker uses "agent-fleet" not "cfg-agent-fleet" in template
+- Leak check test fixed: now sets PERSONAL_DATA_PATTERNS via env var (was hardcoded jeltz email)
+**Pending at shutdown:** Nothing — S4 complete
+**Recovery/Next session:**
+S4 of multi-session plan complete. All changes are unstaged. Next: commit, then S5 in a new session.
+
 ### 2026-03-09 15:15 — WSL
 **Goal:** S3 — Propagate foundation, knowledge, reference, and domain files from cfg-agent-fleet to agent-fleet template
 **Completed:**
