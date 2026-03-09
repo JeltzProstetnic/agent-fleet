@@ -54,5 +54,21 @@
 - `reference/persona-elsa.md`, `cross-project-nav.md` — personal
 - `statusline.sh` (root level) — evaluate in S6
 
+## Inbox Item Triage (S1 output)
+
+All 4 pending inbox items for agent-fleet map to S2 work:
+
+1. **CLAUDE.md startup exception + lsd quick command** → AFT-01. Design: Add `AFLEET_DASHBOARD:` exception to startup paragraph. Update `lsd` entry with hook-triggered dashboard mode. Strip: personal paths (mclaude, machine hooks).
+2. **backlog-convention.md grooming section** → AFT-02. Design: Copy grooming section as-is — purely procedural, no personal data. 6-step protocol + priority change rule.
+3. **3 files changed (CLAUDE.md + cross-project-rules + vault-ops)** → AFT-01 (CLAUDE.md) + AFT-02 (cross-project-rules) + AFT-03 (vault-ops). Design: vault-ops.md is highest risk — use placeholders for vault paths, passphrase script, credential names, deploy targets. Cross-project-rules simplification is straightforward.
+4. **project-setup.md operational readiness** → AFT-02. Design: Operational readiness checklist is generic — copy as-is.
+
+## Backlog Summary
+
+28 items (AFT-01 to AFT-28):
+- P1: 9 items (security-critical config, core scripts)
+- P2: 12 items (knowledge, domains, utility scripts, tests)
+- P3: 7 items (docs, quality, minor reconciliation)
+
 ## Dependencies
 S1 → S2 → S3 → S4 → S5 → S6 (sequential, each builds on prior)
