@@ -854,6 +854,19 @@ cmd_status() {
     fi
 }
 
+# ---- Helper: extract file|hash pairs from a named manifest section ----
+# Usage: _extract_manifest_section "Must Be Identical" "$manifest_file"
+# Returns lines like: path|hash
+_extract_manifest_section() {
+    local section_name="$1"
+    local manifest_file="$2"
+    awk -v section="$section_name" '
+        $0 ~ "## Tracked Files.*" section { in_section=1; next }
+        /^## / && in_section { in_section=0 }
+        in_section && /^\| `[^`]+` \| `[0-9a-f]{8}`/ { print }
+    ' "$manifest_file" | sed 's/^| `//;s/` | `/|/;s/`.*$//' || true
+}
+
 # ---- CHECK: Aggregated drift/staleness check ----
 # Usage: bash sync.sh check [--repo-root PATH] [--template-dir PATH]
 # Checks all propagation chains for drift or staleness.
@@ -875,7 +888,7 @@ cmd_check() {
 
     local total_issues=0
 
-    # ── 1. Template drift (CRC32 manifest) ───────────────────────────────
+    # ── 1. Template drift (smart: byte-diff for identical, hash for intentional) ──
     log_info "Checking template drift..."
     local manifest="$check_repo_root/template-sync-manifest.md"
     if [ ! -f "$manifest" ]; then
@@ -885,9 +898,16 @@ cmd_check() {
         log_warn "python3 not found — skipping template drift check"
     else
         local drift_count=0
-        local tracked_files
-        tracked_files=$(grep -oP '^\| `[^`]+` \| `[0-9a-f]{8}`' "$manifest" | sed 's/^| `//;s/` | `/|/;s/`$//' || true)
 
+        # Extract file|hash pairs per manifest section
+        local identical_files intentional_files
+        identical_files=$(_extract_manifest_section "Must Be Identical" "$manifest")
+        intentional_files=$(_extract_manifest_section "Intentional Diffs" "$manifest")
+
+        # ── 1a. "Must Be Identical" files ──
+        # When template dir exists: compare personal vs template directly (byte diff).
+        # This eliminates false positives from stale hashes when content is already synced.
+        # Fallback to hash-based when template is unavailable.
         local line file_path hash
         while IFS= read -r line; do
             [ -n "$line" ] || continue
@@ -895,19 +915,56 @@ cmd_check() {
             hash="${line##*|}"
             [ -n "$file_path" ] && [ -n "$hash" ] || continue
 
-            local full_path="$check_repo_root/$file_path"
-            if [ ! -f "$full_path" ]; then
-                continue  # Missing file — skip gracefully
+            local personal_file="$check_repo_root/$file_path"
+            [ -f "$personal_file" ] || continue
+
+            if [ -d "$check_template_dir" ]; then
+                local template_file="$check_template_dir/$file_path"
+                if [ -f "$template_file" ]; then
+                    if ! diff -q "$personal_file" "$template_file" >/dev/null 2>&1; then
+                        log_warn "$file_path differs from template — propagate update"
+                        drift_count=$((drift_count + 1))
+                    fi
+                else
+                    # Template file missing — fall back to hash check
+                    local current_hash
+                    current_hash=$(python3 -c "import binascii,sys;print(format(binascii.crc32(open(sys.argv[1],'rb').read())&0xFFFFFFFF,'08x'))" "$personal_file")
+                    if [ "$current_hash" != "$hash" ]; then
+                        log_warn "$file_path drifted (was: $hash, now: $current_hash) — template file missing"
+                        drift_count=$((drift_count + 1))
+                    fi
+                fi
+            else
+                # No template dir — hash-based fallback
+                local current_hash
+                current_hash=$(python3 -c "import binascii,sys;print(format(binascii.crc32(open(sys.argv[1],'rb').read())&0xFFFFFFFF,'08x'))" "$personal_file")
+                if [ "$current_hash" != "$hash" ]; then
+                    log_warn "$file_path drifted (was: $hash, now: $current_hash)"
+                    drift_count=$((drift_count + 1))
+                fi
             fi
+        done <<< "$identical_files"
+
+        # ── 1b. "Intentional Diffs" files ──
+        # Always hash-based (files are intentionally different from template).
+        # Stale hash means personal file was edited — suggest stamp after propagating.
+        while IFS= read -r line; do
+            [ -n "$line" ] || continue
+            file_path="${line%%|*}"
+            hash="${line##*|}"
+            [ -n "$file_path" ] && [ -n "$hash" ] || continue
+
+            local personal_file="$check_repo_root/$file_path"
+            [ -f "$personal_file" ] || continue
 
             local current_hash
-            current_hash=$(python3 -c "import binascii,sys;print(format(binascii.crc32(open(sys.argv[1],'rb').read())&0xFFFFFFFF,'08x'))" "$full_path")
+            current_hash=$(python3 -c "import binascii,sys;print(format(binascii.crc32(open(sys.argv[1],'rb').read())&0xFFFFFFFF,'08x'))" "$personal_file")
 
             if [ "$current_hash" != "$hash" ]; then
                 log_warn "$file_path: hash stale ($hash → $current_hash). Propagate structural changes, then run 'sync.sh stamp'"
                 drift_count=$((drift_count + 1))
             fi
-        done <<< "$tracked_files"
+        done <<< "$intentional_files"
 
         if [ "$drift_count" -gt 0 ]; then
             log_warn "Template: $drift_count file(s) drifted"
@@ -1104,23 +1161,169 @@ cmd_stamp() {
     [ "$skipped" -eq 0 ] || log_warn "Skipped $skipped missing file(s)"
 }
 
+cmd_check_template() {
+    local repo_root="$SCRIPT_DIR"
+
+    # Parse arguments
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --repo-root) repo_root="$2"; shift 2 ;;
+            *) shift ;;
+        esac
+    done
+
+    local total_issues=0
+
+    # ── 1. Verify .push-filter.conf exists ──
+    local config="$repo_root/.push-filter.conf"
+    if [[ ! -f "$config" ]]; then
+        log_error ".push-filter.conf not found in $repo_root"
+        log_error "Create one before publishing. See setup/scripts/filtered-push.sh for format."
+        return 1
+    fi
+    log_info ".push-filter.conf found"
+
+    # ── 2. Parse config and validate required fields ──
+    local private_remote="" public_remote="" branch=""
+    local -a exclude_paths=() exclude_globs=()
+
+    while IFS='=' read -r key value; do
+        [[ -z "$key" || "$key" =~ ^[[:space:]]*# ]] && continue
+        key="$(echo "$key" | xargs)"
+        value="$(echo "$value" | xargs)"
+        case "$key" in
+            private_remote) private_remote="$value" ;;
+            public_remote)  public_remote="$value" ;;
+            branch)         branch="$value" ;;
+            exclude)        exclude_paths+=("$value") ;;
+            exclude_glob)   exclude_globs+=("$value") ;;
+        esac
+    done < "$config"
+
+    if [[ -z "$private_remote" ]]; then
+        log_error "private_remote not set in .push-filter.conf"
+        total_issues=$((total_issues + 1))
+    fi
+    if [[ -z "$public_remote" ]]; then
+        log_error "public_remote not set in .push-filter.conf"
+        total_issues=$((total_issues + 1))
+    fi
+
+    if [[ $total_issues -gt 0 ]]; then
+        return 1
+    fi
+
+    # ── 3. Check required exclusions are present ──
+    local -a required_excludes=(
+        "session-context.md"
+        "session-history.md"
+        "next-session-task.md"
+        "cross-project/inbox.md"
+        "cross-project/dashboard-cache.md"
+        "docs/session-log.md"
+        "registry.md"
+    )
+    local -a required_globs=(
+        "global/machines/*.md"
+        "docs/pending-*.md"
+    )
+
+    local missing=0
+    for req in "${required_excludes[@]}"; do
+        local found=false
+        for exc in "${exclude_paths[@]}"; do
+            [[ "$exc" == "$req" ]] && { found=true; break; }
+        done
+        if ! $found; then
+            log_warn "Missing required exclusion: $req"
+            missing=$((missing + 1))
+        fi
+    done
+    for req in "${required_globs[@]}"; do
+        local found=false
+        for exc in "${exclude_globs[@]}"; do
+            [[ "$exc" == "$req" ]] && { found=true; break; }
+        done
+        if ! $found; then
+            log_warn "Missing required exclusion (glob): $req"
+            missing=$((missing + 1))
+        fi
+    done
+
+    if [[ $missing -gt 0 ]]; then
+        log_error "Missing required exclusion(s): $missing. Fix .push-filter.conf before publishing."
+        total_issues=$((total_issues + missing))
+    else
+        log_info "All required exclusions present"
+    fi
+
+    # ── 4. Scan non-excluded files for personal data patterns ──
+    local pattern="${PERSONAL_DATA_PATTERNS:-}"
+    if [[ -n "$pattern" ]]; then
+        # Build find exclusion args from config
+        local -a find_excludes=()
+        for exc in "${exclude_paths[@]}"; do
+            find_excludes+=(-path "$repo_root/$exc" -prune -o)
+        done
+        for exc in "${exclude_globs[@]}"; do
+            find_excludes+=(-path "$repo_root/$exc" -prune -o)
+        done
+
+        # Scan publishable files for personal data
+        local hits=""
+        hits=$(find "$repo_root" \
+            -path "$repo_root/.git" -prune -o \
+            "${find_excludes[@]}" \
+            \( -name '*.md' -o -name '*.sh' -o -name '*.json' -o -name '*.yml' -o -name '*.yaml' \) \
+            -print0 2>/dev/null \
+            | xargs -0 grep -lE "$pattern" 2>/dev/null \
+            | grep -v "PERSONAL_DATA_PATTERNS" \
+            | grep -v 'setup/tests/' \
+            || true)
+
+        if [[ -n "$hits" ]]; then
+            local leak_count
+            leak_count=$(echo "$hits" | wc -l)
+            log_error "Found personal data in $leak_count publishable file(s):"
+            echo "$hits" | while IFS= read -r f; do
+                log_warn "  ${f#$repo_root/}"
+            done
+            total_issues=$((total_issues + leak_count))
+        else
+            log_info "No personal data in publishable files"
+        fi
+    fi
+
+    # ── Summary ──
+    echo ""
+    if [[ $total_issues -eq 0 ]]; then
+        log_info "Template pre-publish check: clean"
+        return 0
+    else
+        log_error "Template pre-publish check: $total_issues issue(s) found"
+        return 1
+    fi
+}
+
 # ---- Main ----
 case "${1:-help}" in
     setup)          cmd_setup ;;
     deploy)         cmd_deploy ;;
     collect)        cmd_collect ;;
     check)          shift; cmd_check "$@" ;;
+    check-template) shift; cmd_check_template "$@" ;;
     stamp)          cmd_stamp ;;
     status)         cmd_status ;;
     mobile-deploy)  bash "$SCRIPT_DIR/setup/scripts/mobile-deploy.sh" ;;
     mobile-collect) bash "$SCRIPT_DIR/setup/scripts/mobile-deploy.sh" --collect ;;
     *)
-        echo "Usage: bash sync.sh {setup|deploy|collect|check|stamp|status|mobile-deploy|mobile-collect}"
+        echo "Usage: bash sync.sh {setup|deploy|collect|check|check-template|stamp|status|mobile-deploy|mobile-collect}"
         echo ""
         echo "  setup          — Replace live files with symlinks to repo (recommended, one-time)"
         echo "  deploy         — Copy from repo → live locations (for non-symlink setups)"
         echo "  collect        — Copy from live locations → repo (capture session edits)"
         echo "  check          — Check all propagation chains for drift/staleness"
+        echo "  check-template — Pre-publish check: exclusions, personal data, config"
         echo "  stamp          — Refresh all manifest hashes to current values (after template sync)"
         echo "  status         — Show differences between repo and live"
         echo "  mobile-deploy  — Generate/refresh the mobile agent-fleet repo"

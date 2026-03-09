@@ -50,7 +50,7 @@ Claude Code configuration management across all machines and projects.
 
 Claude Code displays a live context usage indicator in the terminal status bar, showing how much of the context window is consumed.
 
-**What it shows:** `[Model] ▓▓▓▓░░░░░░ 108k/200k (54%) | Bartl`
+**What it shows:** `[Model] ▓▓▓▓░░░░░░ 108k/200k (54%) | Assistant`
 - Model name (e.g., Claude Opus 4)
 - Visual fill bar (10 segments)
 - Used tokens / total tokens (in thousands)

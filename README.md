@@ -252,7 +252,7 @@ When the template gets new features, pull them into your fork:
 
 ```bash
 # First time only: add the upstream remote
-git remote add upstream https://github.com/JeltzProstetnic/agent-fleet.git
+git remote add upstream https://github.com/YOUR_USERNAME/agent-fleet.git
 
 # Upgrade (fetches, merges, runs migrations, deploys)
 bash upgrade.sh

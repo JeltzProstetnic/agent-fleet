@@ -187,39 +187,39 @@ test_persona_display_from_active_persona() {
     # Set up a mock ~/.claude/.active-persona
     local mock_home="$TEST_TMPDIR/home"
     mkdir -p "$mock_home/.claude"
-    echo "Bartl" > "$mock_home/.claude/.active-persona"
+    echo "Assistant" > "$mock_home/.claude/.active-persona"
 
     local output
     output=$(HOME="$mock_home" bash -c 'echo '"'"''"$(make_json "Opus 4.6" 54)"''"'"' | bash '"'$SCRIPT_PATH'"'')
-    assert_contains "$output" "Bartl" "should display persona name from .active-persona"
+    assert_contains "$output" "Assistant" "should display persona name from .active-persona"
 }
 run_test "persona: displays name from .active-persona file" test_persona_display_from_active_persona
 
 test_persona_color_bartl_bright_yellow() {
     local mock_home="$TEST_TMPDIR/home"
     mkdir -p "$mock_home/.claude"
-    echo "Bartl" > "$mock_home/.claude/.active-persona"
+    echo "Assistant" > "$mock_home/.claude/.active-persona"
 
     local raw_output
     raw_output=$(HOME="$mock_home" bash -c 'echo '"'"''"$(make_json "Opus 4.6" 50)"''"'"' | bash '"'$SCRIPT_PATH'"'')
     # Bartl uses bright-yellow: \033[93m
     local yellow_bright=$'\033[93m'
-    assert_contains "$raw_output" "$yellow_bright" "Bartl should use bright-yellow ANSI (93m)"
+    assert_contains "$raw_output" "$yellow_bright" "Assistant should use bright-yellow ANSI (93m)"
 }
-run_test "persona: Bartl uses bright-yellow color" test_persona_color_bartl_bright_yellow
+run_test "persona: Assistant uses bright-yellow color" test_persona_color_bartl_bright_yellow
 
 test_persona_color_elsa_bright_magenta() {
     local mock_home="$TEST_TMPDIR/home"
     mkdir -p "$mock_home/.claude"
-    echo "Elsa" > "$mock_home/.claude/.active-persona"
+    echo "Supporter" > "$mock_home/.claude/.active-persona"
 
     local raw_output
     raw_output=$(HOME="$mock_home" bash -c 'echo '"'"''"$(make_json "Opus 4.6" 50)"''"'"' | bash '"'$SCRIPT_PATH'"'')
     # Elsa uses bright-magenta (pink): \033[95m
     local magenta_bright=$'\033[95m'
-    assert_contains "$raw_output" "$magenta_bright" "Elsa should use bright-magenta ANSI (95m)"
+    assert_contains "$raw_output" "$magenta_bright" "Supporter should use bright-magenta ANSI (95m)"
 }
-run_test "persona: Elsa uses bright-magenta color" test_persona_color_elsa_bright_magenta
+run_test "persona: Supporter uses bright-magenta color" test_persona_color_elsa_bright_magenta
 
 test_persona_unknown_uses_cyan_default() {
     local mock_home="$TEST_TMPDIR/home"

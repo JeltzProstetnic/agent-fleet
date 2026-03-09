@@ -16,6 +16,34 @@ test_not_a_git_repo() {
 }
 run_test "exits 2 when not in a git repo" test_not_a_git_repo
 
+# ── Path argument ───────────────────────────────────────────────────────────
+
+test_path_argument_valid_repo() {
+    create_tracked_repo "$TEST_TMPDIR/repo" "$TEST_TMPDIR/remote.git"
+    local out rc=0
+    out=$(bash "$SYNC_SCRIPT" --pull "$TEST_TMPDIR/repo" 2>&1) || rc=$?
+    assert_eq "0" "$rc" "should succeed with path arg pointing to repo"
+    assert_contains "$out" "Up to date"
+}
+run_test "path argument: succeeds with valid repo path" test_path_argument_valid_repo
+
+test_path_argument_non_repo() {
+    mkdir -p "$TEST_TMPDIR/notarepo"
+    local out rc=0
+    out=$(bash "$SYNC_SCRIPT" "$TEST_TMPDIR/notarepo" 2>&1) || rc=$?
+    assert_eq "2" "$rc" "should exit 2 for non-repo path"
+    assert_contains "$out" "Not a git repo"
+}
+run_test "path argument: exits 2 for non-repo directory" test_path_argument_non_repo
+
+test_path_argument_nonexistent() {
+    local out rc=0
+    out=$(bash "$SYNC_SCRIPT" "$TEST_TMPDIR/doesnotexist" 2>&1) || rc=$?
+    assert_eq "2" "$rc" "should exit 2 for nonexistent path"
+    assert_contains "$out" "Not a directory"
+}
+run_test "path argument: exits 2 for nonexistent path" test_path_argument_nonexistent
+
 # ── No upstream tracking ────────────────────────────────────────────────────
 
 test_no_upstream() {
@@ -174,6 +202,55 @@ test_multiple_behind() {
     assert_contains "$out" "BEHIND remote by 3"
 }
 run_test "reports correct count when multiple commits behind" test_multiple_behind
+
+# ── Auto-stash on dirty worktree (--pull) ────────────────────────────────────
+
+test_dirty_worktree_auto_stash() {
+    create_tracked_repo "$TEST_TMPDIR/repo" "$TEST_TMPDIR/remote.git"
+    git clone "$TEST_TMPDIR/remote.git" "$TEST_TMPDIR/other" --quiet 2>/dev/null
+
+    # Remote gets a new commit that modifies README.md
+    (cd "$TEST_TMPDIR/other" && echo "remote update" >> README.md && git add README.md && git commit -m "remote README update" >/dev/null 2>&1 && git push --quiet 2>/dev/null)
+
+    # Local has uncommitted changes to a DIFFERENT file
+    echo "local dirty" > "$TEST_TMPDIR/repo/dirty-file.txt"
+
+    local out rc=0
+    out=$(cd "$TEST_TMPDIR/repo" && bash "$SYNC_SCRIPT" --pull 2>&1) || rc=$?
+    assert_eq "0" "$rc" "should exit 0 after stash+pull+pop"
+    assert_contains "$out" "Pulled successfully"
+
+    # Verify dirty file still exists with its content
+    assert_file_exists "$TEST_TMPDIR/repo/dirty-file.txt"
+    local content
+    content=$(cat "$TEST_TMPDIR/repo/dirty-file.txt")
+    assert_eq "local dirty" "$content" "dirty file content should be preserved"
+
+    # Verify the remote commit landed
+    local log
+    log=$(cd "$TEST_TMPDIR/repo" && git log --oneline -1)
+    assert_contains "$log" "remote README update"
+}
+run_test "auto-stashes dirty worktree before pull, pops after" test_dirty_worktree_auto_stash
+
+# ── Auto-stash with conflicting file ────────────────────────────────────────
+
+test_dirty_worktree_conflict_stash() {
+    create_tracked_repo "$TEST_TMPDIR/repo" "$TEST_TMPDIR/remote.git"
+    git clone "$TEST_TMPDIR/remote.git" "$TEST_TMPDIR/other" --quiet 2>/dev/null
+
+    # Remote modifies README.md
+    (cd "$TEST_TMPDIR/other" && echo "remote version" > README.md && git add README.md && git commit -m "remote README" >/dev/null 2>&1 && git push --quiet 2>/dev/null)
+
+    # Local has uncommitted changes to the SAME file (README.md)
+    echo "local version" > "$TEST_TMPDIR/repo/README.md"
+
+    local out rc=0
+    out=$(cd "$TEST_TMPDIR/repo" && bash "$SYNC_SCRIPT" --pull 2>&1) || rc=$?
+    assert_eq "0" "$rc" "should exit 0 — stash+pull succeeds, pop may conflict but pull worked"
+    assert_contains "$out" "Pulled successfully"
+}
+run_test "auto-stash works even when same file modified locally and remotely" test_dirty_worktree_conflict_stash
 
 # ── Summary ──────────────────────────────────────────────────────────────────
 

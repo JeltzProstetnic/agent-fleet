@@ -1022,6 +1022,1033 @@ test_no_warning_without_drift_log() {
 }
 run_test "check 13: no warning when .sync-warnings.log absent" test_no_warning_without_drift_log
 
+# ── 20. Symlink target validation ──────────────────────────────────────────────
+
+test_symlink_wrong_target() {
+    local config_repo="$TEST_TMPDIR/config-repo"
+    local stale_repo="$TEST_TMPDIR/stale-repo"
+    local mock_home="$TEST_TMPDIR/home"
+    local project_dir="$TEST_TMPDIR/project"
+    mkdir -p "$mock_home/.claude" "$project_dir"
+
+    create_mock_config_repo "$config_repo"
+    mkdir -p "$config_repo/global"
+    touch "$config_repo/global/CLAUDE.md"
+
+    # Create a stale repo with its own CLAUDE.md
+    mkdir -p "$stale_repo/global"
+    echo "stale content" > "$stale_repo/global/CLAUDE.md"
+
+    # Symlink points to the STALE repo, not the active config repo
+    ln -sf "$stale_repo/global/CLAUDE.md" "$mock_home/.claude/CLAUDE.md"
+
+    local patched
+    patched=$(create_patched_script "$config_repo" "$mock_home" "$project_dir")
+    local output
+    output=$(run_hook "$patched")
+
+    assert_contains "$output" "symlink points to wrong" "should warn when symlink target doesn't match config repo"
+    assert_contains "$output" "sync.sh setup" "should suggest running sync.sh setup to fix"
+}
+skip_test "symlink target: warns when CLAUDE.md symlink points to wrong directory" "feature not yet implemented"
+
+test_symlink_correct_target() {
+    local config_repo="$TEST_TMPDIR/config-repo"
+    local remote_repo="$TEST_TMPDIR/remote.git"
+    local mock_home="$TEST_TMPDIR/home"
+    local project_dir="$TEST_TMPDIR/project"
+    mkdir -p "$mock_home/.claude" "$project_dir"
+
+    create_tracked_repo_main "$config_repo" "$remote_repo"
+    (cd "$config_repo" && touch sync.sh && git add sync.sh && git commit -m "add sync.sh" >/dev/null 2>&1 && git push origin main >/dev/null 2>&1)
+
+    mkdir -p "$config_repo/global"
+    (cd "$config_repo" && mkdir -p global && touch global/CLAUDE.md && git add global/CLAUDE.md && git commit -m "add CLAUDE.md" >/dev/null 2>&1 && git push origin main >/dev/null 2>&1)
+
+    # Symlink points to the CORRECT config repo
+    ln -sf "$config_repo/global/CLAUDE.md" "$mock_home/.claude/CLAUDE.md"
+
+    local patched
+    patched=$(create_patched_script "$config_repo" "$mock_home" "$project_dir")
+    local output
+    output=$(run_hook "$patched")
+
+    assert_not_contains "$output" "symlink points to wrong" "should NOT warn when symlink is correct"
+    assert_not_contains "$output" "CLAUDE.md" "should produce no CLAUDE.md warnings"
+}
+run_test "symlink target: no warning when CLAUDE.md symlink points to correct directory" test_symlink_correct_target
+
+# ── 21. Daily dependency check (once-per-day gate) ─────────────────────────────
+
+test_dep_check_runs_when_no_marker() {
+    local config_repo="$TEST_TMPDIR/config-repo"
+    local remote_repo="$TEST_TMPDIR/remote.git"
+    local mock_home="$TEST_TMPDIR/home"
+    local project_dir="$TEST_TMPDIR/project"
+    mkdir -p "$mock_home/.claude" "$project_dir"
+
+    create_tracked_repo_main "$config_repo" "$remote_repo"
+    (cd "$config_repo" && touch sync.sh && git add sync.sh && git commit -m "add sync.sh" >/dev/null 2>&1 && git push origin main >/dev/null 2>&1)
+    mkdir -p "$config_repo/global"
+    (cd "$config_repo" && mkdir -p global && touch global/CLAUDE.md && git add global/CLAUDE.md && git commit -m "add" >/dev/null 2>&1 && git push origin main >/dev/null 2>&1)
+    ln -sf "$config_repo/global/CLAUDE.md" "$mock_home/.claude/CLAUDE.md"
+
+    # No marker file exists — check should run
+    local patched
+    patched=$(create_patched_script "$config_repo" "$mock_home" "$project_dir")
+    local output
+    output=$(run_hook "$patched")
+
+    # Marker file should be created with today's date
+    assert_file_exists "$mock_home/.claude/.dep-check-date" "should create dep-check-date marker"
+    local marker_date
+    marker_date=$(cat "$mock_home/.claude/.dep-check-date" 2>/dev/null)
+    assert_eq "$(date +%Y-%m-%d)" "$marker_date" "marker should contain today's date"
+}
+skip_test "dep check: runs and creates marker when no marker exists" "feature not yet implemented"
+
+test_dep_check_skips_when_already_ran_today() {
+    local config_repo="$TEST_TMPDIR/config-repo"
+    local remote_repo="$TEST_TMPDIR/remote.git"
+    local mock_home="$TEST_TMPDIR/home"
+    local project_dir="$TEST_TMPDIR/project"
+    mkdir -p "$mock_home/.claude" "$project_dir"
+
+    create_tracked_repo_main "$config_repo" "$remote_repo"
+    (cd "$config_repo" && touch sync.sh && git add sync.sh && git commit -m "add sync.sh" >/dev/null 2>&1 && git push origin main >/dev/null 2>&1)
+    mkdir -p "$config_repo/global"
+    (cd "$config_repo" && mkdir -p global && touch global/CLAUDE.md && git add global/CLAUDE.md && git commit -m "add" >/dev/null 2>&1 && git push origin main >/dev/null 2>&1)
+    ln -sf "$config_repo/global/CLAUDE.md" "$mock_home/.claude/CLAUDE.md"
+
+    # Marker already has today's date — check should NOT run
+    mkdir -p "$mock_home/.claude"
+    date +%Y-%m-%d > "$mock_home/.claude/.dep-check-date"
+
+    local patched
+    patched=$(create_patched_script "$config_repo" "$mock_home" "$project_dir")
+    local output
+    output=$(run_hook "$patched")
+
+    assert_not_contains "$output" "Upstream dependency check" "should NOT run dep check when already done today"
+}
+run_test "dep check: skips when marker has today's date" test_dep_check_skips_when_already_ran_today
+
+test_dep_check_runs_when_marker_is_yesterday() {
+    local config_repo="$TEST_TMPDIR/config-repo"
+    local remote_repo="$TEST_TMPDIR/remote.git"
+    local mock_home="$TEST_TMPDIR/home"
+    local project_dir="$TEST_TMPDIR/project"
+    mkdir -p "$mock_home/.claude" "$project_dir"
+
+    create_tracked_repo_main "$config_repo" "$remote_repo"
+    (cd "$config_repo" && touch sync.sh && git add sync.sh && git commit -m "add sync.sh" >/dev/null 2>&1 && git push origin main >/dev/null 2>&1)
+    mkdir -p "$config_repo/global"
+    (cd "$config_repo" && mkdir -p global && touch global/CLAUDE.md && git add global/CLAUDE.md && git commit -m "add" >/dev/null 2>&1 && git push origin main >/dev/null 2>&1)
+    ln -sf "$config_repo/global/CLAUDE.md" "$mock_home/.claude/CLAUDE.md"
+
+    # Marker has yesterday's date — check should run
+    mkdir -p "$mock_home/.claude"
+    echo "2026-03-02" > "$mock_home/.claude/.dep-check-date"
+
+    local patched
+    patched=$(create_patched_script "$config_repo" "$mock_home" "$project_dir")
+    local output
+    output=$(run_hook "$patched")
+
+    # Marker should be updated to today
+    local marker_date
+    marker_date=$(cat "$mock_home/.claude/.dep-check-date" 2>/dev/null)
+    assert_eq "$(date +%Y-%m-%d)" "$marker_date" "marker should be updated to today's date"
+}
+skip_test "dep check: runs when marker has yesterday's date" "feature not yet implemented"
+
+# ── 22. Check 14: Bash(bash:*) auto-heal in settings.json ────────────────────
+
+test_bash_permission_auto_added() {
+    local config_repo="$TEST_TMPDIR/config-repo"
+    local mock_home="$TEST_TMPDIR/home"
+    local project_dir="$TEST_TMPDIR/project"
+    mkdir -p "$mock_home/.claude" "$project_dir"
+
+    create_mock_config_repo "$config_repo"
+    touch "$config_repo/CLAUDE.md"
+    ln -sf "$config_repo/CLAUDE.md" "$mock_home/.claude/CLAUDE.md"
+
+    # Create settings.json WITHOUT Bash(bash:*)
+    mkdir -p "$mock_home/.claude"
+    cat > "$mock_home/.claude/settings.json" << 'EOF'
+{
+  "permissions": {
+    "allow": [
+      "Read(*)",
+      "Bash(git:*)",
+      "Bash(npm:*)"
+    ]
+  },
+  "hooks": {}
+}
+EOF
+
+    local patched
+    patched=$(create_patched_script "$config_repo" "$mock_home" "$project_dir")
+    run_hook "$patched" >/dev/null
+
+    # Verify Bash(bash:*) was added
+    assert_file_contains "$mock_home/.claude/settings.json" 'Bash(bash:*)' \
+        "should auto-add Bash(bash:*) to permissions.allow"
+
+    # Verify existing permissions preserved
+    assert_file_contains "$mock_home/.claude/settings.json" 'Read(*)' \
+        "should preserve existing Read(*) permission"
+    assert_file_contains "$mock_home/.claude/settings.json" 'Bash(git:*)' \
+        "should preserve existing Bash(git:*) permission"
+
+    # Verify valid JSON
+    local json_valid=0
+    python3 -c "import json; json.load(open('$mock_home/.claude/settings.json'))" 2>/dev/null || json_valid=1
+    assert_eq "0" "$json_valid" "settings.json should remain valid JSON after auto-add"
+}
+run_test "check 14: auto-adds Bash(bash:*) when missing from settings.json" test_bash_permission_auto_added
+
+test_bash_permission_already_present() {
+    local config_repo="$TEST_TMPDIR/config-repo"
+    local mock_home="$TEST_TMPDIR/home"
+    local project_dir="$TEST_TMPDIR/project"
+    mkdir -p "$mock_home/.claude" "$project_dir"
+
+    create_mock_config_repo "$config_repo"
+    touch "$config_repo/CLAUDE.md"
+    ln -sf "$config_repo/CLAUDE.md" "$mock_home/.claude/CLAUDE.md"
+
+    # Create settings.json WITH Bash(bash:*) already
+    mkdir -p "$mock_home/.claude"
+    cat > "$mock_home/.claude/settings.json" << 'EOF'
+{
+  "permissions": {
+    "allow": [
+      "Read(*)",
+      "Bash(bash:*)",
+      "Bash(git:*)"
+    ]
+  },
+  "hooks": {}
+}
+EOF
+
+    local original
+    original=$(cat "$mock_home/.claude/settings.json")
+
+    local patched
+    patched=$(create_patched_script "$config_repo" "$mock_home" "$project_dir")
+    run_hook "$patched" >/dev/null
+
+    local after
+    after=$(cat "$mock_home/.claude/settings.json")
+    assert_eq "$original" "$after" "settings.json should be unchanged when Bash(bash:*) already present"
+}
+run_test "check 14: no change when Bash(bash:*) already present" test_bash_permission_already_present
+
+test_bash_permission_no_permissions_block() {
+    local config_repo="$TEST_TMPDIR/config-repo"
+    local mock_home="$TEST_TMPDIR/home"
+    local project_dir="$TEST_TMPDIR/project"
+    mkdir -p "$mock_home/.claude" "$project_dir"
+
+    create_mock_config_repo "$config_repo"
+    touch "$config_repo/CLAUDE.md"
+    ln -sf "$config_repo/CLAUDE.md" "$mock_home/.claude/CLAUDE.md"
+
+    # Create settings.json without permissions block at all
+    mkdir -p "$mock_home/.claude"
+    cat > "$mock_home/.claude/settings.json" << 'EOF'
+{
+  "hooks": {},
+  "statusLine": {}
+}
+EOF
+
+    local original
+    original=$(cat "$mock_home/.claude/settings.json")
+
+    local patched
+    patched=$(create_patched_script "$config_repo" "$mock_home" "$project_dir")
+    run_hook "$patched" >/dev/null
+
+    # Should warn about missing permissions block (Check 8 handles this),
+    # but should NOT crash trying to add Bash(bash:*)
+    local after
+    after=$(cat "$mock_home/.claude/settings.json")
+    assert_eq "$original" "$after" "settings.json should be unchanged when no permissions block exists"
+}
+run_test "check 14: no crash when settings.json has no permissions block" test_bash_permission_no_permissions_block
+
+# ── 23. Check 15: tmp/ document scanner ──────────────────────────────────────
+
+test_tmp_document_scanner_detects_files() {
+    local config_repo="$TEST_TMPDIR/config-repo"
+    local mock_home="$TEST_TMPDIR/home"
+    local project_dir="$TEST_TMPDIR/project"
+    mkdir -p "$mock_home/.claude" "$project_dir"
+
+    create_mock_config_repo "$config_repo"
+    touch "$config_repo/CLAUDE.md"
+    ln -sf "$config_repo/CLAUDE.md" "$mock_home/.claude/CLAUDE.md"
+
+    # Create project with documents in tmp/
+    mkdir -p "$mock_home/myproject/tmp"
+    echo "# Draft" > "$mock_home/myproject/tmp/draft-letter.md"
+    echo "PDF content" > "$mock_home/myproject/tmp/report.pdf"
+
+    local patched
+    patched=$(create_patched_script "$config_repo" "$mock_home" "$project_dir")
+    local output
+    output=$(run_hook "$patched")
+
+    assert_contains "$output" "Documents found in project tmp/" "should warn about documents in tmp/"
+}
+run_test "check 15: warns when documents found in project tmp/ dirs" test_tmp_document_scanner_detects_files
+
+test_tmp_document_scanner_ignores_non_docs() {
+    local config_repo="$TEST_TMPDIR/config-repo"
+    local remote_repo="$TEST_TMPDIR/remote.git"
+    local mock_home="$TEST_TMPDIR/home"
+    local project_dir="$TEST_TMPDIR/project"
+    mkdir -p "$mock_home/.claude" "$project_dir"
+
+    create_tracked_repo_main "$config_repo" "$remote_repo"
+    (cd "$config_repo" && touch sync.sh && git add sync.sh && git commit -m "add sync.sh" >/dev/null 2>&1 && git push origin main >/dev/null 2>&1)
+    (cd "$config_repo" && touch CLAUDE.md && git add CLAUDE.md && git commit -m "add CLAUDE.md" >/dev/null 2>&1 && git push origin main >/dev/null 2>&1)
+    ln -sf "$config_repo/CLAUDE.md" "$mock_home/.claude/CLAUDE.md"
+
+    # Create project with only non-document files in tmp/
+    mkdir -p "$mock_home/myproject/tmp"
+    echo "data" > "$mock_home/myproject/tmp/cache.json"
+    echo "log" > "$mock_home/myproject/tmp/output.log"
+
+    local patched
+    patched=$(create_patched_script "$config_repo" "$mock_home" "$project_dir")
+    local output
+    output=$(run_hook "$patched")
+
+    assert_not_contains "$output" "Documents found in project tmp/" "should NOT warn for non-document files"
+}
+run_test "check 15: ignores non-document files in tmp/" test_tmp_document_scanner_ignores_non_docs
+
+# ── 24. Check 17: Stale pending files ───────────────────────────────────────
+
+test_stale_pending_files_warning() {
+    local config_repo="$TEST_TMPDIR/config-repo"
+    local mock_home="$TEST_TMPDIR/home"
+    local project_dir="$TEST_TMPDIR/project"
+    mkdir -p "$mock_home/.claude" "$project_dir"
+
+    create_mock_config_repo "$config_repo"
+    touch "$config_repo/CLAUDE.md"
+    ln -sf "$config_repo/CLAUDE.md" "$mock_home/.claude/CLAUDE.md"
+
+    # Create stale pending file (set mtime to 3 days ago)
+    mkdir -p "$project_dir/docs"
+    echo "old task" > "$project_dir/docs/pending-old-task.md"
+    touch -d "3 days ago" "$project_dir/docs/pending-old-task.md"
+
+    local patched
+    patched=$(create_patched_script "$config_repo" "$mock_home" "$project_dir")
+    local output
+    output=$(run_hook "$patched")
+
+    assert_contains "$output" "Stale pending files" "should warn about stale pending files"
+    assert_contains "$output" "pending-old-task.md" "should name the stale file"
+}
+run_test "check 17: warns about pending files older than 2 days" test_stale_pending_files_warning
+
+test_fresh_pending_files_no_warning() {
+    local config_repo="$TEST_TMPDIR/config-repo"
+    local remote_repo="$TEST_TMPDIR/remote.git"
+    local mock_home="$TEST_TMPDIR/home"
+    local project_dir="$TEST_TMPDIR/project"
+    mkdir -p "$mock_home/.claude" "$project_dir"
+
+    create_tracked_repo_main "$config_repo" "$remote_repo"
+    (cd "$config_repo" && touch sync.sh && git add sync.sh && git commit -m "add sync.sh" >/dev/null 2>&1 && git push origin main >/dev/null 2>&1)
+    (cd "$config_repo" && touch CLAUDE.md && git add CLAUDE.md && git commit -m "add CLAUDE.md" >/dev/null 2>&1 && git push origin main >/dev/null 2>&1)
+    ln -sf "$config_repo/CLAUDE.md" "$mock_home/.claude/CLAUDE.md"
+
+    # Create fresh pending file (today)
+    mkdir -p "$config_repo/docs"
+    echo "fresh task" > "$config_repo/docs/pending-fresh-task.md"
+
+    local patched
+    patched=$(create_patched_script "$config_repo" "$mock_home" "$project_dir")
+    local output
+    output=$(run_hook "$patched")
+
+    assert_not_contains "$output" "Stale pending files" "should NOT warn about fresh pending files"
+}
+run_test "check 17: no warning for pending files less than 2 days old" test_fresh_pending_files_no_warning
+
+test_stale_pending_with_backlog_item() {
+    local config_repo="$TEST_TMPDIR/config-repo"
+    local mock_home="$TEST_TMPDIR/home"
+    local project_dir="$TEST_TMPDIR/project"
+    mkdir -p "$mock_home/.claude" "$project_dir"
+
+    create_mock_config_repo "$config_repo"
+    touch "$config_repo/CLAUDE.md"
+    ln -sf "$config_repo/CLAUDE.md" "$mock_home/.claude/CLAUDE.md"
+
+    # Create stale pending file + backlog with matching reference
+    mkdir -p "$project_dir/docs"
+    echo "old task" > "$project_dir/docs/pending-old-task.md"
+    touch -d "3 days ago" "$project_dir/docs/pending-old-task.md"
+    cat > "$project_dir/backlog.md" << 'EOF'
+# Backlog
+- [ ] [P1] `CFG-99` **Old task**: References pending-old-task.md
+EOF
+
+    local patched
+    patched=$(create_patched_script "$config_repo" "$mock_home" "$project_dir")
+    local output
+    output=$(run_hook "$patched")
+
+    assert_contains "$output" "Stale pending files" "should still warn about staleness"
+    assert_not_contains "$output" "no backlog item" "should NOT say 'no backlog item' when backlog references the file"
+}
+run_test "check 17: stale pending file with matching backlog item — no 'no backlog' warning" test_stale_pending_with_backlog_item
+
+test_stale_pending_without_backlog_item() {
+    local config_repo="$TEST_TMPDIR/config-repo"
+    local mock_home="$TEST_TMPDIR/home"
+    local project_dir="$TEST_TMPDIR/project"
+    mkdir -p "$mock_home/.claude" "$project_dir"
+
+    create_mock_config_repo "$config_repo"
+    touch "$config_repo/CLAUDE.md"
+    ln -sf "$config_repo/CLAUDE.md" "$mock_home/.claude/CLAUDE.md"
+
+    # Create stale pending file + empty backlog
+    mkdir -p "$project_dir/docs"
+    echo "orphaned task" > "$project_dir/docs/pending-orphan.md"
+    touch -d "3 days ago" "$project_dir/docs/pending-orphan.md"
+    cat > "$project_dir/backlog.md" << 'EOF'
+# Backlog
+- [ ] [P1] `CFG-01` **Something unrelated**: nothing here
+EOF
+
+    local patched
+    patched=$(create_patched_script "$config_repo" "$mock_home" "$project_dir")
+    local output
+    output=$(run_hook "$patched")
+
+    assert_contains "$output" "Stale pending files" "should warn about staleness"
+    assert_contains "$output" "pending-orphan.md" "should name the orphaned file"
+    # This must be LAST — it's the feature we're testing (backlog cross-check)
+    assert_contains "$output" "no backlog item" "should flag missing backlog item"
+}
+run_test "check 17: stale pending file without backlog item — warns about missing tracking" test_stale_pending_without_backlog_item
+
+# ── 25. Check 19: Auto-disable global enabledPlugins ────────────────────────
+
+test_plugins_auto_disabled() {
+    local config_repo="$TEST_TMPDIR/config-repo"
+    local mock_home="$TEST_TMPDIR/home"
+    local project_dir="$TEST_TMPDIR/project"
+    mkdir -p "$mock_home/.claude" "$project_dir"
+
+    create_mock_config_repo "$config_repo"
+    touch "$config_repo/CLAUDE.md"
+    ln -sf "$config_repo/CLAUDE.md" "$mock_home/.claude/CLAUDE.md"
+
+    # Create settings.json with non-empty enabledPlugins
+    mkdir -p "$mock_home/.claude"
+    cat > "$mock_home/.claude/settings.json" << 'EOF'
+{
+  "permissions": {
+    "allow": ["Read(*)", "Bash(bash:*)"]
+  },
+  "hooks": {},
+  "enabledPlugins": {
+    "voltagent-lang@voltagent-subagents": true,
+    "voltagent-infra@voltagent-subagents": true,
+    "code-review@claude-plugins-official": true
+  }
+}
+EOF
+
+    local patched
+    patched=$(create_patched_script "$config_repo" "$mock_home" "$project_dir")
+    local output
+    output=$(run_hook "$patched")
+
+    # Verify plugins were disabled (enabledPlugins should be empty object)
+    local plugins_count
+    plugins_count=$(python3 -c "import json; d=json.load(open('$mock_home/.claude/settings.json')); print(len(d.get('enabledPlugins',{})))" 2>/dev/null)
+    assert_eq "0" "$plugins_count" "enabledPlugins should be empty after auto-disable"
+
+    # Verify warning was emitted
+    assert_contains "$output" "enabledPlugins" "should warn about disabled plugins"
+
+    # Verify valid JSON
+    local json_valid=0
+    python3 -c "import json; json.load(open('$mock_home/.claude/settings.json'))" 2>/dev/null || json_valid=1
+    assert_eq "0" "$json_valid" "settings.json should remain valid JSON after plugin disable"
+
+    # Verify other settings preserved
+    assert_file_contains "$mock_home/.claude/settings.json" '"hooks"' \
+        "should preserve hooks block"
+    assert_file_contains "$mock_home/.claude/settings.json" '"allow"' \
+        "should preserve permissions"
+}
+run_test "check 19: auto-disables non-empty global enabledPlugins" test_plugins_auto_disabled
+
+test_plugins_already_empty() {
+    local config_repo="$TEST_TMPDIR/config-repo"
+    local mock_home="$TEST_TMPDIR/home"
+    local project_dir="$TEST_TMPDIR/project"
+    mkdir -p "$mock_home/.claude" "$project_dir"
+
+    create_mock_config_repo "$config_repo"
+    touch "$config_repo/CLAUDE.md"
+    ln -sf "$config_repo/CLAUDE.md" "$mock_home/.claude/CLAUDE.md"
+
+    # Create settings.json with empty enabledPlugins
+    mkdir -p "$mock_home/.claude"
+    cat > "$mock_home/.claude/settings.json" << 'EOF'
+{
+  "permissions": {
+    "allow": ["Read(*)", "Bash(bash:*)"]
+  },
+  "hooks": {},
+  "enabledPlugins": {}
+}
+EOF
+
+    local original
+    original=$(cat "$mock_home/.claude/settings.json")
+
+    local patched
+    patched=$(create_patched_script "$config_repo" "$mock_home" "$project_dir")
+    local output
+    output=$(run_hook "$patched")
+
+    local after
+    after=$(cat "$mock_home/.claude/settings.json")
+    assert_eq "$original" "$after" "settings.json should be unchanged when enabledPlugins is empty"
+    assert_not_contains "$output" "enabledPlugins" "should NOT warn when plugins already empty"
+}
+run_test "check 19: no change when enabledPlugins is already empty" test_plugins_already_empty
+
+test_plugins_no_key() {
+    local config_repo="$TEST_TMPDIR/config-repo"
+    local mock_home="$TEST_TMPDIR/home"
+    local project_dir="$TEST_TMPDIR/project"
+    mkdir -p "$mock_home/.claude" "$project_dir"
+
+    create_mock_config_repo "$config_repo"
+    touch "$config_repo/CLAUDE.md"
+    ln -sf "$config_repo/CLAUDE.md" "$mock_home/.claude/CLAUDE.md"
+
+    # Create settings.json without enabledPlugins key at all
+    mkdir -p "$mock_home/.claude"
+    cat > "$mock_home/.claude/settings.json" << 'EOF'
+{
+  "permissions": {
+    "allow": ["Read(*)", "Bash(bash:*)"]
+  },
+  "hooks": {}
+}
+EOF
+
+    local original
+    original=$(cat "$mock_home/.claude/settings.json")
+
+    local patched
+    patched=$(create_patched_script "$config_repo" "$mock_home" "$project_dir")
+    run_hook "$patched" >/dev/null
+
+    local after
+    after=$(cat "$mock_home/.claude/settings.json")
+    assert_eq "$original" "$after" "settings.json should be unchanged when enabledPlugins key is missing"
+}
+run_test "check 19: no crash when enabledPlugins key is absent" test_plugins_no_key
+
+# ── 26. afleet dashboard marker ─────────────────────────────────────────────
+
+test_afleet_dash_marker_injects_message() {
+    local config_repo="$TEST_TMPDIR/config-repo"
+    local mock_home="$TEST_TMPDIR/home"
+    local project_dir="$TEST_TMPDIR/project"
+    mkdir -p "$mock_home/.claude" "$project_dir"
+
+    create_mock_config_repo "$config_repo"
+    touch "$config_repo/CLAUDE.md"
+    ln -sf "$config_repo/CLAUDE.md" "$mock_home/.claude/CLAUDE.md"
+
+    # Create the dashboard marker
+    touch "$mock_home/.claude/.afleet-show-dash"
+
+    local patched
+    patched=$(create_patched_script "$config_repo" "$mock_home" "$project_dir")
+    local output
+    output=$(run_hook "$patched")
+
+    assert_contains "$output" "AFLEET_DASHBOARD" "should inject dashboard message"
+    assert_file_not_exists "$mock_home/.claude/.afleet-show-dash" "should delete marker after reading"
+}
+run_test "check 18: afleet dashboard marker injects message and deletes marker" test_afleet_dash_marker_injects_message
+
+test_afleet_dash_no_marker_no_message() {
+    local config_repo="$TEST_TMPDIR/config-repo"
+    local mock_home="$TEST_TMPDIR/home"
+    local project_dir="$TEST_TMPDIR/project"
+    mkdir -p "$mock_home/.claude" "$project_dir"
+
+    create_mock_config_repo "$config_repo"
+    touch "$config_repo/CLAUDE.md"
+    ln -sf "$config_repo/CLAUDE.md" "$mock_home/.claude/CLAUDE.md"
+
+    # No marker file
+
+    local patched
+    patched=$(create_patched_script "$config_repo" "$mock_home" "$project_dir")
+    local output
+    output=$(run_hook "$patched" || true)
+
+    assert_not_contains "$output" "AFLEET_DASHBOARD" "should not inject dashboard message when no marker"
+}
+run_test "check 18: no dashboard marker — no dashboard message" test_afleet_dash_no_marker_no_message
+
+# ── 27. Persona injection (B) ────────────────────────────────────────────────
+
+test_persona_injection_reads_active_persona() {
+    local config_repo="$TEST_TMPDIR/config-repo"
+    local mock_home="$TEST_TMPDIR/home"
+    local project_dir="$TEST_TMPDIR/project"
+    mkdir -p "$mock_home/.claude" "$project_dir"
+
+    create_mock_config_repo "$config_repo"
+    touch "$config_repo/CLAUDE.md"
+    ln -sf "$config_repo/CLAUDE.md" "$mock_home/.claude/CLAUDE.md"
+
+    # Write active persona file
+    echo "Supporter" > "$mock_home/.claude/.active-persona"
+
+    local patched
+    patched=$(create_patched_script "$config_repo" "$mock_home" "$project_dir")
+    local output
+    output=$(run_hook "$patched")
+
+    assert_contains "$output" "PERSONA: Supporter" "should inject persona name from .active-persona"
+}
+run_test "check 20: persona injection reads .active-persona" test_persona_injection_reads_active_persona
+
+test_persona_injection_default_bartl() {
+    local config_repo="$TEST_TMPDIR/config-repo"
+    local mock_home="$TEST_TMPDIR/home"
+    local project_dir="$TEST_TMPDIR/project"
+    mkdir -p "$mock_home/.claude" "$project_dir"
+
+    create_mock_config_repo "$config_repo"
+    touch "$config_repo/CLAUDE.md"
+    ln -sf "$config_repo/CLAUDE.md" "$mock_home/.claude/CLAUDE.md"
+
+    # No .active-persona file
+
+    local patched
+    patched=$(create_patched_script "$config_repo" "$mock_home" "$project_dir")
+    local output
+    output=$(run_hook "$patched")
+
+    assert_contains "$output" "PERSONA: Assistant" "should default to Assistant when no .active-persona exists"
+}
+run_test "check 20: persona defaults to Assistant when file missing" test_persona_injection_default_bartl
+
+test_persona_injection_trims_whitespace() {
+    local config_repo="$TEST_TMPDIR/config-repo"
+    local mock_home="$TEST_TMPDIR/home"
+    local project_dir="$TEST_TMPDIR/project"
+    mkdir -p "$mock_home/.claude" "$project_dir"
+
+    create_mock_config_repo "$config_repo"
+    touch "$config_repo/CLAUDE.md"
+    ln -sf "$config_repo/CLAUDE.md" "$mock_home/.claude/CLAUDE.md"
+
+    # Persona file with trailing newline and spaces
+    printf "  Elsa  \n\n" > "$mock_home/.claude/.active-persona"
+
+    local patched
+    patched=$(create_patched_script "$config_repo" "$mock_home" "$project_dir")
+    local output
+    output=$(run_hook "$patched")
+
+    assert_contains "$output" "PERSONA: Supporter" "should trim whitespace from persona name"
+    assert_not_contains "$output" "PERSONA:   Elsa" "should not have leading spaces in persona name"
+}
+run_test "check 20: persona trims whitespace" test_persona_injection_trims_whitespace
+
+# ── 28. Session-context blank detection (E) ─────────────────────────────────
+
+test_session_context_blank_detection() {
+    local config_repo="$TEST_TMPDIR/config-repo"
+    local mock_home="$TEST_TMPDIR/home"
+    local project_dir="$TEST_TMPDIR/project"
+    mkdir -p "$mock_home/.claude" "$project_dir"
+
+    create_mock_config_repo "$config_repo"
+    touch "$config_repo/CLAUDE.md"
+    ln -sf "$config_repo/CLAUDE.md" "$mock_home/.claude/CLAUDE.md"
+
+    # Create a blank session-context.md (template — no goal)
+    cat > "$project_dir/session-context.md" << 'EOF'
+# Session Context
+
+## Session Info
+- **Last Updated**:
+- **Machine**:
+- **Working Directory**:
+- **Session Goal**:
+
+## Current State
+- **Active Task**:
+EOF
+
+    local patched
+    patched=$(create_patched_script "$config_repo" "$mock_home" "$project_dir")
+    local output
+    output=$(run_hook "$patched")
+
+    assert_contains "$output" "SESSION_CONTEXT: blank" "should detect blank session context"
+}
+run_test "check 21: detects blank session-context.md" test_session_context_blank_detection
+
+test_session_context_active_detection() {
+    local config_repo="$TEST_TMPDIR/config-repo"
+    local mock_home="$TEST_TMPDIR/home"
+    local project_dir="$TEST_TMPDIR/project"
+    mkdir -p "$mock_home/.claude" "$project_dir"
+
+    create_mock_config_repo "$config_repo"
+    touch "$config_repo/CLAUDE.md"
+    ln -sf "$config_repo/CLAUDE.md" "$mock_home/.claude/CLAUDE.md"
+
+    # Create session-context with a goal
+    create_session_context "$project_dir" "Implement hook expansion" "wsl"
+
+    local patched
+    patched=$(create_patched_script "$config_repo" "$mock_home" "$project_dir")
+    local output
+    output=$(run_hook "$patched")
+
+    assert_contains "$output" "SESSION_CONTEXT: active" "should detect active session context"
+    assert_contains "$output" "Implement hook expansion" "should include goal text"
+}
+run_test "check 21: detects active session-context.md with goal" test_session_context_active_detection
+
+test_session_context_missing_file() {
+    local config_repo="$TEST_TMPDIR/config-repo"
+    local mock_home="$TEST_TMPDIR/home"
+    local project_dir="$TEST_TMPDIR/project"
+    mkdir -p "$mock_home/.claude" "$project_dir"
+
+    create_mock_config_repo "$config_repo"
+    touch "$config_repo/CLAUDE.md"
+    ln -sf "$config_repo/CLAUDE.md" "$mock_home/.claude/CLAUDE.md"
+
+    # No session-context.md at all
+
+    local patched
+    patched=$(create_patched_script "$config_repo" "$mock_home" "$project_dir")
+    local output
+    output=$(run_hook "$patched")
+
+    assert_contains "$output" "SESSION_CONTEXT: blank" "should report blank when file is missing"
+}
+run_test "check 21: missing session-context.md reports blank" test_session_context_missing_file
+
+test_session_context_goal_truncated() {
+    local config_repo="$TEST_TMPDIR/config-repo"
+    local mock_home="$TEST_TMPDIR/home"
+    local project_dir="$TEST_TMPDIR/project"
+    mkdir -p "$mock_home/.claude" "$project_dir"
+
+    create_mock_config_repo "$config_repo"
+    touch "$config_repo/CLAUDE.md"
+    ln -sf "$config_repo/CLAUDE.md" "$mock_home/.claude/CLAUDE.md"
+
+    # Create session-context with a very long goal (>150 chars)
+    local long_goal
+    long_goal=$(printf 'A%.0s' {1..200})
+    create_session_context "$project_dir" "$long_goal" "wsl"
+
+    local patched
+    patched=$(create_patched_script "$config_repo" "$mock_home" "$project_dir")
+    local output
+    output=$(run_hook "$patched")
+
+    assert_contains "$output" "SESSION_CONTEXT: active" "should detect active context"
+    # Extract just the SESSION_CONTEXT field value and verify truncation
+    local sc_field
+    sc_field=$(echo "$output" | grep -o 'SESSION_CONTEXT: active [^|]*' | head -1)
+    local truncated_goal
+    truncated_goal=$(printf 'A%.0s' {1..150})
+    # The SC field should contain 150 A's but not 200
+    assert_contains "$sc_field" "$truncated_goal" "should have 150 chars of goal"
+    assert_not_contains "$sc_field" "$long_goal" "SESSION_CONTEXT should truncate long goals"
+}
+run_test "check 21: long session goal is truncated" test_session_context_goal_truncated
+
+# ── 29. Handoff detection (C) ───────────────────────────────────────────────
+
+test_handoff_detection_with_task() {
+    local config_repo="$TEST_TMPDIR/config-repo"
+    local mock_home="$TEST_TMPDIR/home"
+    local project_dir="$TEST_TMPDIR/project"
+    mkdir -p "$mock_home/.claude" "$project_dir"
+
+    create_mock_config_repo "$config_repo"
+    touch "$config_repo/CLAUDE.md"
+    ln -sf "$config_repo/CLAUDE.md" "$mock_home/.claude/CLAUDE.md"
+
+    # Create next-session-task.md with a handoff
+    cat > "$project_dir/next-session-task.md" << 'EOF'
+task: true
+file: docs/pending-hook-expansion.md
+description: Implement hook items B through F with TDD.
+EOF
+
+    local patched
+    patched=$(create_patched_script "$config_repo" "$mock_home" "$project_dir")
+    local output
+    output=$(run_hook "$patched")
+
+    assert_contains "$output" "HANDOFF:" "should inject HANDOFF tag"
+    assert_contains "$output" "Implement hook items" "should include description"
+    assert_contains "$output" "docs/pending-hook-expansion.md" "should include file path"
+}
+run_test "check 22: handoff detection with task: true" test_handoff_detection_with_task
+
+test_handoff_detection_no_task() {
+    local config_repo="$TEST_TMPDIR/config-repo"
+    local mock_home="$TEST_TMPDIR/home"
+    local project_dir="$TEST_TMPDIR/project"
+    mkdir -p "$mock_home/.claude" "$project_dir"
+
+    create_mock_config_repo "$config_repo"
+    touch "$config_repo/CLAUDE.md"
+    ln -sf "$config_repo/CLAUDE.md" "$mock_home/.claude/CLAUDE.md"
+
+    # Create next-session-task.md with task: false
+    cat > "$project_dir/next-session-task.md" << 'EOF'
+task: false
+file:
+description:
+EOF
+
+    local patched
+    patched=$(create_patched_script "$config_repo" "$mock_home" "$project_dir")
+    local output
+    output=$(run_hook "$patched")
+
+    assert_contains "$output" "HANDOFF: none" "should report no handoff when task is false"
+}
+run_test "check 22: handoff detection with task: false" test_handoff_detection_no_task
+
+test_handoff_detection_missing_file() {
+    local config_repo="$TEST_TMPDIR/config-repo"
+    local mock_home="$TEST_TMPDIR/home"
+    local project_dir="$TEST_TMPDIR/project"
+    mkdir -p "$mock_home/.claude" "$project_dir"
+
+    create_mock_config_repo "$config_repo"
+    touch "$config_repo/CLAUDE.md"
+    ln -sf "$config_repo/CLAUDE.md" "$mock_home/.claude/CLAUDE.md"
+
+    # No next-session-task.md
+
+    local patched
+    patched=$(create_patched_script "$config_repo" "$mock_home" "$project_dir")
+    local output
+    output=$(run_hook "$patched")
+
+    assert_contains "$output" "HANDOFF: none" "should report no handoff when file is missing"
+}
+run_test "check 22: handoff detection with missing file" test_handoff_detection_missing_file
+
+test_handoff_description_truncated() {
+    local config_repo="$TEST_TMPDIR/config-repo"
+    local mock_home="$TEST_TMPDIR/home"
+    local project_dir="$TEST_TMPDIR/project"
+    mkdir -p "$mock_home/.claude" "$project_dir"
+
+    create_mock_config_repo "$config_repo"
+    touch "$config_repo/CLAUDE.md"
+    ln -sf "$config_repo/CLAUDE.md" "$mock_home/.claude/CLAUDE.md"
+
+    # Create next-session-task.md with very long description
+    local long_desc
+    long_desc=$(printf 'B%.0s' {1..300})
+    cat > "$project_dir/next-session-task.md" << EOF
+task: true
+file: docs/pending-something.md
+description: $long_desc
+EOF
+
+    local patched
+    patched=$(create_patched_script "$config_repo" "$mock_home" "$project_dir")
+    local output
+    output=$(run_hook "$patched")
+
+    assert_contains "$output" "HANDOFF:" "should inject HANDOFF"
+    assert_not_contains "$output" "$long_desc" "should truncate long descriptions"
+}
+run_test "check 22: handoff description is truncated at 200 chars" test_handoff_description_truncated
+
+# ── 30. Pending files list (D) ──────────────────────────────────────────────
+
+test_pending_files_list_found() {
+    local config_repo="$TEST_TMPDIR/config-repo"
+    local mock_home="$TEST_TMPDIR/home"
+    local project_dir="$TEST_TMPDIR/project"
+    mkdir -p "$mock_home/.claude" "$project_dir/docs"
+
+    create_mock_config_repo "$config_repo"
+    touch "$config_repo/CLAUDE.md"
+    ln -sf "$config_repo/CLAUDE.md" "$mock_home/.claude/CLAUDE.md"
+
+    # Create pending files in project dir
+    echo "stuff" > "$project_dir/docs/pending-alpha.md"
+    echo "stuff" > "$project_dir/docs/pending-beta.md"
+
+    local patched
+    patched=$(create_patched_script "$config_repo" "$mock_home" "$project_dir")
+    local output
+    output=$(run_hook "$patched")
+
+    assert_contains "$output" "PENDING_FILES:" "should inject PENDING_FILES"
+    assert_contains "$output" "pending-alpha.md" "should list pending-alpha.md"
+    assert_contains "$output" "pending-beta.md" "should list pending-beta.md"
+}
+run_test "check 23: pending files listed when present" test_pending_files_list_found
+
+test_pending_files_list_none() {
+    local config_repo="$TEST_TMPDIR/config-repo"
+    local mock_home="$TEST_TMPDIR/home"
+    local project_dir="$TEST_TMPDIR/project"
+    mkdir -p "$mock_home/.claude" "$project_dir/docs"
+
+    create_mock_config_repo "$config_repo"
+    touch "$config_repo/CLAUDE.md"
+    ln -sf "$config_repo/CLAUDE.md" "$mock_home/.claude/CLAUDE.md"
+
+    # No pending files
+
+    local patched
+    patched=$(create_patched_script "$config_repo" "$mock_home" "$project_dir")
+    local output
+    output=$(run_hook "$patched")
+
+    assert_contains "$output" "PENDING_FILES: none" "should report none when no pending files"
+}
+run_test "check 23: pending files reports none when empty" test_pending_files_list_none
+
+test_pending_files_no_docs_dir() {
+    local config_repo="$TEST_TMPDIR/config-repo"
+    local mock_home="$TEST_TMPDIR/home"
+    local project_dir="$TEST_TMPDIR/project"
+    mkdir -p "$mock_home/.claude" "$project_dir"
+
+    create_mock_config_repo "$config_repo"
+    touch "$config_repo/CLAUDE.md"
+    ln -sf "$config_repo/CLAUDE.md" "$mock_home/.claude/CLAUDE.md"
+
+    # No docs/ directory at all
+
+    local patched
+    patched=$(create_patched_script "$config_repo" "$mock_home" "$project_dir")
+    local output
+    output=$(run_hook "$patched")
+
+    assert_contains "$output" "PENDING_FILES: none" "should report none when no docs dir"
+}
+run_test "check 23: pending files reports none when no docs/ dir" test_pending_files_no_docs_dir
+
+# ── 31. Knowledge file list (F) ─────────────────────────────────────────────
+
+test_knowledge_files_found() {
+    local config_repo="$TEST_TMPDIR/config-repo"
+    local mock_home="$TEST_TMPDIR/home"
+    local project_dir="$TEST_TMPDIR/project"
+    mkdir -p "$mock_home/.claude" "$project_dir/.claude/knowledge"
+
+    create_mock_config_repo "$config_repo"
+    touch "$config_repo/CLAUDE.md"
+    ln -sf "$config_repo/CLAUDE.md" "$mock_home/.claude/CLAUDE.md"
+
+    # Create knowledge files
+    echo "stuff" > "$project_dir/.claude/knowledge/api-guide.md"
+    echo "stuff" > "$project_dir/.claude/knowledge/deploy.md"
+    echo "stuff" > "$project_dir/.claude/rules.md"
+
+    local patched
+    patched=$(create_patched_script "$config_repo" "$mock_home" "$project_dir")
+    local output
+    output=$(run_hook "$patched")
+
+    assert_contains "$output" "PROJECT_KNOWLEDGE:" "should inject PROJECT_KNOWLEDGE"
+    assert_contains "$output" "api-guide.md" "should list knowledge file"
+    assert_contains "$output" "deploy.md" "should list knowledge file"
+    assert_contains "$output" "rules.md" "should list .claude/*.md file"
+}
+run_test "check 24: knowledge files listed when present" test_knowledge_files_found
+
+test_knowledge_files_none() {
+    local config_repo="$TEST_TMPDIR/config-repo"
+    local mock_home="$TEST_TMPDIR/home"
+    local project_dir="$TEST_TMPDIR/project"
+    mkdir -p "$mock_home/.claude" "$project_dir"
+
+    create_mock_config_repo "$config_repo"
+    touch "$config_repo/CLAUDE.md"
+    ln -sf "$config_repo/CLAUDE.md" "$mock_home/.claude/CLAUDE.md"
+
+    # No .claude/ in project at all
+
+    local patched
+    patched=$(create_patched_script "$config_repo" "$mock_home" "$project_dir")
+    local output
+    output=$(run_hook "$patched")
+
+    assert_contains "$output" "PROJECT_KNOWLEDGE: none" "should report none when no knowledge files"
+}
+run_test "check 24: knowledge files reports none when empty" test_knowledge_files_none
+
+test_knowledge_files_excludes_settings() {
+    local config_repo="$TEST_TMPDIR/config-repo"
+    local mock_home="$TEST_TMPDIR/home"
+    local project_dir="$TEST_TMPDIR/project"
+    mkdir -p "$mock_home/.claude" "$project_dir/.claude"
+
+    create_mock_config_repo "$config_repo"
+    touch "$config_repo/CLAUDE.md"
+    ln -sf "$config_repo/CLAUDE.md" "$mock_home/.claude/CLAUDE.md"
+
+    # Create settings files that should be excluded
+    echo "{}" > "$project_dir/.claude/settings.json"
+    echo "{}" > "$project_dir/.claude/settings.local.json"
+    # And one actual md file
+    echo "stuff" > "$project_dir/.claude/custom-rules.md"
+
+    local patched
+    patched=$(create_patched_script "$config_repo" "$mock_home" "$project_dir")
+    local output
+    output=$(run_hook "$patched")
+
+    assert_contains "$output" "PROJECT_KNOWLEDGE:" "should inject PROJECT_KNOWLEDGE"
+    assert_contains "$output" "custom-rules.md" "should list md files"
+    assert_not_contains "$output" "settings.json" "should exclude settings.json"
+    assert_not_contains "$output" "settings.local.json" "should exclude settings.local.json"
+}
+run_test "check 24: knowledge files excludes settings*.json" test_knowledge_files_excludes_settings
+
 # ── Summary ──────────────────────────────────────────────────────────────────
 
 suite_summary

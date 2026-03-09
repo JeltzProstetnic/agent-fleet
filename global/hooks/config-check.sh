@@ -261,10 +261,12 @@ INBOX_MSG="${INBOX_MSG:+$INBOX_MSG | }HOSTNAME: $HOSTNAME_VAL | TIME: $CURRENT_T
 
 # Check 20: Persona injection — read active persona, inject into systemMessage
 ACTIVE_PERSONA_FILE="$HOME/.claude/.active-persona"
+PERSONA_NAME="Assistant"
 if [ -f "$ACTIVE_PERSONA_FILE" ]; then
     _raw_persona=$(head -1 "$ACTIVE_PERSONA_FILE" 2>/dev/null | xargs)
-    [ -n "$_raw_persona" ] && INBOX_MSG="${INBOX_MSG:+$INBOX_MSG | }PERSONA: $_raw_persona"
+    [ -n "$_raw_persona" ] && PERSONA_NAME="$_raw_persona"
 fi
+INBOX_MSG="${INBOX_MSG:+$INBOX_MSG | }PERSONA: $PERSONA_NAME"
 
 # Check 21: Session-context blank detection — detect active session goal
 if [[ -f "$PROJECT_DIR/session-context.md" ]]; then
@@ -288,7 +290,11 @@ if [[ -f "$HANDOFF_FILE" ]]; then
         _ho_file=$(grep '^file:' "$HANDOFF_FILE" 2>/dev/null | head -1 | sed 's/^file: *//')
         _ho_desc="${_ho_desc:0:200}"
         INBOX_MSG="${INBOX_MSG:+$INBOX_MSG | }HANDOFF: $_ho_desc | file: $_ho_file"
+    else
+        INBOX_MSG="${INBOX_MSG:+$INBOX_MSG | }HANDOFF: none"
     fi
+else
+    INBOX_MSG="${INBOX_MSG:+$INBOX_MSG | }HANDOFF: none"
 fi
 
 # Check 23: Pending files list — list all pending-*.md files in project docs/
@@ -302,6 +308,8 @@ if [ -d "$PROJECT_DIR/docs" ]; then
 fi
 if [ -n "$_pending_list" ]; then
     INBOX_MSG="${INBOX_MSG:+$INBOX_MSG | }PENDING_FILES: $_pending_list"
+else
+    INBOX_MSG="${INBOX_MSG:+$INBOX_MSG | }PENDING_FILES: none"
 fi
 
 # Check 24: Knowledge file list — list .claude/knowledge/*.md + .claude/*.md
@@ -320,6 +328,15 @@ if [ -d "$PROJECT_DIR/.claude" ]; then
 fi
 if [ -n "$_knowledge_list" ]; then
     INBOX_MSG="${INBOX_MSG:+$INBOX_MSG | }PROJECT_KNOWLEDGE: $_knowledge_list"
+else
+    INBOX_MSG="${INBOX_MSG:+$INBOX_MSG | }PROJECT_KNOWLEDGE: none"
+fi
+
+# Check 25: AFD/afleet dashboard marker — deferred startup with auto-dashboard
+DASH_MARKER="$HOME/.claude/.afleet-show-dash"
+if [ -f "$DASH_MARKER" ]; then
+    INBOX_MSG="${INBOX_MSG:+$INBOX_MSG | }AFLEET_DASHBOARD: Show project dashboard (lsd) immediately as first response — read ONLY $CONFIG_REPO/cross-project/dashboard-cache.md, render per lsd-spec.md. Skip startup protocol entirely. If user enters a number or project name, treat as project switch. Only run full startup if user gives a non-dashboard, non-switch command."
+    rm -f "$DASH_MARKER"
 fi
 
 # Output JSON if there are warnings or inbox items

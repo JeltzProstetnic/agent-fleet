@@ -153,6 +153,269 @@ test_status_runs() {
 }
 run_test "status subcommand runs successfully" test_status_runs
 
+# ── stamp subcommand ─────────────────────────────────────────────────────
+
+test_stamp_updates_manifest_hashes() {
+    # Create a mock manifest with a stale hash
+    mkdir -p "$TEST_TMPDIR/global/foundation"
+    echo "some content" > "$TEST_TMPDIR/global/foundation/test-file.md"
+    echo "other content" > "$TEST_TMPDIR/global/CLAUDE.md"
+
+    # Compute actual hashes
+    local actual_hash1 actual_hash2
+    actual_hash1=$(python3 -c "import binascii;print(format(binascii.crc32(open('$TEST_TMPDIR/global/foundation/test-file.md','rb').read())&0xFFFFFFFF,'08x'))")
+    actual_hash2=$(python3 -c "import binascii;print(format(binascii.crc32(open('$TEST_TMPDIR/global/CLAUDE.md','rb').read())&0xFFFFFFFF,'08x'))")
+
+    # Create manifest with wrong hashes
+    cat > "$TEST_TMPDIR/template-sync-manifest.md" <<'EOF'
+# Template Sync Manifest
+
+## Tracked Files — Must Be Identical
+
+| File | Hash (CRC32, python binascii) | Date |
+|------|------|------|
+| `global/foundation/test-file.md` | `00000000` | 2026-01-01 |
+
+## Tracked Files — Intentional Diffs
+
+| File | Hash (CRC32, python binascii) | Diff reason |
+|------|------|-------------|
+| `global/CLAUDE.md` | `11111111` | Personal: test diff |
+EOF
+
+    # Run stamp
+    local out
+    out=$(SCRIPT_DIR="$TEST_TMPDIR" bash -c "
+        source <(sed -n '/^log_info()/,/^}/p' '$SYNC_SCRIPT')
+        source <(sed -n '/^log_warn()/,/^}/p' '$SYNC_SCRIPT')
+        source <(sed -n '/^cmd_stamp()/,/^}/p' '$SYNC_SCRIPT')
+        SCRIPT_DIR='$TEST_TMPDIR'
+        cmd_stamp
+    " 2>&1)
+
+    # Verify manifest now has correct hashes
+    assert_file_contains "$TEST_TMPDIR/template-sync-manifest.md" "$actual_hash1"
+    assert_file_contains "$TEST_TMPDIR/template-sync-manifest.md" "$actual_hash2"
+    assert_file_not_contains "$TEST_TMPDIR/template-sync-manifest.md" "00000000"
+    assert_file_not_contains "$TEST_TMPDIR/template-sync-manifest.md" "11111111"
+    assert_contains "$out" "Refreshed"
+}
+run_test "stamp updates stale manifest hashes" test_stamp_updates_manifest_hashes
+
+test_stamp_skips_missing_files() {
+    # Manifest references a file that doesn't exist
+    cat > "$TEST_TMPDIR/template-sync-manifest.md" <<'EOF'
+# Template Sync Manifest
+
+## Tracked Files — Must Be Identical
+
+| File | Hash (CRC32, python binascii) | Date |
+|------|------|------|
+| `nonexistent/file.md` | `00000000` | 2026-01-01 |
+EOF
+
+    local out rc=0
+    out=$(SCRIPT_DIR="$TEST_TMPDIR" bash -c "
+        source <(sed -n '/^log_info()/,/^}/p' '$SYNC_SCRIPT')
+        source <(sed -n '/^log_warn()/,/^}/p' '$SYNC_SCRIPT')
+        source <(sed -n '/^cmd_stamp()/,/^}/p' '$SYNC_SCRIPT')
+        SCRIPT_DIR='$TEST_TMPDIR'
+        cmd_stamp
+    " 2>&1) || rc=$?
+
+    # Should warn but not fail
+    assert_eq "0" "$rc"
+    assert_contains "$out" "nonexistent/file.md"
+}
+run_test "stamp skips missing files gracefully" test_stamp_skips_missing_files
+
+test_stamp_shows_in_help() {
+    local out
+    out=$(bash "$SYNC_SCRIPT" help 2>&1)
+    assert_contains "$out" "stamp"
+}
+run_test "help shows stamp subcommand" test_stamp_shows_in_help
+
+# ── cmd_check: smart drift detection ────────────────────────────────────
+
+# Helper: create a mock environment for cmd_check tests
+_setup_check_env() {
+    # Personal repo mock
+    mkdir -p "$TEST_TMPDIR/personal/global/foundation"
+    mkdir -p "$TEST_TMPDIR/personal/global/hooks"
+    # Template repo mock
+    mkdir -p "$TEST_TMPDIR/template/global/foundation"
+    mkdir -p "$TEST_TMPDIR/template/global/hooks"
+}
+
+test_check_identical_no_drift_when_template_matches() {
+    _setup_check_env
+
+    # Create identical files in personal and template
+    echo "same content" > "$TEST_TMPDIR/personal/global/foundation/test.md"
+    echo "same content" > "$TEST_TMPDIR/template/global/foundation/test.md"
+
+    # Manifest with stale hash (doesn't match current file)
+    cat > "$TEST_TMPDIR/personal/template-sync-manifest.md" <<'EOF'
+# Template Sync Manifest
+
+## Tracked Files — Must Be Identical
+
+| File | Hash (CRC32, python binascii) | Date |
+|------|------|------|
+| `global/foundation/test.md` | `00000000` | 2026-01-01 |
+
+## Tracked Files — Intentional Diffs
+
+| File | Hash (CRC32, python binascii) | Diff reason |
+|------|------|-------------|
+EOF
+
+    local out
+    out=$(bash "$SYNC_SCRIPT" check \
+        --repo-root "$TEST_TMPDIR/personal" \
+        --template-dir "$TEST_TMPDIR/template" \
+        --mobile-dir "$TEST_TMPDIR/nonexistent" 2>&1)
+
+    # Should NOT warn about drift — files are identical despite stale hash
+    assert_not_contains "$out" "file(s) drifted"
+    assert_not_contains "$out" "differs from template"
+}
+run_test "check: identical files don't trigger drift even with stale hash" test_check_identical_no_drift_when_template_matches
+
+test_check_identical_drift_when_template_differs() {
+    _setup_check_env
+
+    # Personal file was updated, template was NOT
+    echo "updated content" > "$TEST_TMPDIR/personal/global/foundation/test.md"
+    echo "old content" > "$TEST_TMPDIR/template/global/foundation/test.md"
+
+    local current_hash
+    current_hash=$(python3 -c "import binascii;print(format(binascii.crc32(open('$TEST_TMPDIR/personal/global/foundation/test.md','rb').read())&0xFFFFFFFF,'08x'))")
+
+    cat > "$TEST_TMPDIR/personal/template-sync-manifest.md" <<EOF
+# Template Sync Manifest
+
+## Tracked Files — Must Be Identical
+
+| File | Hash (CRC32, python binascii) | Date |
+|------|------|------|
+| \`global/foundation/test.md\` | \`$current_hash\` | 2026-01-01 |
+
+## Tracked Files — Intentional Diffs
+
+| File | Hash (CRC32, python binascii) | Diff reason |
+|------|------|-------------|
+EOF
+
+    local out
+    out=$(bash "$SYNC_SCRIPT" check \
+        --repo-root "$TEST_TMPDIR/personal" \
+        --template-dir "$TEST_TMPDIR/template" \
+        --mobile-dir "$TEST_TMPDIR/nonexistent" 2>&1)
+
+    # Should warn — files genuinely differ
+    assert_contains "$out" "differs from template"
+}
+run_test "check: identical-tracked files warn when template actually differs" test_check_identical_drift_when_template_differs
+
+test_check_identical_fallback_hash_when_no_template() {
+    _setup_check_env
+
+    echo "some content" > "$TEST_TMPDIR/personal/global/foundation/test.md"
+
+    cat > "$TEST_TMPDIR/personal/template-sync-manifest.md" <<'EOF'
+# Template Sync Manifest
+
+## Tracked Files — Must Be Identical
+
+| File | Hash (CRC32, python binascii) | Date |
+|------|------|------|
+| `global/foundation/test.md` | `00000000` | 2026-01-01 |
+
+## Tracked Files — Intentional Diffs
+
+| File | Hash (CRC32, python binascii) | Diff reason |
+|------|------|-------------|
+EOF
+
+    local out
+    out=$(bash "$SYNC_SCRIPT" check \
+        --repo-root "$TEST_TMPDIR/personal" \
+        --template-dir "$TEST_TMPDIR/nonexistent" \
+        --mobile-dir "$TEST_TMPDIR/nonexistent" 2>&1)
+
+    # Should fall back to hash-based and warn
+    assert_contains "$out" "drifted"
+}
+run_test "check: falls back to hash-based when template dir missing" test_check_identical_fallback_hash_when_no_template
+
+test_check_intentional_stale_hash_suggests_stamp() {
+    _setup_check_env
+
+    echo "personal version" > "$TEST_TMPDIR/personal/global/CLAUDE.md"
+
+    cat > "$TEST_TMPDIR/personal/template-sync-manifest.md" <<'EOF'
+# Template Sync Manifest
+
+## Tracked Files — Must Be Identical
+
+| File | Hash (CRC32, python binascii) | Date |
+|------|------|------|
+
+## Tracked Files — Intentional Diffs
+
+| File | Hash (CRC32, python binascii) | Diff reason |
+|------|------|-------------|
+| `global/CLAUDE.md` | `00000000` | Personal: test |
+EOF
+
+    local out
+    out=$(bash "$SYNC_SCRIPT" check \
+        --repo-root "$TEST_TMPDIR/personal" \
+        --template-dir "$TEST_TMPDIR/template" \
+        --mobile-dir "$TEST_TMPDIR/nonexistent" 2>&1)
+
+    # Should suggest running stamp
+    assert_contains "$out" "stamp"
+}
+run_test "check: intentional-diff stale hash suggests stamp" test_check_intentional_stale_hash_suggests_stamp
+
+test_check_intentional_current_hash_is_clean() {
+    _setup_check_env
+
+    echo "personal version" > "$TEST_TMPDIR/personal/global/CLAUDE.md"
+
+    local current_hash
+    current_hash=$(python3 -c "import binascii;print(format(binascii.crc32(open('$TEST_TMPDIR/personal/global/CLAUDE.md','rb').read())&0xFFFFFFFF,'08x'))")
+
+    cat > "$TEST_TMPDIR/personal/template-sync-manifest.md" <<EOF
+# Template Sync Manifest
+
+## Tracked Files — Must Be Identical
+
+| File | Hash (CRC32, python binascii) | Date |
+|------|------|------|
+
+## Tracked Files — Intentional Diffs
+
+| File | Hash (CRC32, python binascii) | Diff reason |
+|------|------|-------------|
+| \`global/CLAUDE.md\` | \`$current_hash\` | Personal: test |
+EOF
+
+    local out
+    out=$(bash "$SYNC_SCRIPT" check \
+        --repo-root "$TEST_TMPDIR/personal" \
+        --template-dir "$TEST_TMPDIR/template" \
+        --mobile-dir "$TEST_TMPDIR/nonexistent" 2>&1)
+
+    # Should not warn about CLAUDE.md
+    assert_not_contains "$out" "CLAUDE.md"
+    assert_contains "$out" "Template: clean"
+}
+run_test "check: intentional-diff with current hash is clean" test_check_intentional_current_hash_is_clean
+
 # ── Hook deploy: executable permissions ──────────────────────────────────────
 
 test_deploy_hooks_makes_executable() {

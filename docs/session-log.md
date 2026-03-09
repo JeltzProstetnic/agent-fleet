@@ -63,7 +63,7 @@ S4 of multi-session plan complete. All changes are unstaged. Next: commit, then 
 - engagement-log references removed from cross-project-rules path ownership
 **Pending at shutdown:** None
 
-### 2026-03-09T12:03Z — DESKTOP-32ILURB
+### 2026-03-09T12:03Z — WSL
 **Goal:** S1 — Backlog bootstrap + inbox triage for multi-session template sync.
 **Completed:**
 - Full startup loading (git sync, inbox, session-context, CLAUDE.md)

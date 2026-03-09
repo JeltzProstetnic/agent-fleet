@@ -132,7 +132,7 @@ test_copies_context_files() {
     assert_file_exists "$TEST_TMPDIR/mobile/context/user-profile.md"
     assert_file_contains "$TEST_TMPDIR/mobile/context/user-profile.md" "Test User"
     assert_file_exists "$TEST_TMPDIR/mobile/context/personas.md"
-    assert_file_contains "$TEST_TMPDIR/mobile/context/personas.md" "Bartl"
+    assert_file_contains "$TEST_TMPDIR/mobile/context/personas.md" "Assistant"
     assert_file_exists "$TEST_TMPDIR/mobile/context/registry.md"
     assert_file_exists "$TEST_TMPDIR/mobile/context/dashboard-cache.md"
 }
@@ -276,7 +276,7 @@ test_collect_merges_outbox() {
 
     # Add tasks to outbox
     echo "- [ ] **social**: Tweet about new feature" >> "$TEST_TMPDIR/mobile/inbox/outbox.md"
-    echo "- [ ] **aIware**: Review paper draft" >> "$TEST_TMPDIR/mobile/inbox/outbox.md"
+    echo "- [ ] **my-project**: Review paper draft" >> "$TEST_TMPDIR/mobile/inbox/outbox.md"
 
     # Collect
     bash "$MOBILE_DEPLOY" --collect \
@@ -356,6 +356,359 @@ test_collect_preserves_existing_inbox() {
     assert_file_contains "$TEST_TMPDIR/config/cross-project/inbox.md" "New mobile task"
 }
 run_test "mobile-collect preserves existing inbox entries" test_collect_preserves_existing_inbox
+
+# ── Branch merging tests (CFG-32) ────────────────────────────────────────────
+
+# Helper: create a git-initialized mobile repo with claude/* branch
+setup_mobile_git_repo() {
+    local target="$1"
+    local config="$2"
+
+    # Deploy first to create structure
+    bash "$MOBILE_DEPLOY" \
+        --config-repo "$config" \
+        --target "$target" \
+        --home "$TEST_TMPDIR/home"
+
+    # Init git in the mobile repo
+    git -C "$target" init -b main >/dev/null 2>&1
+    git -C "$target" config user.email "test@test.com"
+    git -C "$target" config user.name "Test"
+    git -C "$target" add -A >/dev/null 2>&1
+    git -C "$target" commit -m "Initial mobile deploy" >/dev/null 2>&1
+}
+
+test_collect_merges_claude_branches() {
+    setup_mock_config "$TEST_TMPDIR/config"
+    setup_mock_projects "$TEST_TMPDIR/home"
+    setup_mobile_git_repo "$TEST_TMPDIR/mobile" "$TEST_TMPDIR/config"
+
+    # Create a claude/* branch with outbox content
+    git -C "$TEST_TMPDIR/mobile" checkout -b "claude/session-1" >/dev/null 2>&1
+    echo "- [ ] **social**: Task from claude branch" >> "$TEST_TMPDIR/mobile/inbox/outbox.md"
+    git -C "$TEST_TMPDIR/mobile" add -A >/dev/null 2>&1
+    git -C "$TEST_TMPDIR/mobile" commit -m "Mobile session work" >/dev/null 2>&1
+    git -C "$TEST_TMPDIR/mobile" checkout main >/dev/null 2>&1
+
+    # Collect should merge the branch and pick up the task
+    bash "$MOBILE_DEPLOY" --collect \
+        --config-repo "$TEST_TMPDIR/config" \
+        --target "$TEST_TMPDIR/mobile"
+
+    assert_file_contains "$TEST_TMPDIR/config/cross-project/inbox.md" "Task from claude branch"
+}
+run_test "mobile-collect merges claude/* branches before collecting" test_collect_merges_claude_branches
+
+test_collect_merges_multiple_claude_branches() {
+    setup_mock_config "$TEST_TMPDIR/config"
+    setup_mock_projects "$TEST_TMPDIR/home"
+    setup_mobile_git_repo "$TEST_TMPDIR/mobile" "$TEST_TMPDIR/config"
+
+    # Create first claude/* branch
+    git -C "$TEST_TMPDIR/mobile" checkout -b "claude/session-1" >/dev/null 2>&1
+    echo "- [ ] **social**: Task from branch 1" >> "$TEST_TMPDIR/mobile/inbox/outbox.md"
+    git -C "$TEST_TMPDIR/mobile" add -A >/dev/null 2>&1
+    git -C "$TEST_TMPDIR/mobile" commit -m "Session 1 work" >/dev/null 2>&1
+    git -C "$TEST_TMPDIR/mobile" checkout main >/dev/null 2>&1
+
+    # Merge first to main so second branch diverges cleanly
+    git -C "$TEST_TMPDIR/mobile" merge "claude/session-1" --no-edit >/dev/null 2>&1
+
+    # Create second claude/* branch from updated main
+    git -C "$TEST_TMPDIR/mobile" checkout -b "claude/session-2" >/dev/null 2>&1
+    echo "- [ ] **my-project**: Task from branch 2" >> "$TEST_TMPDIR/mobile/inbox/outbox.md"
+    git -C "$TEST_TMPDIR/mobile" add -A >/dev/null 2>&1
+    git -C "$TEST_TMPDIR/mobile" commit -m "Session 2 work" >/dev/null 2>&1
+    git -C "$TEST_TMPDIR/mobile" checkout main >/dev/null 2>&1
+
+    # Collect should merge both branches
+    bash "$MOBILE_DEPLOY" --collect \
+        --config-repo "$TEST_TMPDIR/config" \
+        --target "$TEST_TMPDIR/mobile"
+
+    assert_file_contains "$TEST_TMPDIR/config/cross-project/inbox.md" "Task from branch 1"
+    assert_file_contains "$TEST_TMPDIR/config/cross-project/inbox.md" "Task from branch 2"
+}
+run_test "mobile-collect merges multiple claude/* branches" test_collect_merges_multiple_claude_branches
+
+test_collect_deletes_merged_branches() {
+    setup_mock_config "$TEST_TMPDIR/config"
+    setup_mock_projects "$TEST_TMPDIR/home"
+    setup_mobile_git_repo "$TEST_TMPDIR/mobile" "$TEST_TMPDIR/config"
+
+    # Create a claude/* branch
+    git -C "$TEST_TMPDIR/mobile" checkout -b "claude/session-1" >/dev/null 2>&1
+    echo "- [ ] **social**: Branch task" >> "$TEST_TMPDIR/mobile/inbox/outbox.md"
+    git -C "$TEST_TMPDIR/mobile" add -A >/dev/null 2>&1
+    git -C "$TEST_TMPDIR/mobile" commit -m "Session work" >/dev/null 2>&1
+    git -C "$TEST_TMPDIR/mobile" checkout main >/dev/null 2>&1
+
+    # Collect
+    bash "$MOBILE_DEPLOY" --collect \
+        --config-repo "$TEST_TMPDIR/config" \
+        --target "$TEST_TMPDIR/mobile"
+
+    # Branch should be deleted after merge
+    local branches
+    branches=$(git -C "$TEST_TMPDIR/mobile" branch --list "claude/*" 2>/dev/null)
+    assert_eq "" "$branches" "claude/* branches should be deleted after merge"
+}
+run_test "mobile-collect deletes claude/* branches after merging" test_collect_deletes_merged_branches
+
+test_collect_no_branches_still_works() {
+    setup_mock_config "$TEST_TMPDIR/config"
+    setup_mock_projects "$TEST_TMPDIR/home"
+    setup_mobile_git_repo "$TEST_TMPDIR/mobile" "$TEST_TMPDIR/config"
+
+    # Add outbox task on main (no branches)
+    echo "- [ ] **social**: Main branch task" >> "$TEST_TMPDIR/mobile/inbox/outbox.md"
+
+    # Collect should work normally without any claude/* branches
+    local rc=0
+    bash "$MOBILE_DEPLOY" --collect \
+        --config-repo "$TEST_TMPDIR/config" \
+        --target "$TEST_TMPDIR/mobile" || rc=$?
+
+    assert_eq "0" "$rc" "collect should succeed without claude branches"
+    assert_file_contains "$TEST_TMPDIR/config/cross-project/inbox.md" "Main branch task"
+}
+run_test "mobile-collect works with no claude/* branches" test_collect_no_branches_still_works
+
+test_collect_non_git_repo_still_works() {
+    setup_mock_config "$TEST_TMPDIR/config"
+    setup_mock_projects "$TEST_TMPDIR/home"
+
+    # Deploy without git init (non-git mobile repo)
+    bash "$MOBILE_DEPLOY" \
+        --config-repo "$TEST_TMPDIR/config" \
+        --target "$TEST_TMPDIR/mobile" \
+        --home "$TEST_TMPDIR/home"
+
+    # Add outbox task
+    echo "- [ ] **social**: Non-git task" >> "$TEST_TMPDIR/mobile/inbox/outbox.md"
+
+    # Collect should still work (skip branch merging)
+    local rc=0
+    bash "$MOBILE_DEPLOY" --collect \
+        --config-repo "$TEST_TMPDIR/config" \
+        --target "$TEST_TMPDIR/mobile" || rc=$?
+
+    assert_eq "0" "$rc" "collect should succeed for non-git mobile repo"
+    assert_file_contains "$TEST_TMPDIR/config/cross-project/inbox.md" "Non-git task"
+}
+run_test "mobile-collect works for non-git mobile repos" test_collect_non_git_repo_still_works
+
+# ── Session-log collection tests ─────────────────────────────────────────────
+
+test_collect_session_log() {
+    setup_mock_config "$TEST_TMPDIR/config"
+    setup_mock_projects "$TEST_TMPDIR/home"
+
+    # Deploy
+    bash "$MOBILE_DEPLOY" \
+        --config-repo "$TEST_TMPDIR/config" \
+        --target "$TEST_TMPDIR/mobile" \
+        --home "$TEST_TMPDIR/home"
+
+    # Create session-log in the correct location (inbox/session-log.md)
+    cat > "$TEST_TMPDIR/mobile/inbox/session-log.md" <<'LOG'
+# Mobile Session Log
+
+Append-only log of mobile sessions. Collected by `sync.sh mobile-collect`.
+
+<!-- Entries below, newest first -->
+
+### 2026-03-04 12:00 UTC — mobile
+**Goal:** Quick inbox task
+**Completed:**
+- Reviewed paper abstract
+LOG
+
+    # Collect
+    bash "$MOBILE_DEPLOY" --collect \
+        --config-repo "$TEST_TMPDIR/config" \
+        --target "$TEST_TMPDIR/mobile"
+
+    # Session log should be appended to config repo's mobile session log
+    assert_file_exists "$TEST_TMPDIR/config/docs/mobile-session-log.md"
+    assert_file_contains "$TEST_TMPDIR/config/docs/mobile-session-log.md" "Quick inbox task"
+    assert_file_contains "$TEST_TMPDIR/config/docs/mobile-session-log.md" "Reviewed paper abstract"
+}
+run_test "mobile-collect collects session-log entries" test_collect_session_log
+
+test_collect_clears_session_log() {
+    setup_mock_config "$TEST_TMPDIR/config"
+    setup_mock_projects "$TEST_TMPDIR/home"
+
+    # Deploy
+    bash "$MOBILE_DEPLOY" \
+        --config-repo "$TEST_TMPDIR/config" \
+        --target "$TEST_TMPDIR/mobile" \
+        --home "$TEST_TMPDIR/home"
+
+    # Create session-log with an entry
+    cat > "$TEST_TMPDIR/mobile/inbox/session-log.md" <<'LOG'
+# Mobile Session Log
+
+Append-only log of mobile sessions. Collected by `sync.sh mobile-collect`.
+
+<!-- Entries below, newest first -->
+
+### 2026-03-04 12:00 UTC — mobile
+**Goal:** Quick task
+LOG
+
+    # Collect
+    bash "$MOBILE_DEPLOY" --collect \
+        --config-repo "$TEST_TMPDIR/config" \
+        --target "$TEST_TMPDIR/mobile"
+
+    # Mobile session-log should be reset (entry gone, header preserved)
+    assert_file_not_contains "$TEST_TMPDIR/mobile/inbox/session-log.md" "Quick task"
+    assert_file_contains "$TEST_TMPDIR/mobile/inbox/session-log.md" "Mobile Session Log"
+    assert_file_contains "$TEST_TMPDIR/mobile/inbox/session-log.md" "Entries below"
+}
+run_test "mobile-collect resets session-log after collecting" test_collect_clears_session_log
+
+test_collect_no_session_log() {
+    setup_mock_config "$TEST_TMPDIR/config"
+    setup_mock_projects "$TEST_TMPDIR/home"
+
+    # Deploy (inbox dir exists but no session-log.md)
+    bash "$MOBILE_DEPLOY" \
+        --config-repo "$TEST_TMPDIR/config" \
+        --target "$TEST_TMPDIR/mobile" \
+        --home "$TEST_TMPDIR/home"
+
+    # Remove session-log if deploy created one
+    rm -f "$TEST_TMPDIR/mobile/inbox/session-log.md"
+
+    # Collect should succeed without session-log
+    local rc=0
+    bash "$MOBILE_DEPLOY" --collect \
+        --config-repo "$TEST_TMPDIR/config" \
+        --target "$TEST_TMPDIR/mobile" || rc=$?
+
+    assert_eq "0" "$rc" "collect should succeed without session-log"
+}
+run_test "mobile-collect handles missing session-log gracefully" test_collect_no_session_log
+
+test_collect_session_log_empty() {
+    setup_mock_config "$TEST_TMPDIR/config"
+    setup_mock_projects "$TEST_TMPDIR/home"
+
+    # Deploy
+    bash "$MOBILE_DEPLOY" \
+        --config-repo "$TEST_TMPDIR/config" \
+        --target "$TEST_TMPDIR/mobile" \
+        --home "$TEST_TMPDIR/home"
+
+    # Session-log exists but has no entries (just the header)
+    cat > "$TEST_TMPDIR/mobile/inbox/session-log.md" <<'LOG'
+# Mobile Session Log
+
+Append-only log of mobile sessions. Collected by `sync.sh mobile-collect`.
+
+<!-- Entries below, newest first -->
+LOG
+
+    # Collect should succeed and NOT create config log (no entries to collect)
+    local rc=0
+    bash "$MOBILE_DEPLOY" --collect \
+        --config-repo "$TEST_TMPDIR/config" \
+        --target "$TEST_TMPDIR/mobile" || rc=$?
+
+    assert_eq "0" "$rc" "collect should succeed with empty session-log"
+    assert_file_not_exists "$TEST_TMPDIR/config/docs/mobile-session-log.md"
+}
+run_test "mobile-collect skips session-log with no entries" test_collect_session_log_empty
+
+test_collect_session_log_appends() {
+    setup_mock_config "$TEST_TMPDIR/config"
+    setup_mock_projects "$TEST_TMPDIR/home"
+
+    # Deploy
+    bash "$MOBILE_DEPLOY" \
+        --config-repo "$TEST_TMPDIR/config" \
+        --target "$TEST_TMPDIR/mobile" \
+        --home "$TEST_TMPDIR/home"
+
+    # First session entry
+    cat > "$TEST_TMPDIR/mobile/inbox/session-log.md" <<'LOG'
+# Mobile Session Log
+
+<!-- Entries below, newest first -->
+
+### 2026-03-04 12:00 UTC — mobile
+**Goal:** First session
+LOG
+
+    # First collect
+    bash "$MOBILE_DEPLOY" --collect \
+        --config-repo "$TEST_TMPDIR/config" \
+        --target "$TEST_TMPDIR/mobile"
+
+    # Second session entry
+    cat > "$TEST_TMPDIR/mobile/inbox/session-log.md" <<'LOG'
+# Mobile Session Log
+
+<!-- Entries below, newest first -->
+
+### 2026-03-04 18:00 UTC — mobile
+**Goal:** Second session
+LOG
+
+    # Second collect
+    bash "$MOBILE_DEPLOY" --collect \
+        --config-repo "$TEST_TMPDIR/config" \
+        --target "$TEST_TMPDIR/mobile"
+
+    # Both entries should be in the config log
+    assert_file_contains "$TEST_TMPDIR/config/docs/mobile-session-log.md" "First session"
+    assert_file_contains "$TEST_TMPDIR/config/docs/mobile-session-log.md" "Second session"
+}
+run_test "mobile-collect appends to existing mobile-session-log.md" test_collect_session_log_appends
+
+test_collect_session_log_multiple_entries() {
+    setup_mock_config "$TEST_TMPDIR/config"
+    setup_mock_projects "$TEST_TMPDIR/home"
+
+    # Deploy
+    bash "$MOBILE_DEPLOY" \
+        --config-repo "$TEST_TMPDIR/config" \
+        --target "$TEST_TMPDIR/mobile" \
+        --home "$TEST_TMPDIR/home"
+
+    # Multiple entries in a single collect
+    cat > "$TEST_TMPDIR/mobile/inbox/session-log.md" <<'LOG'
+# Mobile Session Log
+
+<!-- Entries below, newest first -->
+
+### 2026-03-04 18:00 UTC — mobile
+**Goal:** Evening review
+**Completed:**
+- Reviewed inbox
+
+### 2026-03-04 12:00 UTC — mobile
+**Goal:** Lunchtime check
+**Completed:**
+- Posted task to outbox
+LOG
+
+    # Collect
+    bash "$MOBILE_DEPLOY" --collect \
+        --config-repo "$TEST_TMPDIR/config" \
+        --target "$TEST_TMPDIR/mobile"
+
+    # Both entries should be collected
+    assert_file_contains "$TEST_TMPDIR/config/docs/mobile-session-log.md" "Evening review"
+    assert_file_contains "$TEST_TMPDIR/config/docs/mobile-session-log.md" "Lunchtime check"
+
+    # Config log header should exist
+    assert_file_contains "$TEST_TMPDIR/config/docs/mobile-session-log.md" "Mobile Session Log"
+}
+run_test "mobile-collect handles multiple entries in one session-log" test_collect_session_log_multiple_entries
 
 # ── CLAUDE.md deployment ─────────────────────────────────────────────────────
 

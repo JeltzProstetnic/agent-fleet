@@ -1,6 +1,6 @@
 #!/bin/bash
 # Context usage statusline for Claude Code
-# Shows: [Model] ▓▓▓▓░░░░░░ 108k/200k (54%) | Bartl
+# Shows: [Model] ▓▓▓▓░░░░░░ 108k/200k (54%) | Assistant
 # Color: green <70%, yellow 70-89%, red 90%+
 # Persona indicator reads from ~/.claude/.active-persona (written by Claude)
 input=$(cat)
@@ -9,8 +9,8 @@ import json, sys, os
 
 # Persona colors (ANSI) — must match personas.md Color field
 PERSONA_COLORS = {
-    'Bartl': '\033[93m',   # bright-yellow
-    'Elsa': '\033[95m',    # bright-magenta (pink)
+    'Assistant': '\033[93m',   # bright-yellow
+    'Supporter': '\033[95m',   # bright-magenta (pink)
 }
 
 try:
