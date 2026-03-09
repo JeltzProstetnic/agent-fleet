@@ -12,10 +12,13 @@ Do NOT embed tokens in this file. All credentials live in `.mcp.json`.
 
 | Field | Value |
 |-------|-------|
-| **Package** | `@modelcontextprotocol/server-github` |
+| **Package** | `@modelcontextprotocol/server-github` (DEPRECATED — still works, but replaced upstream by `github/github-mcp-server`) |
 | **Command** | `npx -y @modelcontextprotocol/server-github` |
+| **New server** | `github/github-mcp-server` (Go-based, via Docker or `go run`). Migration pending — needs Go or Docker on target machines. |
 | **Purpose** | GitHub operations: repos, issues, PRs, code search |
 | **Env var** | `GITHUB_PERSONAL_ACCESS_TOKEN` |
+
+**Multi-account setup:** If you work with multiple GitHub accounts (personal + corporate org), run separate MCP server instances with different names, tokens, and tool prefixes (`mcp__github__*` vs `mcp__github_corp__*`). Route by checking `git remote -v` — the org in the URL determines which server to use.
 
 **Key gotchas:**
 - **CRITICAL:** The env var MUST be `GITHUB_PERSONAL_ACCESS_TOKEN`, NOT `GITHUB_TOKEN`. Using the wrong name causes unauthenticated requests — public repos work, private repos return 404.
@@ -52,16 +55,31 @@ Do NOT embed tokens in this file. All credentials live in `.mcp.json`.
 - **NEVER post tweets autonomously.** Always get explicit user approval before calling `post_tweet`.
 - Available tools: `post_tweet`, `search_tweets`.
 - Rate limits and available features depend on your Twitter API tier (Free, Basic, Pro).
-- Free tier: `search_tweets` may not work (returns 402). `post_tweet` works within monthly caps.
+- Free tier: `search_tweets` is BROKEN — returns 402 CreditsDepleted (zero search credits). Do NOT attempt.
+- `post_tweet` works — uses separate credit pool. Free tier has a monthly cap that resets on the 22nd.
+- Reading tweets fallback: fxtwitter proxy via WebFetch: `https://api.fxtwitter.com/i/status/<tweet_id>`
 
 ### 4. Jira/Atlassian
 
 | Field | Value |
 |-------|-------|
-| **Package** | `mcp-atlassian` (via `uvx`) |
-| **Command** | `uvx mcp-atlassian` |
+| **Package** | `mcp-atlassian` (pin to `mcp-atlassian@2.1.0` in args) |
+| **Command** | `npx -y mcp-atlassian@2.1.0` |
 | **Purpose** | Jira issues, projects, boards, sprints; Confluence pages |
-| **Auth** | Instance URL + email + API token (in `.mcp.json`) |
+| **Auth** | Instance URL + email + API token (env vars in `.mcp.json`) |
+
+**Env vars (CHANGED in v2.1.0 — breaking rename):**
+- `ATLASSIAN_URL` (was `JIRA_URL`)
+- `ATLASSIAN_EMAIL` (was `JIRA_EMAIL`)
+- `ATLASSIAN_API_TOKEN` (was `JIRA_API_TOKEN`)
+- The old `JIRA_*` names are **silently ignored** — no error, just auth failure.
+
+**Version pinning:** Always use `mcp-atlassian@2.1.0` (explicit version in args). Without pinning, `npx -y mcp-atlassian` pulls latest on cache refresh, which may introduce breaking changes (like the env var rename) without warning.
+
+**npx fragility — known systemic issue:**
+- npx cache refreshes lose local patches AND can break transitive dependencies (e.g., `jsdom` missing after refresh)
+- If `jsdom` errors appear at startup, clear and re-fetch: `npx -y mcp-atlassian@2.1.0`
+- Long-term: consider local install (`npm install mcp-atlassian@2.1.0`) for patched servers to avoid cache volatility
 
 **Parameter quirks:**
 - Use `project_key` (NOT `project`)
@@ -161,8 +179,9 @@ Do NOT embed tokens in this file. All credentials live in `.mcp.json`.
 
 **Key gotchas:**
 - **NEVER post to LinkedIn autonomously.** Always get explicit user approval.
-- Access tokens expire (~60 days). When expired: re-run OAuth flow, update token, restart.
-- Scopes needed: `openid`, `profile`, `w_member_social`.
+- Access tokens expire (~60 days). When expired: re-run OAuth flow, update `LINKEDIN_ACCESS_TOKEN` in `.mcp.json`, restart.
+- Scopes needed: `openid`, `profile`, `w_member_social` (posting only, no reading feed).
+- API version: `202302`.
 - To update: `cd ~/.local/share/mcp-servers/linkedin-mcp && git pull && npm install && npm run build`
 
 ---
@@ -189,9 +208,11 @@ These can be added to `.mcp.json` if needed:
 
 | What | Where | NOT Here |
 |------|-------|----------|
-| Server definitions (command, args, env) | `.mcp.json` files | ~~settings.json~~ |
+| Server definitions (command, args, env) | `.mcp.json` files | ~~settings.json~~, ~~.claude.json~~ |
 | Server enablement flags | `settings.local.json` | ~~.claude.json~~ |
 | Env vars, permissions, plugins | `settings.json` | |
+
+**IMPORTANT:** Claude Code also reads `mcpServers` from `.claude.json` — but do NOT put servers there. `.claude.json` is owned by Claude Code (it overwrites it). Use `.mcp.json` exclusively. If you find servers in `.claude.json`, migrate them to `.mcp.json` and delete the `mcpServers` key from `.claude.json`.
 
 ### File format requirements
 
@@ -262,3 +283,5 @@ curl -sI -H "Authorization: token $TOKEN" https://api.github.com/user | grep x-o
 - **Do NOT embed tokens in documentation.** Reference `.mcp.json` for all credentials.
 - **MCP servers are currently global**, not per-project. Roster changes require editing `.mcp.json` and restarting.
 - **Irrelevant servers waste context** — their tool descriptions are loaded even when unused. Consider which servers are relevant per session type.
+- **Operational knowledge files** exist for tools with complex bugs/workarounds: see `~/.claude/knowledge/` (e.g., `jira-atlassian.md` for mcp-atlassian patch procedure).
+- **Hostinger DNS MCP:** `deleteDNSRecordsV1` requires a `filters` parameter not exposed in the MCP tool schema → DELETE doesn't work. Workaround: use `updateDNSRecordsV1` with `overwrite: true` and content `0.0.0.0` to effectively kill a record. Or delete manually via the hosting dashboard.

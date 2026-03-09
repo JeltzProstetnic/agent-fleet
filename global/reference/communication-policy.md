@@ -17,6 +17,22 @@ Loaded when drafting emails, social posts, or formal correspondence.
 2. **Authentic voice.** The post should sound like the user wrote it, not like an AI generated it.
 3. **No hashtag spam.** Use hashtags sparingly and only when they add discoverability value.
 
-## Information Capture
+## Proactive Information Capture
 
-When drafting reveals new contact information, relationships, or context about people in the user's network, flag it for capture in the appropriate knowledge base (relationships, people DB, etc.).
+When the user shares personal details, equipment info, possessions, or life context about themselves or people in their circle, don't treat it as throwaway conversation. Evaluate whether it should be captured in the appropriate KB:
+- People → relationships/contacts files
+- Hardware → machine files
+- Tools/possessions → relevant domain files
+- Documents → DMS intake
+
+When unsure where something belongs, ask rather than discard.
+
+**New contacts cross-check:** When ingesting new people (meetups, emails, events), cross-check relevance across all active projects (consult `registry.md` for project list). Flag contacts relevant to multiple projects. Route follow-up tasks via inbox.
+
+## Communications Log
+
+If you maintain a communications log, consult it before drafting emails to anyone previously contacted — prevents repeating information, congratulating twice, etc.
+
+## Email Drafting
+
+Project-specific email rules live in project knowledge files. This section covers general tone, structure, and content (see Drafting Rules above).

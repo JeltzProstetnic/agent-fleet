@@ -17,6 +17,11 @@ Conditionally loaded files containing operational knowledge for specific tools a
 | `plan-mode-issues.md` | Plan mode hangs, freezes, or unresponsive UI | Root cause (MCP deadlock), workarounds, diagnostic data |
 | `claude-code-permissions.md` | Permission prompts, settings.local.json issues | Override problem, fix procedure, prevention |
 | `learn-protocol.md` | `lrn`/`learn` command issued | Self-audit protocol: 3 parallel subagents for rule compliance, knowledge capture, and improvement finding |
+| `hook-behavior.md` | Hook debugging, platform-specific hook issues | UserPromptSubmit gaps, PreToolUse subagent support, urandom quirks |
+| `dev-browser-ops.md` | Using dev-browser skill or browser automation | Startup, Chromium drift fix, session persistence |
+| `age-encryption.md` | Encryption tasks involving age/pyrage | age CLI TTY limitation, pyrage alternative, passphrase handling |
+| `fleet-capabilities.md` | Self-awareness, plugin recommendation, agent roster gaps | Core features catalog, agent capabilities, plugin mapping, recommendation protocol |
+| `audit-protocol.md` | Audit, self-audit, meta-audit | 3 lines of defense, 8-step workflow, system invariants, audit log format |
 
 ## Adding New Knowledge Files
 

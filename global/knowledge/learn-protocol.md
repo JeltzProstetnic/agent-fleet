@@ -87,3 +87,24 @@ After subagents return:
 - **File-based evidence** — subagents read files, not conversation history (which may be compressed)
 - **Session-context.md as anchor** — this file should be up-to-date before `lrn` runs; update it first if needed
 - **Adaptive count** — 1 agent for clear issues, 2-3 for multi-faceted situations. Don't waste tokens on categories that obviously don't apply.
+
+## Context Pressure Rule — MANDATORY
+
+**When `lrn` runs late in a session (especially as part of `lrnd`), always write findings directly to `docs/pending-lrn-audit-YYYY-MM-DD.md` instead of holding them in conversation context for inline presentation.** Subagent results returning into an already-consumed main context can trigger auto-compact, losing session state and disrupting subsequent shutdown steps.
+
+Decision rule:
+- **`lrnd` (lrn+end)**: ALWAYS write to file. The shutdown phase needs context headroom.
+- **Standalone `lrn`**: Present inline if early in session. Write to file if context feels pressured (long session, many prior tool calls, approaching 50%+ usage).
+- **File format**: `docs/pending-lrn-audit-YYYY-MM-DD.md` — action items for next session pickup via `next-session-task.md`.
+
+## Execution Rule — MANDATORY
+
+**Audit findings MUST be promoted to backlog items immediately** — not just written to pending files. The pending file is a detail reference; the backlog item is the action tracker. Without a backlog item, findings accumulate in `docs/pending-lrn-*.md` and never get executed.
+
+Flow:
+1. Write detailed findings to `docs/pending-lrn-audit-YYYY-MM-DD.md`
+2. For EACH actionable finding, add a backlog item (P0-P2) to `backlog.md` referencing the pending file
+3. Delete the pending file once ALL its findings have backlog items
+4. Backlog items get executed in subsequent sessions with full context
+
+**Night mode timing:** If `lrn` runs during night mode, write findings to file + create backlog items, but defer execution to next day mode session. Night mode audits should capture, not execute.

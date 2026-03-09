@@ -14,7 +14,7 @@ A project's "roster" is the set of active tooling loaded at startup:
 |-----------|-----------|-------------|-----------------|
 | **Subagents** | `<project>/.claude/agents/` | Isolated specialist execution contexts (own model + tools) | Yes |
 | **Skills** | `<project>/.claude/skills/` or `~/.claude/skills/` | Procedural knowledge loaded into current agent's context | Yes |
-| **MCP Servers** | `<project>/.mcp.json` or `~/.mcp.json` | External tool integrations (GitHub, Serena, etc.) | Yes |
+| **MCP Servers** | `<project>/.mcp.json` or `~/.mcp.json` | External tool integrations (GitHub, Jira, Serena, etc.) | Yes |
 
 All three follow the same principle: **load only what's needed for the current work, unload what isn't.** Context waste from irrelevant tooling descriptions degrades performance.
 
@@ -120,8 +120,8 @@ Skills are NOT subagents. They are **procedural knowledge** loaded into the curr
 |--------|----------|-------|
 | Execution | Isolated context window | Loaded into YOUR context |
 | Analogy | "Hiring a contractor" | "Reading the specialist's playbook" |
-| Format | `.md` in `.claude/agents/` | `SKILL.md` in `.claude/skills/<name>/` |
-| Context cost | Zero (runs separately) | Loaded on activation |
+| Format | `.md` in `.claude/agents/` | `SKILL.md` + optional scripts/references in `.claude/skills/<name>/` |
+| Context cost | Zero (runs separately) | Loaded on activation (progressive disclosure) |
 
 ### Skill Sources & Discovery — Do It Rarely
 

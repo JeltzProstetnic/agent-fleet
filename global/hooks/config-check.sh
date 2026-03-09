@@ -186,6 +186,142 @@ if [ -f "$DRIFT_LOG" ] && [ -s "$DRIFT_LOG" ]; then
     rm -f "$DRIFT_LOG"
 fi
 
+# Check 14: Auto-heal Bash(bash:*) in settings.json permissions.allow
+# Without this permission, every `bash` command triggers a prompt — breaks startup/shutdown.
+if [ -f "$SETTINGS_FILE" ]; then
+    if grep -q '"permissions"' "$SETTINGS_FILE" 2>/dev/null; then
+        if ! grep -q 'Bash(bash:\*)' "$SETTINGS_FILE" 2>/dev/null; then
+            _bp_tmp="$(mktemp)"
+            printf '%s\n' 'import json,sys' 'f=sys.argv[1]' 'd=json.load(open(f))' 'a=d.get("permissions",{}).get("allow")' 'if a is not None: a.append("Bash(bash:*)")' 'if a is not None: open(f,"w").write(json.dumps(d,indent=2)+"\n")' > "$_bp_tmp"
+            python3 "$_bp_tmp" "$SETTINGS_FILE" 2>/dev/null || true
+            rm -f "$_bp_tmp"
+        fi
+    fi
+fi
+
+# Check 15: Scan project tmp/ dirs for documents that should be in cross-machine storage
+DOC_IN_TMP=""
+for tmpdir in "$HOME"/*/tmp; do
+    [ -d "$tmpdir" ] || continue
+    FOUND=$(find "$tmpdir" -maxdepth 2 -type f \( -name "*.md" -o -name "*.pdf" -o -name "*.docx" -o -name "*.html" \) 2>/dev/null | head -5)
+    if [ -n "$FOUND" ]; then
+        COUNT=$(echo "$FOUND" | wc -l)
+        DOC_IN_TMP="${DOC_IN_TMP:+$DOC_IN_TMP, }$tmpdir ($COUNT files)"
+    fi
+done
+if [ -n "$DOC_IN_TMP" ]; then
+    WARNINGS="${WARNINGS:+$WARNINGS | }Documents found in project tmp/ dirs: $DOC_IN_TMP — these should be in DMS/NAS/Dropbox for cross-machine access. Tell the user about this issue immediately before doing any other work."
+fi
+
+# Check 17: Warn on stale pending files (>2 days old) with backlog cross-check
+STALE_PENDING=""
+STALE_UNTRACKED=""
+if [ -d "$PROJECT_DIR/docs" ]; then
+    BACKLOG_FILE="$PROJECT_DIR/backlog.md"
+    for pf in "$PROJECT_DIR"/docs/pending-*.md; do
+        [ -f "$pf" ] || continue
+        FILE_AGE_DAYS=$(( ( $(date +%s) - $(stat -c %Y "$pf" 2>/dev/null || echo "$(date +%s)") ) / 86400 ))
+        if [ "$FILE_AGE_DAYS" -ge 2 ]; then
+            PF_BASE="$(basename "$pf")"
+            STALE_PENDING="${STALE_PENDING:+$STALE_PENDING, }${PF_BASE} (${FILE_AGE_DAYS}d)"
+            if [ -f "$BACKLOG_FILE" ] && ! grep -q "$PF_BASE" "$BACKLOG_FILE" 2>/dev/null; then
+                STALE_UNTRACKED="${STALE_UNTRACKED:+$STALE_UNTRACKED, }${PF_BASE} (no backlog item)"
+            fi
+        fi
+    done
+fi
+if [ -n "$STALE_PENDING" ]; then
+    STALE_MSG="Stale pending files (>2 days): $STALE_PENDING — address, promote to backlog, or delete."
+    if [ -n "$STALE_UNTRACKED" ]; then
+        STALE_MSG="$STALE_MSG Untracked: $STALE_UNTRACKED"
+    fi
+    WARNINGS="${WARNINGS:+$WARNINGS | }$STALE_MSG"
+fi
+
+# Check 18: Auto-disable global enabledPlugins (token budget protection)
+# Plugin agent descriptions consume ~10k tokens per bundle. Global plugins affect ALL projects.
+if [ -f "$SETTINGS_FILE" ]; then
+    if grep -q '"enabledPlugins"' "$SETTINGS_FILE" 2>/dev/null; then
+        _ep_tmp="$(mktemp)"
+        printf '%s\n' 'import json,sys' 'f=sys.argv[1]' 'd=json.load(open(f))' 'ep=d.get("enabledPlugins",{})' 'n=len(ep)' 'if n>0: d["enabledPlugins"]={}; open(f,"w").write(json.dumps(d,indent=2)+"\n")' 'print(n)' > "$_ep_tmp"
+        _ep_count=$(python3 "$_ep_tmp" "$SETTINGS_FILE" 2>/dev/null || echo "0")
+        rm -f "$_ep_tmp"
+        if [ "$_ep_count" -gt 0 ]; then
+            WARNINGS="${WARNINGS:+$WARNINGS | }Global enabledPlugins had $_ep_count plugin(s) — auto-disabled. Plugins consume ~10k tokens/bundle. Enable per-project only via .claude/settings.local.json."
+        fi
+    fi
+fi
+
+# Check 19: Inject hostname + time for machine identity and day/night mode
+# Avoids Read /etc/hostname permission prompt and Bash date calls (saves 2 tool calls per session)
+HOSTNAME_VAL=$(cat /etc/hostname 2>/dev/null || hostname 2>/dev/null || echo "unknown")
+CURRENT_TIME=$(date +%H:%M)
+DAY_OF_WEEK=$(date +%u)
+INBOX_MSG="${INBOX_MSG:+$INBOX_MSG | }HOSTNAME: $HOSTNAME_VAL | TIME: $CURRENT_TIME DOW: $DAY_OF_WEEK"
+
+# Check 20: Persona injection — read active persona, inject into systemMessage
+ACTIVE_PERSONA_FILE="$HOME/.claude/.active-persona"
+if [ -f "$ACTIVE_PERSONA_FILE" ]; then
+    _raw_persona=$(head -1 "$ACTIVE_PERSONA_FILE" 2>/dev/null | xargs)
+    [ -n "$_raw_persona" ] && INBOX_MSG="${INBOX_MSG:+$INBOX_MSG | }PERSONA: $_raw_persona"
+fi
+
+# Check 21: Session-context blank detection — detect active session goal
+if [[ -f "$PROJECT_DIR/session-context.md" ]]; then
+    _sc_goal=$(sed -n 's/.*\*\*Session Goal\*\*: \(.\+\)/\1/p' "$PROJECT_DIR/session-context.md" 2>/dev/null | head -1)
+    if [[ -n "$_sc_goal" ]]; then
+        _sc_goal="${_sc_goal:0:150}"
+        INBOX_MSG="${INBOX_MSG:+$INBOX_MSG | }SESSION_CONTEXT: active — $_sc_goal"
+    else
+        INBOX_MSG="${INBOX_MSG:+$INBOX_MSG | }SESSION_CONTEXT: blank"
+    fi
+else
+    INBOX_MSG="${INBOX_MSG:+$INBOX_MSG | }SESSION_CONTEXT: blank"
+fi
+
+# Check 22: Handoff detection — read next-session-task.md, inject HANDOFF
+HANDOFF_FILE="$PROJECT_DIR/next-session-task.md"
+if [[ -f "$HANDOFF_FILE" ]]; then
+    _ho_task=$(grep '^task:' "$HANDOFF_FILE" 2>/dev/null | head -1 | sed 's/^task: *//')
+    if [[ "$_ho_task" == "true" ]]; then
+        _ho_desc=$(grep '^description:' "$HANDOFF_FILE" 2>/dev/null | head -1 | sed 's/^description: *//')
+        _ho_file=$(grep '^file:' "$HANDOFF_FILE" 2>/dev/null | head -1 | sed 's/^file: *//')
+        _ho_desc="${_ho_desc:0:200}"
+        INBOX_MSG="${INBOX_MSG:+$INBOX_MSG | }HANDOFF: $_ho_desc | file: $_ho_file"
+    fi
+fi
+
+# Check 23: Pending files list — list all pending-*.md files in project docs/
+_pending_list=""
+if [ -d "$PROJECT_DIR/docs" ]; then
+    for _pf in "$PROJECT_DIR"/docs/pending-*.md; do
+        [ -f "$_pf" ] || continue
+        _pf_base="$(basename "$_pf")"
+        _pending_list="${_pending_list:+$_pending_list, }$_pf_base"
+    done
+fi
+if [ -n "$_pending_list" ]; then
+    INBOX_MSG="${INBOX_MSG:+$INBOX_MSG | }PENDING_FILES: $_pending_list"
+fi
+
+# Check 24: Knowledge file list — list .claude/knowledge/*.md + .claude/*.md
+_knowledge_list=""
+if [ -d "$PROJECT_DIR/.claude" ]; then
+    for _kf in "$PROJECT_DIR"/.claude/knowledge/*.md; do
+        [ -f "$_kf" ] || continue
+        _knowledge_list="${_knowledge_list:+$_knowledge_list, }$(basename "$_kf")"
+    done
+    for _kf in "$PROJECT_DIR"/.claude/*.md; do
+        [ -f "$_kf" ] || continue
+        _kf_base="$(basename "$_kf")"
+        [[ "$_kf_base" == settings* ]] && continue
+        _knowledge_list="${_knowledge_list:+$_knowledge_list, }$_kf_base"
+    done
+fi
+if [ -n "$_knowledge_list" ]; then
+    INBOX_MSG="${INBOX_MSG:+$INBOX_MSG | }PROJECT_KNOWLEDGE: $_knowledge_list"
+fi
+
 # Output JSON if there are warnings or inbox items
 SYSTEM_MSG=""
 if [ -n "$WARNINGS" ]; then

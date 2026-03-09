@@ -37,7 +37,14 @@ Each tier gets its own box-drawing table with a tier header. This is the key vis
 
 **Sub-projects** render directly under their declared parent (per the Parent column in the cache), indented with `+- ` prefix (uniform for all children — no distinction between middle/last). No number.
 
-**Dynamic column widths — MANDATORY for all columns:** Before rendering each tier's table, calculate the maximum content width for EVERY column across all rows in that tier. Set each column width to `max(header_width, max_content_width)`. Minimums: `#`=2, Name=16, Type=12, Tasks=20, Size=6. Maximums: Name=24, Type=20, Tasks=50 (truncate with `…`), Size=14. Right-align Size values. Pad all cells to their column width. This prevents overflow where content pushes columns out of alignment.
+**Dynamic column widths — MANDATORY for all columns.** Follow this algorithm for EVERY tier table:
+
+1. **Truncate first.** For each cell, if content exceeds the column maximum, cut to `max - 1` chars and append `…`. Do this BEFORE measuring widths. Maximums: `#`=2, Name=24, Type=20, Tasks=50, Size=14.
+2. **Measure.** After truncation, find the longest content in each column across all rows in the tier.
+3. **Clamp.** Set column width to `max(minimum, measured_width)`. Minimums: `#`=2, Name=16, Type=12, Tasks=20, Size=6.
+4. **Pad.** Pad all cells to their column width. Right-align Size values.
+
+**Truncation is non-negotiable.** If a Type value is `research + authoring + code (p)` (31 chars) and the max is 20, render it as `research + author…`. No cell may ever exceed its column maximum.
 
 **Task counts** use compact format: `3P1 1P2 4P3` (only show priorities that have items). If no backlog or not local: `—`.
 
