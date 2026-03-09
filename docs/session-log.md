@@ -4,6 +4,26 @@ Full session history. Newest first. Never pruned.
 
 <!-- Sessions are appended here by rotate-session.sh -->
 
+### 2026-03-09 15:15 — WSL
+**Goal:** S3 — Propagate foundation, knowledge, reference, and domain files from cfg-agent-fleet to agent-fleet template
+**Completed:**
+- AFT-04: mcp-catalog.md — propagated (GitHub deprecation, multi-account, Twitter fxtwitter, Jira version pinning/npx fragility, config architecture .claude.json warning, DNS gotcha)
+- AFT-05: communication-policy.md — propagated (proactive info capture, communications log, email drafting sections)
+- AFT-06: Foundation files — roster-management (Jira in MCP examples, skill format note); others already correctly diverged
+- AFT-07: Reference files — system-tools (Mermaid-to-PDF recipe), lsd-spec (5-step truncation algorithm), trailing newlines fixed; permissions/wsl-env/persona-rules template already ahead
+- AFT-08: Knowledge files — learn-protocol (context pressure + execution rules added); others already correct
+- AFT-09: Domain files — all already correctly genericized in template, no propagation needed
+- AFT-10: Hooks — config-check.sh (added Checks 14-24: auto-heal bash perm, tmp/ scan, stale pending, enabledPlugins, hostname/time, persona, session-context, handoff, pending files, knowledge list); config-auto-sync template already ahead
+- AFT-11: machines/INDEX.md — template already correctly generic
+- AFT-12: New knowledge files evaluated and created: hook-behavior, dev-browser-ops, age-encryption, fleet-capabilities, audit-protocol (all genericized)
+- AFT-13: New reference file created: upstream-dependencies.md (genericized, no version snapshot)
+- Committed (fdd214d), backlog updated, next-session-task set to S4
+**Key Decisions:**
+- Template permissions.md, wsl-environment.md, persona-rules.md are AHEAD of CFG — no CFG→template propagation needed
+- All 6 evaluated knowledge/reference files included in template (hook-behavior, dev-browser-ops, age-encryption, fleet-capabilities, audit-protocol, upstream-dependencies)
+- Audit-protocol Lessons Learned section excluded (personal inaugural audit data)
+- upstream-dependencies Version Snapshot excluded (personal machine state)
+
 ### 2026-03-09 13:30 — WSL
 **Goal:** S2 — Critical config propagation (AFT-01, AFT-02, AFT-03)
 **Completed:**

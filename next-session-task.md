@@ -1,3 +1,3 @@
 task: true
 file: docs/pending-multi-session-plan.md
-description: S3 — Foundation + Knowledge + Reference + Domain Files (~20 files). Start with AFT-04 (mcp-catalog.md, 252 diff-lines, security-critical) and AFT-05 (communication-policy.md). Then AFT-06 through AFT-13.
+description: S4 — Scripts + Hooks (~15 files). Start with AFT-14 (setup.sh, 778 diff-lines) and AFT-15 (sync.sh, 409 diff-lines). Then AFT-16 through AFT-20.
