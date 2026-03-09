@@ -1,3 +1,3 @@
 task: true
 file: docs/pending-multi-session-plan.md
-description: S2 — Critical config propagation. Start with AFT-01 (global/CLAUDE.md, 199 diff-lines, security-critical). Then AFT-02 (session-protocol, project-setup, cross-project-rules, backlog-convention). Then AFT-03 (vault-ops.md NEW). All require personal data stripping.
+description: S3 — Foundation + Knowledge + Reference + Domain Files (~20 files). Start with AFT-04 (mcp-catalog.md, 252 diff-lines, security-critical) and AFT-05 (communication-policy.md). Then AFT-06 through AFT-13.
