@@ -57,6 +57,17 @@ Add a "Session Startup — Platform Scan" section to the project's `CLAUDE.md` t
 
 ---
 
+## Operational Readiness (for projects with deployment)
+
+When creating a project that deploys to a remote host, verify before declaring setup complete:
+
+- [ ] Deploy script works from the creating machine
+- [ ] All required credentials (SSH keys, FTP, API tokens) have vault entries with `deploy_to` targets
+- [ ] SSH keys/config deployed to all machines via `vault-manage.sh deploy`
+- [ ] Deploy script uses correct ports and connection parameters
+- [ ] Project `CLAUDE.md` Knowledge Loading includes vault ops trigger if credentials are needed
+- [ ] Cross-machine deploy tested or documented as pending
+
 ## Project Manifest Template
 
 Every project's `CLAUDE.md` follows this format:
@@ -86,6 +97,19 @@ Every project's `CLAUDE.md` follows this format:
 
 - `.claude/knowledge/<file>.md` — project-specific protocols
 - `backlog.md` — project backlog (read when active TODOs are done)
+
+## Document Integration (if project produces persistent artifacts)
+
+Projects that generate or manage reference documents (research papers, guidelines,
+correspondence, certificates, regulatory docs) should catalog them in the central DMS.
+
+- **DMS location:** `~/agent-fleet/dms/` — catalog + intake protocol
+- **Cross-project rule:** Only the config project writes to `dms/`. Other projects post
+  intake requests to `~/agent-fleet/cross-project/inbox.md`:
+  `- [ ] **config-project**: DMS intake — <doc description>, source: <project>:<path>, category: <prefix>`
+- **Project-origin tagging:** Use Tags column with `from:<project>` (e.g., `from:myproject`)
+- **Per-project catalogs:** If a project generates many artifacts of the same category,
+  request a dedicated catalog file via inbox
 ```
 
 ## Cross-Project References (if applicable)

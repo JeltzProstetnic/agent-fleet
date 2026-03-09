@@ -24,6 +24,7 @@ Session information is organized in 3 layers to balance startup speed with histo
 | Layer | File | Read at startup? | Purpose |
 |-------|------|-------------------|---------|
 | 0 | `next-session-task.md` | YES — if exists | Previous session's task handoff |
+| 0b | `docs/pending-*.md` | YES — scan | Multi-file handover from previous sessions |
 | 1 | `session-context.md` | YES | Current session state |
 | 2 | `session-history.md` | NO — on demand | Rolling last 3 sessions |
 | 3a | `docs/session-log.md` | NO — reference only | Full archive, never pruned |
@@ -69,9 +70,10 @@ Session information is organized in 3 layers to balance startup speed with histo
 
 ### 2. Session rotation
 - [ ] Run `bash ~/agent-fleet/setup/scripts/rotate-session.sh` to archive session to history/log and reset template
-- [ ] If significant decisions were made, add entries to `docs/decisions.md`
+- [ ] If significant decisions were made (check: does session-context `## Key Decisions` have 2+ items?), promote them to `docs/decisions.md` before commit
 
 ### 3. Cross-project inbox
+- [ ] **Mark completed inbox items `[x]`.** Check `~/agent-fleet/cross-project/inbox.md` for any `[ ]` items targeting THIS project that were completed this session. Mark them `[x]`. This is mandatory — stale unchecked items cause the next session to re-propose already-finished work. **Infrastructure/connectivity tasks require end-to-end verification** (e.g., `ssh ... echo test`, `curl -sI`, `deploy && verify`) — script fixes + backlog tracking alone do NOT count as completion.
 - [ ] If this session's work affects other projects, drop tasks in `~/agent-fleet/cross-project/inbox.md`
 - [ ] Each entry targets ONE project — never broadcast
 - [ ] Format: `- [ ] **project-name**: description of what they need to do`
@@ -94,6 +96,10 @@ Session information is organized in 3 layers to balance startup speed with histo
 - [ ] Run `bash ~/agent-fleet/sync.sh collect` to verify it exits cleanly
 - [ ] If it fails, fix the issue or clear `.sync-failed` marker with explanation
 
+### 8. Unmount external drives (platform-specific)
+- [ ] If external drives were mounted during this session, unmount them
+- [ ] If any unmount fails (device busy), report to user — do NOT force unmount
+
 **The user must be able to open consistent, up-to-date files after the session ends.** Stale context, missing inbox tasks, or outdated strategy files are unacceptable.
 
 ## Implementation Rules
@@ -105,5 +111,6 @@ Session information is organized in 3 layers to balance startup speed with histo
 5. **Update BEFORE responding** - write state before action, update after completion
 6. **Reference, don't duplicate** - point to canonical docs rather than copying their content
 7. **Session-context.md MUST use the exact template format** — `rotate-session.sh` parses it programmatically. Required: `**Session Goal**:` inline (not a heading), `- [x]` checkboxes for completed items, `## Key Decisions` section heading. Do NOT use freeform headings like `## What Was Done` or plain bullets without checkboxes — the rotation script won't detect them and will refuse to archive. At minimum: fill in Session Goal + at least one `- [x]` item or one decision under Key Decisions.
-8. **Cross-session task handoff:** Add `## Next Session Task` to session-context.md with `task: true`, `file:`, and `description:`. Rotation extracts it to `next-session-task.md`. **HARD RULE: `file:` must NEVER point to `session-context.md`** — rotation blanks it, so the next session would find an empty file. Always write handoff data to a dedicated file in `docs/` (e.g., `docs/pending-<task>.md`) and point `file:` there. Never use `tmp/` — handoff files must persist across machines via git. This includes task lists, pending updates, execution plans — anything the next session needs to act on.
+8. **Cross-session task handoff:** Add `## Next Session Task` to session-context.md with `task: true`, `file:`, and `description:`. Rotation extracts it to `next-session-task.md`. **HARD RULE: `file:` must NEVER point to `session-context.md`** — rotation blanks it, so the next session would find an empty file. Always write handoff data to a dedicated file in `docs/` (e.g., `docs/pending-<task>.md`) and point `file:` there. Never use `tmp/` — handoff files must persist across machines via git. This includes task lists, pending updates, execution plans — anything the next session needs to act on. **Restart-required verifications ARE handoff tasks** — if a fix can only be verified after restart (MCP changes, auth changes, hook changes), write it to next-session-task.md with explicit verification steps. Never put restart verifications in freeform "Recovery/Next session" text alone.
 9. **Dangling references:** Rotation warns on "see below"/"see ##"/"(below)" — save referenced content to a file first.
+10. **Pending file carry-over (Layer 0b):** After reading `next-session-task.md`, scan `docs/pending-*.md`. If any exist, list them in session-context.md under `## Carry-Over Items`. Each must be addressed during the session: acted on, added to backlog as P0, or explicitly deferred with reason. `next-session-task.md` handles single-file handoff; `docs/pending-*` handles multi-file handover (audit findings, partial migrations, staged rollouts, any work too large for one handoff file). Pending files are deleted after their items are fully resolved or promoted to backlog.

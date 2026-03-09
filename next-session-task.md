@@ -1,3 +1,3 @@
 task: true
 file: docs/pending-multi-session-plan.md
-description: "S1 — Backlog bootstrap. Create backlog.md with AFT- prefix, classify all ~50 drifted files into work items, process the 3 inbox items at design level (what changes needed, what to strip). Light-medium context session. Plan details in the referenced file."
+description: S2 — Critical config propagation. Start with AFT-01 (global/CLAUDE.md, 199 diff-lines, security-critical). Then AFT-02 (session-protocol, project-setup, cross-project-rules, backlog-convention). Then AFT-03 (vault-ops.md NEW). All require personal data stripping.

@@ -51,3 +51,31 @@ Registry has a `Priority` column (P1-P5). Backlog tasks carry a priority tag.
 - **Cross-project ranking**: sort by project priority first, then task priority within each project. A P2 task in a P1 project outranks a P1 task in a P3 project.
 - **Open section**: flat list sorted by priority (P1 first), no subsections. Keep it scannable.
 - **Done section**: group by date, most recent first. Move tasks here when completed — don't delete them.
+
+## Grooming
+
+Backlog grooming is a periodic cleanup task. When grooming (manually or via subagent), **all** of the following must happen:
+
+1. **Move completed items**: All `[x]` items from Open → Done, grouped by date.
+2. **Priority updates**: Actively re-assess and **change** priority levels based on:
+   - **Roadmap alignment**: items on the critical path for current-quarter epics get bumped up; items for future-quarter epics stay lower.
+   - **Dependency changes**: if a blocker was cleared, the unblocked item may warrant a priority bump.
+   - **Completion landscape**: when related work is done, remaining items may become more or less urgent (e.g., most of a block is done → the verification step is now the bottleneck).
+   - **Strategic shifts**: user priorities, external deadlines, or new information that changes what matters.
+   - **Blocked items**: items blocked on external factors (hardware, user action, another machine) should be demoted until unblocked.
+
+   Do not just **flag** misalignments — actually **update** the `[Pn]` tags. The grooming notes should document what changed and why, not just suggest changes.
+
+3. **Stale/obsolete check**: Remove or archive items that are no longer relevant.
+4. **Duplicate consolidation**: Merge overlapping items.
+5. **Formatting cleanup**: Consistent format, no stray blank lines.
+6. **Re-sort**: After priority changes, re-sort the Open section by priority (P0 → P4).
+
+## Epic References
+
+Backlog items link to strategic epics defined in `docs/roadmap.md`. Add `Epic: E-XX` at the end of the item description to connect it to the roadmap.
+
+- Format: `Epic: E-01` or `Epic: E-01, E-06` (multiple)
+- Epics group related backlog items under a strategic theme
+- The roadmap file defines epic scope, vision stage, and dependencies
+- Not every item needs an epic — small fixes and maintenance can stand alone
