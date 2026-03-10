@@ -443,6 +443,51 @@ run_picker() {
     done
 }
 
+# ── SteamOS pre-flight ───────────────────────────────────────────────────────
+# Detects SteamOS version change (after OS update) and auto-runs reprovision
+# if system packages were wiped. Called before git sync and launch.
+# Testable via overrides: STEAMOS_OS_RELEASE, STEAMOS_MARKER_FILE,
+#   STEAMOS_CHECK_CMD (tool to verify; default: jq), STEAMOS_REPROVISION_SCRIPT
+steamos_preflight() {
+    local os_release="${STEAMOS_OS_RELEASE:-/etc/os-release}"
+    [[ -f "$os_release" ]] && grep -qi steam "$os_release" 2>/dev/null || return 0
+
+    local current_ver
+    current_ver=$(grep "^VERSION_ID=" "$os_release" 2>/dev/null | cut -d= -f2)
+    [[ -z "$current_ver" ]] && return 0
+
+    local marker_file="${STEAMOS_MARKER_FILE:-$HOME/.steamos-provisioned-version}"
+    local last_ver=""
+    [[ -f "$marker_file" ]] && last_ver=$(cat "$marker_file" 2>/dev/null)
+
+    # Already provisioned for this version
+    [[ "$current_ver" == "$last_ver" ]] && return 0
+
+    echo -e "${C_YEL}SteamOS version changed: ${last_ver:-<none>} -> ${current_ver}${C_RST}"
+
+    local check_cmd="${STEAMOS_CHECK_CMD:-jq}"
+    if ! command -v "$check_cmd" &>/dev/null; then
+        echo -e "${C_BRED}System packages wiped ($check_cmd missing). Running reprovision...${C_RST}"
+        local reprov="${STEAMOS_REPROVISION_SCRIPT:-$CONFIG_REPO/setup/reprovision-steamos.sh}"
+        if [[ -f "$reprov" ]]; then
+            bash "$reprov"
+            if [[ $? -eq 0 ]]; then
+                echo "$current_ver" > "$marker_file"
+                echo -e "${C_CYN}Reprovision complete. Version marker updated.${C_RST}"
+            else
+                echo -e "${C_RED}Reprovision had errors. Will retry next launch.${C_RST}" >&2
+                return 1
+            fi
+        else
+            echo -e "${C_RED}Reprovision script not found: $reprov${C_RST}" >&2
+            return 1
+        fi
+    else
+        echo -e "${C_CYN}Packages intact. Updating version marker.${C_RST}"
+        echo "$current_ver" > "$marker_file"
+    fi
+}
+
 # ── Source guard ─────────────────────────────────────────────────────────────
 # When sourced for testing, only define functions — don't execute main logic
 if [[ "${AFLEET_SOURCE_ONLY:-0}" == "1" ]]; then
@@ -545,6 +590,9 @@ fi
 if $SHOW_PICKER; then
     PICKER_SHOW_ALL="$PICKER_ALL" run_picker || true
 fi
+
+# ── Pre-launch: SteamOS pre-flight ───────────────────────────────────────────
+steamos_preflight
 
 # ── Pre-launch: git sync ────────────────────────────────────────────────────
 if [[ -f "$SYNC_SCRIPT" && -d "$TARGET_DIR/.git" ]]; then

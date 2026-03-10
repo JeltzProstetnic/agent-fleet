@@ -4,6 +4,24 @@ Full session history. Newest first. Never pruned.
 
 <!-- Sessions are appended here by rotate-session.sh -->
 
+### 2026-03-10T17:15Z — WSL
+**Goal:** Propagate 3 template changes from cfg-agent-fleet to agent-fleet
+**Completed:**
+- Read cross-project inbox — identified 3 pending agent-fleet template propagation tasks
+- Task 1: SteamOS pre-flight — added steamos_preflight() to afleet.sh with env var overrides
+- Task 2: Statusline rename — statusline.sh→statusline-command.sh across sync.sh, configure-claude.sh, settings.json, tests
+- Task 2b: Added 2 new CLAUDE.md rules (tmux/nohup, check deployed config)
+- Task 3: GPI — created gpi.sh CLI (159 lines), updated statusline with GPI renderer + context budget sidecar, 24 tests
+- All tests pass: statusline 27/27, afleet 21/21, sync 24/24, GPI 24/24
+- Marked 3 inbox items [x] in cfg-agent-fleet cross-project inbox
+**Key Decisions:**
+- Kept template persona names as Assistant/Supporter (generic), not Bartl/Elsa (personal)
+- Excluded cost display from template statusline (personal deployment feature)
+- GPI log parsing kept as-is (rsync-specific patterns) — useful generic pattern
+**Pending at shutdown:** None
+**Recovery/Next session:**
+All work committed. No pending actions.
+
 ### 2026-03-09 23:15 — WSL
 **Goal:** README/docs update, full audit, deployment mechanism planning
 **Completed:**
@@ -28,5 +46,3 @@ Full session history. Newest first. Never pruned.
 **Pending at shutdown:** Commit and push
 **Recovery/Next session:**
 All changes are unstaged. Commit and push to complete session.
-
-

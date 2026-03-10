@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
-# Tests for setup/config/statusline.sh — context usage statusline rendering
+# Tests for setup/config/statusline-command.sh — context usage statusline rendering
 source "$(dirname "$0")/test-helpers.sh"
 
-suite_header "statusline.sh"
+suite_header "statusline-command.sh"
 
-SCRIPT_PATH="$REPO_ROOT/setup/config/statusline.sh"
+SCRIPT_PATH="$REPO_ROOT/setup/config/statusline-command.sh"
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -267,24 +267,24 @@ test_settings_json_has_statusline_key() {
     local settings="$REPO_ROOT/setup/config/settings.json"
     assert_file_exists "$settings"
     assert_file_contains "$settings" '"statusLine"'
-    assert_file_contains "$settings" 'statusline.sh'
+    assert_file_contains "$settings" 'statusline-command.sh'
 }
-run_test "settings.json has statusLine key pointing to statusline.sh" test_settings_json_has_statusline_key
+run_test "settings.json has statusLine key pointing to statusline-command.sh" test_settings_json_has_statusline_key
 
 test_configure_deploys_statusline_to_claude_dir() {
     local config="$REPO_ROOT/setup/configure-claude.sh"
     assert_file_exists "$config"
-    # configure-claude.sh should copy statusline.sh to ~/.claude/statusline.sh
-    assert_file_contains "$config" 'dest_statusline="${HOME}/.claude/statusline.sh"'
+    # configure-claude.sh should copy statusline-command.sh to ~/.claude/statusline-command.sh
+    assert_file_contains "$config" 'dest_statusline="${HOME}/.claude/statusline-command.sh"'
     assert_file_contains "$config" 'src_statusline='
 }
-run_test "configure-claude.sh deploys statusline.sh to ~/.claude/" test_configure_deploys_statusline_to_claude_dir
+run_test "configure-claude.sh deploys statusline-command.sh to ~/.claude/" test_configure_deploys_statusline_to_claude_dir
 
 test_statusline_script_reads_active_persona() {
     # Verify the script source contains persona reading logic
     assert_file_contains "$SCRIPT_PATH" '.active-persona'
     assert_file_contains "$SCRIPT_PATH" 'PERSONA_COLORS'
 }
-run_test "statusline.sh source reads .active-persona and uses PERSONA_COLORS" test_statusline_script_reads_active_persona
+run_test "statusline-command.sh source reads .active-persona and uses PERSONA_COLORS" test_statusline_script_reads_active_persona
 
 suite_summary

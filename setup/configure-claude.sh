@@ -501,24 +501,26 @@ deploy_helper_scripts() {
         ((deployed_count++))
     fi
 
-    # statusline.sh — context usage bar for Claude Code
-    local src_statusline="${SCRIPT_DIR}/config/statusline.sh"
-    local dest_statusline="${HOME}/.claude/statusline.sh"
+    # statusline-command.sh — context usage bar for Claude Code
+    local src_statusline="${SCRIPT_DIR}/config/statusline-command.sh"
+    local dest_statusline="${HOME}/.claude/statusline-command.sh"
 
-    require_file "${src_statusline}" "statusline.sh"
+    require_file "${src_statusline}" "statusline-command.sh"
 
     run_cmd mkdir -p "${HOME}/.claude"
 
     if files_identical "${src_statusline}" "${dest_statusline}"; then
-        log_info "statusline.sh already up to date, skipping"
+        log_info "statusline-command.sh already up to date, skipping"
         ((skipped_count++))
     else
         backup_file "${dest_statusline}"
         run_cmd cp "${src_statusline}" "${dest_statusline}"
         run_cmd chmod +x "${dest_statusline}"
-        log_success "Deployed: statusline.sh -> ~/.claude/statusline.sh"
+        log_success "Deployed: statusline-command.sh -> ~/.claude/statusline-command.sh"
         ((deployed_count++))
     fi
+    # Clean up legacy statusline.sh if it exists
+    [ -f "${HOME}/.claude/statusline.sh" ] && rm -f "${HOME}/.claude/statusline.sh" && log_info "Removed legacy statusline.sh"
 
     # Copy this installer for reference
     local src_installer="${SCRIPT_DIR}/configure-claude.sh"

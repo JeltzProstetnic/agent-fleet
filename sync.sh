@@ -285,11 +285,13 @@ cmd_deploy() {
         log_info "Created: ~/dms-inbox/ (DMS drop folder)"
     fi
 
-    # Statusline script
-    if [ -f "$SCRIPT_DIR/setup/config/statusline.sh" ]; then
-        cp "$SCRIPT_DIR/setup/config/statusline.sh" "$CLAUDE_HOME/statusline.sh"
-        chmod +x "$CLAUDE_HOME/statusline.sh"
-        log_info "Deployed: statusline.sh → $CLAUDE_HOME/"
+    # Statusline script (canonical: setup/config/statusline-command.sh → ~/.claude/statusline-command.sh)
+    if [ -f "$SCRIPT_DIR/setup/config/statusline-command.sh" ]; then
+        cp "$SCRIPT_DIR/setup/config/statusline-command.sh" "$CLAUDE_HOME/statusline-command.sh"
+        chmod +x "$CLAUDE_HOME/statusline-command.sh"
+        log_info "Deployed: statusline-command.sh → $CLAUDE_HOME/"
+        # Clean up legacy statusline.sh if it exists
+        [ -f "$CLAUDE_HOME/statusline.sh" ] && rm -f "$CLAUDE_HOME/statusline.sh" && log_info "Removed legacy statusline.sh"
     fi
 
     # Apply project folder icons (platform-appropriate)
