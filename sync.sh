@@ -703,8 +703,38 @@ cmd_collect() {
         if [ -L "$CLAUDE_HOME/$dir" ]; then
             log_info "$dir/ is symlinked — already in sync"
         elif [ -d "$CLAUDE_HOME/$dir" ] && [ -d "$GLOBAL_DIR/$dir" ]; then
-            cp -r "$CLAUDE_HOME/$dir/." "$GLOBAL_DIR/$dir/"
-            log_info "Collected: $dir/"
+            # Per-file timestamp guard: skip files where repo version is newer
+            # than deployed version. Prevents stale deployed files from overwriting
+            # features committed on other machines.
+            local dir_collected=0 dir_skipped=0
+            for deployed_file in "$CLAUDE_HOME/$dir/"*; do
+                [ -f "$deployed_file" ] || continue
+                local base
+                base=$(basename "$deployed_file")
+
+                local repo_file="$GLOBAL_DIR/$dir/$base"
+                [ -f "$repo_file" ] || continue
+
+                # Skip if files are identical
+                if diff -q "$deployed_file" "$repo_file" >/dev/null 2>&1; then
+                    continue
+                fi
+
+                # Timestamp guard: skip if repo version is newer
+                local repo_commit_ts deployed_mtime
+                repo_commit_ts=$(git -C "$SCRIPT_DIR" log -1 --format='%ct' -- "global/$dir/$base" 2>/dev/null || echo "0")
+                deployed_mtime=$(stat -c '%Y' "$deployed_file" 2>/dev/null || stat -f '%m' "$deployed_file" 2>/dev/null || echo "0")
+                if [ "$repo_commit_ts" -gt "$deployed_mtime" ]; then
+                    log_warn "Skipping $dir/$base — repo version is newer than deployed (run 'sync.sh deploy' to update)"
+                    dir_skipped=$((dir_skipped + 1))
+                    continue
+                fi
+
+                cp "$deployed_file" "$repo_file"
+                dir_collected=$((dir_collected + 1))
+            done
+            [ "$dir_collected" -gt 0 ] && log_info "Collected: $dir/ ($dir_collected file(s))"
+            [ "$dir_skipped" -gt 0 ] && log_warn "Skipped $dir_skipped file(s) in $dir/ — repo newer"
         fi
     done
 
@@ -714,9 +744,19 @@ cmd_collect() {
             [ -f "$hook" ] || continue
             base=$(basename "$hook")
             if [ -f "$GLOBAL_DIR/hooks/$base" ]; then
-                # Safety: skip if the source has uncommitted changes (editing hazard)
+                # Safety 1: skip if the source has uncommitted changes (editing hazard)
                 if git -C "$SCRIPT_DIR" diff --name-only 2>/dev/null | grep -q "global/hooks/$base"; then
                     log_warn "Skipping hook collect: $base has uncommitted edits in repo"
+                    continue
+                fi
+                # Safety 2: skip if repo version is newer than deployed version
+                # This prevents stale deployed hooks from overwriting features
+                # committed on other machines (the multi-machine collect bug).
+                local repo_commit_ts deployed_mtime
+                repo_commit_ts=$(git -C "$SCRIPT_DIR" log -1 --format='%ct' -- "global/hooks/$base" 2>/dev/null || echo "0")
+                deployed_mtime=$(stat -c '%Y' "$hook" 2>/dev/null || stat -f '%m' "$hook" 2>/dev/null || echo "0")
+                if [ "$repo_commit_ts" -gt "$deployed_mtime" ]; then
+                    log_warn "Skipping hook collect: $base — repo version is newer than deployed (run 'sync.sh deploy' to update deployed hooks)"
                     continue
                 fi
                 if ! diff -q "$hook" "$GLOBAL_DIR/hooks/$base" >/dev/null 2>&1; then
