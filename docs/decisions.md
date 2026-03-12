@@ -79,3 +79,15 @@
 ### Upgrade rollback via git tags
 **Date:** 2026-03-12
 **Decision:** `upgrade.sh` uses lightweight git tags (`pre-upgrade-TIMESTAMP`) for rollback points rather than file-system backups. Tags survive across machines (pushed with `git push --tags`), are cheap, and `--rollback` is just `git reset --hard <tag>`. No tag created when already up-to-date (avoids tag clutter).
+
+### AFT-32 fix approach: pattern-based sed sanitization
+**Date:** 2026-03-12
+**Decision:** Filtered-push commit message leak (line 214-216) should be fixed with pattern-based sed sanitization reusing `PERSONAL_DATA_PATTERNS` from sync.sh. Chosen over config-driven patterns (overengineered), template rewriting (too aggressive), and interactive approval (poor UX). Needs tests in `test-filtered-push.sh`.
+
+### AFT-33 fix approach: add flag to parse_common_args
+**Date:** 2026-03-12
+**Decision:** `--reconfigure-mcp` flag should be handled in `parse_common_args()` in lib.sh (not configure-claude.sh directly) so it works both standalone and via install.sh. Exports `RECONFIGURE_MCP=true`, checked before early-return in `configure_mcp_servers()`.
+
+### CI implementation order: preflight → integration → GitHub Actions
+**Date:** 2026-03-12
+**Decision:** AFT-39/40/41 should be implemented in dependency order: preflight check (41) first (standalone, no Docker needed), then integration test (40, uses preflight), then GitHub Actions CI (39, orchestrates both). Matches hardening-plan.md Day 1→2→3 sequence.

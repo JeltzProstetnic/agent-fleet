@@ -4,6 +4,22 @@ Full session history. Newest first. Never pruned.
 
 <!-- Sessions are appended here by rotate-session.sh -->
 
+### 2026-03-12T18:35Z — WSL
+**Goal:** Work on open backlog tasks — do AFT-31, AFT-36; prep AFT-32, AFT-33, AFT-39/40/41
+**Completed:**
+- Inbox task: Add `.session-lock` to `.gitignore` (93cf243)
+- AFT-31: Created template-sync-manifest.md with CRC32 hashes for 32 files (ed003d9)
+- AFT-36: Fleshed out dms-guide.md from 32 to 170 lines (d884283)
+- AFT-32 prep: Investigated filtered-push message leak — root cause at line 214-216, 4 fix options
+- AFT-33 prep: Investigated --reconfigure-mcp — flag accepted by install.sh but never parsed by lib.sh
+- AFT-39/40/41 prep: Investigated CI infrastructure — 32 test suites, custom framework, paths documented
+**Key Decisions:**
+- AFT-31: Manifest tracks same file set as cfg-agent-fleet version, with template hashes. 11 identical + 21 intentional-diff.
+- AFT-32 prep: Recommend option A (pattern-based sed sanitization) reusing PERSONAL_DATA_PATTERNS from sync.sh.
+- AFT-33 prep: Fix is add --reconfigure-mcp to parse_common_args() in lib.sh + check before early-return in configure_mcp_servers().
+- AFT-39/40/41: Implementation order should be 41 (preflight) → 40 (integration) → 39 (CI workflow) per hardening plan Day 1→2→3.
+**Pending at shutdown:** Nothing
+
 ### 2026-03-12T18:08Z — WSL
 **Goal:** Work on open P2 backlog items (AFT-29, AFT-30)
 **Completed:**
