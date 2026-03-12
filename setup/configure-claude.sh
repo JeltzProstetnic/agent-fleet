@@ -27,7 +27,7 @@
 #   Step 2: Deploy base MCP servers (Serena, Playwright, Memory, Diagram Bridge)
 #   Step 3: Patch mclaude launcher with MCP enablement + update-checker
 #   Step 4: Deploy helper scripts (update-checker)
-#   Step 5: Configure platform settings (git, credentials, bashrc, WSL/SteamOS specifics)
+#   Step 5: Configure platform settings (git, credentials, shell RC, WSL/SteamOS specifics)
 #
 
 set -euo pipefail
@@ -84,7 +84,7 @@ WHAT THIS SCRIPT DOES:
   2. Deploy base MCP servers (no credentials needed)
   3. Patch mclaude launcher with MCP enablement + update-checker
   4. Deploy helper scripts (update-checker)
-  5. Configure platform settings (git, credentials, bashrc, WSL/SteamOS specifics)
+  5. Configure platform settings (git, credentials, shell RC, WSL/SteamOS specifics)
 
   MCP servers that need credentials (GitHub, Twitter, Google Workspace,
   Jira, Postgres) are configured conversationally during your first
@@ -640,19 +640,24 @@ configure_platform_settings() {
 
     changes_made=true
 
-    # --- Bash color prompt (all platforms) ---
-    log_info "Enabling color prompt in bashrc..."
-    if grep -q '^#force_color_prompt=yes' "${HOME}/.bashrc" 2>/dev/null; then
-        backup_file "${HOME}/.bashrc"
+    # --- Shell color prompt (all platforms) ---
+    local shellrc
+    shellrc=$(detect_shell_rc)
+    local shellrc_name
+    shellrc_name=$(detect_shell_rc_name)
+
+    log_info "Enabling color prompt in ${shellrc_name}..."
+    if grep -q '^#force_color_prompt=yes' "${shellrc}" 2>/dev/null; then
+        backup_file "${shellrc}"
         if [[ "${DRY_RUN}" == "false" ]]; then
             # Portable in-place sed (GNU sed -i'' vs BSD sed -i '' differ)
-            sed 's/^#force_color_prompt=yes/force_color_prompt=yes/' "${HOME}/.bashrc" > "${HOME}/.bashrc.tmp" && mv "${HOME}/.bashrc.tmp" "${HOME}/.bashrc"
+            sed 's/^#force_color_prompt=yes/force_color_prompt=yes/' "${shellrc}" > "${shellrc}.tmp" && mv "${shellrc}.tmp" "${shellrc}"
             log_success "Color prompt enabled"
         else
-            echo -e "${COLOR_YELLOW}[DRY RUN]${COLOR_RESET} Would enable color prompt in .bashrc"
+            echo -e "${COLOR_YELLOW}[DRY RUN]${COLOR_RESET} Would enable color prompt in ${shellrc_name}"
         fi
     else
-        log_info "Color prompt already enabled or not found in .bashrc"
+        log_info "Color prompt already enabled or not found in ${shellrc_name}"
     fi
 
     # --- WSL-specific: /etc/wsl.conf check ---
@@ -686,14 +691,14 @@ configure_platform_settings() {
         log_info "  - System packages (socat, bubblewrap, etc.) do NOT survive OS updates"
         log_info "  - After a SteamOS update, run: bash setup/scripts/reprovision-steamos.sh"
         log_info "    (from your agent-fleet directory)"
-        log_info "  - Shell config lives in ~/.bashrc (not ~/.bash_profile)"
+        log_info "  - Shell config lives in ~/${shellrc_name} (not ~/.bash_profile)"
         echo ""
     fi
 
     log_success "Platform settings configured"
 
     if [[ "${changes_made}" == "true" ]]; then
-        INSTALLED_STEPS+=("Platform settings (git, bashrc)")
+        INSTALLED_STEPS+=("Platform settings (git, ${shellrc_name})")
     else
         SKIPPED_STEPS+=("Platform settings (already configured)")
     fi
@@ -725,7 +730,9 @@ print_summary() {
     fi
 
     echo -e "${COLOR_BLUE}To start using Claude Code:${COLOR_RESET}"
-    echo "  1. Open a new terminal (or run: source ~/.bashrc)"
+    local _rc_name
+    _rc_name=$(detect_shell_rc_name)
+    echo "  1. Open a new terminal (or run: source ~/${_rc_name})"
     echo "  2. Run: mclaude"
     echo ""
     echo -e "${COLOR_BLUE}Your first session will guide you through:${COLOR_RESET}"

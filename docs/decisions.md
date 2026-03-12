@@ -71,3 +71,11 @@
 ### fleet-capabilities.md 3-tier grouping for template
 **Date:** 2026-03-12
 **Decision:** Not propagated. The private cfg has a 3-tier grouping with a "Life OS packages" section. Template keeps a simpler flat structure -- Life OS is a personal deployment feature, not a generic template concept.
+
+### Shell RC detection strategy
+**Date:** 2026-03-12
+**Decision:** `detect_shell_rc()` in lib.sh uses two-step detection: (1) macOS distro → always .zshrc (default since Catalina), (2) Linux: check `$SHELL` env var for `*/zsh` suffix → .zshrc, else .bashrc. No interactive prompting.
+
+### Upgrade rollback via git tags
+**Date:** 2026-03-12
+**Decision:** `upgrade.sh` uses lightweight git tags (`pre-upgrade-TIMESTAMP`) for rollback points rather than file-system backups. Tags survive across machines (pushed with `git push --tags`), are cheap, and `--rollback` is just `git reset --hard <tag>`. No tag created when already up-to-date (avoids tag clutter).

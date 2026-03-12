@@ -436,6 +436,35 @@ check_pkg_installed() {
 }
 
 # ============================================================================
+# SHELL RC FILE DETECTION
+# ============================================================================
+
+# Detect the user's shell RC file path (.zshrc on macOS or when SHELL is zsh,
+# .bashrc otherwise). Returns the full path (e.g., /home/user/.zshrc).
+detect_shell_rc() {
+    local distro
+    distro=$(detect_distro)
+
+    # macOS defaults to zsh since Catalina (10.15)
+    if [[ "${distro}" == "macos" ]]; then
+        echo "${HOME}/.zshrc"
+        return
+    fi
+
+    # On Linux, check the user's login shell
+    if [[ "${SHELL:-/bin/bash}" == */zsh ]]; then
+        echo "${HOME}/.zshrc"
+    else
+        echo "${HOME}/.bashrc"
+    fi
+}
+
+# Return just the filename (.zshrc or .bashrc) without the full path
+detect_shell_rc_name() {
+    basename "$(detect_shell_rc)"
+}
+
+# ============================================================================
 # ARGUMENT PARSING
 # ============================================================================
 

@@ -113,7 +113,7 @@ WHAT GETS INSTALLED:
 
 NEXT STEPS:
   After this script completes successfully:
-    1. Open a new terminal (or: source ~/.bashrc)
+    1. Open a new terminal (or: source your shell RC file)
     2. Run: bash configure-claude.sh
 
 NOTES:
@@ -540,7 +540,10 @@ setup_npm_global() {
     log_step 4 "${TOTAL_STEPS}" "Configure npm for User-Local Installations"
 
     local npm_global="${HOME}/.npm-global"
-    local bashrc="${HOME}/.bashrc"
+    local shellrc
+    shellrc=$(detect_shell_rc)
+    local shellrc_name
+    shellrc_name=$(detect_shell_rc_name)
 
     # Create npm-global directory
     if [[ ! -d "${npm_global}" ]]; then
@@ -562,43 +565,43 @@ setup_npm_global() {
         INSTALLED_STEPS+=("npm-prefix")
     fi
 
-    # Add to PATH in .bashrc if not already present
-    if file_contains "${bashrc}" "npm-global/bin"; then
-        log_info "npm-global already in PATH (found in .bashrc)"
+    # Add to PATH in shell RC if not already present
+    if file_contains "${shellrc}" "npm-global/bin"; then
+        log_info "npm-global already in PATH (found in ${shellrc_name})"
     else
-        log_info "Adding npm-global to PATH in .bashrc..."
+        log_info "Adding npm-global to PATH in ${shellrc_name}..."
 
-        backup_file "${bashrc}"
+        backup_file "${shellrc}"
 
         if [[ "${DRY_RUN}" == "false" ]]; then
-            cat >> "${bashrc}" << 'BASHRC_SNIPPET'
+            cat >> "${shellrc}" << 'SHELLRC_SNIPPET'
 
 # npm global packages
 export PATH="$HOME/.npm-global/bin:$PATH"
-BASHRC_SNIPPET
+SHELLRC_SNIPPET
             log_info "Added npm-global to PATH"
-            INSTALLED_STEPS+=("bashrc-npm-path")
+            INSTALLED_STEPS+=("${shellrc_name}-npm-path")
         else
-            log_info "[DRY RUN] Would append npm-global PATH to .bashrc"
+            log_info "[DRY RUN] Would append npm-global PATH to ${shellrc_name}"
         fi
     fi
 
     # Add ~/.local/bin to PATH (cc-mirror installs mclaude launcher there)
     local local_bin="${HOME}/.local/bin"
-    if file_contains "${bashrc}" ".local/bin"; then
-        log_info "~/.local/bin already in PATH (found in .bashrc)"
+    if file_contains "${shellrc}" ".local/bin"; then
+        log_info "~/.local/bin already in PATH (found in ${shellrc_name})"
     else
-        log_info "Adding ~/.local/bin to PATH in .bashrc..."
+        log_info "Adding ~/.local/bin to PATH in ${shellrc_name}..."
         if [[ "${DRY_RUN}" == "false" ]]; then
-            cat >> "${bashrc}" << 'LOCALBIN_SNIPPET'
+            cat >> "${shellrc}" << 'LOCALBIN_SNIPPET'
 
 # local binaries (cc-mirror launchers, pipx, etc.)
 export PATH="$HOME/.local/bin:$PATH"
 LOCALBIN_SNIPPET
             log_info "Added ~/.local/bin to PATH"
-            INSTALLED_STEPS+=("bashrc-local-bin-path")
+            INSTALLED_STEPS+=("${shellrc_name}-local-bin-path")
         else
-            log_info "[DRY RUN] Would append ~/.local/bin PATH to .bashrc"
+            log_info "[DRY RUN] Would append ~/.local/bin PATH to ${shellrc_name}"
         fi
     fi
 
@@ -750,7 +753,9 @@ print_summary() {
         echo -e "${COLOR_GREEN}${COLOR_BOLD}Base system setup is complete!${COLOR_RESET}"
         echo ""
         echo -e "${COLOR_BLUE}${COLOR_BOLD}NEXT STEPS:${COLOR_RESET}"
-        echo "  1. Open a new terminal (or run: source ~/.bashrc)"
+        local _rc_name
+        _rc_name=$(detect_shell_rc_name)
+        echo "  1. Open a new terminal (or run: source ~/${_rc_name})"
         echo "  2. Verify installation:"
         echo "       node --version    # Should show v22.x.x"
         echo "       npm --version     # Should show 10.x.x"

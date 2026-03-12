@@ -4,6 +4,20 @@ Full session history. Newest first. Never pruned.
 
 <!-- Sessions are appended here by rotate-session.sh -->
 
+### 2026-03-12T18:08Z — WSL
+**Goal:** Work on open P2 backlog items (AFT-29, AFT-30)
+**Completed:**
+- AFT-30: macOS .zshrc support — detect_shell_rc()/detect_shell_rc_name() in lib.sh, updated install-base.sh, configure-claude.sh, install.sh. 8/8 tests.
+- AFT-29: upgrade.sh with rollback — setup/scripts/upgrade.sh with pre-upgrade tags, --rollback, --list-tags, --dry-run, --skip-deploy. 9/9 tests.
+- Backlog updated (both items moved to Done)
+**Key Decisions:**
+- detect_shell_rc() uses distro detection (macOS → .zshrc) plus $SHELL check (*/zsh → .zshrc, else .bashrc)
+- upgrade.sh uses git tags (pre-upgrade-TIMESTAMP) for rollback — lightweight, no separate backup infra needed
+- upgrade.sh exits early if already up-to-date (no tag created for no-op upgrades)
+**Pending at shutdown:** Nothing
+**Recovery/Next session:**
+All work committed and pushed. No pending items.
+
 ### 2026-03-12T17:40Z — WSL
 **Goal:** Resolve vault-ops deferral, mark inbox complete, backlog items AFT-34/35/37/38
 **Completed:**

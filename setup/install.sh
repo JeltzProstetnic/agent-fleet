@@ -213,7 +213,7 @@ echo "    2. Configure MCP servers (GitHub, Jira, Serena)"
 echo "       - Will prompt for credentials if not already configured"
 echo "    3. Patch mclaude launcher (MCP enablement + update-checker)"
 echo "    4. Deploy helper scripts"
-echo "    5. Configure platform settings (git, credentials, bashrc)"
+echo "    5. Configure platform settings (git, credentials, shell RC)"
 echo ""
 
 if [[ "${RECONFIGURE_MCP}" == "true" ]]; then
@@ -294,7 +294,8 @@ print_header "Installation Complete!"
 echo "Both phases completed successfully."
 echo ""
 echo -e "${COLOR_BLUE}${COLOR_BOLD}To get started:${COLOR_RESET}"
-echo "  1. Open a new terminal (or run: source ~/.bashrc)"
+_rc_name=$(detect_shell_rc_name 2>/dev/null || echo ".bashrc")
+echo "  1. Open a new terminal (or run: source ~/${_rc_name})"
 echo "  2. Run: mclaude"
 echo ""
 echo -e "${COLOR_BLUE}Logs:${COLOR_RESET}"
