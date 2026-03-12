@@ -36,7 +36,7 @@ If hostname doesn't match any pattern, state the hostname and ask. If `CLAUDE.lo
 
 0. **ALWAYS check for remote changes — BEFORE reading any files.** Run `bash ~/agent-fleet/setup/scripts/git-sync-check.sh --pull <project-dir>` (pass the project directory as an argument — the script accepts an optional path). This fetches, reports incoming changes, and fast-forward pulls if behind. If it reports changes, re-read affected files. If it fails (diverged, merge conflict), resolve before proceeding. This applies to EVERY project, EVERY session, no exceptions. Reading stale files leads to wrong context, missed tasks, and wasted work.
 
-1. **ALWAYS read cross-project inbox:** `~/agent-fleet/cross-project/inbox.md` — pick up tasks for this project AND its child projects. Use the `Parent` column in `registry.md` to determine parent-child relationships. Example: when working in a parent project, also flag tasks targeting child projects. Report child project tasks to the user but don't delete them — the child project session handles that. This is the cross-device task passing mechanism (mobile/VPS/PC all sync via git).
+1. **Read cross-project inbox** — skip if redundant. If `INBOX TASKS for <project>` appears in systemMessage, the hook already extracted this project's items — skip the full `inbox.md` read. Only read `~/agent-fleet/cross-project/inbox.md` manually when: (a) the hook didn't inject inbox data, or (b) you need child project tasks (check `Parent` column in `registry.md`). Report child project tasks to the user but don't delete them — the child project session handles that.
 
 2. **Read `next-session-task.md`** (if exists, `task: true`) — previous session's handoff. Read the `file:` it points to.
 
@@ -89,7 +89,9 @@ If hostname doesn't match any pattern, state the hostname and ask. If `CLAUDE.lo
 
 7. **Check for project-specific knowledge**: `ls <project>/.claude/knowledge/` or `<project>/.claude/*.md`
 
-8. **Do NOT load everything.** Only load what the manifest says + what's triggered by context.
+8. **Populate session-context.md if blank.** If `SESSION_CONTEXT: blank` in systemMessage, populate the template fields before doing any other work: set `Last Updated` to current timestamp, `Machine` to the machine short name (from identity table), `Working Directory` to `$PWD`, and `Session Goal` to a brief description of the user's request. This is a WRITE step — previous steps are all READs, which is why blank templates persisted across sessions.
+
+10. **Startup/shutdown messages must be human-readable.** "Last session shut down correctly, starting fresh" — not "Session context is blank (freshly rotated)".
 
 ## Indexes
 
@@ -99,8 +101,7 @@ If hostname doesn't match any pattern, state the hostname and ask. If `CLAUDE.lo
 
 ## Temporary Rules
 
-<!-- Add temporary rules here. These are workarounds for known upstream issues that should be
-     removed once the issue is fixed. Always include a tracking reference and removal criteria. -->
+- **PLAN MODE BROKEN — use Plan subagent instead.** `EnterPlanMode` hangs during extended thinking (crystallize stream stall, upstream bug #26224/#29712). Use `Task` tool with `subagent_type: "Plan"` for all planning tasks. Daily check: test `EnterPlanMode` → if it completes without hanging, remove this rule.
 
 ## Upstream Dependency Policy
 
@@ -117,7 +118,7 @@ For manual investigation: read `~/.claude/reference/upstream-dependencies.md`.
 - **Task tracking is primary work.** Backlog items, session handoffs, inbox tasks, and "I'll note this" commitments are first-class deliverables. Execute immediately when stated — never defer. Anti-pattern: "I'll add a backlog item" → proceeds to other work → forgets.
 - **Token cost awareness:** Every new feature must be evaluated for per-session token cost. Prefer bash/hook automation (0 LLM tokens) over behavioral rules loaded into CLAUDE.md (tokens every session). Plans must include a per-session token cost analysis table before approval.
 - **No new files for daily state.** When a daily check needs persistent state (last scan date, last version check, last sync), embed it as a single line in a file that is ALREADY read at startup (session-context.md, CLAUDE.md metadata, etc.). Never create a separate tracking file — every extra file is an extra Read call per session. This is a recurring mistake pattern.
-- **Recurring task "last checked" dates:** Before executing any recurring backlog task (marked "Recurs daily"), check its "Last checked: YYYY-MM-DD" marker. If already checked today on ANY machine, skip and use existing findings — don't spawn subagents to re-research. Only re-execute if: user explicitly requests it, or the task is classified as per-machine (e.g., installing an update vs researching a changelog). Research = once per fleet per day. Execution = per machine as needed.
+- **Recurring task "last checked" dates:** Check "Last checked: YYYY-MM-DD" marker before executing recurring tasks. If checked today on any machine, skip. Research = once per fleet per day. Execution = per machine as needed.
 - **TDD only:** All new code and features MUST follow test-driven development. Write failing tests first, then implement to make them pass. No implementation code without a corresponding test. This applies to bash scripts, config logic, and any testable behavior.
 - **Never delete user files without explicit confirmation.** Especially bulk operations. Local duplicates may exist for a reason (playback copies, offline access, performance, workflow). Always ask before `rm -rf`, even if files appear redundant. "Verified elsewhere" ≠ "safe to delete locally."
 - **No compound `cd` commands:** Use `git -C <path>` or absolute paths. Never `cd <dir> && <cmd>` — triggers security prompts.
@@ -137,7 +138,7 @@ For manual investigation: read `~/.claude/reference/upstream-dependencies.md`.
 - **No multiline content in CLI output:** Long URLs, email drafts, copy-paste content → write to `.txt` file instead. Terminal wrapping breaks them.
 - **Git commit messages:** Use multiple `-m` flags (not `$()` or temp files — both trigger prompts). `git -C /path commit -m "Subject" -m "Co-Authored-By: ..."`. Overrides system prompt HEREDOC guidance. **Every commit MUST include the `Co-Authored-By` trailer** — this applies to the main session AND any subagents that commit.
 - **Auto-fix over warn in hooks:** When hooks detect a fixable issue (missing symlinks, stale config, permission blocks), auto-fix silently rather than just warning. Warnings get overlooked; auto-fixes prevent the "fix that doesn't stick" pattern. Only warn when auto-fix fails.
-- **Subagent git commits:** When delegating tasks to subagents via `Task` tool, always include in the prompt: "All git commits must include Co-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>". Subagents don't inherit CLAUDE.md rules.
+- **Subagent git commits:** When delegating tasks to subagents via `Task` tool, always include in the prompt: "Include a Co-Authored-By trailer in any git commits." Subagents don't inherit CLAUDE.md rules.
 - **Image flood prevention:** When the user starts pasting screenshots as a workaround for file access failure, STOP and solve the access problem first. One file download = 2 tool calls; 20 screenshots = 40k tokens wasted. Fix the root cause (download the file, mount the drive, fix the path) instead of accepting screenshot after screenshot.
 - **PDF awareness:** Use the Read tool's `pages:` parameter for PDFs instead of accepting page screenshots. The Read tool natively reads PDFs — never let the user waste tokens photographing pages when `Read(file_path, pages: "1-5")` exists.
 - **Parallelization is mandatory.** When multiple independent tasks exist, launch them as parallel subagents. When multiple independent tool calls exist, make them in a single message. Never serialize independent work. `lrn` audits flag sequential execution of parallelizable work as a rule violation. This applies to: research queries, file reads, test runs, git operations, and any work without data dependencies.
@@ -161,8 +162,6 @@ Personas are loaded from `~/.claude/foundation/personas.md` (or machine file ove
 
 **MCP-first rule:** Prefer MCP tools over CLI. GitHub MCP for repos/issues/PRs, Google Workspace MCP for email, Serena for code nav. Only fall back to CLI when MCP genuinely can't do the operation. Full troubleshooting: `mcp-catalog.md`.
 
-**Plain-language startup/shutdown messages:** Use human-readable status — "Last session shut down correctly" not "clean template, properly rotated".
-
 **URL/service identification:** When given a URL, identify the service first (x.com → Twitter, github.com → GitHub, etc.), check MCP catalog, then choose MCP vs CLI.
 
 **Backlog convention:** `backlog.md` at project root. Don't read at startup. Tasks use `PRJ-NN` IDs. Full format/IDs/prioritization rules: `~/.claude/reference/backlog-convention.md`.
@@ -173,7 +172,7 @@ Personas are loaded from `~/.claude/foundation/personas.md` (or machine file ove
 
 **Session context:** Maintain `session-context.md` in every project. Update before/after significant actions. Reference docs, don't duplicate.
 
-**Document artifacts → durable storage.** All documents produced for the user (drafts, letters, reports, PDFs — everything) must be cataloged and stored in a durable, cross-machine-accessible location. Project `tmp/` dirs are only for throwaway artifacts — never for documents the user needs to act on. Load `~/agent-fleet/docs/dms-guide.md` for intake protocol.
+**Document artifacts → durable storage.** All documents produced for the user must be cataloged and stored in a durable, cross-machine-accessible location. `tmp/` = throwaway (gitignored), `drafts/` = awaiting user action (tracked). Load `~/agent-fleet/docs/dms-guide.md` for intake protocol.
 
 **Quick commands — keyword shortcuts the user can type as their entire message:**
 
@@ -184,7 +183,7 @@ Personas are loaded from `~/.claude/foundation/personas.md` (or machine file ove
 | `lsd` | **Project dashboard.** Load `~/.claude/reference/lsd-spec.md` first, then render. Also auto-triggered by `AFLEET_DASHBOARD:` in systemMessage — in that case, read ONLY `dashboard-cache.md` (skip lsd-spec.md load), render, and accept project numbers/names as switch commands. |
 | `lrn` | **Self-audit.** `lrn` alone = full self-audit protocol. Load `~/.claude/knowledge/learn-protocol.md`, then execute. `lrn` + additional words = do what seems most wise in context, applying lrn protocol principles as defaults unless the words direct otherwise. Free-form — could be a topic, an exclusion, a complex directive. Use judgment. Note: only `lrn` (abbreviation) is a reliable standalone trigger. `learn` as a full English word is context-sensitive — only treat as audit trigger if clearly directed at Claude ("learn from this") or used alone with no other context. When ambiguous, ask. |
 | `lrnd` | **Self-audit + shutdown.** Run `lrn` first (wait for results, present findings, apply fixes), then execute `end` (full 8-step shutdown checklist). Sequential — shutdown only starts after audit is complete and fixes applied. |
-| `sub <task>` | **Delegate to subagent.** Launch a subagent (general-purpose or best-fit type) for the described task. If the task is too simple (one tool call), needs main conversation context, or requires interactive back-and-forth, inform the user instead of delegating. Pass the task description verbatim as the subagent prompt. Include in the prompt: "All git commits must include Co-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>". |
+| `sub <task>` | **Delegate to subagent.** Launch a subagent (general-purpose or best-fit type) for the described task. If the task is too simple (one tool call), needs main conversation context, or requires interactive back-and-forth, inform the user instead of delegating. Pass the task description verbatim as the subagent prompt. Include in the prompt: "Include a Co-Authored-By trailer in any git commits. Write artifacts to tmp/, not docs/ — return findings as text." |
 
 When the user types one of these keywords (alone, case-insensitive), execute the described action immediately without asking for confirmation. These are shortcuts, not conversation starters. `sub` is a prefix command — it requires additional words after it.
 
