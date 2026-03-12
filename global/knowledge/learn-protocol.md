@@ -18,7 +18,7 @@ Before launching subagents, quickly assess:
 | Category | When to include | Skip when... |
 |----------|----------------|-------------|
 | **Rule Compliance** | Something broke, a protocol was violated, user says "learn from this" | Issue is purely architectural or forward-looking |
-| **Knowledge Capture** | User shared personal/equipment/people info this session | Session was purely operational, no new info shared |
+| **Knowledge Capture** | User shared or corrected anything that should persist in the knowledge base (especially people/contacts) | Session introduced no durable knowledge worth capturing |
 | **Process/Architecture** | Repeated pattern, automation opportunity, workflow gap, scaling issue | One-off mistake with obvious inline fix |
 
 Launch only the relevant ones. 1 agent is fine if the issue is clear. All 3 only if the situation is genuinely multi-faceted.
@@ -53,8 +53,9 @@ Prompt the subagent with:
   - New preferences/habits → appropriate KB file
   - Personal/family context → family.md
   - Decisions made → docs/decisions.md
-- Also check: Is anything in the KB files contradicted by session activity?
-- Report each gap with: what info, where it should go, proposed content
+- Also check: Is anything in the KB files **contradicted, incomplete, or outdated** given session activity?
+- **Extend-over-create rule:** When a finding maps to an existing file, propose extending/correcting that file — don't create a new file or rule. Corrections to existing knowledge are the highest-value, lowest-cost fix.
+- Report each gap with: what info, where it should go (existing file preferred), proposed content
 
 #### Process/Architecture Agent
 Prompt the subagent with:
@@ -64,10 +65,23 @@ Prompt the subagent with:
 - Focus on the specific pattern/issue identified in triage
 - Check: Are there systemic improvements needed?
   - Repeated manual steps that could be automated (hooks, scripts)
-  - Recurring mistakes that need a rule
+  - Recurring mistakes that need documentation or guardrails
   - Missing classification or metadata (e.g., task recurrence types)
   - Processes that could be streamlined
-- Report each finding with: pattern observed, suggested fix (rule, script, or backlog item)
+  - **Existing knowledge that is incomplete, outdated, or contradicted by session evidence**
+- Report each finding with: pattern observed, suggested fix using the **least-cost tier**:
+  1. Hook/script (0 tokens) — if automatable
+  2. **Extend/correct existing knowledge file** (0 tokens unless triggered) — ALWAYS preferred over creating new files. Check `~/.claude/knowledge/`, `~/.claude/reference/`, `~/.claude/domains/`, machine files, and project knowledge for existing coverage first.
+  3. New knowledge file (0 tokens unless triggered) — only if no existing file covers the topic
+  4. Backlog item (0 tokens, read on demand) — one-time fixes
+  5. Project CLAUDE.md rule (tokens per project session) — project-specific behavioral invariants
+  6. Global CLAUDE.md rule (tokens EVERY session) — only cross-project behavioral rules that can't live anywhere else
+  - **Bias check — MANDATORY for every finding:**
+    1. Does an existing file already cover this topic? → **Extend it**, don't create a new file or rule.
+    2. Could this be a hook or script? → Automate it (0 tokens).
+    3. Is this a one-time fix? → Backlog item, not a permanent rule.
+    4. Does this need to run every session? → Only then consider a CLAUDE.md rule.
+    5. Rules are the **most expensive** fix. Knowledge files are cheap. Extending existing files is cheapest. Default DOWN the hierarchy, not up.
 
 ## Presenting Results
 
@@ -99,7 +113,7 @@ Decision rule:
 
 ## Execution Rule — MANDATORY
 
-**Audit findings MUST be promoted to backlog items immediately** — not just written to pending files. The pending file is a detail reference; the backlog item is the action tracker. Without a backlog item, findings accumulate in `docs/pending-lrn-*.md` and never get executed.
+**Audit findings MUST be promoted to backlog items immediately** — not just written to pending files. The pending file is a detail reference; the backlog item is the action tracker. Without a backlog item, findings accumulate in `docs/pending-lrn-*.md` and never get executed (confirmed pattern: stale pending files with unpromoted findings).
 
 Flow:
 1. Write detailed findings to `docs/pending-lrn-audit-YYYY-MM-DD.md`
@@ -107,4 +121,4 @@ Flow:
 3. Delete the pending file once ALL its findings have backlog items
 4. Backlog items get executed in subsequent sessions with full context
 
-**Night mode timing:** If `lrn` runs during night mode, write findings to file + create backlog items, but defer execution to next day mode session. Night mode audits should capture, not execute.
+**Night mode timing:** If `lrn` runs during night mode (weekday >= 17:00, weekend >= 20:00), write findings to file + create backlog items, but defer execution to next day mode session. Night mode audits should capture, not execute.
