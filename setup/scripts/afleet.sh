@@ -215,17 +215,17 @@ render_picker() {
     local total=$i
 
     # Column widths — fixed + elastic Tasks column
-    local col_label=4   # "  1 " or "     a "
+    # Row format: │  LL  NAME..  TYPE..  TASKS..  SIZE  │
+    # Fixed spacing: 2+2+2 (label zone) + 4×2 (inter-column) + 2 (trailing) = 14 chars
+    # Plus 2 for the │ border chars = 16 total overhead
     local col_name=18
     local col_type=14
     local col_size=6
-    local border_overhead=6  # "│" chars + padding
-    local col_tasks=$((term_width - col_label - col_name - col_type - col_size - border_overhead - 8))
+    local col_tasks=$((term_width - col_name - col_type - col_size - 16))
     [[ $col_tasks -lt 12 ]] && col_tasks=12
     [[ $col_tasks -gt 50 ]] && col_tasks=50
 
-    # Recalculate total inner width
-    local inner_width=$((col_label + col_name + col_type + col_tasks + col_size + 8))
+    local inner_width=$((14 + col_name + col_type + col_tasks + col_size))
 
     # Tier colors
     _tier_color() {
@@ -265,6 +265,16 @@ render_picker() {
             result="${result:0:$((max_w - 1))}…"
         fi
         echo "$result"
+    }
+
+    # Printf width adjusted for multibyte chars (├─, └─, —, …)
+    # printf %-*s uses byte width, not display width — this compensates
+    _pw() {
+        local target=$1 text="$2"
+        local bytes chars
+        bytes=$(printf '%s' "$text" | wc -c)
+        chars=${#text}
+        echo $((target + bytes - chars))
     }
 
     # Draw horizontal line
@@ -328,42 +338,33 @@ render_picker() {
         if [[ ${#type} -gt $((col_type - 1)) ]]; then
             type="${type:0:$((col_type - 2))}…"
         fi
-        # Truncate name for children with tree prefix
+        # Build name display — children get tree prefix in the name column
         local name_display="$name"
-        if [[ ${#name_display} -gt $((col_name - 1)) ]]; then
-            name_display="${name_display:0:$((col_name - 2))}…"
-        fi
-
-        # Render row
+        local label_color="$C_BWHT"
         if [[ "$child" == "1" ]]; then
-            # Determine tree char: is next item also a child of same parent?
+            label_color="$C_DIM"
             local tree_char="└─"
             if [[ $((i + 1)) -lt $total && "${is_child[$((i+1))]}" == "1" && "${parents_arr[$((i+1))]}" == "${parents_arr[$i]}" ]]; then
                 tree_char="├─"
             fi
-            # Indented child row
-            printf '%b│%b  %b     %s%b  %s %b%-*s%b  %-*s  %-*s  %*s  %b│%b\n' \
-                "$C_DIM" "$C_RST" \
-                "$C_DIM" "$label" "$C_RST" \
-                "$tree_char" \
-                "$C_RST" "$((col_name - 5))" "$name_display" "$C_RST" \
-                "$((col_type))" "$type" \
-                "$((col_tasks))" "$tasks_str" \
-                "$((col_size))" "$size" \
-                "$C_DIM" "$C_RST"
-            prev_item_tier="$tier"
-        else
-            # Parent row
-            printf '%b│%b  %b%s%b  %-*s  %-*s  %-*s  %*s  %b│%b\n' \
-                "$C_DIM" "$C_RST" \
-                "$C_BWHT" "$(printf '%2s' "$label")" "$C_RST" \
-                "$((col_name))" "$name_display" \
-                "$((col_type))" "$type" \
-                "$((col_tasks))" "$tasks_str" \
-                "$((col_size))" "$size" \
-                "$C_DIM" "$C_RST"
-            prev_item_tier="$tier"
+            name_display="$tree_char $name_display"
         fi
+        # Truncate name
+        if [[ ${#name_display} -gt $((col_name - 1)) ]]; then
+            name_display="${name_display:0:$((col_name - 2))}…"
+        fi
+
+        # Unified row format — same printf for parent and child
+        # _pw compensates for multibyte chars (├─ └─ — …) in printf width
+        printf '%b│%b  %b%s%b  %-*s  %-*s  %-*s  %*s  %b│%b\n' \
+            "$C_DIM" "$C_RST" \
+            "$label_color" "$(printf '%2s' "$label")" "$C_RST" \
+            "$(_pw "$col_name" "$name_display")" "$name_display" \
+            "$(_pw "$col_type" "$type")" "$type" \
+            "$(_pw "$col_tasks" "$tasks_str")" "$tasks_str" \
+            "$(_pw "$col_size" "$size")" "$size" \
+            "$C_DIM" "$C_RST"
+        prev_item_tier="$tier"
     done
 
     # Close last tier
@@ -488,6 +489,40 @@ steamos_preflight() {
     fi
 }
 
+# ── Pre-pull all local repos (CFG-129) ───────────────────────────────────────
+# Pulls all project repos listed in registry.md that exist locally.
+# Prevents stale cross-project state (e.g., tmp/ false alarms from already-moved files).
+# Non-fatal: failures are logged but don't block launch.
+# Testable via: AFLEET_SYNC_LOG, AFLEET_SKIP_REPOS (pipe-separated paths), AFLEET_PULL_TIMEOUT
+pre_pull_all_repos() {
+    local timeout="${AFLEET_PULL_TIMEOUT:-10}"
+    local skip_repos="${AFLEET_SKIP_REPOS:-}"
+    local sync_log="${AFLEET_SYNC_LOG:-}"
+
+    [[ -f "$SYNC_SCRIPT" ]] || return 0
+
+    while IFS='|' read -r name path; do
+        [[ -z "$path" ]] && continue
+        [[ ! -d "$path/.git" ]] && continue
+
+        # Skip repos already pulled by main launch
+        if [[ -n "$skip_repos" ]]; then
+            local skip=false
+            IFS='|' read -ra skip_arr <<< "$skip_repos"
+            for sp in "${skip_arr[@]}"; do
+                [[ "$path" == "$sp" ]] && skip=true && break
+            done
+            $skip && continue
+        fi
+
+        if [[ -n "$sync_log" ]]; then
+            echo "SYNC_CALLED path=$path" >> "$sync_log"
+        fi
+
+        timeout "$timeout" bash "$SYNC_SCRIPT" --pull "$path" >/dev/null 2>&1 || true
+    done < <(parse_registry)
+}
+
 # ── Source guard ─────────────────────────────────────────────────────────────
 # When sourced for testing, only define functions — don't execute main logic
 if [[ "${AFLEET_SOURCE_ONLY:-0}" == "1" ]]; then
@@ -605,8 +640,13 @@ if [[ "$TARGET_DIR" != "$CONFIG_REPO" && -f "$SYNC_SCRIPT" && -d "$CONFIG_REPO/.
     bash "$SYNC_SCRIPT" --pull "$CONFIG_REPO" 2>&1 || true
 fi
 
+# ── Pre-launch: pull all other local repos (CFG-129) ────────────────────────
+# Background-pulls all registry repos to prevent stale cross-project state.
+# Skips target + config repo (already synced above).
+echo "Pre-pulling other local repos..."
+AFLEET_SKIP_REPOS="$TARGET_DIR|$CONFIG_REPO" pre_pull_all_repos
+
 # ── Launch ───────────────────────────────────────────────────────────────────
-echo "Launching $TARGET_NAME ($TARGET_DIR)"
 
 if [[ "$DRY_RUN" == "1" ]]; then
     echo "DRY_RUN: would cd to $TARGET_DIR and exec mclaude"
@@ -625,4 +665,23 @@ if [[ -z "$MCLAUDE" ]]; then
     exit 1
 fi
 
-exec "$MCLAUDE"
+# ── Banner: AF fleet banner with CC version ──────────────────────────────────
+# Replaces both mclaude splash and CC built-in banner with a single clean banner.
+# CC_MIRROR_SPLASH=0 suppresses mclaude's splash; TweakCC hideStartupBanner
+# suppresses CC's built-in banner (requires cc-mirror tweak to be applied).
+if [[ -t 1 ]]; then
+    __cc_ver=""
+    __cc_pkg="$HOME/.cc-mirror/mclaude/npm/node_modules/@anthropic-ai/claude-code/package.json"
+    if [[ -f "$__cc_pkg" ]]; then
+        __cc_ver=$(node -e "process.stdout.write(require('$__cc_pkg').version)" 2>/dev/null || true)
+    fi
+    printf '\n'
+    printf '\033[38;5;220m    ▄▀█ █▀▀\033[0m   \033[38;5;245m%s\033[0m\n' "$TARGET_NAME"
+    printf '\033[38;5;220m    █▀█ █▀\033[0m    \033[38;5;240m━━━━━━━━━━━━\033[0m\n'
+    if [[ -n "$__cc_ver" ]]; then
+        printf '              \033[38;5;243mClaude Code v%s\033[0m\n' "$__cc_ver"
+    fi
+    printf '\n'
+fi
+
+AFLEET_LAUNCHED=1 AFLEET_PROJECT="$TARGET_NAME" CC_MIRROR_SPLASH=0 exec "$MCLAUDE"
