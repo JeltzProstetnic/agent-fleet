@@ -4,6 +4,20 @@ Full session history. Newest first. Never pruned.
 
 <!-- Sessions are appended here by rotate-session.sh -->
 
+### 2026-03-12 16:20 — WSL
+**Goal:** S1b — Review and commit S1a template sync (12 new files, 6 merged files) after personal data scrub
+**Completed:**
+- Reviewed all 18 files for personal data leaks — clean
+- Fixed test-context-budget.sh skip guard for missing statusline.sh
+- Committed and pushed: 777e606
+- Marked S1a + context-budget inbox items [x]
+**Key Decisions:**
+- Added skip guard to context-budget tests rather than making them fail — statusline.sh is a deployed artifact not present in the template repo
+- Remaining template propagation inbox items (learn-protocol, drafts/, collect guard, token optimization, rule audit, ask-passphrase) left open — only partially covered by S1a
+**Pending at shutdown:** None
+**Recovery/Next session:**
+All work committed and pushed. No handoff needed.
+
 ### 2026-03-10T17:15Z — WSL
 **Goal:** Propagate 3 template changes from cfg-agent-fleet to agent-fleet
 **Completed:**
