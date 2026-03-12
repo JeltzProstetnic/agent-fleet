@@ -775,12 +775,35 @@ cmd_collect() {
         [ -n "$project_path" ] && [ -d "$project_path/.claude" ] || continue
 
         mkdir -p "$project_dir/rules"
+        local rules_collected=0 rules_skipped=0
         for rule in "$project_path/.claude/"*.md; do
             [ -f "$rule" ] || continue
+            local base
             base=$(basename "$rule")
+
+            # Skip if files are identical
+            if [ -f "$project_dir/rules/$base" ] && diff -q "$rule" "$project_dir/rules/$base" >/dev/null 2>&1; then
+                continue
+            fi
+
+            # Timestamp guard: if repo version is newer than deployed, skip collection
+            # to avoid overwriting commits from other machines with stale local files.
+            local repo_commit_ts deployed_mtime
+            repo_commit_ts=$(git -C "$SCRIPT_DIR" log -1 --format='%ct' -- "setup/projects/$project_name/rules/$base" 2>/dev/null || echo "0")
+            deployed_mtime=$(stat -c '%Y' "$rule" 2>/dev/null || stat -f '%m' "$rule" 2>/dev/null || echo "0")
+            if [ "$repo_commit_ts" -gt "$deployed_mtime" ]; then
+                log_warn "Skipping $project_name/$base — repo version is newer than deployed (run 'sync.sh deploy' to update)"
+                rules_skipped=$((rules_skipped + 1))
+                continue
+            fi
+
             cp "$rule" "$project_dir/rules/$base"
+            rules_collected=$((rules_collected + 1))
             log_info "Collected: $project_name/$base"
         done
+        if [ "$rules_skipped" -gt 0 ]; then
+            log_info "Project $project_name rules: $rules_collected collected, $rules_skipped skipped"
+        fi
     done
 
     log_info "Collect complete. Review changes with 'git diff'."
