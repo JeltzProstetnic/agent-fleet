@@ -58,6 +58,9 @@ machine-catalog.md
 session-context.md
 session-history.md
 
+# Runtime session lock (PID lock for session safety, CFG-146)
+.claude/.session-lock
+
 # Runtime project state (created by first-run refinement, per-user)
 backlog.md
 registry.md
