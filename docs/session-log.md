@@ -4,6 +4,42 @@ Full session history. Newest first. Never pruned.
 
 <!-- Sessions are appended here by rotate-session.sh -->
 
+### 2026-03-12T17:40Z — WSL
+**Goal:** Resolve vault-ops deferral, mark inbox complete, backlog items AFT-34/35/37/38
+**Completed:**
+- Verified vault-ops.md + age-encryption.md paths already generic — no changes needed
+- Marked all 8 agent-fleet propagation inbox items [x] complete
+- Deleted docs/pending-template-propagation.md (fully resolved)
+- AFT-34: Merged onboarding-guide.md into getting-started.md (troubleshooting added, duplicate deleted)
+- AFT-35: Populated decisions.md (2 → 14 entries)
+- AFT-37: Created CONTRIBUTING.md
+- AFT-38: Generalized OpenClaw → "unattended AI agent" in security-one-pager
+**Key Decisions:**
+- vault-ops.md/age-encryption.md: No changes needed — template already uses placeholder paths
+- AFT-34: Merged (not differentiated) — onboarding-guide added almost nothing beyond getting-started + README
+- AFT-38: Replaced product name with generic category — template shouldn't reference specific competitors
+**Pending at shutdown:** None
+**Recovery/Next session:**
+All work committed and pushed. No recovery needed.
+
+### 2026-03-12T16:47Z — WSL
+**Goal:** Complete remaining template propagation (8 items from docs/pending-template-propagation.md)
+**Completed:**
+- Item 1: learn-protocol.md 5-tier hierarchy (8896575)
+- Item 2: CLAUDE.md drafts/ + steps 8+10 + inbox skip + model-agnostic (23aa11e, 80eb14d)
+- Item 3: config-check.sh symlink validation, severity tags, ACT_PENDING, TMUX, .txt, git-behind (b191369)
+- Item 4: project-setup.md drafts/ + 3 new CLAUDE.md rules (80eb14d)
+- Item 5: sync.sh timestamp guard for project rules (5b99cf7)
+- Item 6: ask-passphrase.sh (226ee37)
+- Item 7: fleet-issue.sh (scrubbed), session-lock.sh, afleet.sh (226ee37)
+- Item 8: clean-pending-files.sh — N/A
+**Key Decisions:**
+- fleet-capabilities.md 3-tier grouping: NOT propagated — template intentionally simplified, Life OS section is personal
+- clean-pending-files.sh: NOT propagated — cfg has deprecated wrapper, agent-fleet has full implementation
+**Pending at shutdown:** vault-ops.md/age-encryption.md path refs (minor, deferred)
+**Recovery/Next session:**
+All work committed. 7 commits on main. Push pending.
+
 ### 2026-03-12 16:35 — WSL
 **Goal:** S1b continued — propagation checks, lrn fixes
 **Completed:**
