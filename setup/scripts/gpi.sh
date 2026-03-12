@@ -15,12 +15,48 @@ set -euo pipefail
 
 STATE_FILE="${GPI_STATE:-$HOME/.claude/.gpi-state.json}"
 LOCK_FILE="${STATE_FILE}.lock"
+COMPLETED_FILE="${GPI_COMPLETED:-$HOME/.claude/.gpi-completed.json}"
 
 # Ensure state file exists with empty ops
 ensure_state() {
     if [[ ! -f "$STATE_FILE" ]]; then
         mkdir -p "$(dirname "$STATE_FILE")"
         echo '{"ops":{},"updated":0}' > "$STATE_FILE"
+    fi
+}
+
+# Remove completed ops older than 60 seconds
+cleanup_completed() {
+    ensure_state
+    local now
+    now=$(date +%s)
+    (
+        flock 9
+        local tmp
+        tmp=$(jq --argjson now "$now" '
+            .ops = (.ops | to_entries | map(select(
+                (.value.completed_at // null) == null or
+                ($now - .value.completed_at) <= 60
+            )) | from_entries)
+        ' "$STATE_FILE")
+        echo "$tmp" > "$STATE_FILE"
+    ) 9>"$LOCK_FILE"
+}
+
+# Write notification sidecar for session awareness
+write_notification() {
+    local id="$1" label="$2"
+    local now
+    now=$(date +%s)
+    if [[ -f "$COMPLETED_FILE" ]]; then
+        local tmp
+        tmp=$(jq --arg id "$id" --arg label "$label" --argjson ts "$now" \
+            '. + [{"id": $id, "label": $label, "completed_at": $ts}]' "$COMPLETED_FILE")
+        echo "$tmp" > "$COMPLETED_FILE"
+    else
+        mkdir -p "$(dirname "$COMPLETED_FILE")"
+        jq -n --arg id "$id" --arg label "$label" --argjson ts "$now" \
+            '[{"id": $id, "label": $label, "completed_at": $ts}]' > "$COMPLETED_FILE"
     fi
 }
 
@@ -107,9 +143,16 @@ cmd_update() {
 
 cmd_done() {
     local id="$1"
+    ensure_state
+    # Get label before marking done (for notification)
+    local label
+    label=$(jq -r ".ops[\"$id\"].label // \"$id\"" "$STATE_FILE")
     local now
     now=$(date +%s)
-    locked_update "del(.ops[\"$id\"]) | .updated = $now"
+    # Set completed_at instead of deleting — auto-cleaned after 60s
+    locked_update ".ops[\"$id\"].completed_at = $now | .ops[\"$id\"].pct = 100 | .ops[\"$id\"].detail = \"DONE\" | .updated = $now"
+    # Write notification sidecar for session awareness
+    write_notification "$id" "$label"
 }
 
 cmd_clear() {
@@ -144,6 +187,9 @@ cmd_status() {
 }
 
 # ── Main dispatch ────────────────────────────────────────────────────────────
+
+# Auto-cleanup completed ops older than 60s on every invocation
+cleanup_completed 2>/dev/null || true
 
 case "${1:-}" in
     start)  shift; cmd_start "$@" ;;

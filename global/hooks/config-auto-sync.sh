@@ -49,6 +49,13 @@ fi
 # permissions. Clean them before auto-sync to keep things tidy for the next session.
 bash "$CLEAN_PERMS_SCRIPT" 2>/dev/null || true
 
+# --- Phase 0.6: Auto-clean completed pending files ---
+# Delete pending files whose tracked backlog items are all [x] done.
+MANAGE_PENDING="$CONFIG_REPO/setup/scripts/manage-pending.sh"
+if [ -f "$MANAGE_PENDING" ]; then
+    bash "$MANAGE_PENDING" --auto-clean --project-dir "$CONFIG_REPO" 2>/dev/null || true
+fi
+
 # --- Phase 0.7: Run propagation drift check ---
 # Runs sync.sh check, captures any warnings to .sync-warnings.log.
 # The SessionStart hook (config-check.sh) reads this log and surfaces drift to Claude.

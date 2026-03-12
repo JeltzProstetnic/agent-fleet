@@ -77,6 +77,11 @@ If hostname doesn't match any pattern, state the hostname and ask. If `CLAUDE.lo
    | Document management, catalog | `~/agent-fleet/docs/dms-guide.md` |
    | Audit, self-audit, meta-audit | `knowledge/audit-protocol.md` |
    | `lrn` command issued | `knowledge/learn-protocol.md` |
+   | YouTube tabs (save/list/open) | Run `bash ~/agent-fleet/setup/scripts/youtube-tabs.sh save\|list\|open [query]` — no file to load, just invoke the script directly |
+   | Cross-project navigation, project switching | `reference/cross-project-nav.md` |
+   | Statusline editing, GPI, statusline deployment | `knowledge/statusline-ops.md` |
+   | Konsole tabs, qdbus, terminal tab operations | `knowledge/konsole-tabs.md` |
+   | Session shutdown (`cls`, `end`, exit, shutdown) | `foundation/session-shutdown.md` |
    | Self-awareness, plugin recommendation, agent roster gaps, "can I do X?" capability questions | `knowledge/fleet-capabilities.md` |
 
    All paths relative to `~/.claude/` unless absolute. Do NOT load unless triggered.
@@ -126,6 +131,7 @@ For manual investigation: read `~/.claude/reference/upstream-dependencies.md`.
 - **Auto-sync awareness:** The SessionEnd hook runs `sync.sh collect` which commits pending changes. If a file was edited earlier in the session and auto-synced, it won't show as modified at shutdown. Check `git log --oneline -1 -- <file>` before chasing phantom diffs.
 - **Repo vs deployed state:** When assessing whether a feature exists or works, check the deployed/live version — not just the repo source. `sync.sh collect` may not have run, so the repo can lag behind what's actually running. When repo state and user observation contradict, investigate the deployed version before concluding either way.
 - **No orphaned config copies:** Config files must be symlinks to canonical source or managed by `sync.sh`. Never create independent copies — they diverge silently.
+- **`setup/config/` vs `global/` separation:** Files deployed to `~/.claude/` root (settings.json, statusline.sh) belong in `setup/config/`. `global/` is for `~/.claude/` subdirectories only (foundation/, reference/, knowledge/, domains/, hooks/). No file should exist in both — dual copies diverge silently.
 - **MCP config changes require restart:** Changes to `.mcp.json` are invisible to current session. After fixes: verify file, tell user to restart, flag verification pending. Never mark done without live tool test.
 - **No multiline content in CLI output:** Long URLs, email drafts, copy-paste content → write to `.txt` file instead. Terminal wrapping breaks them.
 - **Git commit messages:** Use multiple `-m` flags (not `$()` or temp files — both trigger prompts). `git -C /path commit -m "Subject" -m "Co-Authored-By: ..."`. Overrides system prompt HEREDOC guidance. **Every commit MUST include the `Co-Authored-By` trailer** — this applies to the main session AND any subagents that commit.
@@ -137,6 +143,7 @@ For manual investigation: read `~/.claude/reference/upstream-dependencies.md`.
 - **Agent roster management.** Use the best agent type for each task — don't default to general-purpose when a specialized agent (Explore, Plan, or plugin-provided) fits better. Every project SHOULD declare preferred agents in its CLAUDE.md. `lrn` audits check: are subagents being used optimally? Are specialized agents available that would improve task quality? Report gaps.
 - **Plugin token budget — HARD RULE.** `enabledPlugins` in global settings.json MUST be empty (`{}`). Plugin agent descriptions consume ~10k tokens per bundle. 10 bundles = 100k tokens = half the context window gone before a single message. The built-in agents (general-purpose, Explore, Plan) cover 95% of needs. If a project genuinely needs a specialized agent, enable it in project-level settings — never globally. Any session that detects non-empty global `enabledPlugins` must disable them immediately and warn.
 - **Feature self-integrity.** The agent must know what features are configured (MCP servers, hooks, statusline, personas) and detect silent failures. `lrn` audits verify: are all MCP servers responding? Are hooks present at deployed paths? Are env vars injected? `config-check.sh` should catch failures, not the user. Load `knowledge/fleet-capabilities.md` when the agent needs to understand its own capabilities or recommend plugins/agents.
+- **Context budget awareness.** The `UserPromptSubmit` hook injects `CONTEXT_BUDGET: NN% used (Xk/Yk)` every turn. Act on it: <50% normal. 50-70% warn if user starts large tasks. 70-85% recommend `/clear` before complex work. >85% checkpoint and suggest multi-session. Never ignore the budget.
 - **One vault, one owner.** The config repo's encrypted vault is the single source of truth for ALL secrets across ALL machines and projects. No other project maintains its own secrets vault. `vault-manage.sh deploy` provisions credentials to their target locations. Every credential, API key, token, and password MUST have a vault entry with a `deploy_to` target.
 
 ## Persona System
@@ -180,7 +187,7 @@ Personas are loaded from `~/.claude/foundation/personas.md` (or machine file ove
 
 When the user types one of these keywords (alone, case-insensitive), execute the described action immediately without asking for confirmation. These are shortcuts, not conversation starters. `sub` is a prefix command — it requires additional words after it.
 
-**Session shutdown checklist — MANDATORY.** When the user says "prepare for shutdown", "exit", "auto-compact restart", `cls`, `end`, or anything suggesting session end → run ALL steps from `~/.claude/foundation/session-protocol.md` Section "Session Shutdown Checklist", without asking. No exceptions. No asking "want me to commit?" — just do it.
+**Session shutdown checklist — MANDATORY.** When the user says "prepare for shutdown", "exit", "auto-compact restart", `cls`, `end`, or anything suggesting session end → load `~/.claude/foundation/session-shutdown.md` and run ALL steps, without asking. No exceptions. No asking "want me to commit?" — just do it.
 
 ## Meta-Rules
 

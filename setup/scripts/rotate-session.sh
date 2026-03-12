@@ -286,9 +286,17 @@ cat > "$SESSION_FILE" <<'EOF'
 ## Key Decisions
 
 ## Recovery Instructions
+
+## Next Session Task
+<!-- Fill this in during shutdown if the next session should continue specific work.
+     Required fields: task: true|false, file: <path>, description: <text>
+     The file: MUST point to a dedicated file (e.g., docs/pending-*.md), NEVER to session-context.md.
+     rotate-session.sh extracts this section to next-session-task.md automatically. -->
 EOF
 
-echo "Reset session-context.md to blank template."
+# Pre-populate deterministic fields so the template isn't fully blank
+sed -i "s/^\(- \*\*Last Updated\*\*:\)$/\1 $(date -Iseconds) (rotated)/" "$SESSION_FILE"
+echo "Reset session-context.md to blank template (pre-populated timestamp)."
 echo "Rotation complete."
 echo ""
 echo "Reminder: if significant decisions were made, update docs/decisions.md."
