@@ -6,20 +6,20 @@
 
 However, the risk profile varies dramatically by deployment model:
 
-| | Claude Code + this config | OpenClaw (self-hosted) |
+| | Claude Code + this config | Unattended AI agent (daemon-style) |
 |---|:---:|:---:|
 | **Runs as** | Interactive CLI, user present | 24/7 daemon, unattended |
 | **Human in the loop** | Yes — user approves destructive ops | No — fully autonomous |
-| **Attack surface** | Local machine, user's permissions | Server + all connected channels (Slack, Teams, WhatsApp) |
+| **Attack surface** | Local machine, user's permissions | Server + all connected channels (Slack, Teams, etc.) |
 | **Credential exposure** | `.mcp.json` on local disk | API keys in running service, accessible from network |
 | **Blast radius of compromise** | One user's files | All connected channels + server + all users who interact |
-| **Sandbox** | bubblewrap (Linux namespaces) | None (runs as service user) |
-| **Permission gating** | Explicit allow-list per tool | No tool-level permission model |
-| **Prompt injection risk** | Low — input is the user typing | High — any message in Slack/Teams can be crafted input |
+| **Sandbox** | bubblewrap (Linux namespaces) | Typically none (runs as service user) |
+| **Permission gating** | Explicit allow-list per tool | Varies — often no tool-level permission model |
+| **Prompt injection risk** | Low — input is the user typing | High — any message in connected channels can be crafted input |
 | **Audit trail** | Git history + session context | Application logs only |
 | **Recovery from bad action** | `git revert`, files are local | Messages sent, API calls made — not reversible |
 
-**Bottom line:** Claude Code with this config is a powerful tool with real risks, but the human-in-the-loop model + sandbox + permission gating + git audit trail make it **categorically safer** than any unattended AI agent. OpenClaw's always-on, multi-channel exposure is a fundamentally different (and higher) risk class.
+**Bottom line:** Claude Code with this config is a powerful tool with real risks, but the human-in-the-loop model + sandbox + permission gating + git audit trail make it **categorically safer** than any unattended AI agent. Always-on, multi-channel agents have a fundamentally different (and higher) risk class.
 
 ### Residual risks even with this setup
 
@@ -175,4 +175,4 @@ These are **Windows-side** mechanisms. Within WSL's Linux filesystem (`/home/`),
 
 ---
 
-*Generated 2026-02-25. Source: agent-fleet + agent-fleet analysis.*
+*Generated 2026-02-25, updated 2026-03-12. Source: agent-fleet security analysis.*

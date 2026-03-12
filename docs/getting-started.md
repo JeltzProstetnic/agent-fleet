@@ -277,6 +277,19 @@ No machine is special. Any machine with the repo cloned and `setup.sh` run is a 
 
 ---
 
+## 9. Troubleshooting
+
+| Problem | Fix |
+|---------|-----|
+| Agent doesn't see MCP servers | Restart Claude Code (MCP loads at startup only). Or tell the agent -- it knows how to diagnose. |
+| Permission prompts every session | Tell the agent to fix permissions -- it knows about `settings.local.json` cleanup. |
+| Session state not persisting | Describe the symptom to the agent -- it will diagnose and fix. |
+| Symlinks broken after git pull | `bash sync.sh setup` recreates them. |
+| General health check | `bash sync.sh status` |
+| Something else | Describe the problem to the agent. It has built-in troubleshooting knowledge for all its infrastructure. |
+
+---
+
 ## Next Steps
 
 - **Customize your profile** -- edit `global/foundation/user-profile.md` with your name, role, and communication preferences

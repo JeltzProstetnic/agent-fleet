@@ -11,7 +11,7 @@ cd ~/agent-fleet && bash setup.sh
 
 Launch Claude Code. The agent introduces itself and asks how you work -- your projects, your communication style, your tools. No forms. No config files. Just a conversation. Everything after this point is "tell the agent what you need."
 
-For a more detailed walkthrough, see the [Onboarding Guide](docs/onboarding-guide.md).
+For a more detailed walkthrough, see the [Getting Started Guide](docs/getting-started.md).
 
 ---
 
@@ -307,8 +307,7 @@ agent-fleet/
 |       `-- test-*.sh              Individual suites
 |
 |-- docs/
-|   |-- getting-started.md         Detailed walkthrough
-|   |-- onboarding-guide.md        Quick onboarding overview
+|   |-- getting-started.md         Detailed setup and usage walkthrough
 |   `-- security-one-pager.md      Security architecture reference
 |
 |-- migrations/                    Version migration scripts
