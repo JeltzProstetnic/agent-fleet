@@ -66,7 +66,7 @@ If hostname doesn't match any pattern, state the hostname and ask. If `CLAUDE.lo
    | Backlog format, task IDs | `reference/backlog-convention.md` |
    | Terminal tabs, cross-platform, VPS | `reference/platform-notes.md` |
    | age/pyrage encryption, vault | `knowledge/age-encryption.md` |
-   | Vault ops, credentials, deploy secrets, passphrase prompt | `knowledge/vault-ops.md` |
+   | Vault ops, credentials, deploy secrets, passphrase prompt, encrypt, decrypt, vault-manage, token rotation — STOP and load before ANY vault/secret operation | `knowledge/vault-ops.md` |
    | Adding/debugging MCP servers | `knowledge/mcp-deployment.md` |
    | Permission prompts, settings.local | `knowledge/claude-code-permissions.md` |
    | `lsd` command (dashboard) | `reference/lsd-spec.md` |
@@ -81,6 +81,7 @@ If hostname doesn't match any pattern, state the hostname and ask. If `CLAUDE.lo
    | Cross-project navigation, project switching | `reference/cross-project-nav.md` |
    | Statusline editing, GPI, statusline deployment | `knowledge/statusline-ops.md` |
    | Konsole tabs, qdbus, terminal tab operations | `knowledge/konsole-tabs.md` |
+   | Filing GitHub issue on agent-fleet, `issue` command | `knowledge/fleet-issue-protocol.md` |
    | Session shutdown (`cls`, `end`, exit, shutdown) | `foundation/session-shutdown.md` |
    | Self-awareness, plugin recommendation, agent roster gaps, "can I do X?" capability questions | `knowledge/fleet-capabilities.md` |
 
