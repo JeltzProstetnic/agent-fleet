@@ -47,7 +47,7 @@ S1a committed (777e606) covered the bulk files. S2 (this session) completed item
 ## 7. ask-passphrase.sh + sync.sh collect guard for project rules (inbox line 88)
 - [x] setup/scripts/ask-passphrase.sh — DONE (226ee37)
 - [x] sync.sh: timestamp guard for project-specific rules collection loop — DONE (5b99cf7)
-- [ ] vault-ops.md + age-encryption.md: path references — DEFERRED (minor, template paths already generic)
+- [x] vault-ops.md + age-encryption.md: path references — VERIFIED generic (placeholder/relative paths, no changes needed)
 
 ## 8. cfg session 2026-03-12 outputs (inbox line 9)
 - [x] setup/scripts/fleet-issue.sh + test — DONE, privacy scrubbed (226ee37)
@@ -62,5 +62,5 @@ S1a committed (777e606) covered the bulk files. S2 (this session) completed item
 - [x] New backlog entries need user priority review — DONE (80eb14d)
 - [x] User actions go LAST rule — DONE (80eb14d)
 
-## Status: COMPLETE
-All items resolved. One minor deferral: vault-ops.md/age-encryption.md path references (template already has generic paths, no functional impact).
+## Status: FULLY COMPLETE
+All items resolved. vault-ops.md/age-encryption.md paths verified — already generic in template.
