@@ -49,5 +49,13 @@ S1a committed (777e606) covered the bulk files. These inbox items have remaining
 - [ ] sync.sh: timestamp guard for project-specific rules collection loop
 - [ ] CLAUDE.md + vault-ops.md + age-encryption.md: path references updated
 
+## 8. cfg session 2026-03-12 outputs (inbox line 9)
+- [ ] setup/scripts/fleet-issue.sh + setup/tests/test-fleet-issue.sh — privacy scrub + dedup
+- [ ] setup/scripts/session-lock.sh + setup/tests/test-session-lock.sh — PID-based session lock
+- [x] global/knowledge/fleet-issue-protocol.md — DONE (7a27305)
+- [x] global/CLAUDE.md — fleet-issue trigger + vault-ops trigger — DONE (22b7a1b)
+- [ ] global/hooks/config-check.sh — symlink validation, .template-repo help, Check 17 severity
+- [ ] setup/scripts/afleet.sh — custom banner with CC version
+
 ## Approach
-For each item: diff the cfg-agent-fleet source against agent-fleet to see what's missing, copy/adapt, scrub personal data, test, commit. Work through items 1-7 in order.
+For each item: diff the cfg-agent-fleet source against agent-fleet to see what's missing, copy/adapt, scrub personal data, test, commit. Work through items 1-8 in order.

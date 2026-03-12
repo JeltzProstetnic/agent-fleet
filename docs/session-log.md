@@ -4,6 +4,19 @@ Full session history. Newest first. Never pruned.
 
 <!-- Sessions are appended here by rotate-session.sh -->
 
+### 2026-03-12 16:35 — WSL
+**Goal:** S1b continued — propagation checks, lrn fixes
+**Completed:**
+- Propagated vault-ops trigger + fleet-issue-protocol trigger to agent-fleet
+- Propagated fleet-issue-protocol.md knowledge file (scrubbed)
+- lrn: tightened propagation rule from session-end to immediate (both repos)
+- Updated pending-template-propagation.md with item 8 (cfg 2026-03-12 outputs)
+**Key Decisions:**
+- Propagation check rule changed from "before session end" to "immediately after each edit" — template-only fixes are dead on arrival until cfg gets them too
+**Pending at shutdown:** None — all handoff in pending file
+**Recovery/Next session:**
+All work committed and pushed. Handoff via docs/pending-template-propagation.md (8 items, sub-tasks tracked with checkboxes).
+
 ### 2026-03-12 16:20 — WSL
 **Goal:** S1b — Review and commit S1a template sync (12 new files, 6 merged files) after personal data scrub
 **Completed:**
