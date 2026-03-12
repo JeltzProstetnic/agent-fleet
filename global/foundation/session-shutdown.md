@@ -8,6 +8,7 @@
 ### 1. Session context and work products
 - [ ] **Persist work products first.** If this session produced significant artifacts (maps, analysis results, generated data, exploration outputs, plans) that exist only in conversation context, write them to files NOW — before they're lost with the session. Recovery instructions that say "reference the X from this session" are worthless if X was never saved. Common culprits: subagent outputs, exploration results, dependency maps, architecture diagrams.
 - [ ] **Clean completed pending files.** Check all `docs/pending-*.md` — if the work a file describes was completed this session, delete it. If a pending file is also a handoff target (`next-session-task.md` → `file:`), clear the handoff too (`task: false`). Stale pending files cause the next session to re-propose finished work.
+- [ ] **Write handoff if work remains.** If this session is part of a multi-session task, or if incomplete work exists that the next session MUST continue: write a `docs/pending-*.md` file (Action: act) with the remaining items, then set `## Next Session Task` in session-context.md pointing to it (task: true, file: docs/pending-*.md). This is not optional — incomplete multi-session work without a handoff file is a dropped task.
 - [ ] Update `session-context.md` with final state, completed work, and recovery instructions
 - [ ] Update this project's row in `~/cfg-agent-fleet/cross-project/dashboard-cache.md` — task counts (grep backlog), disk size (`du -sh`). Only update fields that changed.
 
