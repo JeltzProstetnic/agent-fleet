@@ -31,20 +31,37 @@ if [ -f "$FAIL_MARKER" ]; then
     WARNINGS="CONFIG SYNC FAILED ($CONFIG_REPO) at $time — stage: $stage, detail: $detail. Run 'bash $CONFIG_REPO/sync.sh status' to diagnose. Uncommitted config changes may exist in $CONFIG_REPO/."
 fi
 
-# Check 2: Are symlinks intact and pointing to the right repo?
+# Check 2: Are symlinks intact? + direction validation
 if [ ! -L "$HOME/.claude/CLAUDE.md" ]; then
     WARNINGS="${WARNINGS:+$WARNINGS | }CLAUDE.md is not symlinked to config repo. Run 'bash $CONFIG_REPO/sync.sh setup' to restore."
 elif [ -L "$HOME/.claude/CLAUDE.md" ]; then
-    SYMLINK_TARGET="$(readlink -f "$HOME/.claude/CLAUDE.md" 2>/dev/null)"
-    EXPECTED_TARGET="$(readlink -f "$CONFIG_REPO/global/CLAUDE.md" 2>/dev/null)"
-    if [ -n "$SYMLINK_TARGET" ] && [ -n "$EXPECTED_TARGET" ] && [ "$SYMLINK_TARGET" != "$EXPECTED_TARGET" ]; then
-        WARNINGS="${WARNINGS:+$WARNINGS | }CLAUDE.md symlink points to wrong directory ($SYMLINK_TARGET instead of $EXPECTED_TARGET). Run 'bash $CONFIG_REPO/sync.sh setup' to fix."
+    _link_target="$(readlink -f "$HOME/.claude/CLAUDE.md" 2>/dev/null || echo "")"
+    _config_real="$(readlink -f "$CONFIG_REPO" 2>/dev/null || echo "$CONFIG_REPO")"
+    if [ -n "$_link_target" ] && [[ "$_link_target" != "$_config_real"/* ]]; then
+        WARNINGS="${WARNINGS:+$WARNINGS | }CLAUDE.md symlink points to wrong repo: $_link_target (expected under $_config_real). Run 'bash $CONFIG_REPO/sync.sh setup' to fix."
     fi
+fi
+
+# Check 2b: Validate symlink direction for key subdirectories
+for _subdir in foundation reference knowledge domains; do
+    _link_path="$HOME/.claude/$_subdir"
+    if [ -L "$_link_path" ]; then
+        _sub_target="$(readlink -f "$_link_path" 2>/dev/null || echo "")"
+        _config_real="${_config_real:-$(readlink -f "$CONFIG_REPO" 2>/dev/null || echo "$CONFIG_REPO")}"
+        if [ -n "$_sub_target" ] && [[ "$_sub_target" != "$_config_real"/* ]]; then
+            WARNINGS="${WARNINGS:+$WARNINGS | }$_subdir symlink points to wrong repo: $_sub_target (expected under $_config_real). Run 'bash $CONFIG_REPO/sync.sh setup' to fix."
+        fi
+    fi
+done
+
+# Check 2c: Detect template-only deployment and provide guidance
+if [ -f "$CONFIG_REPO/.template-repo" ]; then
+    WARNINGS="${WARNINGS:+$WARNINGS | }Config repo is a template-only deployment ($CONFIG_REPO has .template-repo marker). For first-run personalization, run the first-run refinement protocol. See foundation/first-run-refinement.md for guidance."
 fi
 
 # Check 3: Does config repo exist?
 if [ ! -d "$CONFIG_REPO/.git" ]; then
-    WARNINGS="${WARNINGS:+$WARNINGS | }Config repo not found at $CONFIG_REPO. Clone it and run: bash $CONFIG_REPO/sync.sh setup. If your repo is at ~/agent-fleet/, check if .template-repo exists and delete it (or run setup/install.sh which removes it automatically), then restart."
+    WARNINGS="${WARNINGS:+$WARNINGS | }Config repo not found at $CONFIG_REPO. Clone it and run: bash $CONFIG_REPO/sync.sh setup"
 fi
 
 # Check 4: Pull latest config (so inbox is current), and report changed files
@@ -203,38 +220,82 @@ fi
 DOC_IN_TMP=""
 for tmpdir in "$HOME"/*/tmp; do
     [ -d "$tmpdir" ] || continue
-    FOUND=$(find "$tmpdir" -maxdepth 2 -type f \( -name "*.md" -o -name "*.pdf" -o -name "*.docx" -o -name "*.html" \) 2>/dev/null | head -5)
+    FOUND=$(find "$tmpdir" -maxdepth 2 -type f \( -name "*.md" -o -name "*.pdf" -o -name "*.docx" -o -name "*.html" -o -name "*.txt" \) 2>/dev/null | head -5)
     if [ -n "$FOUND" ]; then
         COUNT=$(echo "$FOUND" | wc -l)
-        DOC_IN_TMP="${DOC_IN_TMP:+$DOC_IN_TMP, }$tmpdir ($COUNT files)"
+        _tmp_entry="$tmpdir ($COUNT files)"
+        # CFG-130: check if project repo is behind remote — hint that pull may resolve
+        _proj_dir="$(dirname "$tmpdir")"
+        if [ -d "$_proj_dir/.git" ]; then
+            _behind=$(git -C "$_proj_dir" rev-list --count HEAD..@{u} 2>/dev/null || echo "0")
+            if [ "$_behind" -gt 0 ]; then
+                _tmp_entry="$_tmp_entry [repo behind remote — pull may resolve]"
+            fi
+        fi
+        DOC_IN_TMP="${DOC_IN_TMP:+$DOC_IN_TMP, }$_tmp_entry"
     fi
 done
 if [ -n "$DOC_IN_TMP" ]; then
     WARNINGS="${WARNINGS:+$WARNINGS | }Documents found in project tmp/ dirs: $DOC_IN_TMP — these should be in DMS/NAS/Dropbox for cross-machine access. Tell the user about this issue immediately before doing any other work."
 fi
 
-# Check 17: Warn on stale pending files (>2 days old) with backlog cross-check
-STALE_PENDING=""
-STALE_UNTRACKED=""
+# Check 17: Warn on stale pending files with severity-differentiated tags
+# STALE_ACT = act files >3 days (should have been executed)
+# STALE_DEFER = defer files >14 days + untracked (needs backlog promotion)
+# STALE_AWAIT = await-user-decision files >7 days (user needs a nudge) OR all backlog items done
+STALE_MSG=""
 if [ -d "$PROJECT_DIR/docs" ]; then
     BACKLOG_FILE="$PROJECT_DIR/backlog.md"
     for pf in "$PROJECT_DIR"/docs/pending-*.md; do
         [ -f "$pf" ] || continue
+        PF_BASE="$(basename "$pf")"
         FILE_AGE_DAYS=$(( ( $(date +%s) - $(stat -c %Y "$pf" 2>/dev/null || echo "$(date +%s)") ) / 86400 ))
+        _action=$(head -5 "$pf" | sed -n 's/^Action: *\(.*\)/\1/p' | head -1 | tr '[:upper:]' '[:lower:]')
+
+        # STALE_ACT: act files older than 3 days
+        if [ "$_action" = "act" ] && [ "$FILE_AGE_DAYS" -ge 3 ]; then
+            STALE_MSG="${STALE_MSG:+$STALE_MSG | }STALE_ACT: $PF_BASE (${FILE_AGE_DAYS}d) — should have been executed immediately"
+        fi
+
+        # STALE_DEFER: defer files >14 days AND not tracked in backlog
+        if [ "$_action" = "defer" ] && [ "$FILE_AGE_DAYS" -ge 14 ]; then
+            if [ ! -f "$BACKLOG_FILE" ] || ! grep -q "$PF_BASE" "$BACKLOG_FILE" 2>/dev/null; then
+                STALE_MSG="${STALE_MSG:+$STALE_MSG | }STALE_DEFER: $PF_BASE (${FILE_AGE_DAYS}d, untracked) — needs backlog item or deletion"
+            fi
+        fi
+
+        # STALE_AWAIT: await-user-decision files — two triggers:
+        #   1. Age-based: >7 days old (user needs a nudge regardless of backlog state)
+        #   2. Completion-based: all backlog refs are [x] done (safe to delete)
+        if [ "$_action" = "await-user-decision" ]; then
+            _await_warned=0
+            if [ "$FILE_AGE_DAYS" -ge 7 ]; then
+                STALE_MSG="${STALE_MSG:+$STALE_MSG | }STALE_AWAIT: $PF_BASE (${FILE_AGE_DAYS}d) — user needs a nudge"
+                _await_warned=1
+            fi
+            if [ "$_await_warned" -eq 0 ] && [ -f "$BACKLOG_FILE" ]; then
+                _refs=$(grep "$PF_BASE" "$BACKLOG_FILE" 2>/dev/null || true)
+                if [ -n "$_refs" ]; then
+                    _has_open=$(echo "$_refs" | grep '\- \[ \]' || true)
+                    if [ -z "$_has_open" ] && echo "$_refs" | grep -q '\- \[x\]'; then
+                        STALE_MSG="${STALE_MSG:+$STALE_MSG | }STALE_AWAIT: $PF_BASE — all backlog items completed, safe to delete"
+                    fi
+                fi
+            fi
+        fi
+
+        # Generic stale warning for old untracked files of any type (>2 days)
         if [ "$FILE_AGE_DAYS" -ge 2 ]; then
-            PF_BASE="$(basename "$pf")"
-            STALE_PENDING="${STALE_PENDING:+$STALE_PENDING, }${PF_BASE} (${FILE_AGE_DAYS}d)"
-            if [ -f "$BACKLOG_FILE" ] && ! grep -q "$PF_BASE" "$BACKLOG_FILE" 2>/dev/null; then
-                STALE_UNTRACKED="${STALE_UNTRACKED:+$STALE_UNTRACKED, }${PF_BASE} (no backlog item)"
+            if [ ! -f "$BACKLOG_FILE" ] || ! grep -q "$PF_BASE" "$BACKLOG_FILE" 2>/dev/null; then
+                # Only add generic warning if no specific warning was already added
+                if ! echo "$STALE_MSG" | grep -q "$PF_BASE" 2>/dev/null; then
+                    STALE_MSG="${STALE_MSG:+$STALE_MSG | }Stale pending: $PF_BASE (${FILE_AGE_DAYS}d, untracked)"
+                fi
             fi
         fi
     done
 fi
-if [ -n "$STALE_PENDING" ]; then
-    STALE_MSG="Stale pending files (>2 days): $STALE_PENDING — address, promote to backlog, or delete."
-    if [ -n "$STALE_UNTRACKED" ]; then
-        STALE_MSG="$STALE_MSG Untracked: $STALE_UNTRACKED"
-    fi
+if [ -n "$STALE_MSG" ]; then
     WARNINGS="${WARNINGS:+$WARNINGS | }$STALE_MSG"
 fi
 
@@ -298,13 +359,23 @@ else
 fi
 
 # Check 23: Pending files list — list all pending-*.md files in project docs/
+# Also scan for Action: act files and promote to WARNING
 _pending_list=""
+_act_files=""
 if [ -d "$PROJECT_DIR/docs" ]; then
     for _pf in "$PROJECT_DIR"/docs/pending-*.md; do
         [ -f "$_pf" ] || continue
         _pf_base="$(basename "$_pf")"
         _pending_list="${_pending_list:+$_pending_list, }$_pf_base"
+        # Check if file has Action: act header (first 5 lines)
+        _action=$(head -5 "$_pf" | sed -n 's/^Action: *\(.*\)/\1/p' | head -1)
+        if [ "$_action" = "act" ]; then
+            _act_files="${_act_files:+$_act_files, }$_pf_base"
+        fi
     done
+fi
+if [ -n "$_act_files" ]; then
+    WARNINGS="${WARNINGS:+$WARNINGS | }ACT_PENDING: These pending files require IMMEDIATE execution before any user task: $_act_files — read them and execute (loading protocol step 0b)."
 fi
 if [ -n "$_pending_list" ]; then
     INBOX_MSG="${INBOX_MSG:+$INBOX_MSG | }PENDING_FILES: $_pending_list"
@@ -332,11 +403,17 @@ else
     INBOX_MSG="${INBOX_MSG:+$INBOX_MSG | }PROJECT_KNOWLEDGE: none"
 fi
 
-# Check 25: AFD/afleet dashboard marker — deferred startup with auto-dashboard
-DASH_MARKER="$HOME/.claude/.afleet-show-dash"
-if [ -f "$DASH_MARKER" ]; then
-    INBOX_MSG="${INBOX_MSG:+$INBOX_MSG | }AFLEET_DASHBOARD: Show project dashboard (lsd) immediately as first response — read ONLY $CONFIG_REPO/cross-project/dashboard-cache.md, render per lsd-spec.md. Skip startup protocol entirely. If user enters a number or project name, treat as project switch. Only run full startup if user gives a non-dashboard, non-switch command."
-    rm -f "$DASH_MARKER"
+# Check 25: (removed — AFLEET_DASHBOARD replaced by afleet picker)
+
+# Check 26: Active tmux sessions — surface running background ops
+_tmux_sessions=$(tmux list-sessions -F '#{session_name}' 2>/dev/null | tr '\n' ', ' | sed 's/, $//')
+if [ -n "$_tmux_sessions" ]; then
+    INBOX_MSG="${INBOX_MSG:+$INBOX_MSG | }TMUX_ACTIVE: $_tmux_sessions"
+fi
+
+# Check 27: afleet mandatory — warn if launched directly instead of via afleet
+if [[ -z "${AFLEET_LAUNCHED:-}" ]]; then
+    WARNINGS="${WARNINGS:+$WARNINGS | }Session NOT launched via afleet. Use 'afleet' instead of direct launch — afleet handles pre-pull, project detection, and session safety. Direct launch skips fleet infrastructure."
 fi
 
 # Output JSON if there are warnings or inbox items
