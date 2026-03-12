@@ -23,7 +23,7 @@ A project is considered new (and triggers full roster + skill discovery) when **
 3. **Run skill discovery** — browse skill catalog, select relevant skills for the project type
 4. **Configure MCP servers** — determine which servers are needed (code → Serena; GitHub repo → GitHub MCP; etc.)
 5. **Set up roster** — create `.claude/agents/`, `.claude/skills/`, copy selected files
-6. **Create session-context.md** — initial project state
+6. **Create session-context.md** — initial project state. Also create `tmp/` (gitignored, throwaway) and `drafts/` (tracked, content awaiting user action) directories
 7. **Add project to registry**: update `~/agent-fleet/registry.md`
 8. **Tell the user**: "Roster set up with N agents and M skills. Please restart to load them."
 
@@ -49,8 +49,8 @@ Add a "Session Startup — Platform Scan" section to the project's `CLAUDE.md` t
    - Ambiguous items → ask user
 
 3. **Prepare ready-to-use deliverables:**
-   - Copy-pastable content (tweet drafts, post drafts, reply text) → write to `tmp/` files
-   - Click lists (URLs for engagement actions) → write to `tmp/` files
+   - Copy-pastable content (tweet drafts, post drafts, reply text) → write to `drafts/` files (persist across sessions)
+   - Click lists (URLs for engagement actions) → write to `tmp/` files (throwaway)
    - One best option per target (don't present multiple alternatives)
 
 4. **Cross-reference** targets against shared contact/engagement tracking files before drafting
