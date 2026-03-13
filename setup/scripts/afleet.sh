@@ -601,12 +601,17 @@ fi
 # ── Project resolution ───────────────────────────────────────────────────────
 TARGET_DIR=""
 TARGET_NAME=""
+HAS_REGISTRY=false
+[[ -f "$REGISTRY" ]] && HAS_REGISTRY=true
 
 if [[ -n "$PROJECT_ARG" ]]; then
-    MATCH=$(parse_registry | grep -i "^${PROJECT_ARG}|" | head -1 || true)
+    if $HAS_REGISTRY; then
+        MATCH=$(parse_registry | grep -i "^${PROJECT_ARG}|" | head -1 || true)
+    else
+        MATCH=""
+    fi
     if [[ -z "$MATCH" ]]; then
-        echo "Error: project '$PROJECT_ARG' not found in registry.md" >&2
-        echo "Run 'afleet --list' to see available projects." >&2
+        echo "Error: project '$PROJECT_ARG' not found" >&2
         exit 1
     fi
     TARGET_NAME="${MATCH%%|*}"
@@ -627,22 +632,22 @@ else
             TARGET_NAME="$BASENAME"
             break
         fi
-        MATCH=$(parse_registry | grep -i "^${BASENAME}|" | head -1 || true)
-        if [[ -n "$MATCH" ]]; then
-            TARGET_NAME="${MATCH%%|*}"
-            TARGET_DIR="${MATCH#*|}"
-            break
+        if $HAS_REGISTRY; then
+            MATCH=$(parse_registry | grep -i "^${BASENAME}|" | head -1 || true)
+            if [[ -n "$MATCH" ]]; then
+                TARGET_NAME="${MATCH%%|*}"
+                TARGET_DIR="${MATCH#*|}"
+                break
+            fi
         fi
         CHECK_DIR="$(dirname "$CHECK_DIR")"
     done
 
-    # Fallback — use base project directly
+    # Fallback — use base project directly (no picker on fresh installs)
     if [[ -z "$TARGET_DIR" ]]; then
         if [[ -d "$HOME/agent-fleet" ]]; then
             TARGET_DIR="$HOME/agent-fleet"
             TARGET_NAME="agent-fleet"
-            # Only show picker if dashboard cache exists (multi-project setup)
-            [[ -f "$DASHBOARD_CACHE" ]] && SHOW_PICKER=true
         else
             echo "Error: no project detected and no base project found" >&2
             exit 1
@@ -650,8 +655,8 @@ else
     fi
 fi
 
-# ── Interactive picker ───────────────────────────────────────────────────────
-if $SHOW_PICKER; then
+# ── Interactive picker (only with registry + dashboard cache) ────────────────
+if $SHOW_PICKER && $HAS_REGISTRY && [[ -f "$DASHBOARD_CACHE" ]]; then
     PICKER_SHOW_ALL="$PICKER_ALL" run_picker || true
 fi
 
