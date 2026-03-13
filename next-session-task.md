@@ -1,3 +1,1 @@
-- task: true
-- file: docs/pending-fresh-install-ux.md
-- description: Fix remaining fresh-install UX issues (AFT-42..46) — mangled logo, tips, CRI, onboarding guidance
+task: false

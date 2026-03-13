@@ -4,6 +4,23 @@ Full session history. Newest first. Never pruned.
 
 <!-- Sessions are appended here by rotate-session.sh -->
 
+### 2026-03-13T17:30Z — WSL
+**Goal:** Fix deployment issues (AFT-42..46 fresh install UX bugs)
+**Completed:**
+- AFT-42: Removed CC_MIRROR_SPLASH from template settings.json (no banner overlap)
+- AFT-43: Added spinnerTipsEnabled:false to template settings.json
+- AFT-44: Verified statusLine block already in template, added TWEAKCC_CONFIG_DIR
+- AFT-45: Already fixed (commit be990d1)
+- AFT-46: Added Check 2d to config-check.sh for .setup-pending detection (2 tests)
+- Fixed deployed config: PROMPT_SUGGESTION set to "0" on this machine
+- Backlog updated, pending file deleted
+**Key Decisions:**
+- Removed splash banner entirely from template (CC_MIRROR_SPLASH=0 by default) rather than finding a hideStartupBanner option — simpler, no overlap risk
+- Check 2d added to template config-check.sh only (not cfg version) since .setup-pending only exists on fresh installs
+**Pending at shutdown:** None
+**Recovery/Next session:**
+All changes committed. Two commits: 3e0b06c (code fixes) and a405517 (pending file cleanup).
+
 ### 2026-03-13T16:50Z — WSL
 **Goal:** Fix fresh-install deployment bugs discovered during remote WSL deployment test
 **Completed:**
