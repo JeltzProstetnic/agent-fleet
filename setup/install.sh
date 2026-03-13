@@ -42,6 +42,11 @@ source "${SCRIPT_DIR}/lib.sh"
 if [[ -f "${REPO_ROOT}/.template-repo" ]]; then
     echo "Removing template marker (.template-repo)..."
     rm -f "${REPO_ROOT}/.template-repo"
+    # Create .setup-pending to trigger first-run refinement on next Claude session
+    if [[ ! -f "${REPO_ROOT}/.setup-pending" ]]; then
+        touch "${REPO_ROOT}/.setup-pending"
+        echo "Created .setup-pending marker (triggers first-run configuration)."
+    fi
 fi
 
 # ============================================================================
