@@ -528,6 +528,7 @@ pre_pull_all_repos() {
     local sync_log="${AFLEET_SYNC_LOG:-}"
 
     [[ -f "$SYNC_SCRIPT" ]] || return 0
+    [[ -f "$REGISTRY" ]] || return 0
 
     while IFS='|' read -r name path; do
         [[ -z "$path" ]] && continue
@@ -588,6 +589,10 @@ done
 
 # ── List mode ────────────────────────────────────────────────────────────────
 if [[ "$MODE" == "list" ]]; then
+    if [[ ! -f "$REGISTRY" ]]; then
+        echo "No registry.md yet (fresh install). Only project: agent-fleet"
+        exit 0
+    fi
     printf "%-25s %s\n" "Project" "Path"
     printf "%-25s %s\n" "-------" "----"
     parse_registry | while IFS='|' read -r name path; do
