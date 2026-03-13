@@ -46,6 +46,10 @@ try:
     project = os.path.basename(project_dir) if project_dir else '?'
     project_str = f'{dim}{project}{r}'
 
+    # Cost
+    cost = d.get('cost', {}).get('total_cost_usd', 0)
+    cost_str = ''
+
     # Read active persona
     persona_str = ''
     persona_file = os.path.expanduser('~/.claude/.active-persona')
@@ -124,6 +128,25 @@ try:
         except Exception:
             pass
 
+    # Send heartbeat to AFD server if session lock is active (CFG-101)
+    session_id = os.environ.get('AFLEET_SESSION_ID', '')
+    afd_token = os.environ.get('AFD_TOKEN', '')
+    if session_id and afd_token and project != '?':
+        try:
+            import subprocess
+            afd_url = os.environ.get('AFD_URL', '')
+            if afd_url:
+                subprocess.Popen(
+                    ['curl', '-sf', '-X', 'PATCH',
+                     f'{afd_url}/api/locks/{project}',
+                     '-H', 'Content-Type: application/json',
+                     '-H', f'Authorization: Bearer {afd_token}',
+                     '-d', '{\"heartbeat\":true}'],
+                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
+                )
+        except Exception:
+            pass
+
     # Write context budget sidecar for agent self-awareness
     sidecar_path = os.environ.get('CONTEXT_BUDGET_PATH', os.path.expanduser('~/.claude/.context-budget.json'))
     try:
@@ -132,7 +155,7 @@ try:
     except Exception:
         pass
 
-    sys.stdout.write(f'{project_str} [{model}] {c}{bar} {used_k}k/{total_k}k ({pct_int}%){r}{persona_str}{afk_str}{gpi_str}\n')
+    sys.stdout.write(f'{project_str} [{model}] {c}{bar} {used_k}k/{total_k}k ({pct_int}%){r}{cost_str}{persona_str}{afk_str}{gpi_str}\n')
 except Exception:
     sys.stdout.write('[?] ...\n')
 " <<< "$input"

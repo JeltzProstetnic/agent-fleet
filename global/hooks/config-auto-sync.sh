@@ -33,6 +33,34 @@ CLEAN_PERMS_SCRIPT="$CONFIG_REPO/setup/scripts/clean-permissions.sh"
 # Capture the original working directory (the project the user was in)
 ORIGINAL_DIR="$(pwd)"
 
+# --- Phase -1: Release session lock (local + server) ---
+_SESSION_LOCK_LIB="$CONFIG_REPO/setup/scripts/session-lock.sh"
+_LOCK_SID="${AFLEET_SESSION_ID:-}"
+if [ -f "$_SESSION_LOCK_LIB" ]; then
+    source "$_SESSION_LOCK_LIB"
+    # Read session ID from lock file if not in env (hook PIDs differ between start/end)
+    if [ -z "$_LOCK_SID" ]; then
+        _lock_file="$ORIGINAL_DIR/.claude/.session-lock"
+        if [ -f "$_lock_file" ] && _read_lock "$_lock_file" 2>/dev/null; then
+            _LOCK_SID="$_LOCK_SESSION"
+        fi
+    fi
+    if [ -n "$_LOCK_SID" ]; then
+        release_lock "$ORIGINAL_DIR" "$_LOCK_SID" 2>/dev/null || true
+    else
+        # Fallback: force release if we can't determine session ID
+        force_release "$ORIGINAL_DIR" 2>/dev/null || true
+    fi
+fi
+# Release server lock if session ID is available (CFG-101)
+if [ -n "$_LOCK_SID" ]; then
+    _AFD_LIB="$CONFIG_REPO/afd/lib/afd-lib.sh"
+    if [ -f "$_AFD_LIB" ] && [ -n "${AFD_TOKEN:-}" ]; then
+        . "$_AFD_LIB"
+        afd_lock_release "$(basename "$ORIGINAL_DIR")" 2>/dev/null || true
+    fi
+fi
+
 # --- Phase 0: Collect mobile outbox tasks ---
 MOBILE_REPO="$HOME/agent-fleet-mobile"
 if [ -f "$MOBILE_REPO/inbox/outbox.md" ]; then

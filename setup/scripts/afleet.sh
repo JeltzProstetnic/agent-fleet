@@ -684,6 +684,48 @@ AFLEET_SKIP_REPOS="$TARGET_DIR|$CONFIG_REPO" pre_pull_all_repos
 
 stop_spinner
 
+# ── Pre-launch: acquire session lock (CFG-101) ──────────────────────────
+# Local lock (same-machine protection) + optional server lock (cross-machine).
+# Server lock is best-effort — fails silently if AFD unreachable or no token.
+afleet_acquire_session_lock() {
+    local project_dir="$1"
+    local project_name="$2"
+    local lock_lib="$CONFIG_REPO/setup/scripts/session-lock.sh"
+    local afd_lib="$CONFIG_REPO/afd/lib/afd-lib.sh"
+
+    [[ -f "$lock_lib" ]] || return 0  # No lock library — skip
+
+    source "$lock_lib"
+    local session_id
+    session_id=$(_generate_session_id)
+
+    # Acquire local lock
+    if ! acquire_lock "$project_dir" "$session_id"; then
+        echo "  Warning: Project locked by another session on this machine." >&2
+        lock_info "$project_dir" >&2
+        printf '  Continue anyway? (y/N) '
+        read -r _ans
+        [[ "$_ans" =~ ^[yY] ]] || return 1
+        force_release "$project_dir"
+        acquire_lock "$project_dir" "$session_id" || return 1
+    fi
+
+    # Export session ID for hooks (statusline heartbeat, SessionEnd release)
+    export AFLEET_SESSION_ID="$session_id"
+
+    # Try server lock (non-blocking, best-effort)
+    if [[ -f "$afd_lib" && -n "${AFD_TOKEN:-}" ]]; then
+        source "$afd_lib"
+        if ! afd_lock_acquire "$project_name" "$(hostname)" "$session_id" "$$" 2>/dev/null; then
+            echo "  Warning: Server lock conflict — another machine may have this project open." >&2
+        fi
+    fi
+
+    return 0
+}
+
+afleet_acquire_session_lock "$TARGET_DIR" "$TARGET_NAME" || exit 0
+
 # ── Launch ───────────────────────────────────────────────────────────────────
 
 if [[ "$DRY_RUN" == "1" ]]; then
