@@ -83,6 +83,18 @@ Background subagents **cannot prompt the user**. If a tool isn't in the allow li
 
 ## Credential & Secret Management
 
+### Token Input Security
+
+**Never paste tokens, API keys, or passwords into a Claude Code chat session.** Session transcripts may be logged, cached, or sent to API endpoints. A token pasted in chat should be considered compromised and rotated immediately.
+
+All credential input in this system uses secure methods:
+- **`read -s`** (masked terminal input) in `vault-manage.sh` and setup scripts
+- **File-based input** via `secrets.env`, `vault.json`, `.mcp.json` (edited in user's editor)
+- **GUI dialogs** (`ask-passphrase.sh`) for desktop environments
+- **Environment variables** (`VAULT_PASS`) for non-interactive use
+
+During first-run onboarding, the agent directs users to edit credential files directly rather than collecting tokens through conversation.
+
 | Layer | Mechanism |
 |-------|-----------|
 | **API keys** | Environment variables loaded from `secrets.env` (never committed) |

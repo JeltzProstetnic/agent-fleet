@@ -45,13 +45,21 @@ Read `~/.mcp.json` to see what was configured during `setup.sh`. Check which ser
 
 **Serena** (code navigation) is always included and needs no credentials.
 
+> **Security warning: Never ask the user to paste tokens in this chat session.** Session transcripts may be logged or cached — a pasted token is a leaked token. Instead, guide users to one of these secure methods:
+> 1. **Edit `~/.mcp.json` directly** in their editor (VS Code, vim, nano) and paste tokens there
+> 2. **Use the vault** — add tokens to `setup/secrets/vault.json`, then `bash setup/secrets/vault-manage.sh encrypt`
+> 3. **Use a file** — write the token to a temp file (`chmod 600`), then read it programmatically
+>
+> If a user pastes a token in chat despite this warning, immediately tell them to rotate it and treat it as compromised.
+
 **For each server the user wants:**
 1. Explain what credentials are needed and where to get them
-2. Ask the user to paste the credentials
-3. Update `~/.mcp.json` by reading the current file, adding the new server entry, and writing it back
+2. **Direct the user to add credentials via file edit** — tell them to open `~/.mcp.json` in their editor and paste the token there, or use the vault workflow. **Do NOT ask them to paste tokens in this chat.**
+3. Update `~/.mcp.json` by reading the current file, adding the new server entry (with a placeholder value), and writing it back — the user fills in the real token via their editor
 4. Tell the user they'll need to restart Claude Code for new servers to take effect
 
 **Important notes for credential collection:**
+- **Never accept tokens pasted in the chat.** Always direct users to edit files directly or use the vault.
 - GitHub: PAT needs `repo` scope at minimum. URL: https://github.com/settings/tokens
 - Google Workspace: Requires a Google Cloud project with OAuth 2.0 credentials and enabled APIs (Gmail, Drive, Calendar, Docs, Sheets). URL: https://console.cloud.google.com/apis/credentials
 - Twitter: Requires a developer app at https://developer.x.com with OAuth 1.0a (read+write)
@@ -140,10 +148,24 @@ If they have preferences, add them to the Conventions section of `global/CLAUDE.
 
 ### 8. Verify and Clean Up
 
-- Run `bash sync.sh status` to verify everything is linked correctly
-- Delete the `.setup-pending` marker file
-- Create an initial `session-context.md` for the config repo itself
-- Commit everything: "Initial configuration after interactive setup"
+**Run ALL verification checks before removing `.setup-pending`.** Do NOT remove the marker until every check passes.
+
+**Verification checklist (ALL must pass):**
+
+- [ ] `user-profile.md` has been personalized (not the auto-generated template)
+- [ ] At least one persona is configured in `personas.md` (or user explicitly declined)
+- [ ] `sync.sh status` reports no errors (symlinks intact, no missing files)
+- [ ] At least one MCP server is configured in `~/.mcp.json` (or user explicitly declined all)
+- [ ] `registry.md` exists and has at least one project entry (the config repo itself)
+- [ ] `session-context.md` exists for the config repo
+- [ ] Git identity is configured (`git config user.name` and `user.email` both set)
+- [ ] No `.template-repo` marker exists (should have been removed by `setup.sh`)
+
+**Only after ALL checks pass:**
+1. Delete the `.setup-pending` marker file
+2. Commit everything: "Initial configuration after interactive setup"
+
+**If any check fails:** Fix the issue inline, don't skip it. If a check requires user input (e.g., MCP credentials) and the user wants to defer, note it in `session-context.md` as a follow-up — but still do NOT remove `.setup-pending`. The marker stays until verification is complete. The next session will re-trigger this protocol and can resume where the user left off.
 
 ### 9. Summary
 

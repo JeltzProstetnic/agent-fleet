@@ -28,7 +28,9 @@ For a more detailed walkthrough, see the [Getting Started Guide](docs/getting-st
 
 ### Five minutes to a working agent
 
-**1. Fork and clone**
+**1. Create your own copy**
+
+On GitHub, click **"Use this template" → "Create a new repository"** (set it to **Private**). Then clone your copy:
 
 ```bash
 git clone https://github.com/YOUR_USERNAME/agent-fleet ~/agent-fleet
@@ -36,7 +38,9 @@ cd ~/agent-fleet
 bash setup.sh
 ```
 
-The script detects your OS, installs dependencies, creates symlinks, and sets up session hooks. It asks about integrations (GitHub, Gmail, Jira) -- skip any you don't need.
+> **Do NOT fork.** GitHub forks are public by default and stay linked to the original. A template copy is private and independent — your configuration, your repo, no link back.
+
+The script detects your OS, installs dependencies, creates symlinks, and sets up session hooks. If origin still points to the template repo, setup automatically renames it to `upstream` (for pulling updates) and clears origin — your own repo gets set as origin during first-run setup.
 
 **2. Set up credentials** (optional)
 
@@ -248,17 +252,14 @@ No computer is special. Each machine gets its own file in `global/machines/`. Co
 
 ## Upgrading
 
-When the template gets new features, pull them into your fork:
+When the template gets new features, pull them into your copy:
 
 ```bash
-# First time only: add the upstream remote
-git remote add upstream https://github.com/YOUR_USERNAME/agent-fleet.git
-
-# Upgrade (fetches, merges, runs migrations, deploys)
+# Upgrade (fetches from upstream, merges, runs migrations, deploys)
 bash upgrade.sh
 ```
 
-That's it. One command. Your personas, machine files, hostname mappings, and secrets are untouched — they live in gitignored `*.local.*` files that the upgrade never touches.
+That's it. One command. The `upstream` remote (set during install) points to the template repo. Your personas, machine files, hostname mappings, and secrets are untouched — they live in gitignored `*.local.*` files that the upgrade never touches.
 
 If you've edited framework files directly, git merge will flag conflicts. Resolve them normally. The `sync.sh check` command will tell you what's drifted.
 
@@ -435,6 +436,23 @@ Setup auto-detects your platform and installs dependencies accordingly.
 ## Security
 
 Never commit secrets. API tokens, passwords, and credentials stay out of tracked files.
+
+### Token Handling — Critical
+
+**Never paste tokens, API keys, or passwords into a Claude Code chat session.** Session transcripts may be logged, cached, or sent to API endpoints. A token pasted in chat is a token leaked.
+
+Safe input methods:
+
+| Method | How | When to use |
+|--------|-----|-------------|
+| `read -s` | Masked terminal input (no echo) | Scripts, CLI setup |
+| File input | Write token to a file (`chmod 600`), read from there | Vault, `.env` files, `secrets.env` |
+| GUI dialog | `zenity --password`, `kdialog`, tkinter `PasswordBox` | Desktop environments, WSL |
+| Environment variable | `VAULT_PASS="..." bash script.sh` | Non-interactive / CI |
+
+All token-accepting scripts in this repo use `read -s` (masked input) or environment variables. The first-run onboarding collects credentials through file edits or the vault — never through chat.
+
+**If a token is accidentally pasted in chat:** Rotate it immediately. Assume it is compromised.
 
 | Secret type | Where it goes |
 |------------|---------------|

@@ -10,6 +10,11 @@
 #
 # Password can be passed via VAULT_PASS env var for non-interactive use:
 #   VAULT_PASS="mypassword" bash secrets/vault-manage.sh deploy
+#
+# SECURITY: All password input uses read -s (masked, no echo) or env vars.
+# Never paste vault passwords or tokens into a Claude Code chat session —
+# session transcripts may be logged. Use this script's interactive prompts,
+# the VAULT_PASS env var, or a GUI dialog (ask-passphrase.sh).
 
 set -euo pipefail
 cd "$(dirname "$0")"
@@ -23,6 +28,7 @@ get_pass() {
   if [ -n "${VAULT_PASS:-}" ]; then
     return
   fi
+  # SECURITY: read -s masks input (no echo). Never use unmasked read for secrets.
   echo -n "Password: "
   read -rs VAULT_PASS
   echo

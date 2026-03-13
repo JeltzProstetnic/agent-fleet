@@ -35,9 +35,12 @@ log_step()  { echo -e "\n${GREEN}═══ $* ═══${NC}"; }
 if [[ ! -f "$SECRETS_FILE" ]]; then
     log_error "Secrets file not found: $SECRETS_FILE"
     log_error "Place secrets.env next to this script before running."
+    log_error "SECURITY: Edit secrets.env in your editor — never paste tokens into chat sessions."
     exit 1
 fi
 
+# SECURITY: Tokens are read from secrets.env (file input, not interactive chat).
+# Never paste tokens into a Claude Code chat session — transcripts may be logged.
 # shellcheck source=/dev/null
 source "$SECRETS_FILE"
 
