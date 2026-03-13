@@ -4,6 +4,23 @@ Full session history. Newest first. Never pruned.
 
 <!-- Sessions are appended here by rotate-session.sh -->
 
+### 2026-03-13T18:42Z — DESKTOP-32ILURB
+**Goal:** Execute all 8 open items — 5 backlog (AFT-32/33/39/40/41) + 3 inbox propagation tasks.
+**Completed:**
+- AFT-32: filtered-push commit message sanitization — sanitize_text() + 14 tests
+- AFT-33: --reconfigure-mcp flag fix — lib.sh + configure-claude.sh + 7 tests
+- AFT-39: GitHub Actions CI — workflow + 4 Dockerfiles + smoke-test.sh
+- AFT-40: Integration test script — 10 tests
+- AFT-41: Preflight check script — setup/preflight.sh + install.sh hook + 9 tests
+- Inbox: CFG-101 follower-mode propagation — follower-mode.md + CLAUDE.md trigger
+- Inbox: vault-ops rules 1-6 + communication-policy persona email rules + mcp-catalog
+- Inbox: CFG-101 session locking — afleet.sh, statusline, auto-sync, afd-lib.sh, 22 tests
+- Shutdown checklist executed
+**Key Decisions:**
+- Used 4 parallel worktree subagents (non-overlapping files), merged all cleanly
+- 51 new tests total, all passing. 33/37 suites pass (4 pre-existing failures)
+- Backlog now empty. 3 inbox items marked done.
+
 ### 2026-03-13T18:50Z — WSL
 **Goal:** Deployment disaster post-mortem — audit all fixes, plan E2E testing, resolve config divergence
 **Completed:**

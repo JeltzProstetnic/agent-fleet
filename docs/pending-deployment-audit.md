@@ -1,38 +1,19 @@
 Action: act
 
-# Deployment Audit Follow-Up
+# Deployment Audit Follow-Up (Updated 2026-03-13)
 
-Completed 2026-03-13 deployment disaster audit. Remaining work:
+## Remaining
 
-## Immediate (this session)
-
-1. **Push 2 commits** on main (unpushed):
-   - `340ac3a` — sync.sh inbox counter fix (closes GitHub #1)
-   - `b47f7a4` — config-check.sh merge (6 checks from cfg, numbering resolved)
+1. **Merge worktree-deployment-audit → main and push.** Branch has 3 merge commits (AFT-32/33, AFT-39/40/41, CFG-101 locking) on top of main. Clean merges, no conflicts expected. Then push to origin.
 
 2. **IvoclarR-D-AIOrg in install.sh** — advisory from sanitization audit: `IvoclarR-D-AIOrg/agent-fleet` appears in clone detection code (line ~60). Public org, functional code. User decision: strip or keep.
 
-## Next Session
+3. **E2E test harness** — plan at `tmp/e2e-test-plan.md` (28 test cases, TAP output). Ubuntu rootfs at `C:\WSL\ubuntu-24.04-base.tar.gz`. AFT-39/40/41 created CI + integration tests + preflight, but full E2E (WSL rootfs deploy) is a separate, more comprehensive effort.
 
-3. **E2E test harness implementation** — plan at `tmp/e2e-test-plan.md` (28 test cases, TAP output). Ubuntu rootfs at `C:\WSL\ubuntu-24.04-base.tar.gz` (341MB). File structure: `setup/tests/e2e/`. Create `test-e2e-deploy.sh` orchestrator + phase scripts.
+4. **4 pre-existing test failures** — test-config-check (2), test-gpi (2), test-install-setup (1), test-lrn-command (1). None from this session's work.
 
-4. **CFG-101 remaining propagation** — Check 31 (session lock) is done. Still needed:
-   - `global/knowledge/follower-mode.md` (3 lines)
-   - `global/CLAUDE.md` conditional loading table entry (SESSION_LOCKED trigger)
-   - `setup/scripts/afleet.sh` lock acquire logic
-   - `setup/config/statusline-command.sh` heartbeat
-   - `global/hooks/config-auto-sync.sh` lock release
-   - `setup/tests/test-cfg101-server-lock.sh` (22 tests)
-   - Strip AFD URL and personal hostnames
-
-5. **vault-ops.md rule #6 + communication-policy.md** — persona email rules propagation from cfg
-
-## Routed to cfg (via inbox)
-- Commit sync.sh fix (already in cfg working tree)
-- Adopt merged config-check.sh from template
-- Investigate session lock false trigger across projects
-
-## Artifacts produced this session
-- `tmp/e2e-test-plan.md` — full E2E deployment test plan
-- `tmp/config-check-divergence.md` — divergence analysis
-- `tmp/sanitization-audit.md` — sanitization audit results
+## Completed This Session
+- [x] CFG-101 follower-mode propagation (follower-mode.md + CLAUDE.md trigger)
+- [x] vault-ops.md rules 1-6 + communication-policy persona email rules
+- [x] CFG-101 session locking (afleet.sh, statusline, auto-sync, afd-lib.sh, 22 tests)
+- [x] AFT-32/33/39/40/41 — all 5 backlog items implemented with 51 new tests
