@@ -636,12 +636,13 @@ else
         CHECK_DIR="$(dirname "$CHECK_DIR")"
     done
 
-    # Fallback — show picker instead of old dashboard marker
+    # Fallback — use base project directly
     if [[ -z "$TARGET_DIR" ]]; then
-        SHOW_PICKER=true
         if [[ -d "$HOME/agent-fleet" ]]; then
             TARGET_DIR="$HOME/agent-fleet"
             TARGET_NAME="agent-fleet"
+            # Only show picker if dashboard cache exists (multi-project setup)
+            [[ -f "$DASHBOARD_CACHE" ]] && SHOW_PICKER=true
         else
             echo "Error: no project detected and no base project found" >&2
             exit 1
