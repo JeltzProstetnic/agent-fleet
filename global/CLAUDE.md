@@ -89,6 +89,7 @@ If hostname doesn't match any pattern, state the hostname and ask. If `CLAUDE.lo
    | Statusline editing, GPI, statusline deployment | `knowledge/statusline-ops.md` |
    | Konsole tabs, qdbus, terminal tab operations | `knowledge/konsole-tabs.md` |
    | Filing GitHub issue on agent-fleet, `issue` command | `knowledge/fleet-issue-protocol.md` |
+   | SESSION_LOCKED or SESSION_LOCKED_REMOTE in systemMessage | `knowledge/follower-mode.md` |
    | Session shutdown (`cls`, `end`, exit, shutdown) | `foundation/session-shutdown.md` |
    | Self-awareness, plugin recommendation, agent roster gaps, "can I do X?" capability questions | `knowledge/fleet-capabilities.md` |
 

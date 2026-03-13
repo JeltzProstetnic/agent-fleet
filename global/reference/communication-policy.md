@@ -33,6 +33,15 @@ When unsure where something belongs, ask rather than discard.
 
 If you maintain a communications log, consult it before drafting emails to anyone previously contacted — prevents repeating information, congratulating twice, etc.
 
+## Persona Email Rules
+
+| Persona | Address | Send policy |
+|---------|---------|-------------|
+| Bartl | `persona@example.com` | **Drafts only.** Create Gmail drafts for user review, never send directly. Incoming mail lands in a dedicated Gmail label (skips inbox). |
+
+<!-- Add rows for additional personas with dedicated email addresses.
+     Each persona address should forward to the primary Gmail account. -->
+
 ## Email Drafting
 
 Project-specific email rules live in project knowledge files. This section covers general tone, structure, and content (see Drafting Rules above).

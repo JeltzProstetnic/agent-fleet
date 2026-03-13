@@ -41,6 +41,7 @@ Do NOT embed tokens in this file. All credentials live in `.mcp.json`.
 - OAuth tokens may expire. If auth fails, may need to re-authorize via browser.
 - First run may require a browser-based consent flow to generate a refresh token.
 - **CRITICAL env var names:** workspace-mcp expects `GOOGLE_OAUTH_CLIENT_ID` and `GOOGLE_OAUTH_CLIENT_SECRET` (NOT `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET`). Using the wrong names causes silent auth failure — the server starts but all tools return errors. Verify the exact names in the workspace-mcp README if in doubt.
+- **Persona email routing:** If personas have dedicated email addresses (forwarding to the primary Gmail account), access them via the existing Google Workspace MCP using label queries (e.g., `label:PersonaName`). No separate MCP server needed. See `reference/communication-policy.md` for persona send policies.
 
 ### 3. Twitter/X
 

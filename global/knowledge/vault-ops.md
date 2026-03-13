@@ -35,6 +35,32 @@ VAULT_PASS="$VAULT_PASS" bash ~/agent-fleet/setup/secrets/vault-manage.sh deploy
 
 **AskUserQuestion is NOT suitable for passwords.** It requires option selection (min 2 options) and has no password/masked input mode. The "Other" text field is visible. Always use the GUI dialog.
 
+## Decrypt→Edit→Encrypt Cycle — HARD RULES
+
+1. **One passphrase prompt per cycle.** Collect the passphrase ONCE at the start. Hold it in a shell variable through the entire decrypt→edit→encrypt flow. Wipe (`unset`) only AFTER encryption succeeds. Never prompt a second time — re-prompting introduces typo risk and user frustration.
+
+2. **Encryption MUST use double-entry confirmation** if (and ONLY if) the passphrase is being set fresh (not retained from decryption). Use `ask-passphrase.sh --confirm`. A single-entry typo on encryption = permanent credential loss.
+
+3. **Retained passphrase from decrypt skips confirmation.** When the same passphrase that successfully decrypted is reused for encryption, no confirmation needed — it's already verified by the successful decryption.
+
+4. **Passphrase lifecycle in a session:**
+   ```
+   PASS=$(collect passphrase)  →  decrypt with PASS  →  edit JSON  →  encrypt with PASS  →  unset PASS + delete temp files
+   ```
+   The variable lives for the duration of the cycle. Not longer.
+
+5. **Platform-specific notes:** `ask-passphrase.sh` auto-detects the environment and uses the appropriate masked input method (kdialog on KDE, zenity on GNOME, tkinter on X11, PowerShell WPF on WSL). The `age` CLI does NOT work in Claude Code (needs TTY) — use openssl via vault-manage.sh.
+
+6. **Claude Code shell isolation — CRITICAL.** Each `Bash()` call runs a separate shell — variables don't persist across calls. ALWAYS execute the full decrypt→edit→encrypt cycle in ONE `Bash()` call, chained with `&&`. The passphrase is collected once (for decrypt) and reused silently for encrypt — zero additional user interaction. Prepare complex edits (Python/jq one-liners) beforehand, then embed them in the single chain:
+   ```
+   VAULT_PASS=$(bash .../ask-passphrase.sh) && \
+   VAULT_PASS="$VAULT_PASS" bash .../vault-manage.sh decrypt && \
+   python3 -c '...' vault.json > vault.json.tmp && mv vault.json.tmp vault.json && \
+   VAULT_PASS="$VAULT_PASS" bash .../vault-manage.sh encrypt && \
+   rm -f vault.json
+   ```
+   Never split the cycle across multiple `Bash()` calls. If `ask-passphrase.sh` fails, investigate and fix it — don't improvise manual dialogs.
+
 ## When to Consult the Vault
 
 When facing any credential or access issue (SSH refused, API auth failure, deploy blocked):
