@@ -622,7 +622,7 @@ else
     CHECK_DIR="${DETECT_DIR:-/}"
     while [[ "$CHECK_DIR" != "/" ]]; do
         BASENAME="$(basename "$CHECK_DIR")"
-        if [[ -d "$CHECK_DIR/.claude" && -f "$CHECK_DIR/CLAUDE.md" ]]; then
+        if [[ -f "$CHECK_DIR/CLAUDE.md" ]]; then
             TARGET_DIR="$CHECK_DIR"
             TARGET_NAME="$BASENAME"
             break
