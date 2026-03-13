@@ -561,6 +561,17 @@ if [ -f "$_SESSION_LOCK_LIB" ]; then
     source "$_SESSION_LOCK_LIB"
     check_lock "$PWD" 2>/dev/null
     _lock_rc=$?
+
+    # Fix: afleet acquires the lock (its PID), then launches claude (different PID).
+    # The hook's $$ differs from afleet's PID, so check_lock returns 2 (foreign lock).
+    # But AFLEET_SESSION_ID (exported by afleet) matches the lock's session ID — it's us.
+    if [[ $_lock_rc -eq 2 ]] && [[ -n "${AFLEET_SESSION_ID:-}" ]]; then
+        _read_lock "$PWD/.claude/.session-lock" 2>/dev/null
+        if [[ "$_LOCK_SESSION" == "$AFLEET_SESSION_ID" ]]; then
+            _lock_rc=1  # Our session's lock, not a foreign one
+        fi
+    fi
+
     case $_lock_rc in
         2)
             # Locked by another session on this machine
@@ -572,9 +583,12 @@ if [ -f "$_SESSION_LOCK_LIB" ]; then
             _read_lock "$PWD/.claude/.session-lock" 2>/dev/null
             WARNINGS="${WARNINGS:+$WARNINGS | }SESSION_LOCKED_REMOTE: Project locked by $_LOCK_MACHINE (session $_LOCK_SESSION). FOLLOWER — load knowledge/follower-mode.md and follow it."
             ;;
-        0|1)
-            # Free or locked by us — acquire/refresh
-            acquire_lock "$PWD" 2>/dev/null
+        0)
+            # Free — acquire with our session ID if available
+            acquire_lock "$PWD" "${AFLEET_SESSION_ID:-}" 2>/dev/null
+            ;;
+        1)
+            # Already locked by us — no action needed
             ;;
     esac
 fi
