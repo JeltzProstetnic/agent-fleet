@@ -762,10 +762,6 @@ if [[ -t 1 ]]; then
         printf '              \033[38;5;243mClaude Code v%s\033[0m\n' "$__cc_ver"
     fi
     printf '\n'
-
-    # Static status line — a spinner here fights with CC's TUI/statusline
-    # and mangles the terminal. A static message is enough after the banner.
-    printf '    \033[38;5;243mStarting session…\033[0m\n'
 fi
 
 AFLEET_LAUNCHED=1 AFLEET_PROJECT="$TARGET_NAME" CC_MIRROR_SPLASH=0 "$MCLAUDE"
