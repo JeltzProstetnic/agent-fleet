@@ -59,6 +59,14 @@ if [ -f "$CONFIG_REPO/.template-repo" ]; then
     WARNINGS="${WARNINGS:+$WARNINGS | }Config repo is a template-only deployment ($CONFIG_REPO has .template-repo marker). For first-run personalization, run the first-run refinement protocol. See foundation/first-run-refinement.md for guidance."
 fi
 
+# Check 2d: Detect .setup-pending marker (first-run after install)
+# install.sh creates this after removing .template-repo. It signals Claude to
+# load first-run-refinement.md and actively guide the user through setup.
+PROJECT_ROOT="$(git -C "$CONFIG_REPO" rev-parse --show-toplevel 2>/dev/null || echo "$CONFIG_REPO")"
+if [ -f "$PROJECT_ROOT/.setup-pending" ]; then
+    WARNINGS="${WARNINGS:+$WARNINGS | }SETUP_PENDING: First-run setup not yet completed (.setup-pending marker found). Load foundation/first-run-refinement.md and actively guide the user through machine setup, profile creation, and MCP credential configuration. Do NOT wait for the user to ask — initiate setup immediately."
+fi
+
 # Check 3: Does config repo exist?
 if [ ! -d "$CONFIG_REPO/.git" ]; then
     WARNINGS="${WARNINGS:+$WARNINGS | }Config repo not found at $CONFIG_REPO. Clone it and run: bash $CONFIG_REPO/sync.sh setup"

@@ -2418,6 +2418,52 @@ test_wslconf_multiple_duplicate_sections() {
 }
 run_test "check 29: handles multiple duplicate sections" test_wslconf_multiple_duplicate_sections
 
+# ── 30. Check 2d: .setup-pending first-run detection ─────────────────────────
+
+test_setup_pending_detected() {
+    local config_repo="$TEST_TMPDIR/config-repo"
+    local mock_home="$TEST_TMPDIR/home"
+    local project_dir="$TEST_TMPDIR/project"
+    mkdir -p "$mock_home/.claude" "$project_dir"
+
+    create_mock_config_repo "$config_repo"
+    touch "$config_repo/CLAUDE.md"
+    ln -sf "$config_repo/CLAUDE.md" "$mock_home/.claude/CLAUDE.md"
+
+    # Create .setup-pending in config repo root
+    touch "$config_repo/.setup-pending"
+
+    local patched
+    patched=$(create_patched_script "$config_repo" "$mock_home" "$project_dir")
+    local output
+    output=$(run_hook "$patched")
+
+    assert_contains "$output" "SETUP_PENDING" "should inject SETUP_PENDING when .setup-pending exists"
+    assert_contains "$output" "first-run-refinement" "should reference first-run-refinement.md"
+}
+run_test "check 2d: detects .setup-pending marker and triggers first-run" test_setup_pending_detected
+
+test_setup_pending_not_present() {
+    local config_repo="$TEST_TMPDIR/config-repo"
+    local mock_home="$TEST_TMPDIR/home"
+    local project_dir="$TEST_TMPDIR/project"
+    mkdir -p "$mock_home/.claude" "$project_dir"
+
+    create_mock_config_repo "$config_repo"
+    touch "$config_repo/CLAUDE.md"
+    ln -sf "$config_repo/CLAUDE.md" "$mock_home/.claude/CLAUDE.md"
+
+    # No .setup-pending file
+
+    local patched
+    patched=$(create_patched_script "$config_repo" "$mock_home" "$project_dir")
+    local output
+    output=$(run_hook "$patched")
+
+    assert_not_contains "$output" "SETUP_PENDING" "should NOT inject SETUP_PENDING when marker absent"
+}
+run_test "check 2d: no warning when .setup-pending absent" test_setup_pending_not_present
+
 # ── Summary ──────────────────────────────────────────────────────────────────
 
 suite_summary

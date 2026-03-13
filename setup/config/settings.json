@@ -1,8 +1,7 @@
 {
+  "spinnerTipsEnabled": false,
   "env": {
-    "CC_MIRROR_SPLASH": "1",
-    "CC_MIRROR_PROVIDER_LABEL": "Mirror Claude",
-    "CC_MIRROR_SPLASH_STYLE": "mirror",
+    "TWEAKCC_CONFIG_DIR": "__HOME__/.cc-mirror/mclaude/tweakcc",
     "CLAUDE_CODE_TEAM_MODE": "1",
     "CLAUDE_CODE_AGENT_TYPE": "team-lead",
     "DISABLE_AUTOUPDATER": "1",
