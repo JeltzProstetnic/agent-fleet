@@ -52,7 +52,13 @@ SYNC_REMOTE=""
 if [ -f "$PUSH_FILTER" ]; then
   SYNC_REMOTE=$(grep '^private_remote=' "$PUSH_FILTER" 2>/dev/null | head -1 | cut -d= -f2 | xargs)
   if [ -n "$SYNC_REMOTE" ]; then
-    echo "Dual-remote project detected — syncing with '$SYNC_REMOTE' only."
+    # Verify the remote actually exists (fresh installs may not have it yet)
+    if git remote get-url "$SYNC_REMOTE" &>/dev/null; then
+      echo "Dual-remote project detected — syncing with '$SYNC_REMOTE' only."
+    else
+      echo "Remote '$SYNC_REMOTE' not configured yet — skipping sync."
+      exit 0
+    fi
   fi
 fi
 
