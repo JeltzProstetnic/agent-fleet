@@ -163,82 +163,89 @@ cmd_setup() {
 }
 
 # ---- VERIFY: Check that setup completed correctly ----
+# Hard errors = symlinks broken, setup genuinely failed. Block launch.
+# Soft warnings = first-run items not yet configured. Warn but pass.
 verify_setup() {
-    local failed_checks=()
-    local all_passed=true
+    local hard_failures=()
+    local soft_warnings=()
 
-    # V1: CLAUDE.md symlink exists
+    # V1: CLAUDE.md symlink exists (hard)
     if [ ! -L "$CLAUDE_HOME/CLAUDE.md" ]; then
-        failed_checks+=("V1:CLAUDE.md not symlinked")
-        all_passed=false
+        hard_failures+=("V1:CLAUDE.md not symlinked")
     fi
 
-    # V2: CLAUDE.md symlink target valid
+    # V2: CLAUDE.md symlink target valid (hard)
     if [ -L "$CLAUDE_HOME/CLAUDE.md" ] && [ ! -f "$(readlink -f "$CLAUDE_HOME/CLAUDE.md")" ]; then
-        failed_checks+=("V2:CLAUDE.md symlink target missing")
-        all_passed=false
+        hard_failures+=("V2:CLAUDE.md symlink target missing")
     fi
 
-    # V3-V7: Knowledge architecture directories
+    # V3-V7: Knowledge architecture directories (hard)
     local idx=3
     for dir in foundation reference domains knowledge machines; do
         if [ ! -L "$CLAUDE_HOME/$dir" ]; then
-            failed_checks+=("V${idx}:$dir not symlinked")
-            all_passed=false
+            hard_failures+=("V${idx}:$dir not symlinked")
         fi
         ((idx++))
     done
 
-    # V8: CLAUDE.local.md exists
+    # V8: CLAUDE.local.md exists (soft — created during first session)
     if [ ! -f "$HOME/CLAUDE.local.md" ]; then
-        failed_checks+=("V8:CLAUDE.local.md missing")
-        all_passed=false
+        soft_warnings+=("V8:~/CLAUDE.local.md missing — will be created during first session")
     fi
 
-    # V9: CLAUDE.local.md target valid (if it exists)
+    # V9: CLAUDE.local.md target valid (soft — depends on V8)
     if [ -f "$HOME/CLAUDE.local.md" ]; then
         local import_target
         import_target=$(grep '^@' "$HOME/CLAUDE.local.md" | head -1 | sed 's/^@//' | sed "s|~|$HOME|g")
         if [ -n "$import_target" ] && [ ! -f "$import_target" ]; then
-            failed_checks+=("V9:CLAUDE.local.md @import target missing: $import_target")
-            all_passed=false
+            soft_warnings+=("V9:CLAUDE.local.md @import target missing: $import_target")
         fi
     fi
 
-    # V10: Hooks deployed
+    # V10: Hooks deployed (hard)
     if [ ! -f "$CLAUDE_HOME/hooks/config-check.sh" ]; then
-        failed_checks+=("V10:SessionStart hook not deployed")
-        all_passed=false
+        hard_failures+=("V10:SessionStart hook not deployed")
     fi
 
-    # V11: Hooks executable
+    # V11: Hooks executable (hard)
     if [ -f "$CLAUDE_HOME/hooks/config-check.sh" ] && [ ! -x "$CLAUDE_HOME/hooks/config-check.sh" ]; then
-        failed_checks+=("V11:SessionStart hook not executable")
-        all_passed=false
+        hard_failures+=("V11:SessionStart hook not executable")
     fi
 
-    if $all_passed; then
-        # Write success marker with metadata
+    # Report soft warnings (don't block)
+    if [ ${#soft_warnings[@]} -gt 0 ]; then
+        for w in "${soft_warnings[@]}"; do
+            log_warn "  $w"
+        done
+    fi
+
+    if [ ${#hard_failures[@]} -eq 0 ]; then
+        local total_checks=11
+        local warn_count=${#soft_warnings[@]}
         cat > "$SETUP_VERIFIED_MARKER" << EOF
 verified=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 machine=$(get_hostname)
 config_repo=$SCRIPT_DIR
-checks_passed=11
+checks_passed=$((total_checks - warn_count))
+warnings=$warn_count
 EOF
         rm -f "$SETUP_FAILED_MARKER"
-        log_info "Setup verification PASSED (11 checks)"
+        if [ "$warn_count" -gt 0 ]; then
+            log_info "Setup verification PASSED ($warn_count non-blocking warning(s) above)"
+        else
+            log_info "Setup verification PASSED (all $total_checks checks)"
+        fi
         return 0
     else
-        # Write failure marker with details
         {
             echo "failed=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
             echo "machine=$(get_hostname)"
             echo "config_repo=$SCRIPT_DIR"
-            printf 'failed_checks=%s\n' "${failed_checks[*]}"
+            printf 'failed_checks=%s\n' "${hard_failures[*]}"
         } > "$SETUP_FAILED_MARKER"
         rm -f "$SETUP_VERIFIED_MARKER"
         log_error "Setup verification FAILED:"
-        for check in "${failed_checks[@]}"; do
+        for check in "${hard_failures[@]}"; do
             log_error "  - $check"
         done
         return 1
