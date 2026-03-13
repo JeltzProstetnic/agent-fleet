@@ -107,17 +107,18 @@ test_git_sync_check_runs() {
     env_dir=$(create_mock_env)
     local home="$TEST_TMPDIR/home"
     mkdir -p "$home/cfg-agent-fleet/.git"
-    # Create mock git-sync-check.sh
+    # Create mock git-sync-check.sh that writes a marker file (stdout is redirected)
     mkdir -p "$env_dir/setup/scripts"
-    cat > "$env_dir/setup/scripts/git-sync-check.sh" << 'MOCK'
+    local marker="$TEST_TMPDIR/sync_called"
+    cat > "$env_dir/setup/scripts/git-sync-check.sh" << MOCK
 #!/usr/bin/env bash
-echo "SYNC_CHECK_CALLED path=$2"
+echo "SYNC_CHECK_CALLED path=\$2" >> "$marker"
 MOCK
     chmod +x "$env_dir/setup/scripts/git-sync-check.sh"
 
-    local output
-    output=$(CONFIG_REPO="$env_dir" HOME="$home" AFLEET_DRY_RUN=1 bash "$SCRIPT" cfg-agent-fleet 2>&1)
-    assert_contains "$output" "SYNC_CHECK_CALLED" "should call git-sync-check before launch"
+    CONFIG_REPO="$env_dir" HOME="$home" AFLEET_DRY_RUN=1 bash "$SCRIPT" cfg-agent-fleet >/dev/null 2>&1 || true
+    assert_file_exists "$marker" "should call git-sync-check before launch"
+    assert_file_contains "$marker" "SYNC_CHECK_CALLED" "marker should contain sync call record"
 }
 run_test "runs git-sync-check before launching mclaude" test_git_sync_check_runs
 

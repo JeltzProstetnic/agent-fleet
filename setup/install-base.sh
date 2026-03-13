@@ -544,45 +544,67 @@ setup_npm_global() {
     shellrc=$(detect_shell_rc)
     local shellrc_name
     shellrc_name=$(detect_shell_rc_name)
+    local nvm_managed=false
 
-    # Create npm-global directory
-    if [[ ! -d "${npm_global}" ]]; then
-        log_info "Creating ${npm_global}..."
-        run_cmd mkdir -p "${npm_global}"
-    else
-        log_info "Directory ${npm_global} already exists"
+    # Detect nvm — if present, nvm manages npm prefix and ~/.npmrc must not
+    # contain a prefix= line (nvm refuses to activate if it finds one).
+    if [[ -s "${NVM_DIR:-$HOME/.nvm}/nvm.sh" ]]; then
+        nvm_managed=true
+        log_info "NVM detected — skipping npm prefix configuration (nvm manages its own prefix)"
+
+        # Clean up stale prefix from previous install-base runs
+        if [[ -f "${HOME}/.npmrc" ]] && grep -q '^prefix=' "${HOME}/.npmrc" 2>/dev/null; then
+            log_warn "Removing stale prefix= from ~/.npmrc (incompatible with nvm)"
+            if [[ "${DRY_RUN}" == "false" ]]; then
+                sed -i '/^prefix=/d' "${HOME}/.npmrc"
+                # Remove .npmrc entirely if now empty
+                [[ ! -s "${HOME}/.npmrc" ]] && rm -f "${HOME}/.npmrc"
+            else
+                log_info "[DRY RUN] Would remove prefix= line from ~/.npmrc"
+            fi
+        fi
     fi
 
-    # Check current npm prefix
-    local current_prefix
-    current_prefix=$(npm config get prefix 2>/dev/null || echo "")
+    if ! $nvm_managed; then
+        # Create npm-global directory
+        if [[ ! -d "${npm_global}" ]]; then
+            log_info "Creating ${npm_global}..."
+            run_cmd mkdir -p "${npm_global}"
+        else
+            log_info "Directory ${npm_global} already exists"
+        fi
 
-    if [[ "${current_prefix}" == "${npm_global}" ]]; then
-        log_info "npm prefix already configured to ${npm_global}"
-    else
-        log_info "Setting npm prefix to ${npm_global}..."
-        run_cmd npm config set prefix "${npm_global}"
-        INSTALLED_STEPS+=("npm-prefix")
-    fi
+        # Check current npm prefix
+        local current_prefix
+        current_prefix=$(npm config get prefix 2>/dev/null || echo "")
 
-    # Add to PATH in shell RC if not already present
-    if file_contains "${shellrc}" "npm-global/bin"; then
-        log_info "npm-global already in PATH (found in ${shellrc_name})"
-    else
-        log_info "Adding npm-global to PATH in ${shellrc_name}..."
+        if [[ "${current_prefix}" == "${npm_global}" ]]; then
+            log_info "npm prefix already configured to ${npm_global}"
+        else
+            log_info "Setting npm prefix to ${npm_global}..."
+            run_cmd npm config set prefix "${npm_global}"
+            INSTALLED_STEPS+=("npm-prefix")
+        fi
 
-        backup_file "${shellrc}"
+        # Add to PATH in shell RC if not already present
+        if file_contains "${shellrc}" "npm-global/bin"; then
+            log_info "npm-global already in PATH (found in ${shellrc_name})"
+        else
+            log_info "Adding npm-global to PATH in ${shellrc_name}..."
 
-        if [[ "${DRY_RUN}" == "false" ]]; then
-            cat >> "${shellrc}" << 'SHELLRC_SNIPPET'
+            backup_file "${shellrc}"
+
+            if [[ "${DRY_RUN}" == "false" ]]; then
+                cat >> "${shellrc}" << 'SHELLRC_SNIPPET'
 
 # npm global packages
 export PATH="$HOME/.npm-global/bin:$PATH"
 SHELLRC_SNIPPET
-            log_info "Added npm-global to PATH"
-            INSTALLED_STEPS+=("${shellrc_name}-npm-path")
-        else
-            log_info "[DRY RUN] Would append npm-global PATH to ${shellrc_name}"
+                log_info "Added npm-global to PATH"
+                INSTALLED_STEPS+=("${shellrc_name}-npm-path")
+            else
+                log_info "[DRY RUN] Would append npm-global PATH to ${shellrc_name}"
+            fi
         fi
     fi
 

@@ -39,6 +39,34 @@ else
     C_DIM='' C_BOLD='' C_BWHT='' C_INV='' C_RST=''
 fi
 
+# ── Spinner utility ─────────────────────────────────────────────────────────
+# Usage: start_spinner "message"; ... do work ...; stop_spinner
+# Spinner PID stored in _SPINNER_PID. Safe to call stop_spinner if none running.
+_SPINNER_PID=""
+start_spinner() {
+    local msg="${1:-Working…}"
+    [[ -t 1 ]] || return 0
+    (
+        trap 'printf "\r\033[K"; exit 0' TERM HUP INT
+        _frames=(⠋ ⠙ ⠹ ⠸ ⠼ ⠴ ⠦ ⠧ ⠇ ⠏)
+        _i=0
+        while true; do
+            printf '\r\033[38;5;220m    %s\033[38;5;243m %s\033[0m' "${_frames[$_i]}" "$msg"
+            _i=$(( (_i + 1) % 10 ))
+            sleep 0.08
+        done
+    ) &
+    _SPINNER_PID=$!
+}
+stop_spinner() {
+    if [[ -n "${_SPINNER_PID:-}" ]]; then
+        kill "$_SPINNER_PID" 2>/dev/null
+        wait "$_SPINNER_PID" 2>/dev/null || true
+        _SPINNER_PID=""
+        printf '\r\033[K'
+    fi
+}
+
 # ── Registry parsing ─────────────────────────────────────────────────────────
 parse_registry() {
     if [[ ! -f "$REGISTRY" ]]; then
@@ -630,21 +658,20 @@ fi
 steamos_preflight
 
 # ── Pre-launch: git sync ────────────────────────────────────────────────────
+start_spinner "Syncing repos…"
+
 if [[ -f "$SYNC_SCRIPT" && -d "$TARGET_DIR/.git" ]]; then
-    echo "Syncing $TARGET_NAME..."
-    bash "$SYNC_SCRIPT" --pull "$TARGET_DIR" 2>&1 || true
+    bash "$SYNC_SCRIPT" --pull "$TARGET_DIR" >/dev/null 2>&1 || true
 fi
 
 if [[ "$TARGET_DIR" != "$CONFIG_REPO" && -f "$SYNC_SCRIPT" && -d "$CONFIG_REPO/.git" ]]; then
-    echo "Syncing config repo..."
-    bash "$SYNC_SCRIPT" --pull "$CONFIG_REPO" 2>&1 || true
+    bash "$SYNC_SCRIPT" --pull "$CONFIG_REPO" >/dev/null 2>&1 || true
 fi
 
-# ── Pre-launch: pull all other local repos (CFG-129) ────────────────────────
-# Background-pulls all registry repos to prevent stale cross-project state.
-# Skips target + config repo (already synced above).
-echo "Pre-pulling other local repos..."
+# Pre-pull all other local repos (CFG-129) — prevents stale cross-project state.
 AFLEET_SKIP_REPOS="$TARGET_DIR|$CONFIG_REPO" pre_pull_all_repos
+
+stop_spinner
 
 # ── Launch ───────────────────────────────────────────────────────────────────
 
@@ -682,6 +709,17 @@ if [[ -t 1 ]]; then
         printf '              \033[38;5;243mClaude Code v%s\033[0m\n' "$__cc_ver"
     fi
     printf '\n'
+
+    # ── Startup spinner ──────────────────────────────────────────────────────
+    # Node.js + CC init takes several seconds — show a Braille spinner in
+    # AF-yellow so the TUI doesn't look hung.
+    start_spinner "Starting session…"
 fi
 
-AFLEET_LAUNCHED=1 AFLEET_PROJECT="$TARGET_NAME" CC_MIRROR_SPLASH=0 exec "$MCLAUDE"
+AFLEET_LAUNCHED=1 AFLEET_PROJECT="$TARGET_NAME" CC_MIRROR_SPLASH=0 "$MCLAUDE"
+MCLAUDE_EXIT=$?
+
+# Kill startup spinner (if still alive — CC's TUI hides it, but the process lingers)
+stop_spinner
+
+exit "${MCLAUDE_EXIT:-0}"

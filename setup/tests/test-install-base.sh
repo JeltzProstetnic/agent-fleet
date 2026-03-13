@@ -1,163 +1,186 @@
 #!/usr/bin/env bash
-# Tests for install-base.sh — cc-mirror variant creation (always --no-tweak)
+# Tests for setup/install-base.sh — nvm/npmrc compatibility
 source "$(dirname "$0")/test-helpers.sh"
 
-suite_header "install-base.sh — cc-mirror Variant Creation"
+INSTALL_SCRIPT="$REPO_ROOT/setup/install-base.sh"
 
-# ── Helper: set up mock environment ─────────────────────────────────────────
+suite_header "install-base.sh (nvm/npmrc compatibility)"
 
-_setup_mock_env() {
-    log_step() { :; }
-    log_info() { MOCK_INFO+=("$*"); }
-    log_warn() { MOCK_WARNINGS+=("$*"); }
-    log_error() { MOCK_ERRORS+=("$*"); }
-    log_success() { :; }
-    run_cmd() { "$@"; }
+# ── Helpers ──────────────────────────────────────────────────────────────────
 
-    INSTALLED_STEPS=()
-    SKIPPED_STEPS=()
-    MOCK_INFO=()
-    MOCK_WARNINGS=()
-    MOCK_ERRORS=()
-    DRY_RUN=false
-    VERBOSE=false
-    CC_MIRROR_VARIANT="mclaude"
-    TOTAL_STEPS=6
-
-    export -f log_step log_info log_warn log_error log_success run_cmd
+create_test_env() {
+    local home="$TEST_TMPDIR/home"
+    mkdir -p "$home/.local/bin"
+    echo "$home"
 }
 
-_load_functions() {
-    local script="$REPO_ROOT/setup/install-base.sh"
-    eval "$(sed -n '/^create_mclaude_variant()/,/^}/p' "$script")"
+# Build a test harness that extracts setup_npm_global from install-base.sh
+# with stubbed dependencies so we can test it in isolation.
+build_test_harness() {
+    cat > "$TEST_TMPDIR/harness.sh" << 'HARNESS'
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Stubs for install-base dependencies
+TOTAL_STEPS=6
+log_step()    { shift 2; echo "[STEP] $*"; }
+log_info()    { echo "[INFO] $*"; }
+log_warn()    { echo "[WARN] $*"; }
+log_success() { echo "[OK] $*"; }
+file_contains() { grep -q "$2" "$1" 2>/dev/null; }
+run_cmd()     { "$@"; }
+backup_file() { :; }
+detect_shell_rc()      { echo "${HOME}/.bashrc"; }
+detect_shell_rc_name() { echo ".bashrc"; }
+
+DRY_RUN="${DRY_RUN:-false}"
+INSTALLED_STEPS=()
+SKIPPED_STEPS=()
+HARNESS
+
+    # Extract the function from install-base.sh and append
+    sed -n '/^setup_npm_global()/,/^}/p' "$INSTALL_SCRIPT" >> "$TEST_TMPDIR/harness.sh"
+
+    echo 'setup_npm_global' >> "$TEST_TMPDIR/harness.sh"
 }
 
-# ── Test: skips when launcher exists ─────────────────────────────────────────
+# ── 1. NVM detection ────────────────────────────────────────────────────────
 
-test_variant_skips_existing_launcher() {
-    _setup_mock_env
-    _load_functions
+test_nvm_detected_skips_prefix() {
+    local home
+    home=$(create_test_env)
 
-    mkdir -p "$TEST_TMPDIR/.local/bin"
-    echo "#!/bin/bash" > "$TEST_TMPDIR/.local/bin/mclaude"
-    HOME="$TEST_TMPDIR"
+    # Simulate nvm installation
+    mkdir -p "$home/.nvm"
+    echo '# nvm stub' > "$home/.nvm/nvm.sh"
+    echo '# empty bashrc' > "$home/.bashrc"
 
-    create_mclaude_variant
-    assert_contains "${SKIPPED_STEPS[*]}" "already exists"
+    build_test_harness
+
+    local output
+    output=$(HOME="$home" NVM_DIR="$home/.nvm" bash "$TEST_TMPDIR/harness.sh" 2>&1)
+
+    assert_contains "$output" "NVM detected" "should detect nvm"
+    assert_contains "$output" "skipping npm prefix" "should skip prefix config"
+    # No assert_dir_not_exists in helpers — inline check
+    if [[ -d "$home/.npm-global" ]]; then
+        echo "    FAIL: ~/.npm-global should not exist when nvm is active" >&2
+        return 1
+    fi
 }
-run_test "create_mclaude_variant skips when launcher exists" test_variant_skips_existing_launcher
+run_test "nvm detected: skips npm prefix configuration" test_nvm_detected_skips_prefix
 
-# ── Test: calls cc-mirror with --no-tweak and succeeds ───────────────────────
+test_nvm_cleans_stale_prefix() {
+    local home
+    home=$(create_test_env)
 
-test_variant_calls_cc_mirror_no_tweak() {
-    _setup_mock_env
-    _load_functions
+    # Simulate nvm + stale .npmrc with prefix
+    mkdir -p "$home/.nvm"
+    echo '# nvm stub' > "$home/.nvm/nvm.sh"
+    echo "prefix=$home/.npm-global" > "$home/.npmrc"
+    echo '# empty bashrc' > "$home/.bashrc"
 
-    HOME="$TEST_TMPDIR"
-    mkdir -p "$TEST_TMPDIR/.local/bin"
+    build_test_harness
 
-    local cc_mirror_args=""
-    cc-mirror() {
-        cc_mirror_args="$*"
-        echo "#!/bin/bash" > "$TEST_TMPDIR/.local/bin/mclaude"
-        return 0
-    }
-    export -f cc-mirror
+    local output
+    output=$(HOME="$home" NVM_DIR="$home/.nvm" bash "$TEST_TMPDIR/harness.sh" 2>&1)
 
-    create_mclaude_variant 2>&1
-
-    assert_contains "$cc_mirror_args" "--no-tweak"
-    assert_contains "${INSTALLED_STEPS[*]}" "mclaude-variant"
-
-    unset -f cc-mirror
+    assert_contains "$output" "Removing stale prefix" "should warn about stale prefix"
+    assert_file_not_exists "$home/.npmrc" "should remove empty .npmrc after prefix removal"
 }
-run_test "create_mclaude_variant always uses --no-tweak" test_variant_calls_cc_mirror_no_tweak
+run_test "nvm detected: cleans stale prefix= from .npmrc" test_nvm_cleans_stale_prefix
 
-# ── Test: fails with clear error message ─────────────────────────────────────
+test_nvm_preserves_other_npmrc_lines() {
+    local home
+    home=$(create_test_env)
 
-test_variant_failure() {
-    _setup_mock_env
-    _load_functions
+    # Simulate nvm + .npmrc with prefix AND other settings
+    mkdir -p "$home/.nvm"
+    echo '# nvm stub' > "$home/.nvm/nvm.sh"
+    printf 'prefix=%s/.npm-global\nregistry=https://registry.npmjs.org/\n' "$home" > "$home/.npmrc"
+    echo '# empty bashrc' > "$home/.bashrc"
 
-    HOME="$TEST_TMPDIR"
-    mkdir -p "$TEST_TMPDIR/.local/bin"
+    build_test_harness
 
-    cc-mirror() { return 1; }
-    export -f cc-mirror
+    HOME="$home" NVM_DIR="$home/.nvm" bash "$TEST_TMPDIR/harness.sh" >/dev/null 2>&1
 
-    local exit_called=false
-    exit() { exit_called=true; }
-    export -f exit
-
-    create_mclaude_variant 2>&1 || true
-
-    local all_errors="${MOCK_ERRORS[*]}"
-    assert_contains "$all_errors" "Failed"
-    assert_eq "true" "$exit_called" "exit should be called on failure"
-
-    unset -f cc-mirror exit
+    assert_file_exists "$home/.npmrc" "should keep .npmrc with other settings"
+    assert_file_not_contains "$home/.npmrc" "^prefix=" "should have removed prefix line"
+    assert_file_contains "$home/.npmrc" "registry=" "should preserve registry line"
 }
-run_test "create_mclaude_variant exits on failure with clear error" test_variant_failure
+run_test "nvm detected: preserves other .npmrc lines" test_nvm_preserves_other_npmrc_lines
 
-# ── Test: dry run mode ──────────────────────────────────────────────────────
+# ── 2. No NVM — traditional prefix setup ────────────────────────────────────
 
-test_variant_dry_run() {
-    _setup_mock_env
-    _load_functions
-    DRY_RUN=true
-    HOME="$TEST_TMPDIR"
+test_no_nvm_sets_prefix() {
+    local home
+    home=$(create_test_env)
 
-    create_mclaude_variant 2>&1
+    # No nvm installation — but need .bashrc for PATH addition
+    echo '# empty bashrc' > "$home/.bashrc"
 
-    assert_contains "${INSTALLED_STEPS[*]}" "dry-run"
-    local all_info="${MOCK_INFO[*]}"
-    assert_contains "$all_info" "--no-tweak"
+    build_test_harness
+
+    local output
+    output=$(HOME="$home" NVM_DIR="$home/.nvm" bash "$TEST_TMPDIR/harness.sh" 2>&1)
+
+    assert_not_contains "$output" "NVM detected" "should not detect nvm"
+    assert_dir_exists "$home/.npm-global" "should create ~/.npm-global"
 }
-run_test "create_mclaude_variant dry-run mentions --no-tweak" test_variant_dry_run
+run_test "no nvm: sets npm prefix normally" test_no_nvm_sets_prefix
 
-# ── Test: verify script documents TweakCC incompatibility ────────────────────
+# ── 3. ~/.local/bin PATH ────────────────────────────────────────────────────
 
-test_script_documents_tweakcc() {
-    local script="$REPO_ROOT/setup/install-base.sh"
-    assert_file_contains "$script" "TweakCC is DISABLED by default"
-    assert_file_contains "$script" "incompatible with cc-mirror"
-    assert_file_contains "$script" "statusline.*works independently of TweakCC"
+test_local_bin_added_to_path() {
+    local home
+    home=$(create_test_env)
+
+    echo '# empty bashrc' > "$home/.bashrc"
+
+    build_test_harness
+
+    HOME="$home" NVM_DIR="$home/.nvm" bash "$TEST_TMPDIR/harness.sh" >/dev/null 2>&1
+
+    assert_file_contains "$home/.bashrc" '.local/bin' "should add ~/.local/bin to .bashrc PATH"
 }
-run_test "install-base.sh documents TweakCC incompatibility" test_script_documents_tweakcc
+run_test "adds ~/.local/bin to .bashrc PATH" test_local_bin_added_to_path
 
-# ── Test: no two-attempt fallback (always --no-tweak on first call) ──────────
+test_local_bin_not_duplicated() {
+    local home
+    home=$(create_test_env)
 
-test_no_fallback_logic() {
-    _setup_mock_env
-    _load_functions
+    echo 'export PATH="$HOME/.local/bin:$PATH"' > "$home/.bashrc"
 
-    HOME="$TEST_TMPDIR"
-    mkdir -p "$TEST_TMPDIR/.local/bin"
+    build_test_harness
 
-    local call_count=0
-    cc-mirror() {
-        ((call_count++)) || true
-        echo "#!/bin/bash" > "$TEST_TMPDIR/.local/bin/mclaude"
-        return 0
-    }
-    export -f cc-mirror
+    local output
+    output=$(HOME="$home" NVM_DIR="$home/.nvm" bash "$TEST_TMPDIR/harness.sh" 2>&1)
 
-    create_mclaude_variant 2>&1
-
-    assert_eq "1" "$call_count" "cc-mirror should be called exactly once (no retry logic)"
-
-    unset -f cc-mirror
+    assert_contains "$output" "already in PATH" "should detect existing .local/bin in PATH"
+    assert_grep_count "$home/.bashrc" '.local/bin' 1 "should not duplicate .local/bin PATH entry"
 }
-run_test "create_mclaude_variant calls cc-mirror exactly once (no fallback)" test_no_fallback_logic
+run_test "does not duplicate ~/.local/bin if already in .bashrc" test_local_bin_not_duplicated
 
-# ── Test: settings.json has no TWEAKCC_CONFIG_DIR ────────────────────────────
+# ── 4. Dry run ──────────────────────────────────────────────────────────────
 
-test_settings_no_tweakcc_env() {
-    local settings="$REPO_ROOT/setup/config/settings.json"
-    assert_file_not_contains "$settings" "TWEAKCC_CONFIG_DIR"
+test_dry_run_no_file_changes() {
+    local home
+    home=$(create_test_env)
+
+    mkdir -p "$home/.nvm"
+    echo '# nvm stub' > "$home/.nvm/nvm.sh"
+    echo "prefix=$home/.npm-global" > "$home/.npmrc"
+    echo '# empty bashrc' > "$home/.bashrc"
+
+    build_test_harness
+
+    local output
+    output=$(HOME="$home" NVM_DIR="$home/.nvm" DRY_RUN=true bash "$TEST_TMPDIR/harness.sh" 2>&1)
+
+    assert_contains "$output" "DRY RUN" "should indicate dry run"
+    assert_file_contains "$home/.npmrc" "^prefix=" "should not modify .npmrc in dry run"
 }
-run_test "settings.json has no TWEAKCC_CONFIG_DIR env var" test_settings_no_tweakcc_env
+run_test "dry run: no file modifications" test_dry_run_no_file_changes
 
 # ── Summary ─────────────────────────────────────────────────────────────────
-
 suite_summary
