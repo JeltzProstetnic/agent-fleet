@@ -214,6 +214,163 @@ test_format_missing_body_file() {
 run_test "format exits 1 when body file is missing" test_format_missing_body_file
 
 # ══════════════════════════════════════════════════════════════════════════════
+# Privacy Regression Tests (CFG-73 Ph4)
+# ══════════════════════════════════════════════════════════════════════════════
+# These test with REAL pattern types (using safe test values).
+# The script's PRIVACY_PATTERNS are customizable — these test the mechanism.
+
+test_privacy_catches_configured_email() {
+    # Create a modified fleet-issue.sh with a test pattern
+    local test_script="$TEST_TMPDIR/fleet-issue-test.sh"
+    sed 's/^PRIVACY_PATTERNS=(/PRIVACY_PATTERNS=(\n    "email|testuser@example\\.com"/' \
+        "$SCRIPT" > "$test_script"
+    chmod +x "$test_script"
+
+    local body="$TEST_TMPDIR/body.md"
+    echo "Contact testuser@example.com for details." > "$body"
+    local out rc=0
+    out=$(bash "$test_script" --scrub "$body" 2>&1) || rc=$?
+    assert_eq "1" "$rc" "should catch configured email pattern"
+    assert_contains "$out" "email"
+}
+run_test "privacy catches configured email pattern" test_privacy_catches_configured_email
+
+test_privacy_catches_configured_hostname() {
+    local test_script="$TEST_TMPDIR/fleet-issue-test.sh"
+    sed 's/^PRIVACY_PATTERNS=(/PRIVACY_PATTERNS=(\n    "hostname|TEST-HOSTNAME-[0-9]+"/' \
+        "$SCRIPT" > "$test_script"
+    chmod +x "$test_script"
+
+    local body="$TEST_TMPDIR/body.md"
+    echo "Observed on TEST-HOSTNAME-42 during startup." > "$body"
+    local out rc=0
+    out=$(bash "$test_script" --scrub "$body" 2>&1) || rc=$?
+    assert_eq "1" "$rc" "should catch configured hostname pattern"
+    assert_contains "$out" "hostname"
+}
+run_test "privacy catches configured hostname pattern" test_privacy_catches_configured_hostname
+
+test_privacy_catches_configured_ip() {
+    local test_script="$TEST_TMPDIR/fleet-issue-test.sh"
+    sed 's/^PRIVACY_PATTERNS=(/PRIVACY_PATTERNS=(\n    "ssh_host|10\\.0\\.0\\.99"/' \
+        "$SCRIPT" > "$test_script"
+    chmod +x "$test_script"
+
+    local body="$TEST_TMPDIR/body.md"
+    echo "SSH to 10.0.0.99 failed with timeout." > "$body"
+    local out rc=0
+    out=$(bash "$test_script" --scrub "$body" 2>&1) || rc=$?
+    assert_eq "1" "$rc" "should catch configured IP pattern"
+    assert_contains "$out" "ssh_host"
+}
+run_test "privacy catches configured IP address pattern" test_privacy_catches_configured_ip
+
+test_privacy_catches_configured_homepath() {
+    local test_script="$TEST_TMPDIR/fleet-issue-test.sh"
+    # Use a different approach: write the modified script directly
+    cp "$SCRIPT" "$test_script"
+    # Insert pattern after the placeholder line
+    sed -i '/placeholder|CUSTOMIZE_PRIVACY_PATTERNS/a\    "home_path|/home/testuser/"' "$test_script"
+    chmod +x "$test_script"
+
+    local body="$TEST_TMPDIR/body.md"
+    echo "File at /home/testuser/.config/something was missing." > "$body"
+    local out rc=0
+    out=$(bash "$test_script" --scrub "$body" 2>&1) || rc=$?
+    assert_eq "1" "$rc" "should catch configured home path pattern"
+    assert_contains "$out" "home_path"
+}
+run_test "privacy catches configured home path pattern" test_privacy_catches_configured_homepath
+
+test_privacy_multiple_patterns_all_reported() {
+    local test_script="$TEST_TMPDIR/fleet-issue-test.sh"
+    sed 's/^PRIVACY_PATTERNS=(/PRIVACY_PATTERNS=(\n    "email|leak@test\\.com"\n    "hostname|LEAKED-HOST"/' \
+        "$SCRIPT" > "$test_script"
+    chmod +x "$test_script"
+
+    local body="$TEST_TMPDIR/body.md"
+    echo "On LEAKED-HOST, send to leak@test.com for debug info." > "$body"
+    local out rc=0
+    out=$(bash "$test_script" --scrub "$body" 2>&1) || rc=$?
+    assert_eq "1" "$rc" "should catch both patterns"
+    assert_contains "$out" "email"
+    assert_contains "$out" "hostname"
+}
+run_test "privacy reports all matching categories" test_privacy_multiple_patterns_all_reported
+
+test_privacy_clean_with_configured_patterns() {
+    local test_script="$TEST_TMPDIR/fleet-issue-test.sh"
+    sed 's/^PRIVACY_PATTERNS=(/PRIVACY_PATTERNS=(\n    "email|secret@corp\\.com"\n    "hostname|PRIVATE-HOST"/' \
+        "$SCRIPT" > "$test_script"
+    chmod +x "$test_script"
+
+    local body="$TEST_TMPDIR/body.md"
+    echo "The hook failed silently on a fleet machine during startup." > "$body"
+    local out rc=0
+    out=$(bash "$test_script" --scrub "$body" 2>&1) || rc=$?
+    assert_eq "0" "$rc" "clean content should pass even with configured patterns"
+    assert_contains "$out" "Clean"
+}
+run_test "privacy passes clean content with configured patterns" test_privacy_clean_with_configured_patterns
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Dedup Staleness Tests (CFG-73 Ph4)
+# ══════════════════════════════════════════════════════════════════════════════
+
+test_stale_detects_old_entries() {
+    local index="$TEST_TMPDIR/.fleet-issues.jsonl"
+    echo '{"title":"Old issue","number":10,"date":"2025-01-01"}' > "$index"
+    local out rc=0
+    out=$(bash "$SCRIPT" --check-stale "$index" 90 2>&1) || rc=$?
+    assert_eq "1" "$rc" "should exit 1 when stale entries found"
+    assert_contains "$out" "STALE"
+    assert_contains "$out" "Old issue"
+}
+run_test "check-stale detects entries older than threshold" test_stale_detects_old_entries
+
+test_stale_passes_fresh_entries() {
+    local index="$TEST_TMPDIR/.fleet-issues.jsonl"
+    local today
+    today=$(date +%Y-%m-%d)
+    echo "{\"title\":\"Fresh issue\",\"number\":99,\"date\":\"$today\"}" > "$index"
+    local out rc=0
+    out=$(bash "$SCRIPT" --check-stale "$index" 90 2>&1) || rc=$?
+    assert_eq "0" "$rc" "should exit 0 when all entries are fresh"
+    assert_contains "$out" "fresh"
+}
+run_test "check-stale passes when all entries are fresh" test_stale_passes_fresh_entries
+
+test_stale_handles_empty_index() {
+    local index="$TEST_TMPDIR/.fleet-issues.jsonl"
+    touch "$index"
+    local out rc=0
+    out=$(bash "$SCRIPT" --check-stale "$index" 90 2>&1) || rc=$?
+    assert_eq "0" "$rc" "should exit 0 on empty index"
+}
+run_test "check-stale handles empty index" test_stale_handles_empty_index
+
+test_stale_handles_missing_index() {
+    local out rc=0
+    out=$(bash "$SCRIPT" --check-stale "$TEST_TMPDIR/nope.jsonl" 90 2>&1) || rc=$?
+    assert_eq "0" "$rc" "should exit 0 on missing index"
+}
+run_test "check-stale handles missing index" test_stale_handles_missing_index
+
+test_sync_index_lists_entries() {
+    local index="$TEST_TMPDIR/.fleet-issues.jsonl"
+    echo '{"title":"Issue A","number":10,"date":"2026-03-01"}' > "$index"
+    echo '{"title":"Issue B","number":20,"date":"2026-03-05"}' >> "$index"
+    local out rc=0
+    out=$(bash "$SCRIPT" --sync-index "$index" 2>&1) || rc=$?
+    assert_eq "0" "$rc" "should exit 0"
+    assert_contains "$out" "#10"
+    assert_contains "$out" "#20"
+    assert_contains "$out" "Issue A"
+    assert_contains "$out" "Issue B"
+}
+run_test "sync-index lists all entries for verification" test_sync_index_lists_entries
+
+# ══════════════════════════════════════════════════════════════════════════════
 # Main Entry Point / Exit Code Tests
 # ══════════════════════════════════════════════════════════════════════════════
 

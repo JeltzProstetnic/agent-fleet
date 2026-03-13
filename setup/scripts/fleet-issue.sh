@@ -30,6 +30,8 @@ PRIVACY_PATTERNS=(
     # ── CUSTOMIZE THESE PATTERNS WITH YOUR ACTUAL DATA ──
     # Each entry is "category|regex" (extended regex, case-insensitive matching).
     # Uncomment and fill in your personal patterns below.
+    # The placeholder pattern below catches accidental inclusion of the config marker.
+    "placeholder|CUSTOMIZE_PRIVACY_PATTERNS"
 
     # Machine hostnames
     # "hostname|DESKTOP-[A-Za-z0-9]+"
@@ -260,6 +262,63 @@ $(format_metadata)
 EOF
 }
 
+# check_stale <index_file> <max_age_days>
+# Reports entries older than max_age_days. Returns 0 if all fresh, 1 if stale found.
+check_stale() {
+    local index="$1"
+    local max_age="$2"
+    if [[ ! -f "$index" ]] || [[ ! -s "$index" ]]; then
+        echo "No dedup index or empty — nothing stale."
+        return 0
+    fi
+    local today_epoch stale_count=0 total_count=0
+    today_epoch=$(date +%s)
+    while IFS= read -r line; do
+        [[ -z "$line" ]] && continue
+        ((total_count++)) || true
+        local entry_date
+        entry_date=$(echo "$line" | sed -n 's/.*"date":"\([^"]*\)".*/\1/p')
+        if [[ -n "$entry_date" ]]; then
+            local entry_epoch
+            entry_epoch=$(date -d "$entry_date" +%s 2>/dev/null || echo "0")
+            local age_days=$(( (today_epoch - entry_epoch) / 86400 ))
+            if [[ $age_days -gt $max_age ]]; then
+                ((stale_count++)) || true
+                local entry_title
+                entry_title=$(echo "$line" | sed -n 's/.*"title":"\([^"]*\)".*/\1/p')
+                echo "STALE ($age_days days): $entry_title"
+            fi
+        fi
+    done < "$index"
+    if [[ $stale_count -gt 0 ]]; then
+        echo "$stale_count of $total_count entries are stale (>$max_age days)."
+        return 1
+    else
+        echo "All $total_count entries are fresh (<=$max_age days)."
+        return 0
+    fi
+}
+
+# sync_index <index_file>
+# Lists entries that should be verified against GitHub for reconciliation.
+sync_index() {
+    local index="$1"
+    if [[ ! -f "$index" ]] || [[ ! -s "$index" ]]; then
+        echo "No dedup index or empty — nothing to sync."
+        return 0
+    fi
+    echo "Entries to verify against GitHub:"
+    while IFS= read -r line; do
+        [[ -z "$line" ]] && continue
+        local title number
+        title=$(echo "$line" | sed -n 's/.*"title":"\([^"]*\)".*/\1/p')
+        number=$(echo "$line" | sed -n 's/.*"number":\([0-9]*\).*/\1/p')
+        echo "  #$number: $title"
+    done < "$index"
+    echo ""
+    echo "Use GitHub MCP to check issue status, then remove closed entries manually."
+}
+
 # ── Main ─────────────────────────────────────────────────────────────────────
 
 if [[ $# -eq 0 ]]; then
@@ -282,6 +341,13 @@ case "${1:-}" in
     --format)
         [[ $# -lt 5 ]] && { echo "Error: --format requires <title> <category> <severity> <body_file>" >&2; exit 1; }
         format_body "$2" "$3" "$4" "$5"
+        ;;
+    --check-stale)
+        [[ $# -lt 2 ]] && { echo "Usage: --check-stale <index_file> [max_age_days]" >&2; exit 1; }
+        check_stale "$2" "${3:-90}"
+        ;;
+    --sync-index)
+        sync_index "${2:-$DEFAULT_INDEX}"
         ;;
     *)
         usage
