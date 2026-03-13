@@ -389,6 +389,41 @@ EOF
 }
 run_test "unknown config keys produce warnings" test_unknown_config_keys_warn
 
+# ── 16. Commit messages pushed to public are sanitized ───────────────────────
+
+test_commit_message_sanitized_in_public() {
+    setup_dual_remote_repo "$TEST_TMPDIR"
+    (
+        cd "$TEST_TMPDIR/repo"
+        mkdir -p secrets
+        echo "token" > secrets/vault.json
+        cat > .push-filter.conf <<'CONF'
+private_remote=private
+public_remote=public
+branch=main
+exclude=secrets/
+CONF
+        git add -A
+        # The HEAD commit message contains personal data that should be sanitized
+        git commit -m "Fix by user@private.com on DESKTOP-ABC123 at 10.0.0.1" --quiet 2>/dev/null
+    )
+
+    local out rc=0
+    out=$(cd "$TEST_TMPDIR/repo" && bash "$SCRIPT" 2>&1) || rc=$?
+    assert_eq "0" "$rc" "push should succeed"
+
+    # Check the public remote's commit message is sanitized
+    local public_msg
+    public_msg=$(git -C "$TEST_TMPDIR/public.git" log -1 --format=%B)
+    assert_not_contains "$public_msg" "user@private.com" "email should be redacted in public commit"
+    assert_not_contains "$public_msg" "DESKTOP-ABC123" "hostname should be redacted in public commit"
+    assert_not_contains "$public_msg" "10.0.0.1" "IP should be redacted in public commit"
+    assert_contains "$public_msg" "[REDACTED-EMAIL]" "should have email redaction marker"
+    assert_contains "$public_msg" "[REDACTED-HOST]" "should have host redaction marker"
+    assert_contains "$public_msg" "[REDACTED-IP]" "should have IP redaction marker"
+}
+run_test "commit messages pushed to public are sanitized" test_commit_message_sanitized_in_public
+
 # ── Summary ──────────────────────────────────────────────────────────────────
 
 suite_summary
