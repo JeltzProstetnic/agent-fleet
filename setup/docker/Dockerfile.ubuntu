@@ -1,0 +1,34 @@
+FROM ubuntu:24.04
+
+# Avoid interactive prompts during package installation
+ENV DEBIAN_FRONTEND=noninteractive
+
+# Install required dependencies
+RUN apt-get update && apt-get install -y \
+    git \
+    npm \
+    nodejs \
+    python3 \
+    curl \
+    jq \
+    sudo \
+    && rm -rf /var/lib/apt/lists/*
+
+# Create non-root test user
+RUN useradd -m -s /bin/bash testuser \
+    && echo "testuser ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers
+
+# Copy repository
+COPY . /home/testuser/agent-fleet
+RUN chown -R testuser:testuser /home/testuser/agent-fleet
+
+# Switch to test user
+USER testuser
+WORKDIR /home/testuser/agent-fleet
+
+# Initialize git config (required for git operations in tests)
+RUN git config --global user.email "test@test.com" \
+    && git config --global user.name "Test User" \
+    && git config --global init.defaultBranch main
+
+CMD ["bash", "setup/scripts/smoke-test.sh"]
