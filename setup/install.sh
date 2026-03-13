@@ -315,17 +315,31 @@ bash "${SCRIPT_DIR}/configure-claude.sh" \
     "${CONFIGURE_ARGS[@]+"${CONFIGURE_ARGS[@]}"}"
 
 # ============================================================================
+# PHASE 3: DEPLOY GLOBAL CONFIG
+# ============================================================================
+
+print_header "Phase 3: Deploy Agent Fleet Configuration"
+
+echo "Deploying global config, hooks, and knowledge files..."
+bash "${REPO_ROOT}/sync.sh" setup
+
+# Deploy afleet launcher
+mkdir -p "${HOME}/.local/bin"
+ln -sf "${REPO_ROOT}/setup/scripts/afleet.sh" "${HOME}/.local/bin/afleet"
+log_info "Deployed: afleet → ~/.local/bin/"
+
+# ============================================================================
 # FINAL SUMMARY
 # ============================================================================
 
 print_header "Installation Complete!"
 
-echo "Both phases completed successfully."
+echo "All phases completed successfully."
 echo ""
 echo -e "${COLOR_BLUE}${COLOR_BOLD}To get started:${COLOR_RESET}"
 _rc_name=$(detect_shell_rc_name 2>/dev/null || echo ".bashrc")
 echo "  1. Open a new terminal (or run: source ~/${_rc_name})"
-echo "  2. Run: mclaude"
+echo "  2. Run: afleet"
 echo ""
 echo -e "${COLOR_BLUE}Logs:${COLOR_RESET}"
 echo "  Check ~/.claude-setup/logs/ for detailed logs"
