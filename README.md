@@ -7,9 +7,10 @@ A persistent, multi-project, multi-machine AI agent that manages your developmen
 ```bash
 git clone https://github.com/YOUR_USERNAME/agent-fleet ~/agent-fleet
 cd ~/agent-fleet && bash setup.sh
+afleet
 ```
 
-Launch Claude Code. The agent introduces itself and asks how you work -- your projects, your communication style, your tools. No forms. No config files. Just a conversation. Everything after this point is "tell the agent what you need."
+The agent introduces itself and asks how you work -- your projects, your communication style, your tools. No forms. No config files. Just a conversation. Everything after this point is "tell the agent what you need."
 
 For a more detailed walkthrough, see the [Getting Started Guide](docs/getting-started.md).
 
@@ -30,7 +31,7 @@ For a more detailed walkthrough, see the [Getting Started Guide](docs/getting-st
 
 **1. Create your own copy**
 
-On GitHub, click **"Use this template" → "Create a new repository"** (set it to **Private**). Then clone your copy:
+On GitHub, click **"Use this template" -> "Create a new repository"** (set it to **Private**). Then clone your copy:
 
 ```bash
 git clone https://github.com/YOUR_USERNAME/agent-fleet ~/agent-fleet
@@ -38,9 +39,9 @@ cd ~/agent-fleet
 bash setup.sh
 ```
 
-> **Do NOT fork.** GitHub forks are public by default and stay linked to the original. A template copy is private and independent — your configuration, your repo, no link back.
+> **Do NOT fork.** GitHub forks are public by default and stay linked to the original. A template copy is private and independent -- your configuration, your repo, no link back.
 
-The script detects your OS, installs dependencies, creates symlinks, and sets up session hooks. If origin still points to the template repo, setup automatically renames it to `upstream` (for pulling updates) and clears origin — your own repo gets set as origin during first-run setup.
+The script detects your OS, installs dependencies, creates symlinks, sets up session hooks, and installs the `afleet` launcher. If origin still points to the template repo, setup automatically renames it to `upstream` (for pulling updates) and clears origin -- your own repo gets set as origin during first-run setup.
 
 **2. Set up credentials** (optional)
 
@@ -55,8 +56,10 @@ Or configure MCP servers manually in `~/.mcp.json`. Or skip this entirely and te
 **3. Launch and talk**
 
 ```bash
-claude
+afleet
 ```
+
+`afleet` is the fleet launcher -- it syncs your repos, detects the current project, and starts Claude Code in the right directory. If no project is detected from the current directory, it shows an interactive project picker.
 
 On first launch, the agent detects a `.setup-pending` marker and starts onboarding -- a conversation about who you are, what you work on, and how you want the agent to behave. It writes everything to the right config files. You can change any of it later by just telling the agent.
 
@@ -64,15 +67,49 @@ Every session after the first is automatic: pull latest config, load project kno
 
 ---
 
-## Three Commands
+## The Fleet Launcher
+
+`afleet` replaces bare `claude` as the entry point. It adds pre-launch sync, project detection, and a terminal-based project picker -- all without consuming LLM tokens.
+
+```bash
+afleet                    # Auto-detect project from CWD, or show picker
+afleet <project-name>     # Open a specific project by name
+afleet --pick             # Interactive project picker (priority-grouped)
+afleet --pick --all       # Include paused/dormant (P4-P5) projects
+afleet --list             # Non-interactive project list
+```
+
+The picker displays projects grouped by priority tier (P1 Critical, P2 Active, P3 Ongoing), with task counts, P1 task names, and disk sizes pulled from a dashboard cache. Type a number or letter to select, Enter for the CWD project, `q` to quit.
+
+Before launching, `afleet` automatically:
+- Pulls the target project and config repo from git
+- Background-pulls all other registered repos (prevents stale cross-project state)
+- On SteamOS: detects OS version changes and re-provisions system packages if wiped
+
+Cross-project navigation (opening projects in new terminal tabs):
+
+```bash
+afleet-nav tab <project>         # Open in new terminal tab (keep current session)
+afleet-nav switch <project>      # Open in new tab, close current session
+afleet-nav notify <project> msg  # Drop a task in the cross-project inbox
+afleet-nav info <project>        # Show project info from registry
+```
+
+Platform-aware: uses Windows Terminal (`wt.exe`) on WSL, Konsole (`qdbus`) on KDE, `tmux new-window` in tmux, and prints manual instructions as fallback.
+
+---
+
+## Quick Commands
 
 ```
-lsd     project dashboard
+lsd     project dashboard (in-session, reads dashboard cache)
 cls     clean shutdown (then /clear or exit)
 lrn     self-audit: rules, knowledge gaps, improvements
+sub     delegate a task to a subagent
+afk     AFK mode: dangerous commands route to Telegram for approval
 ```
 
-Type any of these as your entire message. `cls` (or `end`) runs the full shutdown protocol -- save state, archive session, commit, push -- so you never lose work. `lsd` shows a priority-grouped dashboard with task counts and disk sizes. `lrn` launches parallel subagents to audit the session for rule violations, uncaptured knowledge, and improvement opportunities -- designed for low-context situations where the main context window is nearly full.
+Type any of these as your entire message. `cls` (or `end`) runs the full shutdown protocol -- save state, archive session, commit, push -- so you never lose work. `lsd` shows a priority-grouped dashboard with task counts and disk sizes. `lrn` launches parallel subagents to audit the session for rule violations, uncaptured knowledge, and improvement opportunities. `sub <task>` delegates work to a background subagent. `afk` enables remote approval of dangerous commands via Telegram.
 
 These are shortcuts, not the interface. The interface is conversation.
 
@@ -119,7 +156,7 @@ You don't need to understand this to use it. But if you're curious:
 
 ```mermaid
 graph TD
-    A["<b>Layer 1: Global Prompt</b><br/>The dispatcher — tells the agent what to load<br/><i>Always loaded</i>"] --> B
+    A["<b>Layer 1: Global Prompt</b><br/>The dispatcher -- tells the agent what to load<br/><i>Always loaded</i>"] --> B
     B["<b>Layer 2: Foundation</b><br/>Session rules, your identity, protocols<br/><i>Always loaded</i>"] --> C
     C["<b>Layer 3: Domains</b><br/>Coding rules, infra rules, writing rules<br/><i>Only if the project needs them</i>"] --> D
     D["<b>Layer 4: References</b><br/>Tool guides, troubleshooting<br/><i>Only when needed</i>"] --> E
@@ -142,9 +179,20 @@ The agent maintains `session-context.md` in every project directory. It tracks w
 |-----------|-----|
 | **Continuous archival** | SessionEnd hooks auto-rotate state to history -- even on `/clear`, crashes, or unexpected exits |
 | **Unclean shutdown detection** | SessionStart hooks detect when the previous session didn't shut down properly and warn the agent to review what was lost |
-| **Config health check** | SessionStart hooks validate symlinks, auto-pull if behind remote, clean stale permissions |
+| **Config health check** | SessionStart hooks validate symlinks, auto-pull if behind remote, clean stale permissions, inject session metadata |
 | **Cross-project commit** | Session files in the current project get committed automatically at session end |
 | **Live context meter** | Status line shows model, context usage %, and kilotokens -- color-coded so you know when to wrap up |
+| **Session lock** | PID-based lock prevents two sessions from working on the same project simultaneously |
+
+### Session Hooks
+
+Three hooks automate session lifecycle:
+
+| Hook | Type | What it does |
+|------|------|-------------|
+| `config-check.sh` | SessionStart | Syncs config, validates symlinks, injects hostname/time/persona/inbox/context into the session |
+| `config-auto-sync.sh` | SessionEnd | Rotates session state, commits project + config, pushes to remote, collects mobile outbox |
+| `context-budget.sh` | UserPromptSubmit | Injects `CONTEXT_BUDGET: NN% used` every turn so the agent tracks its own resource usage |
 
 ### Session Flow
 
@@ -191,7 +239,20 @@ Define multiple named personalities with automatic context-based switching:
 
 The default persona activates at session start. Others switch in when the agent detects a matching condition. You can force a switch by saying "switch to [Name]."
 
-Personas are defined in `global/foundation/personas.md`. Machine-specific overrides go in that machine's config file. The setup onboarding offers to configure them conversationally.
+Personas are defined in `global/foundation/personas.md`. Machine-specific overrides go in that machine's config file. Personal overrides go in `personas.local.md` (gitignored -- survives upgrades). The setup onboarding offers to configure them conversationally.
+
+### Grind Progress Indicator (GPI)
+
+Track long-running operations in the terminal status line:
+
+```bash
+gpi start  <id> <label>     # Start tracking an operation
+gpi update <id> --pct 45    # Update progress
+gpi done   <id>             # Mark complete
+gpi status                  # Show all active operations
+```
+
+Operations show as progress bars in the Claude Code status line. When an operation completes, the `context-budget.sh` hook notifies the agent on the next turn.
 
 ---
 
@@ -206,13 +267,13 @@ bash sync.sh mobile-deploy
 
 This creates `~/agent-fleet-mobile/` with:
 - **Read-only snapshots** of your projects, dashboard, and registry
-- **An outbox** (`inbox/outbox.md`) — the only writable file
-- **A minimal CLAUDE.md** — no startup checklist, no hooks, instant-on
+- **An outbox** (`inbox/outbox.md`) -- the only writable file
+- **A minimal CLAUDE.md** -- no startup checklist, no hooks, instant-on
 
 Post tasks from mobile and they flow back automatically:
 
 ```
-Mobile → outbox.md → sync.sh mobile-collect → cross-project inbox → target project
+Mobile -> outbox.md -> sync.sh mobile-collect -> cross-project inbox -> target project
 ```
 
 The `mobile-collect` step runs automatically at session end on any full machine. Or run it manually: `bash sync.sh mobile-collect`.
@@ -255,11 +316,12 @@ No computer is special. Each machine gets its own file in `global/machines/`. Co
 When the template gets new features, pull them into your copy:
 
 ```bash
-# Upgrade (fetches from upstream, merges, runs migrations, deploys)
 bash upgrade.sh
 ```
 
-That's it. One command. The `upstream` remote (set during install) points to the template repo. Your personas, machine files, hostname mappings, and secrets are untouched — they live in gitignored `*.local.*` files that the upgrade never touches.
+One command. It fetches from the `upstream` remote (set during install), compares versions via `.agent-fleet-version`, merges, runs any pending migrations, and deploys to live locations. Your personas, machine files, hostname mappings, and secrets are untouched -- they live in gitignored `*.local.*` files that the upgrade never touches.
+
+Uncommitted changes are auto-stashed before merge and restored after (even on unexpected abort via EXIT trap). If the merge has conflicts, your stash is preserved -- resolve manually, then re-run.
 
 If you've edited framework files directly, git merge will flag conflicts. Resolve them normally. The `sync.sh check` command will tell you what's drifted.
 
@@ -282,6 +344,9 @@ agent-fleet/
 |-- sync.sh                        Config sync (automated by hooks)
 |-- registry.md                    All your projects (created at setup)
 |-- .agent-fleet-version           Version tracking for upgrades
+|-- CHANGELOG.md                   Release notes
+|-- CONTRIBUTING.md                Contribution guidelines
+|-- template-sync-manifest.md      Hash manifest for template drift detection
 |
 |-- global/
 |   |-- CLAUDE.md                  The main prompt (the "dispatcher")
@@ -290,33 +355,67 @@ agent-fleet/
 |   |-- reference/                 Tool guides, troubleshooting
 |   |-- knowledge/                 Operational tips and workarounds
 |   |-- machines/                  Per-computer configuration
-|   `-- hooks/                     SessionStart/End automation
+|   `-- hooks/                     SessionStart/End/UserPromptSubmit automation
 |
 |-- setup/
 |   |-- install.sh                 Main installer (called by setup.sh)
 |   |-- install-base.sh            Phase 1: system deps, Node.js
-|   |-- configure-claude.sh        Phase 2: MCP, launchers, hooks
+|   |-- configure-claude.sh        Phase 2: MCP, launchers, hooks, afleet
 |   |-- lib.sh                     Shared utilities (multi-distro detection)
-|   |-- config/                    Template configs (settings, statusline, etc.)
-|   |-- scripts/                   Operational scripts (rotation, dashboard, etc.)
+|   |-- config/                    Template configs (settings, statusline, aliases, etc.)
+|   |-- scripts/                   Operational scripts (see below)
 |   |-- secrets/                   Vault scaffold (vault.json.example)
+|   |-- icons/                     Priority badge icons for project folders
 |   |-- vps/                       VPS bootstrap and web terminal setup
 |   |-- projects/
 |   |   `-- _example/rules/CLAUDE.md   Example project config
 |   `-- tests/
 |       |-- run.sh                 Test runner
-|       `-- test-*.sh              Individual suites
+|       `-- test-*.sh              33 test suites (570 tests)
 |
 |-- docs/
 |   |-- getting-started.md         Detailed setup and usage walkthrough
-|   `-- security-one-pager.md      Security architecture reference
+|   |-- security-one-pager.md      Security architecture reference
+|   |-- dms-guide.md               Document management system guide
+|   |-- hardening-plan.md          Security hardening plan
+|   `-- placeholder-convention.md  Convention for placeholder text in templates
 |
-|-- migrations/                    Version migration scripts
+|-- migrations/                    Version migration scripts (v0.3, etc.)
 |
 `-- cross-project/
     |-- inbox.md                   Task passing between projects
-    `-- *-strategy.md              Shared state files
+    |-- dashboard-cache.md         Machine-generated dashboard data (task counts, sizes)
+    `-- *-strategy.md              Shared strategy files (infrastructure, visibility)
 ```
+
+### Key Scripts
+
+`setup/scripts/` contains operational scripts deployed by setup or run on demand:
+
+| Script | What it does |
+|--------|-------------|
+| `afleet.sh` | Fleet launcher -- project detection, picker, pre-launch sync |
+| `afleet-nav.sh` | Cross-project navigation -- open tabs, switch projects, send notifications |
+| `rotate-session.sh` | Archives session-context to history and session log |
+| `lsd-refresh.sh` | Generates dashboard cache from registry and backlogs |
+| `git-sync-check.sh` | Fetch, detect drift, fast-forward pull |
+| `filtered-push.sh` | Dual-remote push with path exclusion (personal data filtering) |
+| `gpi.sh` | Grind Progress Indicator CLI (status line progress tracking) |
+| `fleet-issue.sh` | Privacy scrubber + dedup checker for filing GitHub issues |
+| `git-credential-mcp` | Git credential helper that reads GitHub PATs from `.mcp.json` |
+| `manage-pending.sh` | Pending file lifecycle engine (auto-promote, auto-clean) |
+| `inbox-archive.sh` | Archives completed `[x]` items from cross-project inbox |
+| `session-lock.sh` | PID-based session lock library |
+| `ask-passphrase.sh` | Masked passphrase input (tkinter/zenity/kdialog/PowerShell) |
+| `clean-marketplace-plugins.sh` | Removes unwanted auto-installed Claude Code plugins |
+| `plugin-inventory.sh` | Scans installed plugins, reports token cost estimates |
+| `clean-permissions.sh` | Removes stale permission blocks from settings.local.json |
+| `project-icons.sh` | Generates priority badge icons for KDE/Windows project folders |
+| `infra-discover.sh` | Network/environment discovery (interfaces, DNS, SSH, Docker, ports) |
+| `youtube-tabs.sh` | Save/restore YouTube tabs across machines |
+| `update-checker.sh` | Claude Code version checker (runs once per day at startup) |
+| `install-skill-collections.sh` | Install third-party skill packs |
+| `reprovision-steamos.sh` | Re-install system packages after SteamOS update |
 
 ### Sync Tool
 
@@ -348,7 +447,6 @@ MCP servers let the agent interact with external services. All are optional -- c
 | **LinkedIn** | Create posts | Yes (OAuth, manual setup) |
 | **Serena** | Semantic code navigation | No |
 | **Playwright** | Browser automation, screenshots | No |
-| **Memory** | Persistent knowledge graph | No |
 | **Context7** | Library documentation lookup | No |
 | **Diagram** | Mermaid diagram generation (PNG/SVG/PDF) | No |
 
@@ -371,31 +469,42 @@ Add your own: copy `global/domains/_template/`, edit it, reference it from your 
 
 ### Test Suite
 
-365 tests across 22 suites, run via `setup/tests/run.sh`:
+570 tests across 33 suites, run via `setup/tests/run.sh`:
 
 | Suite | Tests | Covers |
 |-------|------:|--------|
-| harness | 13 | Test runner itself |
+| harness | 14 | Test runner itself |
 | rotate-session | 31 | Session archival, history rotation, template parsing |
 | git-sync-check | 15 | Remote detection, fast-forward, divergence handling |
 | sync | 24 | Deploy, collect, symlinks, hook copying |
 | persona | 6 | Persona file parsing, switching logic |
 | lsd-refresh | 9 | Dashboard cache generation, backlog scanning |
 | statusline | 27 | Context meter, persona display, color coding |
-| config-check | 65 | Symlink validation, stale session detection, permission cleanup |
+| config-check | 77 | Symlink validation, stale session detection, permission cleanup, metadata injection |
 | filtered-push | 16 | Dual-remote push, path exclusion, config parsing, safety checks |
-| afleet | 21 | Fleet launcher, project detection, picker |
-| afleet-nav | 14 | Cross-project navigation, info, notify, switch |
+| afleet | 21 | Fleet launcher, project detection, picker, SteamOS pre-flight |
+| afleet-nav | 14 | Cross-project navigation, tab opening, notify, info |
 | clean-marketplace-plugins | 10 | Plugin cleanup, dry-run, stale enabledPlugins |
-| clean-pending-files | 7 | Pending file cleanup after resolution |
+| clean-pending | 7 | Pending file cleanup after resolution |
 | clean-permissions | 8 | Permission block removal from settings.local.json |
-| git-credential-mcp | 8 | MCP credential extraction |
+| context-budget | 13 | Context budget injection, GPI completion notifications |
+| fleet-issue | 34 | Privacy scrubber, dedup checker, issue formatter |
+| git-credential-mcp | 8 | MCP credential extraction for git |
+| gpi | 24 | Grind Progress Indicator CLI |
+| inbox-archive | 11 | Archive completed inbox items |
 | install-base | 7 | cc-mirror variant creation |
-| install-fixes | 16 | Setup edge cases |
+| install-setup | 16 | Setup edge cases, non-interactive mode, rollback |
 | lrn-command | 22 | Self-audit quick command parsing |
+| manage-pending | 20 | Pending file lifecycle engine |
 | mobile | 28 | Mobile deploy/collect, outbox merge, idempotency |
+| nvm-path | 12 | NVM path handling across platforms |
 | plugin-inventory | 9 | Plugin audit and inventory |
+| session-lock | 25 | PID-based session lock, stale lock cleanup |
+| shell-rc | 8 | Shell RC patching (bashrc/zshrc) |
 | template-drift | 9 | Template vs instance drift detection |
+| template-smoke | 24 | End-to-end smoke test for clean template clone |
+| upgrade | 9 | upgrade.sh, migration runner, version gating |
+| youtube-tabs | 13 | Cross-machine YouTube tab persistence |
 
 TDD is enforced -- the agent writes tests before implementation code.
 
@@ -427,7 +536,7 @@ Setup auto-detects your platform and installs dependencies accordingly.
 
 **Windows:** Claude Code runs inside WSL, not natively. See Quick Start for WSL setup.
 
-**SteamOS:** The immutable filesystem requires temporary unlock during setup. The script handles this automatically and re-locks afterward.
+**SteamOS:** The immutable filesystem requires temporary unlock during setup. The script handles this automatically and re-locks afterward. After OS updates, `afleet` detects version changes and auto-re-provisions wiped packages.
 
 **WSL tip:** Always work in `~/`, not `/mnt/c/` -- Windows filesystem paths are 10-15x slower.
 
@@ -437,7 +546,7 @@ Setup auto-detects your platform and installs dependencies accordingly.
 
 Never commit secrets. API tokens, passwords, and credentials stay out of tracked files.
 
-### Token Handling — Critical
+### Token Handling -- Critical
 
 **Never paste tokens, API keys, or passwords into a Claude Code chat session.** Session transcripts may be logged, cached, or sent to API endpoints. A token pasted in chat is a token leaked.
 
@@ -450,7 +559,7 @@ Safe input methods:
 | GUI dialog | `zenity --password`, `kdialog`, tkinter `PasswordBox` | Desktop environments, WSL |
 | Environment variable | `VAULT_PASS="..." bash script.sh` | Non-interactive / CI |
 
-All token-accepting scripts in this repo use `read -s` (masked input) or environment variables. The first-run onboarding collects credentials through file edits or the vault — never through chat.
+All token-accepting scripts in this repo use masked input (`ask-passphrase.sh` auto-detects the best method for your platform) or environment variables. The first-run onboarding collects credentials through file edits or the vault -- never through chat.
 
 **If a token is accidentally pasted in chat:** Rotate it immediately. Assume it is compromised.
 
@@ -479,6 +588,7 @@ bash setup/secrets/vault-manage.sh deploy
 - Scan `git diff --cached` for tokens and passwords
 - No `.env` files staged
 - No plaintext vault files staged
+- Run `bash sync.sh check-template` to scan for personal data leaks
 
 ---
 
@@ -498,6 +608,8 @@ The system uses approximately 18-28% of a 200k-token context window at session s
 | Startup tool calls | ~5-15k | File reads, git pull, inbox check |
 | **Total at startup** | **~35-55k** | **~18-28% of 200k** |
 
+The `context-budget.sh` hook injects `CONTEXT_BUDGET: NN% used (Xk/Yk)` on every turn, so the agent self-monitors and suggests `/clear` when the window fills up.
+
 More rules at startup means fewer mistakes and corrections later (which also consume tokens). Finding the right balance depends on your workflow. A minimal setup (2-3 MCP servers, short profile) sits at the low end. Ten MCP servers and detailed machine files push toward the high end.
 
 ---
@@ -515,7 +627,9 @@ If you need to dig in manually:
 | Permission prompts every session | Project `.claude/settings.local.json` has a `permissions` block that replaces (not extends) global permissions. Remove it. |
 | Session state not persisting | Run from a directory with `session-context.md` or from `~/agent-fleet/`. |
 | Symlinks broken after git pull | `bash sync.sh setup` recreates them. |
+| Two sessions on same project | Session lock detects this and puts the second session in follower mode. |
 | General health check | `bash sync.sh status` |
+| Template drift check | `bash sync.sh check` shows what's drifted from template. |
 
 ---
 
