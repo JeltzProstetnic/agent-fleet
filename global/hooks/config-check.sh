@@ -416,6 +416,72 @@ if [[ -z "${AFLEET_LAUNCHED:-}" ]]; then
     WARNINGS="${WARNINGS:+$WARNINGS | }Session NOT launched via afleet. Use 'afleet' instead of direct launch — afleet handles pre-pull, project detection, and session safety. Direct launch skips fleet infrastructure."
 fi
 
+# Check 28: TweakCC stale patch detection — warn when patches applied to older CC version
+TWEAKCC_CONFIG="$HOME/.cc-mirror/mclaude/tweakcc/config.json"
+CC_PACKAGE="$HOME/.cc-mirror/mclaude/npm/node_modules/@anthropic-ai/claude-code/package.json"
+if [ -f "$TWEAKCC_CONFIG" ] && [ -f "$CC_PACKAGE" ]; then
+    _tweak_ver=$(python3 -c "import json; print(json.load(open('$TWEAKCC_CONFIG')).get('ccVersion',''))" 2>/dev/null || true)
+    _tweak_applied=$(python3 -c "import json; print(json.load(open('$TWEAKCC_CONFIG')).get('changesApplied',True))" 2>/dev/null || true)
+    _cc_ver=$(python3 -c "import json; print(json.load(open('$CC_PACKAGE')).get('version',''))" 2>/dev/null || true)
+    if [ -n "$_tweak_ver" ] && [ -n "$_cc_ver" ] && [ "$_tweak_ver" != "$_cc_ver" ] && [ "$_tweak_applied" = "False" ]; then
+        WARNINGS="${WARNINGS:+$WARNINGS | }TweakCC patches stale (applied to $_tweak_ver, installed CC is $_cc_ver) — run \`cc-mirror tweak mclaude\` from interactive terminal."
+    fi
+fi
+
+# Check 29: wsl.conf duplicate section validation
+# Duplicate [section] headers cause settings to be silently ignored.
+# _FORCE_WSL and _WSL_CONF_PATH are for testing only.
+_is_wsl=0
+if [ "${_FORCE_WSL:-}" = "1" ]; then
+    _is_wsl=1
+elif [ "${_FORCE_WSL:-}" = "0" ]; then
+    _is_wsl=0
+elif [ -d "/mnt/c" ] || grep -qi "microsoft" /proc/version 2>/dev/null; then
+    _is_wsl=1
+fi
+if [ "$_is_wsl" -eq 1 ]; then
+    _wsl_conf="${_WSL_CONF_PATH:-/etc/wsl.conf}"
+    if [ -f "$_wsl_conf" ]; then
+        # Find duplicate [section] headers
+        _wsl_dups=$(awk '/^\[.+\]$/ { count[$0]++; name[$0]=$0 } END { for (s in count) if (count[s]>1) { gsub(/[\[\]]/, "", name[s]); printf "%s ", name[s] } }' "$_wsl_conf")
+        _wsl_dups=$(echo "$_wsl_dups" | sed 's/ $//')
+        if [ -n "$_wsl_dups" ]; then
+            # Auto-fix: merge duplicate sections (last value wins for duplicate keys)
+            _wsl_backup="${_wsl_conf}.bak.$(date +%Y%m%d%H%M%S)"
+            cp "$_wsl_conf" "$_wsl_backup"
+            _wsl_merged=$(python3 -c "
+import sys, collections
+sections = collections.OrderedDict()
+current = ''
+with open(sys.argv[1]) as f:
+    for line in f:
+        line = line.rstrip('\n')
+        stripped = line.strip()
+        if stripped.startswith('[') and stripped.endswith(']'):
+            current = stripped
+            if current not in sections:
+                sections[current] = collections.OrderedDict()
+        elif '=' in line and current:
+            key = line.split('=', 1)[0].strip()
+            sections[current][key] = line
+        elif current and stripped:
+            # Non-key lines (comments etc) — preserve with unique key
+            sections[current]['__line_' + str(len(sections[current]))] = line
+for sec, keys in sections.items():
+    print(sec)
+    for k, v in keys.items():
+        print(v)
+" "$_wsl_conf" 2>/dev/null) || true
+            if [ -n "$_wsl_merged" ]; then
+                echo "$_wsl_merged" > "$_wsl_conf"
+                WARNINGS="${WARNINGS:+$WARNINGS | }wsl.conf has duplicate [section] headers: $_wsl_dups. Settings in duplicate sections may be silently ignored. Auto-fixed: merged duplicate sections (backup: $_wsl_backup)."
+            else
+                WARNINGS="${WARNINGS:+$WARNINGS | }wsl.conf has duplicate [section] headers: $_wsl_dups. Settings in duplicate sections may be silently ignored. Auto-fix failed — merge manually."
+            fi
+        fi
+    fi
+fi
+
 # Output JSON if there are warnings or inbox items
 SYSTEM_MSG=""
 if [ -n "$WARNINGS" ]; then

@@ -541,7 +541,8 @@ test_clean_state_no_output() {
     local patched
     patched=$(create_patched_script "$config_repo" "$mock_home" "$project_dir")
     local output rc=0
-    output=$(run_hook "$patched") || rc=$?
+    # _FORCE_WSL=0 suppresses Check 29 (wsl.conf) which fires on real WSL machines
+    output=$(_FORCE_WSL=0 run_hook "$patched") || rc=$?
 
     assert_eq "0" "$rc" "should exit 0"
     # git pull may output "Already up to date." — that's expected non-JSON noise.
@@ -671,7 +672,8 @@ EOF
     local patched
     patched=$(create_patched_script "$config_repo" "$mock_home" "$project_dir")
     local output
-    output=$(run_hook "$patched")
+    # _FORCE_WSL=0 suppresses Check 29 (wsl.conf) which fires on real WSL machines
+    output=$(_FORCE_WSL=0 run_hook "$patched")
 
     # git pull may output "Already up to date." — that's expected non-JSON noise.
     assert_not_contains "$output" "systemMessage" "should produce no JSON warnings when inbox is done"
@@ -2048,6 +2050,373 @@ test_knowledge_files_excludes_settings() {
     assert_not_contains "$output" "settings.local.json" "should exclude settings.local.json"
 }
 run_test "check 24: knowledge files excludes settings*.json" test_knowledge_files_excludes_settings
+
+# ── 28. TweakCC stale patch detection ────────────────────────────────────────
+
+test_tweakcc_stale_patches_warns() {
+    local config_repo="$TEST_TMPDIR/config-repo"
+    local mock_home="$TEST_TMPDIR/home"
+    local project_dir="$TEST_TMPDIR/project"
+    mkdir -p "$mock_home/.claude" "$project_dir"
+
+    create_mock_config_repo "$config_repo"
+    touch "$config_repo/CLAUDE.md"
+    ln -sf "$config_repo/CLAUDE.md" "$mock_home/.claude/CLAUDE.md"
+
+    # Set up TweakCC config with OLD version and changesApplied: false
+    mkdir -p "$mock_home/.cc-mirror/mclaude/tweakcc"
+    cat > "$mock_home/.cc-mirror/mclaude/tweakcc/config.json" << 'EOF'
+{
+  "ccVersion": "2.1.50",
+  "changesApplied": false,
+  "settings": {}
+}
+EOF
+
+    # Set up installed CC with NEWER version
+    mkdir -p "$mock_home/.cc-mirror/mclaude/npm/node_modules/@anthropic-ai/claude-code"
+    cat > "$mock_home/.cc-mirror/mclaude/npm/node_modules/@anthropic-ai/claude-code/package.json" << 'EOF'
+{
+  "name": "@anthropic-ai/claude-code",
+  "version": "2.1.62"
+}
+EOF
+
+    local patched
+    patched=$(create_patched_script "$config_repo" "$mock_home" "$project_dir")
+    local output
+    output=$(run_hook "$patched")
+
+    assert_contains "$output" "TweakCC patches stale" "should warn about stale TweakCC patches"
+    assert_contains "$output" "cc-mirror tweak mclaude" "should include remediation command"
+}
+run_test "check 28: TweakCC stale patches warns when version mismatch + changesApplied false" test_tweakcc_stale_patches_warns
+
+test_tweakcc_current_no_warning() {
+    local config_repo="$TEST_TMPDIR/config-repo"
+    local mock_home="$TEST_TMPDIR/home"
+    local project_dir="$TEST_TMPDIR/project"
+    mkdir -p "$mock_home/.claude" "$project_dir"
+
+    create_mock_config_repo "$config_repo"
+    touch "$config_repo/CLAUDE.md"
+    ln -sf "$config_repo/CLAUDE.md" "$mock_home/.claude/CLAUDE.md"
+
+    # TweakCC config matches installed version AND changesApplied: true
+    mkdir -p "$mock_home/.cc-mirror/mclaude/tweakcc"
+    cat > "$mock_home/.cc-mirror/mclaude/tweakcc/config.json" << 'EOF'
+{
+  "ccVersion": "2.1.62",
+  "changesApplied": true,
+  "settings": {}
+}
+EOF
+
+    mkdir -p "$mock_home/.cc-mirror/mclaude/npm/node_modules/@anthropic-ai/claude-code"
+    cat > "$mock_home/.cc-mirror/mclaude/npm/node_modules/@anthropic-ai/claude-code/package.json" << 'EOF'
+{
+  "name": "@anthropic-ai/claude-code",
+  "version": "2.1.62"
+}
+EOF
+
+    local patched
+    patched=$(create_patched_script "$config_repo" "$mock_home" "$project_dir")
+    local output
+    output=$(run_hook "$patched")
+
+    assert_not_contains "$output" "TweakCC patches stale" "should NOT warn when versions match"
+}
+run_test "check 28: no TweakCC warning when versions match and patches applied" test_tweakcc_current_no_warning
+
+test_tweakcc_version_mismatch_but_applied_no_warning() {
+    local config_repo="$TEST_TMPDIR/config-repo"
+    local mock_home="$TEST_TMPDIR/home"
+    local project_dir="$TEST_TMPDIR/project"
+    mkdir -p "$mock_home/.claude" "$project_dir"
+
+    create_mock_config_repo "$config_repo"
+    touch "$config_repo/CLAUDE.md"
+    ln -sf "$config_repo/CLAUDE.md" "$mock_home/.claude/CLAUDE.md"
+
+    # Version mismatch BUT changesApplied: true (patches still active)
+    mkdir -p "$mock_home/.cc-mirror/mclaude/tweakcc"
+    cat > "$mock_home/.cc-mirror/mclaude/tweakcc/config.json" << 'EOF'
+{
+  "ccVersion": "2.1.50",
+  "changesApplied": true,
+  "settings": {}
+}
+EOF
+
+    mkdir -p "$mock_home/.cc-mirror/mclaude/npm/node_modules/@anthropic-ai/claude-code"
+    cat > "$mock_home/.cc-mirror/mclaude/npm/node_modules/@anthropic-ai/claude-code/package.json" << 'EOF'
+{
+  "name": "@anthropic-ai/claude-code",
+  "version": "2.1.62"
+}
+EOF
+
+    local patched
+    patched=$(create_patched_script "$config_repo" "$mock_home" "$project_dir")
+    local output
+    output=$(run_hook "$patched")
+
+    assert_not_contains "$output" "TweakCC patches stale" "should NOT warn when changesApplied is true even with version mismatch"
+}
+run_test "check 28: no TweakCC warning when version mismatch but changesApplied true" test_tweakcc_version_mismatch_but_applied_no_warning
+
+test_tweakcc_not_installed_silent() {
+    local config_repo="$TEST_TMPDIR/config-repo"
+    local mock_home="$TEST_TMPDIR/home"
+    local project_dir="$TEST_TMPDIR/project"
+    mkdir -p "$mock_home/.claude" "$project_dir"
+
+    create_mock_config_repo "$config_repo"
+    touch "$config_repo/CLAUDE.md"
+    ln -sf "$config_repo/CLAUDE.md" "$mock_home/.claude/CLAUDE.md"
+
+    # No TweakCC config at all — not installed
+    # (don't create .cc-mirror/mclaude/tweakcc/)
+
+    local patched
+    patched=$(create_patched_script "$config_repo" "$mock_home" "$project_dir")
+    local output
+    output=$(run_hook "$patched")
+
+    assert_not_contains "$output" "TweakCC" "should be silent when TweakCC is not installed"
+}
+run_test "check 28: silent when TweakCC is not installed" test_tweakcc_not_installed_silent
+
+test_tweakcc_same_version_not_applied_warns() {
+    local config_repo="$TEST_TMPDIR/config-repo"
+    local mock_home="$TEST_TMPDIR/home"
+    local project_dir="$TEST_TMPDIR/project"
+    mkdir -p "$mock_home/.claude" "$project_dir"
+
+    create_mock_config_repo "$config_repo"
+    touch "$config_repo/CLAUDE.md"
+    ln -sf "$config_repo/CLAUDE.md" "$mock_home/.claude/CLAUDE.md"
+
+    # Same version BUT changesApplied: false (patches reverted/not applied)
+    mkdir -p "$mock_home/.cc-mirror/mclaude/tweakcc"
+    cat > "$mock_home/.cc-mirror/mclaude/tweakcc/config.json" << 'EOF'
+{
+  "ccVersion": "2.1.62",
+  "changesApplied": false,
+  "settings": {}
+}
+EOF
+
+    mkdir -p "$mock_home/.cc-mirror/mclaude/npm/node_modules/@anthropic-ai/claude-code"
+    cat > "$mock_home/.cc-mirror/mclaude/npm/node_modules/@anthropic-ai/claude-code/package.json" << 'EOF'
+{
+  "name": "@anthropic-ai/claude-code",
+  "version": "2.1.62"
+}
+EOF
+
+    local patched
+    patched=$(create_patched_script "$config_repo" "$mock_home" "$project_dir")
+    local output
+    output=$(run_hook "$patched")
+
+    # Same version but not applied — still worth a warning (patches unapplied)
+    assert_not_contains "$output" "TweakCC patches stale" "should NOT warn about STALE when same version (patches just unapplied, not stale)"
+}
+run_test "check 28: no stale warning when same version but changesApplied false" test_tweakcc_same_version_not_applied_warns
+
+# ── 29. wsl.conf duplicate section validation ────────────────────────────────
+
+test_wslconf_no_warning_non_wsl() {
+    local config_repo="$TEST_TMPDIR/config-repo"
+    local mock_home="$TEST_TMPDIR/home"
+    local project_dir="$TEST_TMPDIR/project"
+    mkdir -p "$mock_home/.claude" "$project_dir"
+
+    create_mock_config_repo "$config_repo"
+    touch "$config_repo/CLAUDE.md"
+    ln -sf "$config_repo/CLAUDE.md" "$mock_home/.claude/CLAUDE.md"
+
+    # Create a wsl.conf with duplicates — but _FORCE_WSL=0 forces non-WSL
+    local wsl_conf="$TEST_TMPDIR/wsl.conf"
+    printf '[boot]\nsystemd=true\n[boot]\ncommand=/bin/bash\n' > "$wsl_conf"
+
+    local patched
+    patched=$(create_patched_script "$config_repo" "$mock_home" "$project_dir")
+    local output
+    output=$(_FORCE_WSL=0 _WSL_CONF_PATH="$wsl_conf" run_hook "$patched")
+
+    assert_not_contains "$output" "wsl.conf" "should NOT warn about wsl.conf on non-WSL"
+}
+run_test "check 29: no wsl.conf warning on non-WSL" test_wslconf_no_warning_non_wsl
+
+test_wslconf_no_warning_clean() {
+    local config_repo="$TEST_TMPDIR/config-repo"
+    local mock_home="$TEST_TMPDIR/home"
+    local project_dir="$TEST_TMPDIR/project"
+    mkdir -p "$mock_home/.claude" "$project_dir"
+
+    create_mock_config_repo "$config_repo"
+    touch "$config_repo/CLAUDE.md"
+    ln -sf "$config_repo/CLAUDE.md" "$mock_home/.claude/CLAUDE.md"
+
+    # Clean wsl.conf — no duplicates
+    local wsl_conf="$TEST_TMPDIR/wsl.conf"
+    printf '[boot]\nsystemd=true\n[interop]\nenabled=true\n' > "$wsl_conf"
+
+    local patched
+    patched=$(create_patched_script "$config_repo" "$mock_home" "$project_dir")
+    local output
+    output=$(_FORCE_WSL=1 _WSL_CONF_PATH="$wsl_conf" run_hook "$patched")
+
+    assert_not_contains "$output" "wsl.conf" "should NOT warn when wsl.conf has no duplicates"
+}
+run_test "check 29: no warning when wsl.conf has no duplicate sections" test_wslconf_no_warning_clean
+
+test_wslconf_warns_on_duplicates() {
+    local config_repo="$TEST_TMPDIR/config-repo"
+    local mock_home="$TEST_TMPDIR/home"
+    local project_dir="$TEST_TMPDIR/project"
+    mkdir -p "$mock_home/.claude" "$project_dir"
+
+    create_mock_config_repo "$config_repo"
+    touch "$config_repo/CLAUDE.md"
+    ln -sf "$config_repo/CLAUDE.md" "$mock_home/.claude/CLAUDE.md"
+
+    # wsl.conf with duplicate [boot] section
+    local wsl_conf="$TEST_TMPDIR/wsl.conf"
+    printf '[boot]\nsystemd=true\n[interop]\nenabled=true\n[boot]\ncommand=/bin/bash\n' > "$wsl_conf"
+
+    local patched
+    patched=$(create_patched_script "$config_repo" "$mock_home" "$project_dir")
+    local output
+    output=$(_FORCE_WSL=1 _WSL_CONF_PATH="$wsl_conf" run_hook "$patched")
+
+    assert_contains "$output" "wsl.conf has duplicate" "should warn about duplicate sections"
+    assert_contains "$output" "boot" "should name the duplicate section"
+}
+run_test "check 29: warns on duplicate wsl.conf sections" test_wslconf_warns_on_duplicates
+
+test_wslconf_autofix_merges_duplicates() {
+    local config_repo="$TEST_TMPDIR/config-repo"
+    local mock_home="$TEST_TMPDIR/home"
+    local project_dir="$TEST_TMPDIR/project"
+    mkdir -p "$mock_home/.claude" "$project_dir"
+
+    create_mock_config_repo "$config_repo"
+    touch "$config_repo/CLAUDE.md"
+    ln -sf "$config_repo/CLAUDE.md" "$mock_home/.claude/CLAUDE.md"
+
+    # wsl.conf with duplicate [boot] — different keys + one overlapping key
+    local wsl_conf="$TEST_TMPDIR/wsl.conf"
+    printf '[boot]\nsystemd=true\n[interop]\nenabled=true\n[boot]\ncommand=/bin/bash\nsystemd=false\n' > "$wsl_conf"
+
+    local patched
+    patched=$(create_patched_script "$config_repo" "$mock_home" "$project_dir")
+    local output
+    output=$(_FORCE_WSL=1 _WSL_CONF_PATH="$wsl_conf" run_hook "$patched")
+
+    # After auto-fix, file should have exactly one [boot] section
+    local boot_count
+    boot_count=$(grep -c '^\[boot\]' "$wsl_conf")
+    assert_eq "1" "$boot_count" "should have exactly one [boot] section after merge"
+
+    # Last value wins: systemd should be false (from second [boot])
+    assert_file_contains "$wsl_conf" "systemd=false" "last value should win for duplicate keys"
+
+    # command should be preserved from the second section
+    assert_file_contains "$wsl_conf" "command=/bin/bash" "unique keys from duplicate sections should be preserved"
+
+    # [interop] should be unchanged
+    assert_file_contains "$wsl_conf" '\[interop\]' "non-duplicate sections should be preserved"
+    assert_file_contains "$wsl_conf" "enabled=true" "non-duplicate section keys should be preserved"
+}
+run_test "check 29: auto-fix merges duplicate wsl.conf sections" test_wslconf_autofix_merges_duplicates
+
+test_wslconf_autofix_creates_backup() {
+    local config_repo="$TEST_TMPDIR/config-repo"
+    local mock_home="$TEST_TMPDIR/home"
+    local project_dir="$TEST_TMPDIR/project"
+    mkdir -p "$mock_home/.claude" "$project_dir"
+
+    create_mock_config_repo "$config_repo"
+    touch "$config_repo/CLAUDE.md"
+    ln -sf "$config_repo/CLAUDE.md" "$mock_home/.claude/CLAUDE.md"
+
+    # wsl.conf with duplicate [boot]
+    local wsl_conf="$TEST_TMPDIR/wsl.conf"
+    printf '[boot]\nsystemd=true\n[boot]\ncommand=/bin/bash\n' > "$wsl_conf"
+
+    local patched
+    patched=$(create_patched_script "$config_repo" "$mock_home" "$project_dir")
+    local output
+    output=$(_FORCE_WSL=1 _WSL_CONF_PATH="$wsl_conf" run_hook "$patched")
+
+    # Backup should exist
+    local backup
+    backup=$(ls "$TEST_TMPDIR"/wsl.conf.bak.* 2>/dev/null | head -1)
+    assert_file_exists "$backup" "should create a backup of wsl.conf before auto-fix"
+
+    # Backup should contain the original content (with duplicates)
+    local backup_boot_count
+    backup_boot_count=$(grep -c '^\[boot\]' "$backup")
+    assert_eq "2" "$backup_boot_count" "backup should have original 2 [boot] sections"
+}
+run_test "check 29: auto-fix creates backup of wsl.conf" test_wslconf_autofix_creates_backup
+
+test_wslconf_no_file_no_warning() {
+    local config_repo="$TEST_TMPDIR/config-repo"
+    local mock_home="$TEST_TMPDIR/home"
+    local project_dir="$TEST_TMPDIR/project"
+    mkdir -p "$mock_home/.claude" "$project_dir"
+
+    create_mock_config_repo "$config_repo"
+    touch "$config_repo/CLAUDE.md"
+    ln -sf "$config_repo/CLAUDE.md" "$mock_home/.claude/CLAUDE.md"
+
+    # Point to a non-existent wsl.conf
+    local wsl_conf="$TEST_TMPDIR/nonexistent-wsl.conf"
+
+    local patched
+    patched=$(create_patched_script "$config_repo" "$mock_home" "$project_dir")
+    local output
+    output=$(_FORCE_WSL=1 _WSL_CONF_PATH="$wsl_conf" run_hook "$patched")
+
+    assert_not_contains "$output" "wsl.conf" "should NOT warn when wsl.conf does not exist"
+}
+run_test "check 29: no warning when wsl.conf does not exist" test_wslconf_no_file_no_warning
+
+test_wslconf_multiple_duplicate_sections() {
+    local config_repo="$TEST_TMPDIR/config-repo"
+    local mock_home="$TEST_TMPDIR/home"
+    local project_dir="$TEST_TMPDIR/project"
+    mkdir -p "$mock_home/.claude" "$project_dir"
+
+    create_mock_config_repo "$config_repo"
+    touch "$config_repo/CLAUDE.md"
+    ln -sf "$config_repo/CLAUDE.md" "$mock_home/.claude/CLAUDE.md"
+
+    # wsl.conf with duplicate [boot] AND duplicate [interop]
+    local wsl_conf="$TEST_TMPDIR/wsl.conf"
+    printf '[boot]\nsystemd=true\n[interop]\nenabled=true\n[boot]\ncommand=/bin/bash\n[interop]\nappendWindowsPath=false\n' > "$wsl_conf"
+
+    local patched
+    patched=$(create_patched_script "$config_repo" "$mock_home" "$project_dir")
+    local output
+    output=$(_FORCE_WSL=1 _WSL_CONF_PATH="$wsl_conf" run_hook "$patched")
+
+    assert_contains "$output" "boot" "should list boot as duplicate"
+    assert_contains "$output" "interop" "should list interop as duplicate"
+
+    # After fix, each section should appear exactly once
+    local boot_count interop_count
+    boot_count=$(grep -c '^\[boot\]' "$wsl_conf")
+    interop_count=$(grep -c '^\[interop\]' "$wsl_conf")
+    assert_eq "1" "$boot_count" "should have exactly one [boot] section after merge"
+    assert_eq "1" "$interop_count" "should have exactly one [interop] section after merge"
+}
+run_test "check 29: handles multiple duplicate sections" test_wslconf_multiple_duplicate_sections
 
 # ── Summary ──────────────────────────────────────────────────────────────────
 

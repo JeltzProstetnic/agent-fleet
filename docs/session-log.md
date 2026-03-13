@@ -4,6 +4,20 @@ Full session history. Newest first. Never pruned.
 
 <!-- Sessions are appended here by rotate-session.sh -->
 
+### 2026-03-13T08:30Z — WSL
+**Goal:** Friday morning triage — inbox tasks, propagation work
+**Completed:**
+- Propagate CLAUDE.md rule quality fixes (shutdown guard, token cost, feature self-integrity removed, cls/end messages, lrnd removed)
+- Propagate cfg hardening scripts (config-check.sh Checks 28+29, lib.sh ensure_tool_paths, configure-claude.sh --path-prefix, test-nvm-path.sh)
+- Propagate lrn protocol rewrite (4-branch root cause analysis) + documentation coherence rule
+**Key Decisions:**
+- Feature self-integrity rule removed from template (design requirement, not behavioral rule)
+- lrnd quick command removed from template (matching cfg)
+- Bidirectional script diffs preserved — agent-fleet keeps its unique features (git identity, shell RC detection, statusline deployment)
+**Pending at shutdown:** Commit and push
+**Recovery/Next session:**
+All edits applied. Tests pass (12/12 NVM, 72/77 config-check — 2 pre-existing failures). Need commit + push.
+
 ### 2026-03-12T18:35Z — WSL
 **Goal:** Work on open backlog tasks — do AFT-31, AFT-36; prep AFT-32, AFT-33, AFT-39/40/41
 **Completed:**

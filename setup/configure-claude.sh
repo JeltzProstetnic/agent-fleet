@@ -14,12 +14,13 @@
 # and create the mclaude variant.
 #
 # Usage:
-#   bash configure-claude.sh [--dry-run] [--verbose] [--no-color]
+#   bash configure-claude.sh [--dry-run] [--verbose] [--no-color] [--path-prefix PATH]
 #
 # Options:
 #   --dry-run          Show what would be done without making changes
 #   --verbose          Show detailed progress information
 #   --no-color         Disable colored output
+#   --path-prefix PATH Prepend PATH to $PATH (for non-interactive SSH where NVM isn't loaded)
 #   --help             Show this help message
 #
 # What this script does:
@@ -77,6 +78,9 @@ OPTIONS:
   --dry-run          Show what would be done without making changes
   --verbose          Show detailed progress information
   --no-color         Disable colored output
+  --path-prefix PATH Prepend PATH to $PATH (for non-interactive SSH sessions
+                     where NVM/node aren't in PATH). Example:
+                       bash configure-claude.sh --path-prefix ~/.nvm/versions/node/v22.22.0/bin
   --help             Show this help message
 
 WHAT THIS SCRIPT DOES:
@@ -774,21 +778,16 @@ main() {
     # Set up cleanup trap with line info for debugging
     trap '_handle_config_error $? $LINENO' ERR INT TERM
 
-    # Parse arguments
-    while [[ $# -gt 0 ]]; do
-        case "$1" in
-            *)
-                # Let parse_common_args handle the rest
-                if ! parse_common_args "$1"; then
-                    show_help
-                    exit 0
-                fi
-                shift
-                ;;
-        esac
-    done
+    # Parse arguments (pass all at once so --path-prefix can consume its value)
+    if ! parse_common_args "$@"; then
+        show_help
+        exit 0
+    fi
 
     print_header "Claude Code Configuration (mclaude variant)"
+
+    # Resolve tool paths for non-interactive shells (NVM, --path-prefix)
+    ensure_tool_paths
 
     # Prerequisites check
     require_cmd cc-mirror "Run install-base.sh first"

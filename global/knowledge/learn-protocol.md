@@ -30,16 +30,14 @@ Prompt the subagent with:
 - Read `~/.claude/CLAUDE.md` (global rules), the project's `CLAUDE.md`, and `~/.claude/foundation/session-protocol.md`
 - Read `session-context.md` in the current project
 - Read `git log --oneline -10` output for the current project
-- Check: Were any rules violated this session? Common violations:
-  - Skipped startup steps
-  - Wrote rules without user consent
-  - Used `cd &&` compound commands
-  - Created new files for daily state
-  - Forgot to update session-context.md
-  - Committed secrets or gitignored files
-  - Skipped TDD
-  - Wrote to files outside project boundary
-- Report each violation with: rule text, evidence, suggested fix
+- For each issue, mistake, or failure identified this session, analyze through the rule system:
+  1. **Was a rule violated?** → Which rule, what was the evidence, why did compliance fail?
+  2. **Was a rule present but insufficient?** → Rule exists but didn't prevent the issue — needs strengthening or different enforcement tier (behavioral → automated)?
+  3. **Is a new rule justified?** → No existing rule covers this — does the pattern warrant one, or is it a one-off?
+  4. **Is the issue rule-irrelevant?** → Not everything is a rule problem. Architecture gap, missing automation, stale data, human error with no systemic fix.
+  These are branching points for root cause analysis, not a checklist to scan.
+- Common patterns to watch for (non-exhaustive): skipped startup steps, rules written without user consent, `cd &&` compounds, new files for daily state, stale session-context.md, committed secrets, skipped TDD, cross-project boundary violations.
+- Report each finding with: rule text (or gap), evidence, root cause analysis, suggested fix
 
 #### Knowledge Capture Agent
 Prompt the subagent with:

@@ -21,6 +21,7 @@ readonly LIB_SH_LOADED="true"
 DRY_RUN="${DRY_RUN:-false}"
 VERBOSE="${VERBOSE:-false}"
 NO_COLOR="${NO_COLOR:-false}"
+PATH_PREFIX="${PATH_PREFIX:-}"
 LOG_FILE=""
 BACKUP_ROOT="${HOME}/.claude-setup/backups"
 LOG_ROOT="${HOME}/.claude-setup/logs"
@@ -343,6 +344,81 @@ require_dir() {
 }
 
 # ============================================================================
+# NON-INTERACTIVE PATH RESOLUTION
+# ============================================================================
+
+# Guard against duplicate calls
+_ENSURE_TOOL_PATHS_DONE="${_ENSURE_TOOL_PATHS_DONE:-false}"
+
+# Best-effort PATH augmentation for non-interactive shells (e.g. SSH).
+# In non-interactive sessions, .bashrc / NVM init scripts aren't sourced,
+# so node/npm/npx/cc-mirror may not be in PATH. This function:
+#   1. Prepends PATH_PREFIX (from --path-prefix flag) if set
+#   2. Auto-detects NVM installation and adds the latest node version to PATH
+# Call this BEFORE require_cmd checks. It is idempotent.
+ensure_tool_paths() {
+    # Idempotency: skip if already ran
+    if [[ "${_ENSURE_TOOL_PATHS_DONE}" == "true" ]]; then
+        return 0
+    fi
+    _ENSURE_TOOL_PATHS_DONE="true"
+
+    # Step 1: Apply --path-prefix if set
+    if [[ -n "${PATH_PREFIX:-}" ]]; then
+        if [[ ":${PATH}:" != *":${PATH_PREFIX}:"* ]]; then
+            export PATH="${PATH_PREFIX}:${PATH}"
+        fi
+    fi
+
+    # Step 2: If node is already in PATH, nothing more to do
+    if command -v node &>/dev/null; then
+        return 0
+    fi
+
+    # Step 3: Auto-detect NVM and add to PATH
+    local nvm_dir="${NVM_DIR:-${HOME}/.nvm}"
+    if [[ ! -d "${nvm_dir}" ]]; then
+        return 0
+    fi
+
+    local node_bin_dir=""
+
+    # Try NVM "default" alias first
+    local default_alias="${nvm_dir}/alias/default"
+    if [[ -f "${default_alias}" ]]; then
+        local default_version
+        default_version="$(cat "${default_alias}" | tr -d '[:space:]')"
+        # Resolve: alias might be "lts/*", "node", or a version like "v22.0.0"
+        # Only handle direct version references (v*)
+        if [[ "${default_version}" == v* ]]; then
+            local candidate="${nvm_dir}/versions/node/${default_version}/bin"
+            if [[ -d "${candidate}" ]] && [[ -x "${candidate}/node" ]]; then
+                node_bin_dir="${candidate}"
+            fi
+        fi
+    fi
+
+    # Fallback: scan versions directory, pick latest by version sort
+    if [[ -z "${node_bin_dir}" ]] && [[ -d "${nvm_dir}/versions/node" ]]; then
+        local latest_version=""
+        latest_version="$(ls -1 "${nvm_dir}/versions/node/" 2>/dev/null | sort -V | tail -n1)"
+        if [[ -n "${latest_version}" ]]; then
+            local candidate="${nvm_dir}/versions/node/${latest_version}/bin"
+            if [[ -d "${candidate}" ]] && [[ -x "${candidate}/node" ]]; then
+                node_bin_dir="${candidate}"
+            fi
+        fi
+    fi
+
+    # Add discovered path
+    if [[ -n "${node_bin_dir}" ]]; then
+        if [[ ":${PATH}:" != *":${node_bin_dir}:"* ]]; then
+            export PATH="${node_bin_dir}:${PATH}"
+        fi
+    fi
+}
+
+# ============================================================================
 # IDEMPOTENCY HELPERS
 # ============================================================================
 
@@ -484,6 +560,14 @@ parse_common_args() {
             --no-color)
                 NO_COLOR=true
                 shift
+                ;;
+            --path-prefix)
+                if [[ $# -lt 2 ]]; then
+                    log_error "--path-prefix requires a value"
+                    return 1
+                fi
+                PATH_PREFIX="$2"
+                shift 2
                 ;;
             --help|-h)
                 return 1  # Signal caller to show help
