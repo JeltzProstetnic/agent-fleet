@@ -587,6 +587,97 @@ test_collect_project_rules_from_live() {
 }
 run_test "collect picks up modified project rules from live" test_collect_project_rules_from_live
 
+# ── Inbox pending count (cmd_status) ─────────────────────────────────────────
+
+# Helper: extract the inbox pending count from sync.sh status output given an inbox file
+_run_inbox_count() {
+    local inbox_file="$1"
+    local cross_dir
+    cross_dir="$(dirname "$inbox_file")"
+
+    # Source just the status function's inbox block by running it in a subshell
+    awk '
+        /# Inbox pending count/,/^        fi$/ {
+            # Replace "$cross_dir" variable with our actual path
+            gsub(/\$cross_dir/, ENVIRON["CROSS_DIR"])
+            print
+        }
+    ' CROSS_DIR="$cross_dir" "$SYNC_SCRIPT" 2>/dev/null | bash 2>/dev/null || true
+}
+
+test_inbox_count_empty_inbox() {
+    # inbox.md with only header + format docs + marker (no real tasks)
+    mkdir -p "$TEST_TMPDIR/cross-project"
+    cat > "$TEST_TMPDIR/cross-project/inbox.md" <<'EOF'
+# Cross-Project Inbox
+
+One-off tasks passed between projects and machines.
+
+## Format
+
+```
+## [project-name]
+- [ ] [Task description]
+  Context: [Any relevant detail]
+```
+
+<!-- Pending tasks appear below this line -->
+EOF
+
+    local count
+    count=$(awk '/<!-- Pending tasks appear below this line -->/{found=1; next} found && /^\- \[ \]/{count++} END{print count+0}' \
+        "$TEST_TMPDIR/cross-project/inbox.md" 2>/dev/null)
+    assert_eq "0" "$count" "empty inbox (with format docs above marker) should count 0 tasks"
+}
+run_test "inbox count: empty inbox with format docs above marker reports 0" test_inbox_count_empty_inbox
+
+test_inbox_count_real_tasks_after_marker() {
+    # inbox.md with actual tasks below the marker
+    mkdir -p "$TEST_TMPDIR/cross-project"
+    cat > "$TEST_TMPDIR/cross-project/inbox.md" <<'EOF'
+# Cross-Project Inbox
+
+## Format
+
+```
+- [ ] [Task description]
+```
+
+<!-- Pending tasks appear below this line -->
+
+## myproject
+- [ ] Do something important
+- [ ] Do another thing
+EOF
+
+    local count
+    count=$(awk '/<!-- Pending tasks appear below this line -->/{found=1; next} found && /^\- \[ \]/{count++} END{print count+0}' \
+        "$TEST_TMPDIR/cross-project/inbox.md" 2>/dev/null)
+    assert_eq "2" "$count" "should count 2 tasks after the marker"
+}
+run_test "inbox count: real tasks after marker are counted correctly" test_inbox_count_real_tasks_after_marker
+
+test_inbox_count_only_counts_after_marker() {
+    # Tasks in format docs (above marker) must NOT be counted; only tasks below marker count
+    mkdir -p "$TEST_TMPDIR/cross-project"
+    cat > "$TEST_TMPDIR/cross-project/inbox.md" <<'EOF'
+# Cross-Project Inbox
+
+```
+- [ ] example task in docs
+```
+
+<!-- Pending tasks appear below this line -->
+- [ ] real task one
+EOF
+
+    local count
+    count=$(awk '/<!-- Pending tasks appear below this line -->/{found=1; next} found && /^\- \[ \]/{count++} END{print count+0}' \
+        "$TEST_TMPDIR/cross-project/inbox.md" 2>/dev/null)
+    assert_eq "1" "$count" "only task after the marker should be counted (not the one in format docs)"
+}
+run_test "inbox count: tasks above marker (in format docs) are not counted" test_inbox_count_only_counts_after_marker
+
 # ── Summary ──────────────────────────────────────────────────────────────────
 
 suite_summary

@@ -890,11 +890,12 @@ cmd_status() {
     if [ -d "$cross_dir" ]; then
         echo ""
         log_info "Cross-project state:"
-        # Inbox pending count
+        # Inbox pending count — only count task lines AFTER the divider marker,
+        # so format documentation (code blocks above the marker) is not counted.
         local inbox="$cross_dir/inbox.md"
         if [ -f "$inbox" ]; then
             local pending
-            pending=$(grep -c '^\- \[ \]' "$inbox" 2>/dev/null || true)
+            pending=$(awk '/<!-- Pending tasks appear below this line -->/{found=1; next} found && /^\- \[ \]/{count++} END{print count+0}' "$inbox" 2>/dev/null || true)
             if [ "$pending" -gt 0 ] 2>/dev/null; then
                 echo -e "  inbox.md: ${YELLOW}$pending pending task(s)${NC}"
             else
