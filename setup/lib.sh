@@ -22,6 +22,7 @@ DRY_RUN="${DRY_RUN:-false}"
 VERBOSE="${VERBOSE:-false}"
 NO_COLOR="${NO_COLOR:-false}"
 PATH_PREFIX="${PATH_PREFIX:-}"
+RECONFIGURE_MCP="${RECONFIGURE_MCP:-false}"
 LOG_FILE=""
 BACKUP_ROOT="${HOME}/.claude-setup/backups"
 LOG_ROOT="${HOME}/.claude-setup/logs"
@@ -559,6 +560,11 @@ parse_common_args() {
                 ;;
             --no-color)
                 NO_COLOR=true
+                shift
+                ;;
+            --reconfigure-mcp)
+                RECONFIGURE_MCP=true
+                export RECONFIGURE_MCP
                 shift
                 ;;
             --path-prefix)

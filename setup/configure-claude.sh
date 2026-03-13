@@ -186,10 +186,14 @@ configure_mcp_servers() {
             done
         fi
 
-        if [[ "${has_credentials}" == "true" ]]; then
+        if [[ "${has_credentials}" == "true" ]] && [[ "${RECONFIGURE_MCP:-false}" != "true" ]]; then
             log_info ".mcp.json already has configured servers — preserving existing config"
+            log_info "  (use --reconfigure-mcp to force reconfiguration)"
             SKIPPED_STEPS+=("MCP servers (.mcp.json already configured)")
             return 0
+        fi
+        if [[ "${has_credentials}" == "true" ]] && [[ "${RECONFIGURE_MCP:-false}" == "true" ]]; then
+            log_info "--reconfigure-mcp: overwriting existing MCP configuration"
         fi
     fi
 
