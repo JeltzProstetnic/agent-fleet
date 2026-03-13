@@ -4,6 +4,24 @@ Full session history. Newest first. Never pruned.
 
 <!-- Sessions are appended here by rotate-session.sh -->
 
+### 2026-03-13T20:10Z — WSL
+**Goal:** Fix pre-existing test failures, resolve deployment audit pending items, push
+**Completed:**
+- Reviewed pending-deployment-audit.md (Action: act)
+- Confirmed worktree-deployment-audit already merged to main
+- IvoclarR-D-AIOrg advisory: user decided to keep (public org, functional code)
+- Fixed 6 test failures: config-check (3), gpi (2), lrn (1) — all 4 suites now green
+- Pushed 12 commits to origin/main (was 9 behind + 2 new + 1 pending file removal)
+- Deleted resolved pending-deployment-audit.md
+- Reviewed cross-project inbox (31 items, reported open items by project)
+**Key Decisions:**
+- IvoclarR-D-AIOrg/agent-fleet in install.sh clone detection: KEEP (user decision, public org, functional)
+- gpi.sh cmd_done: changed from soft-complete (completed_at) to hard delete — simpler, tests expect it
+- config-check.sh check 18b: added AFLEET_DASHBOARD marker injection (was missing entirely)
+**Pending at shutdown:** None
+**Recovery/Next session:**
+Session complete. No pending work.
+
 ### 2026-03-13T18:42Z — DESKTOP-32ILURB
 **Goal:** Execute all 8 open items — 5 backlog (AFT-32/33/39/40/41) + 3 inbox propagation tasks.
 **Completed:**
