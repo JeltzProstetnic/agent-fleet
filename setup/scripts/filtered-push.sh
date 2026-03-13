@@ -19,6 +19,27 @@ set -euo pipefail
 DRY_RUN=false
 [[ "${1:-}" == "--dry-run" ]] && DRY_RUN=true
 
+# Sanitize text to remove personal data before pushing to public repos.
+# Strips: email addresses (except noreply@), IPv4 addresses, DESKTOP-*/srv* hostnames,
+# usernames in /home/ and /mnt/c/Users/ paths.
+# Usage: sanitized=$(sanitize_text "$message")
+sanitize_text() {
+    local text="$1"
+    # Strategy: protect noreply@ emails with a placeholder that won't match the
+    # email regex, redact all other emails, then restore noreply@ from placeholder.
+    # The placeholder uses \x01..\x02 as delimiters and removes the @ to prevent
+    # the email regex from matching within the placeholder text.
+    echo "$text" | sed \
+        -e 's/noreply@\([a-zA-Z0-9.-]*\.[a-zA-Z]\{2,\}\)/\x01NOREPLY_AT_\1\x02/g' \
+        -e 's/[a-zA-Z0-9._%+-]\+@[a-zA-Z0-9.-]\+\.[a-zA-Z]\{2,\}/[REDACTED-EMAIL]/g' \
+        -e 's/\x01NOREPLY_AT_\([^\x02]*\)\x02/noreply@\1/g' \
+        -e 's/[0-9]\{1,3\}\.[0-9]\{1,3\}\.[0-9]\{1,3\}\.[0-9]\{1,3\}/[REDACTED-IP]/g' \
+        -e 's/DESKTOP-[A-Za-z0-9_-]\+/[REDACTED-HOST]/g' \
+        -e 's/\bsrv[A-Za-z0-9_-]\+/[REDACTED-HOST]/g' \
+        -e 's|/home/[a-zA-Z0-9._-]\+/|/home/[REDACTED-USER]/|g' \
+        -e 's|/mnt/c/Users/[a-zA-Z0-9._-]\+/|/mnt/c/Users/[REDACTED-USER]/|g'
+}
+
 # Find project root (walk up to find .git)
 find_project_root() {
     local dir="$PWD"
@@ -211,9 +232,10 @@ if git rev-parse --verify "refs/remotes/$PUBLIC_REMOTE/$BRANCH" &>/dev/null; the
     fi
 fi
 
-# Use the branch's latest commit message
+# Use the branch's latest commit message, sanitized for public consumption
 MAIN_MSG=$(git log -1 --format=%B "$BRANCH")
-COMMIT=$(echo "$MAIN_MSG" | git commit-tree "$TREE" "${PARENT_ARGS[@]}")
+SANITIZED_MSG=$(sanitize_text "$MAIN_MSG")
+COMMIT=$(echo "$SANITIZED_MSG" | git commit-tree "$TREE" "${PARENT_ARGS[@]}")
 
 echo "=== Pushing to $PUBLIC_REMOTE (filtered) ==="
 if $DRY_RUN; then
