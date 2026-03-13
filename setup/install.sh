@@ -45,6 +45,30 @@ if [[ -f "${REPO_ROOT}/.template-repo" ]]; then
 fi
 
 # ============================================================================
+# ORIGIN REMOTE SAFETY
+# ============================================================================
+# If origin points to the template repo, rename it to 'upstream' and remove
+# origin. This prevents accidental pushes back to the template. The user's
+# own repo will be set as origin during first-run refinement (or manually).
+
+_origin_url=$(git -C "${REPO_ROOT}" remote get-url origin 2>/dev/null || echo "")
+_template_patterns="JeltzProstetnic/agent-fleet|IvoclarR-D-AIOrg/agent-fleet"
+
+if [[ -n "${_origin_url}" ]] && echo "${_origin_url}" | grep -qE "${_template_patterns}"; then
+    echo "Origin points to the template repo — renaming to 'upstream'..."
+    # Only add upstream if it doesn't already exist
+    if ! git -C "${REPO_ROOT}" remote get-url upstream &>/dev/null; then
+        git -C "${REPO_ROOT}" remote rename origin upstream
+    else
+        # upstream already exists, just remove origin
+        git -C "${REPO_ROOT}" remote remove origin
+    fi
+    echo "  Done. 'upstream' now tracks the template for updates."
+    echo "  Your own repo will be set as 'origin' during first-run setup."
+fi
+unset _origin_url _template_patterns
+
+# ============================================================================
 # NON-INTERACTIVE DETECTION
 # ============================================================================
 # Detect when running without a TTY (e.g., inside Claude Code or piped input).

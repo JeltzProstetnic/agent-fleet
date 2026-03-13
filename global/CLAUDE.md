@@ -27,6 +27,12 @@ If hostname doesn't match any pattern, state the hostname and ask. If `CLAUDE.lo
 
 **MANDATORY — NEVER SKIP.** Complete ALL steps before doing ANY user task. The user's first message often IS the trigger for startup — do not treat it as reason to skip loading. Even if the user asks something urgent, load first, then respond. A 30-second startup is always acceptable; lost context from skipping is not. **Exception:** When the SessionStart hook injects `AFLEET_DASHBOARD:` in systemMessage, follow those instructions instead — defer startup until the user gives a non-dashboard command.
 
+**Template-clone detection:** If `.template-repo` exists in the config repo root OR `user-profile.md` still contains only the auto-generated placeholder text, this is a fresh/unconfigured installation. In this case:
+- **SKIP** steps 1 (inbox), 2 (handoff), 4 (session-context), and persona activation
+- **DO** step 0 (git sync), step 3 (read CLAUDE.md), step 6 (check for `.setup-pending` → triggers first-run refinement)
+- **DO NOT** process cross-project tasks, activate personas, or inject machine identity
+- The goal is to route directly to the first-run refinement protocol without loading personal context that doesn't exist yet
+
 **Auto-loaded via @import** (no action needed — loaded before you see this):
 - `user-profile.md` — who the user is
 - `session-protocol.md` — session context persistence rules
@@ -191,6 +197,24 @@ Personas are loaded from `~/.claude/foundation/personas.md` (or machine file ove
 When the user types one of these keywords (alone, case-insensitive), execute the described action immediately without asking for confirmation. These are shortcuts, not conversation starters. `sub` is a prefix command — it requires additional words after it.
 
 **Session shutdown checklist — MANDATORY.** `cls` and `end` are defined in the Quick Commands table above. The user may also request shutdown in natural language. If in doubt — session just started, shutdown just completed, or ambiguous language — ask once before proceeding. Once confirmed: load `~/.claude/foundation/session-shutdown.md` and run ALL steps without asking.
+
+## Memory Architecture
+
+**Two separate memory systems exist — do NOT confuse them:**
+
+| System | Location | What it stores | Managed by |
+|--------|----------|---------------|-----------|
+| **Agent-fleet knowledge** | `session-context.md`, `decisions.md`, `knowledge/` files, machine files | Rules, decisions, session state, domain knowledge, operational protocols | This configuration system (CLAUDE.md, foundation files, hooks) |
+| **MCP memory server** | `~/.claude/memory/` (graph-based JSONL) | Auto-memory: short orientation notes, per-project context hints | Claude Code's built-in memory system |
+
+**Rules of engagement:**
+- **Behavioral rules** → `CLAUDE.md` or foundation files. NEVER auto-memory.
+- **Session state** → `session-context.md`. NEVER auto-memory.
+- **Decisions & rationale** → `docs/decisions.md`. NEVER auto-memory.
+- **Domain knowledge** → `~/.claude/knowledge/` or `~/.claude/domains/`. NEVER auto-memory.
+- **Auto-memory is ONLY for:** temporary per-project orientation notes (<50 lines), quick pointers to canonical docs.
+
+If you catch yourself writing a rule, preference, or project fact to auto-memory, STOP — it belongs in the knowledge system instead.
 
 ## Meta-Rules
 
