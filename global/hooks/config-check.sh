@@ -56,7 +56,7 @@ done
 
 # Check 2c: Detect template-only deployment and provide guidance
 if [ -f "$CONFIG_REPO/.template-repo" ]; then
-    WARNINGS="${WARNINGS:+$WARNINGS | }Config repo is a template-only deployment ($CONFIG_REPO has .template-repo marker). For first-run personalization, run the first-run refinement protocol. See foundation/first-run-refinement.md for guidance."
+    WARNINGS="${WARNINGS:+$WARNINGS | }Config repo is a template-only deployment ($CONFIG_REPO has .template-repo marker). After first-run setup, delete it: rm $CONFIG_REPO/.template-repo. See foundation/first-run-refinement.md for guidance."
 fi
 
 # Check 2d: Detect .setup-pending marker (first-run after install)
@@ -326,7 +326,7 @@ if [ -d "$PROJECT_DIR/docs" ]; then
             if [ ! -f "$BACKLOG_FILE" ] || ! grep -q "$PF_BASE" "$BACKLOG_FILE" 2>/dev/null; then
                 # Only add generic warning if no specific warning was already added
                 if ! echo "$STALE_MSG" | grep -q "$PF_BASE" 2>/dev/null; then
-                    STALE_MSG="${STALE_MSG:+$STALE_MSG | }Stale pending: $PF_BASE (${FILE_AGE_DAYS}d, untracked)"
+                    STALE_MSG="${STALE_MSG:+$STALE_MSG | }Stale pending files: $PF_BASE (${FILE_AGE_DAYS}d, no backlog item)"
                 fi
             fi
         fi
@@ -447,6 +447,13 @@ if [[ -f "$PROJECT_DIR/session-context.md" ]]; then
     if [[ -z "$_sc_updated" && -z "$_sc_machine" ]]; then
         WARNINGS="${WARNINGS:+$WARNINGS | }session-context.md has blank template fields — populate Last Updated, Machine, Working Directory, and Session Goal (loading protocol step 9)."
     fi
+fi
+
+# Check 18b: AFLEET_DASHBOARD marker — afleet.sh sets this to trigger dashboard on next session
+DASH_MARKER="$HOME/.claude/.afleet-show-dash"
+if [ -f "$DASH_MARKER" ]; then
+    INBOX_MSG="${INBOX_MSG:+$INBOX_MSG | }AFLEET_DASHBOARD: Render project dashboard (triggered by afleet marker)."
+    rm -f "$DASH_MARKER"
 fi
 
 # Check 26: Active tmux sessions — surface running background ops

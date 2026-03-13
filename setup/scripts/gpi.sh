@@ -144,13 +144,13 @@ cmd_update() {
 cmd_done() {
     local id="$1"
     ensure_state
-    # Get label before marking done (for notification)
+    # Get label before deleting (for notification)
     local label
     label=$(jq -r ".ops[\"$id\"].label // \"$id\"" "$STATE_FILE")
     local now
     now=$(date +%s)
-    # Set completed_at instead of deleting — auto-cleaned after 60s
-    locked_update ".ops[\"$id\"].completed_at = $now | .ops[\"$id\"].pct = 100 | .ops[\"$id\"].detail = \"DONE\" | .updated = $now"
+    # Delete the op entry and update timestamp
+    locked_update "del(.ops[\"$id\"]) | .updated = $now"
     # Write notification sidecar for session awareness
     write_notification "$id" "$label"
 }
