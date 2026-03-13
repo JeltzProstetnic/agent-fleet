@@ -4,6 +4,30 @@ Full session history. Newest first. Never pruned.
 
 <!-- Sessions are appended here by rotate-session.sh -->
 
+### 2026-03-13T16:50Z — WSL
+**Goal:** Fix fresh-install deployment bugs discovered during remote WSL deployment test
+**Completed:**
+- Fix nvm/.npmrc conflict in install-base.sh (detect nvm, skip prefix, clean stale)
+- Ensure ~/.local/bin in PATH via .bashrc
+- Add yellow spinner to afleet pre-pull phase + refactor into start_spinner/stop_spinner
+- Fix empty picker on fresh install (skip when no dashboard-cache)
+- Fix project detection (CLAUDE.md alone sufficient, no .claude/ dir required)
+- Critical: install.sh now runs sync.sh setup (Phase 3 — was missing entirely)
+- Guard all registry.md callers in afleet (missing file on fresh install)
+- git-sync-check: handle missing remote gracefully on fresh install
+- Verify: split hard errors vs soft warnings (CLAUDE.local.md = soft warning)
+- 7 install-base nvm tests, afleet test updated for marker-file approach
+- Backlog items AFT-42..46 for remaining cosmetic/UX issues
+**Key Decisions:**
+- install.sh now has 3 phases: base system → CC config → global config deploy (sync.sh setup)
+- Verification split: V1-V7,V10-V11 = hard errors, V8-V9 = soft warnings (first-run expected)
+- registry.md absence normal on fresh install — all callers guard for it
+- Picker only shows when both registry.md AND dashboard-cache.md exist
+**Pending at shutdown:** Propagate sync.sh and git-sync-check.sh fixes to cfg-agent-fleet
+**Recovery/Next session:**
+If continuing deployment fixes: AFT-42..46 in backlog.md cover remaining UX issues (logo, tips, CRI, onboarding).
+Propagation to cfg-agent-fleet still needed for sync.sh and git-sync-check.sh changes.
+
 ### 2026-03-13T14:10Z — WSL
 **Goal:** Update README.md with all recent changes, push to GitHub, enable template repo
 **Completed:**
