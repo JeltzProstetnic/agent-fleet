@@ -170,13 +170,34 @@ if [ -f "$CLAUDE_LOCAL" ]; then
     fi
 fi
 
-# Check 12: Detect uncollected mobile outbox tasks
+# Check 12a: Detect uncollected mobile outbox tasks
 MOBILE_REPO="$HOME/agent-fleet-mobile"
 if [ -f "$MOBILE_REPO/inbox/outbox.md" ]; then
     MOBILE_TASKS=$(grep -c '^\- \[ \]' "$MOBILE_REPO/inbox/outbox.md" 2>/dev/null || echo "0")
     if [ "$MOBILE_TASKS" -gt 0 ] 2>/dev/null; then
         WARNINGS="${WARNINGS:+$WARNINGS | }Mobile outbox has $MOBILE_TASKS uncollected task(s). Run 'bash $CONFIG_REPO/sync.sh mobile-collect' to merge them into the inbox."
     fi
+fi
+
+# Check 12b: FMS intake — report pending files across all drop locations
+FMS_MSG=""
+FMS_SCRIPT="$CONFIG_REPO/dms/scripts/fms-intake.sh"
+if [ -x "$FMS_SCRIPT" ] || [ -f "$FMS_SCRIPT" ]; then
+    FMS_COUNT=$(bash "$FMS_SCRIPT" count 2>/dev/null || echo "0")
+    if [ "$FMS_COUNT" -gt 0 ]; then
+        FMS_MSG="FMS: $FMS_COUNT file(s) pending classification. Run 'bash $FMS_SCRIPT scan' to review."
+    fi
+fi
+if [ -n "$FMS_MSG" ]; then
+    INBOX_MSG="${INBOX_MSG:+$INBOX_MSG | }$FMS_MSG"
+fi
+
+# Check 13: Surface propagation drift warnings from previous session's sync.sh check
+DRIFT_LOG="$CONFIG_REPO/.sync-warnings.log"
+if [ -f "$DRIFT_LOG" ] && [ -s "$DRIFT_LOG" ]; then
+    DRIFT_CONTENT=$(cat "$DRIFT_LOG" | tr '\n' '; ' | sed 's/; $//')
+    WARNINGS="${WARNINGS:+$WARNINGS | }Propagation drift detected at last shutdown: $DRIFT_CONTENT. Run 'bash $CONFIG_REPO/sync.sh check' for details, then fix with 'bash $CONFIG_REPO/sync.sh deploy'."
+    rm -f "$DRIFT_LOG"
 fi
 
 # Check 13.5: Daily upstream dependency check (once per day, gated by marker file)
@@ -203,12 +224,12 @@ if [ "$DEP_LAST" != "$DEP_TODAY" ]; then
     fi
 fi
 
-# Check 13: Surface propagation drift warnings from previous session's sync.sh check
-DRIFT_LOG="$CONFIG_REPO/.sync-warnings.log"
-if [ -f "$DRIFT_LOG" ] && [ -s "$DRIFT_LOG" ]; then
-    DRIFT_CONTENT=$(cat "$DRIFT_LOG" | tr '\n' '; ' | sed 's/; $//')
-    WARNINGS="${WARNINGS:+$WARNINGS | }Propagation drift detected at last shutdown: $DRIFT_CONTENT. Run 'bash $CONFIG_REPO/sync.sh check' for details, then fix with 'bash $CONFIG_REPO/sync.sh deploy'."
-    rm -f "$DRIFT_LOG"
+# Check 13b: AFD client deployed — auto-source env if available
+if [ -f "$HOME/.afd-env" ] && [ -z "${AFD_TOKEN:-}" ]; then
+    . "$HOME/.afd-env" 2>/dev/null || true
+fi
+if [ -f "$HOME/.local/bin/afd" ] && [ -z "${AFD_TOKEN:-}" ]; then
+    WARNINGS="${WARNINGS:+$WARNINGS | }AFD client installed but AFD_TOKEN not set. Run vault-manage.sh deploy or set AFD_TOKEN in environment."
 fi
 
 # Check 14: Auto-heal Bash(bash:*) in settings.json permissions.allow
@@ -245,6 +266,14 @@ for tmpdir in "$HOME"/*/tmp; do
 done
 if [ -n "$DOC_IN_TMP" ]; then
     WARNINGS="${WARNINGS:+$WARNINGS | }Documents found in project tmp/ dirs: $DOC_IN_TMP — these should be in DMS/NAS/Dropbox for cross-machine access. Tell the user about this issue immediately before doing any other work."
+fi
+
+# Check 16: Warn if agent-fleet-mobile is not cloned (mobile data won't sync)
+# Only fires when the config repo supports mobile sync (grep for mobile-collect in sync.sh)
+if grep -q 'mobile-collect\|mobile_collect' "$CONFIG_REPO/sync.sh" 2>/dev/null; then
+    if [ ! -d "${USER_HOME:-$HOME}/agent-fleet-mobile" ]; then
+        WARNINGS="${WARNINGS:+$WARNINGS | }agent-fleet-mobile not cloned — mobile session data will not be synced. Clone: git clone <your-mobile-repo-url> ~/agent-fleet-mobile"
+    fi
 fi
 
 # Check 17: Warn on stale pending files with severity-differentiated tags
@@ -411,7 +440,14 @@ else
     INBOX_MSG="${INBOX_MSG:+$INBOX_MSG | }PROJECT_KNOWLEDGE: none"
 fi
 
-# Check 25: (removed — AFLEET_DASHBOARD replaced by afleet picker)
+# Check 25: Detect blank session-context.md — warn agent to populate deterministic fields
+if [[ -f "$PROJECT_DIR/session-context.md" ]]; then
+    _sc_updated=$(sed -n 's/.*\*\*Last Updated\*\*: \(.\+\)/\1/p' "$PROJECT_DIR/session-context.md" 2>/dev/null | head -1)
+    _sc_machine=$(sed -n 's/.*\*\*Machine\*\*: \(.\+\)/\1/p' "$PROJECT_DIR/session-context.md" 2>/dev/null | head -1)
+    if [[ -z "$_sc_updated" && -z "$_sc_machine" ]]; then
+        WARNINGS="${WARNINGS:+$WARNINGS | }session-context.md has blank template fields — populate Last Updated, Machine, Working Directory, and Session Goal (loading protocol step 9)."
+    fi
+fi
 
 # Check 26: Active tmux sessions — surface running background ops
 _tmux_sessions=$(tmux list-sessions -F '#{session_name}' 2>/dev/null | tr '\n' ', ' | sed 's/, $//')
@@ -488,6 +524,59 @@ for sec, keys in sections.items():
             fi
         fi
     fi
+fi
+
+# Check 30: Doc coherence header validation
+# Files in the coherence system MUST have <!-- updates: ... --> headers.
+# Missing headers mean edits won't trigger dependency updates.
+# File list is configurable — add project-critical files that participate in coherence.
+_doc_coherence_files=(
+    "global/CLAUDE.md"
+    "global/reference/mcp-catalog.md"
+    "cross-project/infrastructure-strategy.md"
+    "registry.md"
+)
+# Add machine files via glob
+for _mf in "$CONFIG_REPO"/global/machines/*.md; do
+    [ -f "$_mf" ] && _doc_coherence_files+=("global/machines/$(basename "$_mf")")
+done
+_doc_missing=()
+for _dcf in "${_doc_coherence_files[@]}"; do
+    _dcf_path="$CONFIG_REPO/$_dcf"
+    [ -f "$_dcf_path" ] && [ -s "$_dcf_path" ] || continue
+    if ! head -5 "$_dcf_path" | grep -q '<!-- updates:'; then
+        _doc_missing+=("$_dcf")
+    fi
+done
+if [ ${#_doc_missing[@]} -gt 0 ]; then
+    _doc_count=${#_doc_missing[@]}
+    _doc_list=$(printf '%s, ' "${_doc_missing[@]}" | sed 's/, $//')
+    WARNINGS="${WARNINGS:+$WARNINGS | }doc coherence: $_doc_count file(s) missing <!-- updates: --> header: $_doc_list"
+fi
+
+# Check 31: Session lock — detect if another session holds this project
+_SESSION_LOCK_LIB="$CONFIG_REPO/setup/scripts/session-lock.sh"
+if [ -f "$_SESSION_LOCK_LIB" ]; then
+    # shellcheck source=../setup/scripts/session-lock.sh
+    source "$_SESSION_LOCK_LIB"
+    check_lock "$PWD" 2>/dev/null
+    _lock_rc=$?
+    case $_lock_rc in
+        2)
+            # Locked by another session on this machine
+            _read_lock "$PWD/.claude/.session-lock" 2>/dev/null
+            WARNINGS="${WARNINGS:+$WARNINGS | }SESSION_LOCKED: Project locked by PID $_LOCK_PID (session $_LOCK_SESSION) on this machine. FOLLOWER — load knowledge/follower-mode.md and follow it."
+            ;;
+        3)
+            # Locked by another machine
+            _read_lock "$PWD/.claude/.session-lock" 2>/dev/null
+            WARNINGS="${WARNINGS:+$WARNINGS | }SESSION_LOCKED_REMOTE: Project locked by $_LOCK_MACHINE (session $_LOCK_SESSION). FOLLOWER — load knowledge/follower-mode.md and follow it."
+            ;;
+        0|1)
+            # Free or locked by us — acquire/refresh
+            acquire_lock "$PWD" 2>/dev/null
+            ;;
+    esac
 fi
 
 # Output JSON if there are warnings or inbox items
