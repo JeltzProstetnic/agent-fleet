@@ -4,6 +4,19 @@ Full session history. Newest first. Never pruned.
 
 <!-- Sessions are appended here by rotate-session.sh -->
 
+### 2026-03-13T17:38Z — WSL
+**Goal:** Fix mangled console output caused by startup spinner in afleet.sh
+**Completed:**
+- Identified root cause: Braille spinner background process writing \r escape codes fights with CC's TUI/statusline
+- Replaced spinner with static "Starting session..." message in agent-fleet/setup/scripts/afleet.sh
+- Propagated same fix to cfg-agent-fleet/setup/scripts/afleet.sh (the deployed symlink target)
+- Verified afleet is symlinked to cfg version — fix is live immediately
+**Key Decisions:**
+- Replaced animated spinner with static text rather than trying to time-coordinate spinner shutdown with TUI startup. The "Syncing repos" spinner (pre-TUI) was left intact since it runs and stops before CC launches.
+**Pending at shutdown:** None
+**Recovery/Next session:**
+Fix is complete. No follow-up needed.
+
 ### 2026-03-13T17:30Z — WSL
 **Goal:** Fix deployment issues (AFT-42..46 fresh install UX bugs)
 **Completed:**

@@ -721,16 +721,13 @@ if [[ -t 1 ]]; then
     fi
     printf '\n'
 
-    # ── Startup spinner ──────────────────────────────────────────────────────
-    # Node.js + CC init takes several seconds — show a Braille spinner in
-    # AF-yellow so the TUI doesn't look hung.
-    start_spinner "Starting session…"
+    # Static status line — a spinner here fights with CC's TUI/statusline
+    # and mangles the terminal. A static message is enough after the banner.
+    printf '    \033[38;5;243mStarting session…\033[0m\n'
 fi
 
 AFLEET_LAUNCHED=1 AFLEET_PROJECT="$TARGET_NAME" CC_MIRROR_SPLASH=0 "$MCLAUDE"
 MCLAUDE_EXIT=$?
 
-# Kill startup spinner (if still alive — CC's TUI hides it, but the process lingers)
-stop_spinner
 
 exit "${MCLAUDE_EXIT:-0}"
