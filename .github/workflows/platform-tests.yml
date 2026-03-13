@@ -1,0 +1,67 @@
+name: Platform Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  # ── Linux platforms via Docker ──────────────────────────────────────────
+  linux:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        platform:
+          - name: Ubuntu 24.04
+            dockerfile: Dockerfile.ubuntu
+          - name: Debian 12
+            dockerfile: Dockerfile.debian
+          - name: Fedora 42
+            dockerfile: Dockerfile.fedora
+          - name: Arch Latest
+            dockerfile: Dockerfile.arch
+
+    name: ${{ matrix.platform.name }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build Docker image
+        run: |
+          docker build \
+            -f setup/docker/${{ matrix.platform.dockerfile }} \
+            -t agent-fleet-test:${{ matrix.platform.dockerfile }} \
+            .
+
+      - name: Run smoke test
+        run: |
+          docker run --rm \
+            agent-fleet-test:${{ matrix.platform.dockerfile }} \
+            bash setup/scripts/smoke-test.sh
+
+  # ── macOS native ────────────────────────────────────────────────────────
+  macos:
+    runs-on: macos-latest
+    name: macOS (latest)
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          # Node.js and npm come pre-installed on GitHub macOS runners
+          # Install additional dependencies
+          brew install jq python3 || true
+
+      - name: Configure git
+        run: |
+          git config --global user.email "test@test.com"
+          git config --global user.name "Test User"
+          git config --global init.defaultBranch main
+
+      - name: Run smoke test
+        run: bash setup/scripts/smoke-test.sh

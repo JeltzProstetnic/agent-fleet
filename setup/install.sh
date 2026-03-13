@@ -20,6 +20,7 @@
 #   --verbose, -v      Pass verbose mode to sub-scripts
 #   --no-color         Disable colored output
 #   --reconfigure-mcp  Force re-prompting for MCP credentials
+#   --skip-preflight   Skip pre-installation system checks
 #   --rollback         Restore from most recent backup (does not install)
 #   --help, -h         Show this help message
 #
@@ -91,6 +92,7 @@ fi
 DRY_RUN_ONLY=false
 RECONFIGURE_MCP=false
 ROLLBACK_MODE=false
+SKIP_PREFLIGHT=false
 COMMON_ARGS=()
 CONFIGURE_ARGS=()
 
@@ -120,6 +122,7 @@ OPTIONS:
   --verbose, -v      Show detailed output from sub-scripts
   --no-color         Disable colored output
   --reconfigure-mcp  Force re-prompting for MCP credentials in Phase 2
+  --skip-preflight   Skip pre-installation system checks
   --rollback         Restore from most recent backup (does not install)
   --help, -h         Show this help message
 
@@ -156,6 +159,10 @@ while [[ $# -gt 0 ]]; do
         --reconfigure-mcp)
             RECONFIGURE_MCP=true
             CONFIGURE_ARGS+=(--reconfigure-mcp)
+            shift
+            ;;
+        --skip-preflight)
+            SKIP_PREFLIGHT=true
             shift
             ;;
         --rollback)
@@ -204,6 +211,25 @@ if [[ "${ROLLBACK_MODE}" == "true" ]]; then
     echo ""
     log_success "Rollback completed. Please verify your system state."
     exit 0
+fi
+
+# ============================================================================
+# PREFLIGHT CHECKS
+# ============================================================================
+
+if [[ "${SKIP_PREFLIGHT}" != "true" ]]; then
+    PREFLIGHT_SCRIPT="${SCRIPT_DIR}/preflight.sh"
+    if [[ -f "${PREFLIGHT_SCRIPT}" ]]; then
+        PREFLIGHT_ARGS=()
+        [[ "${NO_COLOR:-false}" == "true" ]] && PREFLIGHT_ARGS+=(--no-color)
+        if ! bash "${PREFLIGHT_SCRIPT}" "${PREFLIGHT_ARGS[@]+"${PREFLIGHT_ARGS[@]}"}"; then
+            echo ""
+            echo "Preflight checks failed. Fix the issues above, then re-run install.sh."
+            echo "Or use --skip-preflight to bypass these checks."
+            exit 1
+        fi
+        echo ""
+    fi
 fi
 
 # ============================================================================
