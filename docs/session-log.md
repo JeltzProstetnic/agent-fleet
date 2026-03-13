@@ -4,6 +4,27 @@ Full session history. Newest first. Never pruned.
 
 <!-- Sessions are appended here by rotate-session.sh -->
 
+### 2026-03-13T18:50Z — WSL
+**Goal:** Deployment disaster post-mortem — audit all fixes, plan E2E testing, resolve config divergence
+**Completed:**
+- Fetched GitHub issues (only #1 — sync.sh false positive)
+- Audited session logs — 12 fixes across 3 sessions mapped
+- Deep code audit — all 12 fixes verified OK, 2 critical issues found
+- Fixed GitHub #1 (sync.sh inbox counter) — committed 340ac3a, issue closed
+- Downloaded Ubuntu 24.04 rootfs for E2E testing (C:\WSL\, 341MB)
+- Designed E2E test plan (28 test cases, TAP, WSL disposable instances)
+- Merged config-check.sh bidirectional divergence — committed b47f7a4
+- Sanitization audit — CLEAN, 0 leaks
+- Updated cfg inbox (3 new items, 2 completed, 2 partial updates)
+**Key Decisions:**
+- config-check.sh merge strategy: start from template, add cfg checks, use letter suffixes for numbering conflicts (12a/12b, 13/13b)
+- E2E testing: WSL2 `wsl --import` for disposable instances (not Docker, not LXC)
+- Session lock false trigger: routed to cfg for investigation (shared hook paths)
+- IvoclarR-D-AIOrg in install.sh: advisory only, user decision pending
+**Pending at shutdown:** Push 2 commits, E2E harness implementation, CFG-101 remaining files
+**Recovery/Next session:**
+If session dies: 2 unpushed commits on main. Push with `git -C ~/agent-fleet push origin main`. Handoff file at docs/pending-deployment-audit.md.
+
 ### 2026-03-13T17:38Z — WSL
 **Goal:** Fix mangled console output caused by startup spinner in afleet.sh
 **Completed:**
