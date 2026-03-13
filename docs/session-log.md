@@ -4,6 +4,18 @@ Full session history. Newest first. Never pruned.
 
 <!-- Sessions are appended here by rotate-session.sh -->
 
+### 2026-03-13T14:10Z — WSL
+**Goal:** Update README.md with all recent changes, push to GitHub, enable template repo
+**Completed:**
+- Updated README.md comprehensively (afleet launcher, 570/33 tests, GPI, session hooks, key scripts table, directory tree, upgrade details)
+- Committed and pushed 6 commits to origin/main
+- User enabled "Template repository" setting on GitHub
+**Key Decisions:**
+- afleet replaces `claude` as the documented launch command in README
+- Removed Memory MCP server from MCP table (no longer configured)
+**Recovery/Next session:**
+All work committed and pushed. No pending items.
+
 ### 2026-03-13T08:30Z — WSL
 **Goal:** Friday morning triage — inbox tasks, propagation work
 **Completed:**
