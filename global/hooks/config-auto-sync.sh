@@ -114,15 +114,18 @@ sync_fail() {
 # --- Phase 1: Auto-rotate current project's session ---
 # If the project has a populated session-context.md, archive it before it goes stale.
 # rotate-session.sh validates content and fails safely if template is blank.
+_ORIG_ROTATE_OK=1
 if [[ -f "$ORIGINAL_DIR/session-context.md" && -s "$ORIGINAL_DIR/session-context.md" ]]; then
     if ! bash "$ROTATE_SCRIPT" "$ORIGINAL_DIR" 2>/dev/null; then
         echo "$(date -u +'%Y-%m-%d %H:%M:%S UTC') rotate-session failed for $ORIGINAL_DIR" >> "$CONFIG_REPO/.sync-warnings.log"
+        _ORIG_ROTATE_OK=0
     fi
 fi
 
 # --- Phase 2: Commit session files in current project (if separate from config repo) ---
 # Only commits session-related files. Does NOT push (avoids dual-remote/auth issues).
-if [[ "$ORIGINAL_DIR" != "$CONFIG_REPO" && -d "$ORIGINAL_DIR/.git" ]]; then
+# Skip if rotation failed — don't commit potentially corrupted session data.
+if [[ "$_ORIG_ROTATE_OK" -eq 1 && "$ORIGINAL_DIR" != "$CONFIG_REPO" && -d "$ORIGINAL_DIR/.git" ]]; then
     (
         cd "$ORIGINAL_DIR" || exit 0
         git add session-context.md session-history.md 2>/dev/null || true
@@ -156,7 +159,7 @@ COLLECT_OUTPUT=$(bash "$CONFIG_REPO/sync.sh" collect 2>&1) || sync_fail "collect
 
 # Stage only expected directories and files — avoid staging unintended changes
 git add session-context.md session-history.md 2>/dev/null || true
-git add docs/ setup/projects/ cross-project/ 2>/dev/null || true
+git add docs/ projects/ cross-project/ 2>/dev/null || true
 git add global/ backlog.md registry.md template-sync-manifest.md 2>/dev/null || true
 git diff --cached --quiet 2>/dev/null && sync_success  # Nothing to sync
 
