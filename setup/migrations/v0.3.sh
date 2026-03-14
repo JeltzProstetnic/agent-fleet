@@ -2,7 +2,7 @@
 # Migration v0.3: Split mixed files into framework + user layers
 # Idempotent — safe to re-run.
 #
-# Usage: bash migrations/v0.3.sh [repo_dir]
+# Usage: bash setup/migrations/v0.3.sh [repo_dir]
 #   repo_dir: optional, defaults to parent of this script's directory
 
 set -euo pipefail
@@ -11,7 +11,7 @@ set -euo pipefail
 if [[ -n "${1:-}" ]]; then
     REPO_DIR="$1"
 else
-    REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+    REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../" && pwd)"
 fi
 
 # Source lib.sh for logging (fall back to minimal stubs)
