@@ -117,17 +117,32 @@ run_test "install.sh cleanup removes .template-repo" test_install_removes_templa
 
 # ── 3. Origin Remote Safety ─────────────────────────────────────────────────
 
+# Helper: resolve template patterns using the same logic as install.sh
+# Args: $1 = repo root path
+_resolve_template_patterns() {
+    local repo_root="$1"
+    local patterns=""
+    if [[ -f "${repo_root}/.template-orgs" ]]; then
+        patterns=$(grep -v '^#' "${repo_root}/.template-orgs" | grep -v '^\s*$' | tr '\n' '|' | sed 's/|$//')
+    fi
+    if [[ -z "${patterns}" && -n "${TEMPLATE_ORGS:-}" ]]; then
+        patterns="${TEMPLATE_ORGS}"
+    fi
+    : "${patterns:=agent-fleet-template/agent-fleet}"
+    echo "$patterns"
+}
+
 test_origin_safety_renames_template_remote() {
     setup_smoke_clone
     trap cleanup_smoke_clone RETURN
 
-    # Set origin to template URL
-    git -C "$SMOKE_DIR" remote set-url origin "https://github.com/JeltzProstetnic/agent-fleet.git" 2>/dev/null
+    # Set origin to default template URL
+    git -C "$SMOKE_DIR" remote set-url origin "https://github.com/agent-fleet-template/agent-fleet.git" 2>/dev/null
 
-    # Run the origin safety logic from install.sh
+    # Resolve patterns using same logic as install.sh (no .template-orgs, no env var → default)
     local _origin_url _template_patterns
     _origin_url=$(git -C "$SMOKE_DIR" remote get-url origin 2>/dev/null || echo "")
-    _template_patterns="JeltzProstetnic/agent-fleet|IvoclarR-D-AIOrg/agent-fleet"
+    _template_patterns=$(_resolve_template_patterns "$SMOKE_DIR")
 
     if [[ -n "${_origin_url}" ]] && echo "${_origin_url}" | grep -qE "${_template_patterns}"; then
         if ! git -C "$SMOKE_DIR" remote get-url upstream &>/dev/null; then
@@ -149,15 +164,18 @@ test_origin_safety_renames_template_remote() {
 }
 run_test "origin remote safety renames template origin to upstream" test_origin_safety_renames_template_remote
 
-test_origin_safety_ivoclar_pattern() {
+test_origin_safety_template_orgs_file() {
     setup_smoke_clone
     trap cleanup_smoke_clone RETURN
 
-    git -C "$SMOKE_DIR" remote set-url origin "https://github.com/IvoclarR-D-AIOrg/agent-fleet.git" 2>/dev/null
+    # Create .template-orgs file with a custom org pattern
+    printf '%s\n' "# Custom template orgs" "my-company/agent-fleet" > "$SMOKE_DIR/.template-orgs"
+
+    git -C "$SMOKE_DIR" remote set-url origin "https://github.com/my-company/agent-fleet.git" 2>/dev/null
 
     local _origin_url _template_patterns
     _origin_url=$(git -C "$SMOKE_DIR" remote get-url origin 2>/dev/null || echo "")
-    _template_patterns="JeltzProstetnic/agent-fleet|IvoclarR-D-AIOrg/agent-fleet"
+    _template_patterns=$(_resolve_template_patterns "$SMOKE_DIR")
 
     if [[ -n "${_origin_url}" ]] && echo "${_origin_url}" | grep -qE "${_template_patterns}"; then
         if ! git -C "$SMOKE_DIR" remote get-url upstream &>/dev/null; then
@@ -169,9 +187,62 @@ test_origin_safety_ivoclar_pattern() {
 
     local new_origin
     new_origin=$(git -C "$SMOKE_DIR" remote get-url origin 2>/dev/null || echo "")
-    assert_eq "" "$new_origin" "origin should be removed for Ivoclar pattern too"
+    assert_eq "" "$new_origin" "origin should be removed when .template-orgs matches"
 }
-run_test "origin remote safety handles Ivoclar org pattern" test_origin_safety_ivoclar_pattern
+run_test "origin remote safety reads .template-orgs file" test_origin_safety_template_orgs_file
+
+test_origin_safety_env_var() {
+    setup_smoke_clone
+    trap cleanup_smoke_clone RETURN
+
+    git -C "$SMOKE_DIR" remote set-url origin "https://github.com/env-org/agent-fleet.git" 2>/dev/null
+
+    local _origin_url _template_patterns
+    _origin_url=$(git -C "$SMOKE_DIR" remote get-url origin 2>/dev/null || echo "")
+    # Set env var (no .template-orgs file exists)
+    TEMPLATE_ORGS="env-org/agent-fleet" _template_patterns=$(_resolve_template_patterns "$SMOKE_DIR")
+
+    if [[ -n "${_origin_url}" ]] && echo "${_origin_url}" | grep -qE "${_template_patterns}"; then
+        if ! git -C "$SMOKE_DIR" remote get-url upstream &>/dev/null; then
+            git -C "$SMOKE_DIR" remote rename origin upstream
+        else
+            git -C "$SMOKE_DIR" remote remove origin
+        fi
+    fi
+
+    local new_origin
+    new_origin=$(git -C "$SMOKE_DIR" remote get-url origin 2>/dev/null || echo "")
+    assert_eq "" "$new_origin" "origin should be removed when TEMPLATE_ORGS env var matches"
+}
+run_test "origin remote safety reads TEMPLATE_ORGS env var" test_origin_safety_env_var
+
+test_origin_safety_file_overrides_env() {
+    setup_smoke_clone
+    trap cleanup_smoke_clone RETURN
+
+    # .template-orgs has "file-org", env has "env-org"
+    printf '%s\n' "file-org/agent-fleet" > "$SMOKE_DIR/.template-orgs"
+
+    git -C "$SMOKE_DIR" remote set-url origin "https://github.com/file-org/agent-fleet.git" 2>/dev/null
+
+    local _origin_url _template_patterns
+    _origin_url=$(git -C "$SMOKE_DIR" remote get-url origin 2>/dev/null || echo "")
+    TEMPLATE_ORGS="env-org/agent-fleet" _template_patterns=$(_resolve_template_patterns "$SMOKE_DIR")
+
+    # Should match file-org (from file), not env-org
+    if [[ -n "${_origin_url}" ]] && echo "${_origin_url}" | grep -qE "${_template_patterns}"; then
+        if ! git -C "$SMOKE_DIR" remote get-url upstream &>/dev/null; then
+            git -C "$SMOKE_DIR" remote rename origin upstream
+        else
+            git -C "$SMOKE_DIR" remote remove origin
+        fi
+    fi
+
+    local new_origin
+    new_origin=$(git -C "$SMOKE_DIR" remote get-url origin 2>/dev/null || echo "")
+    assert_eq "" "$new_origin" ".template-orgs file should take priority over env var"
+}
+run_test "origin remote safety: .template-orgs file overrides TEMPLATE_ORGS env" test_origin_safety_file_overrides_env
 
 test_origin_safety_preserves_user_remote() {
     setup_smoke_clone
@@ -181,7 +252,7 @@ test_origin_safety_preserves_user_remote() {
 
     local _origin_url _template_patterns
     _origin_url=$(git -C "$SMOKE_DIR" remote get-url origin 2>/dev/null || echo "")
-    _template_patterns="JeltzProstetnic/agent-fleet|IvoclarR-D-AIOrg/agent-fleet"
+    _template_patterns=$(_resolve_template_patterns "$SMOKE_DIR")
 
     if [[ -n "${_origin_url}" ]] && echo "${_origin_url}" | grep -qE "${_template_patterns}"; then
         if ! git -C "$SMOKE_DIR" remote get-url upstream &>/dev/null; then
