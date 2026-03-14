@@ -117,41 +117,51 @@ acquire_lock() {
     local project_dir="$1"
     local session_id="${2:-$(_generate_session_id)}"
     local lockfile="$project_dir/.claude/.session-lock"
+    local lockdir="$project_dir/.claude/.session-lock.d"
 
-    # If no existing lock, just acquire
-    if [[ ! -f "$lockfile" ]]; then
+    # Ensure .claude/ dir exists
+    mkdir -p "$(dirname "$lockfile")" 2>/dev/null || true
+
+    # If lock file exists, check ownership before attempting acquire
+    if [[ -f "$lockfile" ]]; then
+        if ! _read_lock "$lockfile"; then
+            # Corrupt lock — treat as stale, will overwrite below
+            rm -f "$lockfile"
+        else
+            # Same session ID — idempotent re-acquire
+            if [[ "$_LOCK_SESSION" == "$session_id" ]]; then
+                _write_lock "$lockfile" "$session_id"
+                return 0
+            fi
+
+            # Different machine — can't verify PID, refuse
+            if [[ "$_LOCK_MACHINE" != "$(hostname)" ]]; then
+                echo "Lock held by another machine: $_LOCK_MACHINE (session: $_LOCK_SESSION)" >&2
+                return 1
+            fi
+
+            # Same machine — check if PID is alive
+            if _is_pid_alive "$_LOCK_PID"; then
+                echo "Lock held by live process PID=$_LOCK_PID (session: $_LOCK_SESSION)" >&2
+                return 1
+            fi
+
+            # PID dead — stale lock, will overwrite below
+            rm -f "$lockfile"
+        fi
+    fi
+
+    # Atomic write: mkdir is atomic on POSIX — prevents concurrent acquires.
+    # Only reached when lock file doesn't exist (free, stale-cleaned, or corrupt-cleaned).
+    if mkdir "$lockdir" 2>/dev/null; then
         _write_lock "$lockfile" "$session_id"
+        rmdir "$lockdir" 2>/dev/null || true
         return 0
     fi
 
-    # Try to read existing lock
-    if ! _read_lock "$lockfile"; then
-        # Corrupt lock — treat as stale, overwrite
-        _write_lock "$lockfile" "$session_id"
-        return 0
-    fi
-
-    # Same session ID — idempotent re-acquire
-    if [[ "$_LOCK_SESSION" == "$session_id" ]]; then
-        _write_lock "$lockfile" "$session_id"
-        return 0
-    fi
-
-    # Different machine — can't verify PID, refuse
-    if [[ "$_LOCK_MACHINE" != "$(hostname)" ]]; then
-        echo "Lock held by another machine: $_LOCK_MACHINE (session: $_LOCK_SESSION)" >&2
-        return 1
-    fi
-
-    # Same machine — check if PID is alive
-    if _is_pid_alive "$_LOCK_PID"; then
-        echo "Lock held by live process PID=$_LOCK_PID (session: $_LOCK_SESSION)" >&2
-        return 1
-    fi
-
-    # PID dead — stale lock, clean up and acquire
-    _write_lock "$lockfile" "$session_id"
-    return 0
+    # mkdir failed — another session is writing the lock right now
+    echo "Lock acquisition race lost — another session acquired first" >&2
+    return 1
 }
 
 # ── release_lock ────────────────────────────────────────────────────────────

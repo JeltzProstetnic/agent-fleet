@@ -23,6 +23,10 @@ VERBOSE="${VERBOSE:-false}"
 NO_COLOR="${NO_COLOR:-false}"
 PATH_PREFIX="${PATH_PREFIX:-}"
 RECONFIGURE_MCP="${RECONFIGURE_MCP:-false}"
+
+# cc-mirror root (Claude Code installed via cc-mirror)
+CC_MIRROR_DIR="${CC_MIRROR_DIR:-$HOME/.cc-mirror/mclaude}"
+
 LOG_FILE=""
 BACKUP_ROOT="${HOME}/.claude-setup/backups"
 LOG_ROOT="${HOME}/.claude-setup/logs"
