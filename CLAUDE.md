@@ -34,7 +34,7 @@ Claude Code configuration management across all machines and projects.
 | `global/knowledge/` | `~/.claude/knowledge/` | Operational knowledge (symlinked) |
 | `global/machines/` | `~/.claude/machines/` | Per-machine config (symlinked) |
 | `global/hooks/` | `~/.claude/hooks/` | Session hooks (copied) |
-| `projects/<name>/rules/` | `<project>/.claude/` | Project-specific rules (copied) |
+| `setup/projects/<name>/rules/` | `<project>/.claude/` | Project-specific rules (copied) |
 | `setup/scripts/audit-tools.sh` | (stays in repo) | Generates per-machine tool inventory |
 | `setup/scripts/rotate-session.sh` | (stays in repo) | Archives session-context → history + log |
 
@@ -63,9 +63,9 @@ Claude Code displays a live context usage indicator in the terminal status bar, 
 - Red: 90%+ context used (consider wrapping up or compacting)
 
 **How it works:**
-- Source: `setup/config/statusline.sh`
-- Deployed to: `~/.claude/statusline.sh` (by `configure-claude.sh`, Step 4)
-- Activated by: `statusLine` block in `settings.json` pointing to `bash ~/.claude/statusline.sh`
+- Source: `setup/config/statusline-command.sh`
+- Deployed to: `~/.claude/statusline-command.sh` (by `configure-claude.sh`, Step 4)
+- Activated by: `statusLine` block in `settings.json` pointing to `bash ~/.claude/statusline-command.sh`
 - Claude Code pipes JSON context data to the script via stdin; the script outputs the formatted bar
 
 **Persona display:** The script reads `~/.claude/.active-persona` (a single-line file written by Claude) and appends the persona name in its configured color. If the file doesn't exist, the persona indicator is omitted.
