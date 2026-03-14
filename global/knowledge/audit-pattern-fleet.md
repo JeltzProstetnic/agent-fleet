@@ -27,7 +27,7 @@ Deploys 4 Opus subagents across 3 phases to audit the entire agent fleet system 
 
 Launch two Opus agents simultaneously:
 
-**Agent 1 — Private repo (cfg-agent-fleet):**
+**Agent 1 — Config repo (your private fork):**
 - All bash scripts: path references (REPO_DIR, SCRIPT_DIR, source statements)
 - Full test suite execution (`bash setup/tests/run.sh`)
 - Cross-references in docs (stale paths, wrong filenames)

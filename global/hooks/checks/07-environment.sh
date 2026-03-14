@@ -34,12 +34,13 @@ if 'env' in d and 'CC_MIRROR_SPLASH' in d['env']:
     fi
 fi
 
-# Check 33: Bartl mail check — surface recent Bartl-labeled emails at startup
-BARTL_SCRIPT="$CONFIG_REPO/setup/scripts/bartl-mail-check.sh"
-if [ -f "$BARTL_SCRIPT" ]; then
-    BARTL_OUTPUT=$(timeout 10 bash "$BARTL_SCRIPT" --since 24 2>/dev/null || true)
-    if [ -n "$BARTL_OUTPUT" ]; then
-        BARTL_SUBJECTS=$(echo "$BARTL_OUTPUT" | python3 -c "
+# Check 33: Persona mail check — surface recent persona-labeled emails at startup
+# Configure PERSONA_MAIL_SCRIPT in your machine file or environment to enable.
+PERSONA_MAIL_SCRIPT="${PERSONA_MAIL_SCRIPT:-$CONFIG_REPO/setup/scripts/persona-mail-check.sh}"
+if [ -f "$PERSONA_MAIL_SCRIPT" ]; then
+    PERSONA_MAIL_OUTPUT=$(timeout 10 bash "$PERSONA_MAIL_SCRIPT" --since 24 2>/dev/null || true)
+    if [ -n "$PERSONA_MAIL_OUTPUT" ]; then
+        PERSONA_MAIL_SUBJECTS=$(echo "$PERSONA_MAIL_OUTPUT" | python3 -c "
 import json,sys
 msgs=[]
 for line in sys.stdin:
@@ -49,10 +50,10 @@ for line in sys.stdin:
         d=json.loads(line)
         msgs.append(d.get('subject','?'))
     except: pass
-if msgs: print(f'BARTL_MAIL: {len(msgs)} message(s) in last 24h: ' + '; '.join(msgs))
+if msgs: print(f'PERSONA_MAIL: {len(msgs)} message(s) in last 24h: ' + '; '.join(msgs))
 " 2>/dev/null || true)
-        if [ -n "$BARTL_SUBJECTS" ]; then
-            INBOX_MSG="${INBOX_MSG:+$INBOX_MSG | }$BARTL_SUBJECTS"
+        if [ -n "$PERSONA_MAIL_SUBJECTS" ]; then
+            INBOX_MSG="${INBOX_MSG:+$INBOX_MSG | }$PERSONA_MAIL_SUBJECTS"
         fi
     fi
 fi

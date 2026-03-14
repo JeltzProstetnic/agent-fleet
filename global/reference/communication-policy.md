@@ -37,7 +37,7 @@ If you maintain a communications log, consult it before drafting emails to anyon
 
 | Persona | Address | Send policy |
 |---------|---------|-------------|
-| Bartl | `persona@example.com` | **Drafts only.** Create Gmail drafts for user review, never send directly. Incoming mail lands in a dedicated Gmail label (skips inbox). |
+| Assistant | `persona@example.com` | **Drafts only.** Create Gmail drafts for user review, never send directly. Incoming mail lands in a dedicated Gmail label (skips inbox). |
 
 <!-- Add rows for additional personas with dedicated email addresses.
      Each persona address should forward to the primary Gmail account. -->

@@ -3,6 +3,7 @@
 source "$(dirname "$0")/test-helpers.sh"
 
 SYNC_SCRIPT="$REPO_ROOT/sync.sh"
+SYNC_COMMON="$REPO_ROOT/sync-lib/common.sh"
 
 suite_header "sync.sh"
 
@@ -28,16 +29,16 @@ run_test "no arguments shows usage" test_no_args
 # ── find_project_path ────────────────────────────────────────────────────────
 
 test_find_project_by_home_dir() {
-    # Source sync.sh functions (need SCRIPT_DIR set)
+    # find_project_path was moved to sync-lib/common.sh
     # find_project_path checks $HOME/<name> first
-    # We can't test this without creating dirs in HOME, so test via the function
+    # Use agent-fleet which exists for any template user
     local result
     result=$(
         SCRIPT_DIR="$REPO_ROOT"
-        source <(grep -A 30 '^find_project_path()' "$SYNC_SCRIPT") 2>/dev/null
-        find_project_path "cfg-agent-fleet"
+        source "$SYNC_COMMON" 2>/dev/null
+        find_project_path "agent-fleet"
     )
-    assert_eq "$HOME/cfg-agent-fleet" "$result"
+    assert_eq "$HOME/agent-fleet" "$result"
 }
 run_test "find_project_path finds project in home directory" test_find_project_by_home_dir
 
@@ -54,7 +55,7 @@ EOF
     result=$(
         SCRIPT_DIR="$TEST_TMPDIR"
         HOME="/nonexistent"
-        source <(grep -A 30 '^find_project_path()' "$SYNC_SCRIPT") 2>/dev/null
+        source "$SYNC_COMMON" 2>/dev/null
         find_project_path "mock-project"
     )
     assert_eq "$TEST_TMPDIR/mock-project" "$result"
@@ -66,7 +67,7 @@ test_find_project_not_found() {
     result=$(
         SCRIPT_DIR="$TEST_TMPDIR"
         HOME="$TEST_TMPDIR"
-        source <(grep -A 30 '^find_project_path()' "$SYNC_SCRIPT") 2>/dev/null
+        source "$SYNC_COMMON" 2>/dev/null
         find_project_path "nonexistent-project-xyz"
     )
     assert_eq "" "$result" "should return empty for unknown project"

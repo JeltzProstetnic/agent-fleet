@@ -20,7 +20,7 @@
 
 ### Template personas are generic
 **Date:** 2026-03-10
-**Decision:** Template ships with generic persona names (Assistant/Supporter) rather than personal ones. Users customize during first-run onboarding. Personal persona names in the private cfg-agent-fleet repo are not propagated.
+**Decision:** Template ships with generic persona names (Assistant/Supporter) rather than personal ones. Users customize during first-run onboarding. Personal persona names in the user's private config repo are not propagated.
 
 ### Knowledge loading is conditional, not eager
 **Date:** 2026-03-10
@@ -60,7 +60,7 @@
 
 ### Privacy scrubbing for template propagation
 **Date:** 2026-03-09
-**Decision:** All files propagated from the private cfg-agent-fleet to the public agent-fleet template must be scrubbed of personal data: hostnames, IPs, usernames, email addresses, private repo names. fleet-issue.sh provides automated privacy pattern checking. Test files must also be scrubbed (use placeholder patterns instead of real personal data).
+**Decision:** All files propagated from a private config repo to the public agent-fleet template must be scrubbed of personal data: hostnames, IPs, usernames, email addresses, private repo names. fleet-issue.sh provides automated privacy pattern checking. Test files must also be scrubbed (use placeholder patterns instead of real personal data).
 
 ## Rejected / Superseded
 

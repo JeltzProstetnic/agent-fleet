@@ -25,7 +25,7 @@ PASSED_SUITES=0
 FAILED_SUITES=0
 FAILED_NAMES=()
 
-printf "${BOLD}cfg-agent-fleet test runner${RESET}\n"
+printf "${BOLD}agent-fleet test runner${RESET}\n"
 printf "Repo: %s\n\n" "$REPO_ROOT"
 
 # Discover test files

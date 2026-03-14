@@ -77,10 +77,10 @@ run_test "sanitize_text redacts DESKTOP-* hostnames" test_sanitize_desktop_hostn
 
 test_sanitize_srv_hostname() {
     extract_sanitize_text
-    local input="Deploy to srv943133 via SSH"
+    local input="Deploy to srv123456 via SSH"
     local result
     result=$(sanitize_text "$input")
-    assert_not_contains "$result" "srv943133" "srv hostname should be redacted"
+    assert_not_contains "$result" "srv123456" "srv hostname should be redacted"
     assert_contains "$result" "[REDACTED-HOST]" "should contain redacted marker"
 }
 run_test "sanitize_text redacts srv* hostnames" test_sanitize_srv_hostname
@@ -102,10 +102,10 @@ run_test "sanitize_text redacts usernames in /home/ paths" test_sanitize_usernam
 
 test_sanitize_windows_user_path() {
     extract_sanitize_text
-    local input="Located at /mnt/c/Users/Matthias/Documents/file.txt"
+    local input="Located at /mnt/c/Users/JohnDoe/Documents/file.txt"
     local result
     result=$(sanitize_text "$input")
-    assert_not_contains "$result" "/mnt/c/Users/Matthias/" "Windows user path should be redacted"
+    assert_not_contains "$result" "/mnt/c/Users/JohnDoe/" "Windows user path should be redacted"
     assert_contains "$result" "/mnt/c/Users/[REDACTED-USER]/" "should contain redacted user marker"
 }
 run_test "sanitize_text redacts Windows user paths" test_sanitize_windows_user_path

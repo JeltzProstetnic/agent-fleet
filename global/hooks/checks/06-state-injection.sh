@@ -10,7 +10,7 @@ INBOX_MSG="${INBOX_MSG:+$INBOX_MSG | }HOSTNAME: $HOSTNAME_VAL | TIME: $CURRENT_T
 
 # Check 20: Persona injection — read active persona, inject into systemMessage
 ACTIVE_PERSONA_FILE="$HOME/.claude/.active-persona"
-PERSONA_NAME="Bartl"
+PERSONA_NAME="Assistant"
 if [ -f "$ACTIVE_PERSONA_FILE" ]; then
     _raw_persona=$(head -1 "$ACTIVE_PERSONA_FILE" 2>/dev/null | xargs)
     [ -n "$_raw_persona" ] && PERSONA_NAME="$_raw_persona"

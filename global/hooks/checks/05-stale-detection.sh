@@ -27,7 +27,7 @@ fi
 # Check 16: Warn if agent-fleet-mobile is not cloned (mobile data won't sync)
 if grep -q 'mobile-collect\|mobile_collect' "$CONFIG_REPO/sync.sh" 2>/dev/null; then
     if [ ! -d "${USER_HOME:-$HOME}/agent-fleet-mobile" ]; then
-        WARNINGS="${WARNINGS:+$WARNINGS | }agent-fleet-mobile not cloned — mobile session data will not be synced. Clone: git clone https://github.com/JeltzProstetnic/agent-fleet-mobile ~/agent-fleet-mobile"
+        WARNINGS="${WARNINGS:+$WARNINGS | }agent-fleet-mobile not cloned — mobile session data will not be synced. Clone it from your GitHub and place at ~/agent-fleet-mobile"
     fi
 fi
 
