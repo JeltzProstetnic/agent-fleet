@@ -413,8 +413,10 @@ CONF
     assert_eq "0" "$rc" "push should succeed"
 
     # Check the public remote's commit message is sanitized
+    # Use explicit branch name — bare repos may have HEAD pointing to "master"
+    # while the actual branch pushed is "main"
     local public_msg
-    public_msg=$(git -C "$TEST_TMPDIR/public.git" log -1 --format=%B)
+    public_msg=$(git -C "$TEST_TMPDIR/public.git" log -1 --format=%B main)
     assert_not_contains "$public_msg" "user@private.com" "email should be redacted in public commit"
     assert_not_contains "$public_msg" "DESKTOP-ABC123" "hostname should be redacted in public commit"
     assert_not_contains "$public_msg" "10.0.0.1" "IP should be redacted in public commit"

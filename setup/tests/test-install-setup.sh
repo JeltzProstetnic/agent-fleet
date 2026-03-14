@@ -60,11 +60,12 @@ run_test "CFG-63: install-base.sh defense-in-depth also removes .template-repo" 
 test_config_check_mentions_template_repo() {
     local hook="$REPO_ROOT/global/hooks/config-check.sh"
     assert_file_contains "$hook" ".template-repo" \
-        "config-check.sh should mention .template-repo in fallback error"
-    assert_file_contains "$hook" "delete it" \
-        "config-check.sh should suggest deleting .template-repo"
+        "config-check.sh should reference .template-repo in repo detection"
+    # The hook excludes repos with .template-repo marker (! -f check)
+    assert_file_contains "$hook" "! -f" \
+        "config-check.sh should exclude repos that still have .template-repo"
 }
-run_test "CFG-63: config-check.sh fallback message mentions .template-repo" test_config_check_mentions_template_repo
+run_test "CFG-63: config-check.sh excludes repos with .template-repo marker" test_config_check_mentions_template_repo
 
 # ── CFG-65: Non-TTY auto-detection ──────────────────────────────────────────
 
