@@ -316,7 +316,7 @@ No computer is special. Each machine gets its own file in `global/machines/`. Co
 When the template gets new features, pull them into your copy:
 
 ```bash
-bash upgrade.sh
+bash setup/upgrade.sh
 ```
 
 One command. It fetches from the `upstream` remote (set during install), compares versions via `.agent-fleet-version`, merges, runs any pending migrations, and deploys to live locations. Your personas, machine files, hostname mappings, and secrets are untouched -- they live in gitignored `*.local.*` files that the upgrade never touches.
@@ -327,7 +327,7 @@ If you've edited framework files directly, git merge will flag conflicts. Resolv
 
 **Dry run** (see what would change without changing anything):
 ```bash
-bash upgrade.sh --dry-run
+bash setup/upgrade.sh --dry-run
 ```
 
 ---
@@ -340,13 +340,16 @@ bash upgrade.sh --dry-run
 agent-fleet/
 |
 |-- setup.sh                       Run once -- sets everything up
-|-- upgrade.sh                     Pull upstream updates, run migrations
 |-- sync.sh                        Config sync (automated by hooks)
 |-- registry.md                    All your projects (created at setup)
 |-- .agent-fleet-version           Version tracking for upgrades
 |-- CHANGELOG.md                   Release notes
 |-- CONTRIBUTING.md                Contribution guidelines
 |-- template-sync-manifest.md      Hash manifest for template drift detection
+|
+|-- sync-lib/
+|   |-- common.sh                  Shared helpers (hostname, project path, manifest parsing)
+|   `-- check.sh                   Template drift and personal data leak checks
 |
 |-- global/
 |   |-- CLAUDE.md                  The main prompt (the "dispatcher")
@@ -356,12 +359,15 @@ agent-fleet/
 |   |-- knowledge/                 Operational tips and workarounds
 |   |-- machines/                  Per-computer configuration
 |   `-- hooks/                     SessionStart/End/UserPromptSubmit automation
+|       `-- checks/                Modular SessionStart check modules (01-07)
 |
 |-- setup/
 |   |-- install.sh                 Main installer (called by setup.sh)
 |   |-- install-base.sh            Phase 1: system deps, Node.js
 |   |-- configure-claude.sh        Phase 2: MCP, launchers, hooks, afleet
 |   |-- lib.sh                     Shared utilities (multi-distro detection)
+|   |-- upgrade.sh                 Pull upstream updates, run migrations
+|   |-- migrations/                Version migration scripts (v0.3, etc.)
 |   |-- config/                    Template configs (settings, statusline, aliases, etc.)
 |   |-- scripts/                   Operational scripts (see below)
 |   |-- secrets/                   Vault scaffold (vault.json.example)
@@ -379,8 +385,6 @@ agent-fleet/
 |   |-- dms-guide.md               Document management system guide
 |   |-- hardening-plan.md          Security hardening plan
 |   `-- placeholder-convention.md  Convention for placeholder text in templates
-|
-|-- migrations/                    Version migration scripts (v0.3, etc.)
 |
 `-- cross-project/
     |-- inbox.md                   Task passing between projects

@@ -119,8 +119,8 @@ fi
 
 # ── 8. Run pending migrations ────────────────────────────────────────────────
 
-if [[ -d "$REPO_DIR/migrations" ]]; then
-    for migration in "$REPO_DIR/migrations"/v*.sh; do
+if [[ -d "$REPO_DIR/setup/migrations" ]]; then
+    for migration in "$REPO_DIR/setup/migrations"/v*.sh; do
         [[ -f "$migration" ]] || continue
         # Extract version from filename (v0.3.sh → 0.3)
         m_version=$(basename "$migration" .sh | sed 's/^v//')
