@@ -8,7 +8,7 @@
 
 set -euo pipefail
 
-REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 # Source shared utilities (fall back to minimal stubs)
 if [[ -f "$REPO_DIR/setup/lib.sh" ]]; then
