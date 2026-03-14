@@ -91,6 +91,9 @@ If hostname doesn't match any pattern, state the hostname and ask. If `CLAUDE.lo
    | Filing GitHub issue on agent-fleet, `issue` command | `knowledge/fleet-issue-protocol.md` |
    | SESSION_LOCKED or SESSION_LOCKED_REMOTE in systemMessage | `knowledge/follower-mode.md` |
    | Session shutdown (`cls`, `end`, exit, shutdown) | `foundation/session-shutdown.md` |
+   | Hook debugging, PreToolUse/UserPromptSubmit platform behavior | `knowledge/hook-behavior.md` |
+   | Vault ops, credentials, deploy secrets, encrypt/decrypt | `knowledge/vault-ops.md` |
+   | P4 fleet audit orchestration | `knowledge/audit-pattern-fleet.md` |
    | Self-awareness, plugin recommendation, agent roster gaps, "can I do X?" capability questions | `knowledge/fleet-capabilities.md` |
 
    All paths relative to `~/.claude/` unless absolute. Do NOT load unless triggered.
