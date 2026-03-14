@@ -13,10 +13,10 @@ _detect_config_repo() {
         echo "$(cd "$(dirname "$hook_real")/../.." && pwd)"
         return
     fi
-    for d in "$HOME/cfg-agent-fleet" "$HOME/agent-fleet"; do
+    for d in "$HOME/agent-fleet" "$HOME/cfg-agent-fleet"; do
         [[ -f "$d/sync.sh" && ! -f "$d/.template-repo" ]] && echo "$d" && return
     done
-    echo "$HOME/cfg-agent-fleet"  # final fallback
+    echo "$HOME/agent-fleet"  # final fallback
 }
 
 # ── Shared state (used by all check modules) ──

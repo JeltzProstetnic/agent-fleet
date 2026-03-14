@@ -11,7 +11,7 @@
 **Prevention:**
 1. When prompted to allow a tool in any project, prefer "Allow for this session" over "Always allow" to avoid polluting `settings.local.json`
 2. If a command should be permanently allowed, add it to the global `settings.json` instead
-3. cfg-agent-fleet's `config-check.sh` hook should detect and warn about permission blocks in project settings
+3. The `config-check.sh` hook should detect and warn about permission blocks in project settings
 
 **Which file controls what:**
 | File | Scope | Override behavior |
