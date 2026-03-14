@@ -316,18 +316,20 @@ No computer is special. Each machine gets its own file in `global/machines/`. Co
 When the template gets new features, pull them into your copy:
 
 ```bash
-bash setup/upgrade.sh
+bash setup/scripts/upgrade.sh
 ```
 
-One command. It fetches from the `upstream` remote (set during install), compares versions via `.agent-fleet-version`, merges, runs any pending migrations, and deploys to live locations. Your personas, machine files, hostname mappings, and secrets are untouched -- they live in gitignored `*.local.*` files that the upgrade never touches.
+One command. It creates a rollback tag, pulls latest changes (fast-forward only), and deploys to live locations. Your personas, machine files, hostname mappings, and secrets are untouched -- they live in gitignored `*.local.*` files that the upgrade never touches.
 
-Uncommitted changes are auto-stashed before merge and restored after (even on unexpected abort via EXIT trap). If the merge has conflicts, your stash is preserved -- resolve manually, then re-run.
+If something breaks after an upgrade, roll back instantly:
 
-If you've edited framework files directly, git merge will flag conflicts. Resolve them normally. The `sync.sh check` command will tell you what's drifted.
+```bash
+bash setup/scripts/upgrade.sh --rollback
+```
 
 **Dry run** (see what would change without changing anything):
 ```bash
-bash setup/upgrade.sh --dry-run
+bash setup/scripts/upgrade.sh --dry-run
 ```
 
 ---
@@ -366,7 +368,6 @@ agent-fleet/
 |   |-- install-base.sh            Phase 1: system deps, Node.js
 |   |-- configure-claude.sh        Phase 2: MCP, launchers, hooks, afleet
 |   |-- lib.sh                     Shared utilities (multi-distro detection)
-|   |-- upgrade.sh                 Pull upstream updates, run migrations
 |   |-- migrations/                Version migration scripts (v0.3, etc.)
 |   |-- config/                    Template configs (settings, statusline, aliases, etc.)
 |   |-- scripts/                   Operational scripts (see below)
@@ -377,7 +378,7 @@ agent-fleet/
 |   |   `-- _example/rules/CLAUDE.md   Example project config
 |   `-- tests/
 |       |-- run.sh                 Test runner
-|       `-- test-*.sh              33 test suites (570 tests)
+|       `-- test-*.sh              36 test suites (627 tests)
 |
 |-- docs/
 |   |-- getting-started.md         Detailed setup and usage walkthrough
@@ -419,6 +420,7 @@ agent-fleet/
 | `youtube-tabs.sh` | Save/restore YouTube tabs across machines |
 | `update-checker.sh` | Claude Code version checker (runs once per day at startup) |
 | `install-skill-collections.sh` | Install third-party skill packs |
+| `upgrade.sh` | One-command upgrade from upstream with rollback support |
 | `reprovision-steamos.sh` | Re-install system packages after SteamOS update |
 
 ### Sync Tool
