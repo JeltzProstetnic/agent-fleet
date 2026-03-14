@@ -58,7 +58,22 @@ fi
 # own repo will be set as origin during first-run refinement (or manually).
 
 _origin_url=$(git -C "${REPO_ROOT}" remote get-url origin 2>/dev/null || echo "")
-_template_patterns="JeltzProstetnic/agent-fleet|IvoclarR-D-AIOrg/agent-fleet"
+
+# Template origin patterns — used to detect when origin points to the upstream
+# template (not a user's fork). Resolution order:
+#   1. .template-orgs file in repo root (one pattern per line, gitignored)
+#   2. TEMPLATE_ORGS environment variable (pipe-separated patterns)
+#   3. Generic default: matches any repo named "agent-fleet" (not a fork name)
+_template_patterns=""
+if [[ -f "${REPO_ROOT}/.template-orgs" ]]; then
+    # Read patterns from file, join with | for grep -E
+    _template_patterns=$(grep -v '^#' "${REPO_ROOT}/.template-orgs" | grep -v '^\s*$' | tr '\n' '|' | sed 's/|$//')
+fi
+if [[ -z "${_template_patterns}" && -n "${TEMPLATE_ORGS:-}" ]]; then
+    _template_patterns="${TEMPLATE_ORGS}"
+fi
+# Fallback: match the canonical template repo pattern
+: "${_template_patterns:=agent-fleet-template/agent-fleet}"
 
 if [[ -n "${_origin_url}" ]] && echo "${_origin_url}" | grep -qE "${_template_patterns}"; then
     echo "Origin points to the template repo — renaming to 'upstream'..."
