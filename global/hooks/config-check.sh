@@ -13,7 +13,7 @@ _detect_config_repo() {
         echo "$(cd "$(dirname "$hook_real")/../.." && pwd)"
         return
     fi
-    for d in "$HOME/agent-fleet" "$HOME/cfg-agent-fleet"; do
+    for d in "$HOME/agent-fleet"; do
         [[ -f "$d/sync.sh" && ! -f "$d/.template-repo" ]] && echo "$d" && return
     done
     echo "$HOME/agent-fleet"  # final fallback

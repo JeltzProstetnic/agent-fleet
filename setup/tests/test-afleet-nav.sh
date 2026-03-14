@@ -18,10 +18,10 @@ create_mock_registry() {
 | Project | Priority | Parent | Path | GitHub Remote | Machines | Type | Phase | Notes |
 |---------|----------|--------|------|--------------|----------|------|-------|-------|
 | project-alpha | P1 | — | `~/project-alpha` | `testuser/project-alpha` | dev-main, dev-office | research | active | Consciousness theory |
-| cfg-agent-fleet | P1 | — | `~/cfg-agent-fleet` | `testuser/cfg-agent-fleet` | dev-main, dev-portable | meta | active | Config backbone |
+| my-config | P1 | — | `~/my-config` | `testuser/my-config` | dev-main, dev-portable | meta | active | Config backbone |
 | project-beta | P1 | — | `~/project-beta` | `testuser/project-beta` | dev-main | marketing | active | Twitter engagement |
 | project-gamma | P2 | — | `~/project-gamma` | `testuser/project-gamma` | dev-main, dev-server | code | active | |
-| infrastructure | P2 | cfg-agent-fleet | `~/infrastructure` | `testuser/infrastructure` | dev-main | infra | active | |
+| infrastructure | P2 | my-config | `~/infrastructure` | `testuser/infrastructure` | dev-main | infra | active | |
 EOF
 }
 
@@ -86,7 +86,7 @@ test_info_shows_parent_project() {
     config_dir=$(create_mock_env)
     local output
     output=$(bash "$SCRIPT" info infrastructure --config-repo "$config_dir" 2>&1)
-    assert_contains "$output" "cfg-agent-fleet" "should show parent project"
+    assert_contains "$output" "my-config" "should show parent project"
 }
 run_test "info shows parent project when present" test_info_shows_parent_project
 

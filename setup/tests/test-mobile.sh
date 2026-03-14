@@ -20,7 +20,7 @@ setup_mock_config() {
     echo "# User Profile" > "$config/global/foundation/user-profile.md"
     echo "Name: Test User" >> "$config/global/foundation/user-profile.md"
     echo "# Personas" > "$config/global/foundation/personas.md"
-    echo "## Bartl" >> "$config/global/foundation/personas.md"
+    echo "## Assistant" >> "$config/global/foundation/personas.md"
 
     # Registry
     cat > "$config/registry.md" <<'REG'

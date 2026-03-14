@@ -18,10 +18,10 @@ create_mock_registry() {
 | Project | Priority | Parent | Path | GitHub Remote | Machines | Type | Phase | Notes |
 |---------|----------|--------|------|--------------|----------|------|-------|-------|
 | project-alpha | P1 | — | `~/project-alpha` | `testuser/project-alpha` | dev-main, dev-office | research | active | |
-| cfg-agent-fleet | P1 | — | `~/cfg-agent-fleet` | `testuser/cfg-agent-fleet` | dev-main, dev-portable | meta | active | |
+| my-config | P1 | — | `~/my-config` | `testuser/my-config` | dev-main, dev-portable | meta | active | |
 | project-beta | P1 | — | `~/project-beta` | `testuser/project-beta` | dev-main | marketing | active | |
 | project-gamma | P2 | — | `~/project-gamma` | `testuser/project-gamma` | dev-main, dev-server | code | active | |
-| infrastructure | P2 | cfg-agent-fleet | `~/infrastructure` | `testuser/infrastructure` | dev-main | infra | active | |
+| infrastructure | P2 | my-config | `~/infrastructure` | `testuser/infrastructure` | dev-main | infra | active | |
 EOF
 }
 
@@ -56,7 +56,7 @@ test_list_flag() {
     local output
     output=$(CONFIG_REPO="$env_dir" bash "$SCRIPT" --list 2>&1)
     assert_contains "$output" "project-alpha" "should list project-alpha"
-    assert_contains "$output" "cfg-agent-fleet" "should list cfg-agent-fleet"
+    assert_contains "$output" "my-config" "should list my-config"
     assert_contains "$output" "project-beta" "should list project-beta"
 }
 run_test "list flag shows all projects" test_list_flag
@@ -106,7 +106,7 @@ test_git_sync_check_runs() {
     local env_dir
     env_dir=$(create_mock_env)
     local home="$TEST_TMPDIR/home"
-    mkdir -p "$home/cfg-agent-fleet/.git"
+    mkdir -p "$home/my-config/.git"
     # Create mock git-sync-check.sh that writes a marker file (stdout is redirected)
     mkdir -p "$env_dir/setup/scripts"
     local marker="$TEST_TMPDIR/sync_called"
@@ -116,7 +116,7 @@ echo "SYNC_CHECK_CALLED path=\$2" >> "$marker"
 MOCK
     chmod +x "$env_dir/setup/scripts/git-sync-check.sh"
 
-    CONFIG_REPO="$env_dir" HOME="$home" AFLEET_DRY_RUN=1 bash "$SCRIPT" cfg-agent-fleet >/dev/null 2>&1 || true
+    CONFIG_REPO="$env_dir" HOME="$home" AFLEET_DRY_RUN=1 bash "$SCRIPT" my-config >/dev/null 2>&1 || true
     assert_file_exists "$marker" "should call git-sync-check before launch"
     assert_file_contains "$marker" "SYNC_CHECK_CALLED" "marker should contain sync call record"
 }
@@ -154,7 +154,7 @@ test_dash_flag_is_picker_alias() {
     local env_dir
     env_dir=$(create_mock_env)
     local home="$TEST_TMPDIR/home"
-    mkdir -p "$home/cfg-agent-fleet" "$home/.claude"
+    mkdir -p "$home/my-config" "$home/.claude"
     mkdir -p "$env_dir/cross-project"
     create_mock_dashboard_cache "$env_dir"
 
@@ -205,13 +205,13 @@ Last refreshed: 2026-03-09 12:00 UTC on dev-main
 | Project | Priority | Parent | Path | Type | Tasks | Size | Deadline | P1Names | LastDone |
 |---------|----------|--------|------|------|-------|------|----------|---------|----------|
 | project-alpha | P1 | — | ~/project-alpha | research (p) | 21 open | 444M | Mar 27 | ALF-16 Fellowship | Submitted paper |
-| cfg-agent-fleet | P1 | — | ~/cfg-agent-fleet | meta/config | 51 open | 153M |  |  | Hook expansion |
+| my-config | P1 | — | ~/my-config | meta/config | 51 open | 153M |  |  | Hook expansion |
 | project-beta | P1 | — | ~/project-beta | engagement | 18 open | 1.9M |  | Day 10 | Email audit |
 | project-gamma | P2 | — | ~/project-gamma | code | — | — |  |  | Gallery v2 |
 | project-delta | P2 | — | ~/project-delta | tooling | 15 open | 11G |  |  |  |
-| infrastructure | P2 | cfg-agent-fleet | ~/infrastructure | infra | 9 open | 27M |  |  |  |
+| infrastructure | P2 | my-config | ~/infrastructure | infra | 9 open | 27M |  |  |  |
 | project-epsilon | P2 | project-alpha | ~/project-epsilon | code | — | — |  |  |  |
-| agent-fleet | P3 | cfg-agent-fleet | ~/agent-fleet | template | ~50 drift | 7.2M |  |  |  |
+| agent-fleet | P3 | my-config | ~/agent-fleet | template | ~50 drift | 7.2M |  |  |  |
 | project-zeta | P1 | project-delta | ~/project-delta/project-zeta | code | 10 open | 995M |  | ZET-7 deploy |  |
 | project-eta | P3 | — | ~/project-eta | code | — | — |  |  |  |
 | project-theta | P4 | — | ~/project-theta | media | — | — |  |  |  |
@@ -246,7 +246,7 @@ test_parse_dashboard_cache() {
 
     assert_contains "$output" "project-alpha|P1|—" "should parse project-alpha as P1"
     assert_contains "$output" "project-zeta|P1|project-delta" "should parse project-zeta as P1 with parent project-delta"
-    assert_contains "$output" "infrastructure|P2|cfg-agent-fleet" "should parse infrastructure with parent"
+    assert_contains "$output" "infrastructure|P2|my-config" "should parse infrastructure with parent"
     assert_contains "$output" "project-theta|P4|—" "should parse P4 project"
 }
 run_test "parse_dashboard_cache extracts project data" test_parse_dashboard_cache
@@ -266,7 +266,7 @@ test_build_display_list_tier_grouping() {
 
     # Parents get numbers
     assert_contains "$output" "1|project-alpha|" "project-alpha should get number 1"
-    assert_contains "$output" "2|cfg-agent-fleet|" "cfg should get number 2"
+    assert_contains "$output" "2|my-config|" "cfg should get number 2"
     assert_contains "$output" "3|project-beta|" "project-beta should get number 3"
 
     # project-zeta is P1 child of P2 project-delta — promoted to P1 tier with own number
@@ -328,7 +328,7 @@ test_render_picker_has_box_drawing() {
     assert_contains "$output" "P1 CRITICAL" "should have P1 tier header"
     assert_contains "$output" "P2 ACTIVE" "should have P2 tier header"
     assert_contains "$output" "project-alpha" "should show project-alpha"
-    assert_contains "$output" "cfg-agent-fleet" "should show cfg-agent-fleet"
+    assert_contains "$output" "my-config" "should show my-config"
     # Box drawing chars
     assert_contains "$output" "┌" "should have box-drawing top-left"
     assert_contains "$output" "└" "should have box-drawing bottom-left"
@@ -373,7 +373,7 @@ test_resolve_selection_number() {
     assert_contains "$result" "project-alpha" "selection 1 should resolve to project-alpha"
 
     result=$(echo "$display_list" | resolve_selection "2")
-    assert_contains "$result" "cfg-agent-fleet" "selection 2 should resolve to cfg-agent-fleet"
+    assert_contains "$result" "my-config" "selection 2 should resolve to my-config"
 }
 run_test "resolve_selection maps numbers to parent projects" test_resolve_selection_number
 

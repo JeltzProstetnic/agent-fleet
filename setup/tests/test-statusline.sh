@@ -202,7 +202,7 @@ test_persona_color_bartl_bright_yellow() {
 
     local raw_output
     raw_output=$(HOME="$mock_home" bash -c 'echo '"'"''"$(make_json "Opus 4.6" 50)"''"'"' | bash '"'$SCRIPT_PATH'"'')
-    # Bartl uses bright-yellow: \033[93m
+    # Assistant uses bright-yellow: \033[93m
     local yellow_bright=$'\033[93m'
     assert_contains "$raw_output" "$yellow_bright" "Assistant should use bright-yellow ANSI (93m)"
 }
