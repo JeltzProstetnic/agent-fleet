@@ -28,10 +28,10 @@ Cross-project reference detected: [project-name]
 Use `afleet-nav.sh` for all actions:
 
 ```bash
-bash ~/cfg-agent-fleet/setup/scripts/afleet-nav.sh switch <project>
-bash ~/cfg-agent-fleet/setup/scripts/afleet-nav.sh tab <project>
-bash ~/cfg-agent-fleet/setup/scripts/afleet-nav.sh notify <project> "message here"
-bash ~/cfg-agent-fleet/setup/scripts/afleet-nav.sh info <project>
+bash ~/agent-fleet/setup/scripts/afleet-nav.sh switch <project>
+bash ~/agent-fleet/setup/scripts/afleet-nav.sh tab <project>
+bash ~/agent-fleet/setup/scripts/afleet-nav.sh notify <project> "message here"
+bash ~/agent-fleet/setup/scripts/afleet-nav.sh info <project>
 ```
 
 ## Rules

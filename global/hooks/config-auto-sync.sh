@@ -19,10 +19,10 @@ _detect_config_repo() {
         echo "$(cd "$(dirname "$hook_real")/../.." && pwd)"
         return
     fi
-    for d in "$HOME/cfg-agent-fleet" "$HOME/agent-fleet"; do
+    for d in "$HOME/agent-fleet" "$HOME/cfg-agent-fleet"; do
         [[ -f "$d/sync.sh" && ! -f "$d/.template-repo" ]] && echo "$d" && return
     done
-    echo "$HOME/cfg-agent-fleet"  # final fallback
+    echo "$HOME/agent-fleet"  # final fallback
 }
 CONFIG_REPO="$(_detect_config_repo)"
 FAIL_MARKER="$CONFIG_REPO/.sync-failed"

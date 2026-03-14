@@ -4,7 +4,7 @@ Loaded when: editing statusline-command.sh, GPI, or deploying statusline changes
 
 ## Architecture
 
-- **Source**: `~/cfg-agent-fleet/setup/config/statusline-command.sh`
+- **Source**: `~/agent-fleet/setup/config/statusline-command.sh`
 - **Deployed to**: `~/.claude/statusline-command.sh` (via `sync.sh deploy` or manual `cp`)
 - **State file (GPI)**: `~/.claude/.gpi-state.json`
 - **CLI**: `gpi` (`~/.local/bin/gpi` → `setup/scripts/gpi.sh`)
