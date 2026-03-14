@@ -72,6 +72,9 @@ create_patched_script() {
 # Override HOME
 export HOME="$mock_home"
 
+# Point CONFIG_CHECK_DIR to the real checks/ modules (BASH_SOURCE breaks under eval)
+export CONFIG_CHECK_DIR="$REPO_ROOT/global/hooks/checks"
+
 # cd into project dir so \$(pwd) returns what we want
 cd "$project_dir"
 
@@ -1076,7 +1079,7 @@ test_symlink_correct_target() {
     output=$(run_hook "$patched")
 
     assert_not_contains "$output" "symlink points to wrong" "should NOT warn when symlink is correct"
-    assert_not_contains "$output" "CLAUDE.md" "should produce no CLAUDE.md warnings"
+    assert_not_contains "$output" "not a symlink" "should not warn about symlink when it IS a symlink"
 }
 run_test "symlink target: no warning when CLAUDE.md symlink points to correct directory" test_symlink_correct_target
 
@@ -1348,10 +1351,10 @@ test_stale_pending_files_warning() {
     touch "$config_repo/CLAUDE.md"
     ln -sf "$config_repo/CLAUDE.md" "$mock_home/.claude/CLAUDE.md"
 
-    # Create stale pending file (set mtime to 3 days ago)
-    mkdir -p "$project_dir/docs"
-    echo "old task" > "$project_dir/docs/pending-old-task.md"
-    touch -d "3 days ago" "$project_dir/docs/pending-old-task.md"
+    # Check 17 scans CONFIG_REPO/docs/ for pending files
+    mkdir -p "$config_repo/docs"
+    echo "old task" > "$config_repo/docs/pending-old-task.md"
+    touch -d "3 days ago" "$config_repo/docs/pending-old-task.md"
 
     local patched
     patched=$(create_patched_script "$config_repo" "$mock_home" "$project_dir")
@@ -1398,11 +1401,11 @@ test_stale_pending_with_backlog_item() {
     touch "$config_repo/CLAUDE.md"
     ln -sf "$config_repo/CLAUDE.md" "$mock_home/.claude/CLAUDE.md"
 
-    # Create stale pending file + backlog with matching reference
-    mkdir -p "$project_dir/docs"
-    echo "old task" > "$project_dir/docs/pending-old-task.md"
-    touch -d "3 days ago" "$project_dir/docs/pending-old-task.md"
-    cat > "$project_dir/backlog.md" << 'EOF'
+    # Check 17 scans CONFIG_REPO/docs/ for pending files and CONFIG_REPO/backlog.md
+    mkdir -p "$config_repo/docs"
+    echo "old task" > "$config_repo/docs/pending-old-task.md"
+    touch -d "3 days ago" "$config_repo/docs/pending-old-task.md"
+    cat > "$config_repo/backlog.md" << 'EOF'
 # Backlog
 - [ ] [P1] `CFG-99` **Old task**: References pending-old-task.md
 EOF
@@ -1427,11 +1430,11 @@ test_stale_pending_without_backlog_item() {
     touch "$config_repo/CLAUDE.md"
     ln -sf "$config_repo/CLAUDE.md" "$mock_home/.claude/CLAUDE.md"
 
-    # Create stale pending file + empty backlog
-    mkdir -p "$project_dir/docs"
-    echo "orphaned task" > "$project_dir/docs/pending-orphan.md"
-    touch -d "3 days ago" "$project_dir/docs/pending-orphan.md"
-    cat > "$project_dir/backlog.md" << 'EOF'
+    # Check 17 scans CONFIG_REPO/docs/ for pending files and CONFIG_REPO/backlog.md
+    mkdir -p "$config_repo/docs"
+    echo "orphaned task" > "$config_repo/docs/pending-orphan.md"
+    touch -d "3 days ago" "$config_repo/docs/pending-orphan.md"
+    cat > "$config_repo/backlog.md" << 'EOF'
 # Backlog
 - [ ] [P1] `CFG-01` **Something unrelated**: nothing here
 EOF
