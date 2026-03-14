@@ -21,7 +21,13 @@ Conditionally loaded files containing operational knowledge for specific tools a
 | `dev-browser-ops.md` | Using dev-browser skill or browser automation | Startup, Chromium drift fix, session persistence |
 | `age-encryption.md` | Encryption tasks involving age/pyrage | age CLI TTY limitation, pyrage alternative, passphrase handling |
 | `fleet-capabilities.md` | Self-awareness, plugin recommendation, agent roster gaps | Core features catalog, agent capabilities, plugin mapping, recommendation protocol |
+| `fleet-issue-protocol.md` | Filing GitHub issue on agent-fleet | Issue template, label conventions, upstream vs local |
+| `follower-mode.md` | SESSION_LOCKED or SESSION_LOCKED_REMOTE in systemMessage | Session locking, follower behavior, lock release |
+| `konsole-tabs.md` | Konsole tabs, qdbus, terminal tab operations | D-Bus commands, session safety, tab lifecycle |
+| `statusline-ops.md` | Statusline editing, GPI, statusline deployment | GPI CLI, statusline format, deployment procedure |
+| `vault-ops.md` | Vault ops, credentials, deploy secrets, encrypt/decrypt | vault-manage.sh usage, passphrase handling, deploy targets |
 | `audit-protocol.md` | Audit, self-audit, meta-audit | 3 lines of defense, 8-step workflow, system invariants, audit log format |
+| `audit-pattern-fleet.md` | P4 fleet audit orchestration | Multi-agent audit pattern, parallel phases, coverage |
 
 ## Adding New Knowledge Files
 
