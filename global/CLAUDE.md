@@ -43,6 +43,8 @@ If hostname doesn't match any pattern, state the hostname and ask. If `CLAUDE.lo
 
 0. **ALWAYS check for remote changes — BEFORE reading any files.** Run `bash ~/agent-fleet/setup/scripts/git-sync-check.sh --pull <project-dir>` (pass the project directory as an argument — the script accepts an optional path). This fetches, reports incoming changes, and fast-forward pulls if behind. If it reports changes, re-read affected files. If it fails (diverged, merge conflict), resolve before proceeding. This applies to EVERY project, EVERY session, no exceptions. Reading stale files leads to wrong context, missed tasks, and wasted work.
 
+0.5. **Surface ALL systemMessage items to the user.** The SessionStart hook generates intelligence at 0 LLM tokens — suppressing its output defeats the purpose. Present every injected field: `WARNING:` (drift, branches, locks), `Upstream dependency check:`, `BARTL_MAIL:`, `FMS:`, `Documents found in tmp/`, `ACT_PENDING:`. One structured summary, before any file reads.
+
 1. **Read cross-project inbox** — skip if redundant. If `INBOX TASKS for <project>` appears in systemMessage, the hook already extracted this project's items — skip the full `inbox.md` read. Only read `~/agent-fleet/cross-project/inbox.md` manually when: (a) the hook didn't inject inbox data, or (b) you need child project tasks (check `Parent` column in `registry.md`). Report child project tasks to the user but don't delete them — the child project session handles that.
 
 2. **Read `next-session-task.md`** (if exists, `task: true`) — previous session's handoff. Read the `file:` it points to.
