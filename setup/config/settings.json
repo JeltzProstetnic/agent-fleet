@@ -103,6 +103,18 @@
           }
         ]
       }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash ~/.claude/hooks/auto-lint.sh",
+            "timeout": 10
+          }
+        ]
+      }
     ]
   },
   "statusLine": {
