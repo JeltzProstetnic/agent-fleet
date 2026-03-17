@@ -745,6 +745,23 @@ if [[ -z "$MCLAUDE" ]]; then
     exit 1
 fi
 
+# ── TweakCC config repair ────────────────────────────────────────────────────
+# CC updates reset tweakcc config.json to defaults. Re-apply our settings
+# so the CC built-in logo stays hidden and the AF banner is the only splash.
+# Runs every launch — idempotent, costs nothing if already correct.
+__tweakcc_cfg="${CC_MIRROR_DIR:-$HOME/.cc-mirror/mclaude}/tweakcc/config.json"
+if [[ -f "$__tweakcc_cfg" ]] && command -v node >/dev/null 2>&1; then
+    node -e "
+const fs = require('fs');
+const f = '$__tweakcc_cfg';
+const c = JSON.parse(fs.readFileSync(f, 'utf8'));
+let changed = false;
+if (c.settings?.misc?.hideStartupBanner !== true) { c.settings.misc.hideStartupBanner = true; changed = true; }
+if (c.settings?.misc?.hideStartupClawd !== true) { c.settings.misc.hideStartupClawd = true; changed = true; }
+if (changed) { fs.writeFileSync(f, JSON.stringify(c, null, 2) + '\n'); }
+" 2>/dev/null || true
+fi
+
 # ── Banner: AF fleet banner with CC version ──────────────────────────────────
 # Replaces both mclaude splash and CC built-in banner with a single clean banner.
 # CC_MIRROR_SPLASH=0 suppresses mclaude's splash; TweakCC hideStartupBanner
