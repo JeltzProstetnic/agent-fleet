@@ -235,7 +235,7 @@ If you catch yourself writing a rule, preference, or project fact to auto-memory
 
 **Rules live in rules, not in memory.** Behavioral rules → `CLAUDE.md` or foundation files. Never auto-memory.
 
-**Rule changes require user consent.** When adding or modifying rules (in CLAUDE.md, knowledge files, or anywhere persistent), ALWAYS present proposed rules to the user and only persist after explicit approval. Never write rules silently.
+**Rule changes require user consent — NO EXCEPTIONS.** When adding or modifying rules (in CLAUDE.md, knowledge files, or anywhere persistent), ALWAYS present proposed rules to the user and only persist after explicit approval. Never write rules silently.
 
 **Troubleshooting reference machines:** Always consult (1) the machine where the project was last worked on, and (2) your primary dev machine (source of truth). Don't fix from scratch what was already fixed elsewhere.
 
