@@ -33,6 +33,7 @@ Prompt the subagent with:
 - For each issue, mistake, or failure identified this session, analyze through the rule system:
   1. **Was a rule violated?** → Which rule, what was the evidence, why did compliance fail?
   2. **Was a rule present but insufficient?** → Rule exists but didn't prevent the issue — needs strengthening or different enforcement tier (behavioral → automated)?
+  **GATE CHECK — if your analysis reaches "rule exists, just follow it": STOP. This conclusion is always wrong. Re-enter at step 2 and investigate WHY the rule failed structurally, or whether the root cause lies elsewhere entirely. See Known Faulty Rule Patterns → Pattern 5.**
   3. **Is a new rule justified?** → No existing rule covers this — does the pattern warrant one, or is it a one-off?
   4. **Is the issue rule-irrelevant?** → Not everything is a rule problem. Architecture gap, missing automation, stale data, human error with no systemic fix.
   These are branching points for root cause analysis, not a checklist to scan.
@@ -80,6 +81,18 @@ Prompt the subagent with:
     3. Is this a one-time fix? → Backlog item, not a permanent rule.
     4. Does this need to run every session? → Only then consider a CLAUDE.md rule.
     5. Rules are the **most expensive** fix. Knowledge files are cheap. Extending existing files is cheapest. Default DOWN the hierarchy, not up.
+
+### Pattern 5: "Rule Exists — I'll Follow It Better"
+**Symptom:** Audit concludes "the rule already exists, I just need to follow it" or "acknowledged, no new rule needed."
+**Why it fails:** If the rule existed and was violated, the rule is structurally inadequate. "Follow it better" is not a systemic fix — it's the software equivalent of "we'll be more careful next time." The violation happened BECAUSE the rule's structure (wording, location, loading, enforcement tier) failed to prevent it — or because the root cause lies elsewhere entirely.
+**Fix:** Mandatory root cause analysis with an open mind: Why did the rule fail to fire? Options include but are not limited to:
+  (a) Rule needs rewriting (unclear, too generic, missing the specific failure mode)
+  (b) Rule needs different loading (read at startup but needed mid-session → move to workflow or knowledge file loaded at point of action)
+  (c) Rule needs different enforcement tier (behavioral rule → hook/script/automation)
+  (d) Rule needs bundling into a workflow (standalone rule lost in a list → numbered steps in a named procedure)
+  (e) Rule has a competing rule that overrides it (urgency vs. consent)
+  (f) The issue is not with the rule at all — a different process, assumption, tool behavior, or environmental factor caused the violation. The rule may be fine; the problem may be upstream, downstream, or orthogonal.
+"Rule exists" is the START of root cause analysis, never the conclusion.
 
 ## Presenting Results
 
