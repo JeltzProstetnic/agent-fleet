@@ -1,19 +1,24 @@
 {
   "spinnerTipsEnabled": false,
   "env": {
+    "CC_MIRROR_SPLASH": "1",
+    "CC_MIRROR_PROVIDER_LABEL": "Mirror Claude",
+    "CC_MIRROR_SPLASH_STYLE": "fleet",
+    "CC_MIRROR_DIR": "__HOME__/.cc-mirror/mclaude",
     "TWEAKCC_CONFIG_DIR": "__HOME__/.cc-mirror/mclaude/tweakcc",
     "CLAUDE_CODE_TEAM_MODE": "1",
     "CLAUDE_CODE_AGENT_TYPE": "team-lead",
     "DISABLE_AUTOUPDATER": "1",
     "CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION": "0",
     "FORCE_COLOR": "1",
-    "COLORTERM": "truecolor"
+    "COLORTERM": "truecolor",
+    "CLAUDE_CODE_SESSIONEND_HOOKS_TIMEOUT_MS": "10000"
   },
   "permissions": {
     "allow": [
       "Skill(orchestration)",
       "WebSearch",
-      "WebFetch(*)",
+      "WebFetch(domain:*)",
       "Read(*)",
       "Glob(*)",
       "Grep(*)",
@@ -73,6 +78,9 @@
       "Bash(basename:*)",
       "Bash(realpath:*)",
       "Bash(wslpath:*)",
+      "Bash(bash:*)",
+      "Bash(test:*)",
+      "Bash(sleep:*)",
       "Bash(xdg-open:*)",
       "mcp__serena__*",
       "mcp__workspace__*",
@@ -93,6 +101,26 @@
         ]
       }
     ],
+    "UserPromptSubmit": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash ~/.claude/hooks/context-budget.sh"
+          }
+        ]
+      },
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash ~/.claude/hooks/afk-deactivate.sh"
+          }
+        ]
+      }
+    ],
     "SessionEnd": [
       {
         "matcher": "",
@@ -100,6 +128,26 @@
           {
             "type": "command",
             "command": "bash ~/.claude/hooks/config-auto-sync.sh"
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash ~/.claude/hooks/rtk-rewrite.sh"
+          }
+        ]
+      },
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash ~/.claude/hooks/afd-relay.sh"
           }
         ]
       }
@@ -121,25 +169,5 @@
     "type": "command",
     "command": "bash ~/.claude/statusline-command.sh"
   },
-  "enabledPlugins": {
-    "voltagent-lang@voltagent-subagents": false,
-    "voltagent-infra@voltagent-subagents": false,
-    "voltagent-core-dev@voltagent-subagents": false,
-    "voltagent-qa-sec@voltagent-subagents": false,
-    "voltagent-data-ai@voltagent-subagents": false,
-    "voltagent-dev-exp@voltagent-subagents": false,
-    "voltagent-domains@voltagent-subagents": false,
-    "voltagent-biz@voltagent-subagents": false,
-    "voltagent-meta@voltagent-subagents": false,
-    "voltagent-research@voltagent-subagents": false,
-    "sentry-skills@getsentry": true,
-    "superpowers@superpowers-marketplace": true,
-    "ask-questions-if-underspecified@trailofbits": true,
-    "modern-python@trailofbits": true,
-    "property-based-testing@trailofbits": true,
-    "second-opinion@trailofbits": false,
-    "git-cleanup@trailofbits": true,
-    "static-analysis@trailofbits": true,
-    "differential-review@trailofbits": true
-  }
+  "enabledPlugins": {}
 }
