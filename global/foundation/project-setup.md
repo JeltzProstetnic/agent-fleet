@@ -16,10 +16,28 @@ A project is considered new (and triggers full roster + skill discovery) when **
 - Has `.claude/agents/` with files in it
 - Has `session-context.md` with prior session history
 
+## VoltAgent Context Window Threshold
+
+Before selecting agents, determine whether VoltAgent bundles should be enabled at all:
+
+| Context Window | Default | Rationale |
+|----------------|---------|-----------|
+| **<= 200k** | VoltAgent **OFF** | Each bundle costs ~10k tokens. On small windows, bundles consume a significant fraction of available context. User must opt in explicitly. |
+| **> 200k** | VoltAgent **ON** | Token cost is negligible relative to window size. Agent picks best-fit agents during project creation. |
+
+**How to detect:** The model's context window is part of its declared parameters. As of 2026, claude-sonnet-4-x = 200k, claude-opus-4-x = 200k, claude-haiku-3-5 = 200k. When in doubt, treat as <= 200k and offer opt-in.
+
+---
+
 ## New Project Setup Steps
 
 1. **Understand the project** — read any existing files, ask the user about goals, tech stack, phases
-2. **Select subagents** — browse categories, pick 4-8 agents matching the project domain
+2. **Select subagents** — this is a judgment task:
+   - Check the context window threshold (above) to decide if VoltAgent is appropriate
+   - If VoltAgent is ON: browse plugin marketplace categories to understand what's available
+   - Reason about the project domain, tech stack, and current phase, then pick 4-8 agents that best match
+   - `setup-project-roster.sh` has a type→bundle mapping as a reference starting point, but use your own judgment
+   - If VoltAgent is OFF: skip bundle selection; note in CLAUDE.md that user can opt in
 3. **Run skill discovery** — browse skill catalog, select relevant skills for the project type
 4. **Configure MCP servers** — determine which servers are needed (code → Serena; GitHub repo → GitHub MCP; etc.)
 5. **Set up roster** — create `.claude/agents/`, `.claude/skills/`, copy selected files
