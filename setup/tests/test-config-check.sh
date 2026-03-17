@@ -51,6 +51,47 @@ create_mock_config_repo() {
     create_git_repo_main "$dir"
 }
 
+# Create mock VoltAgent plugin files so Check 11 (plugin-integrity) stays silent.
+# Check 11 fires whenever known_marketplaces.json or installed_plugins.json are
+# absent, regardless of whether other checks are the focus of a test.  Any test
+# that asserts "no WARNING in output" must call this helper.
+create_mock_plugin_files() {
+    local mock_home="$1"
+    local plugins_dir="$mock_home/.cc-mirror/mclaude/config/plugins"
+    mkdir -p "$plugins_dir"
+
+    # known_marketplaces.json must contain "voltagent-subagents"
+    echo '{"voltagent-subagents": {"url": "https://example.com"}}' \
+        > "$plugins_dir/known_marketplaces.json"
+
+    # installed_plugins.json must list all 10 expected bundles
+    cat > "$plugins_dir/installed_plugins.json" << 'EOF'
+{
+  "bundles": [
+    "voltagent-lang@voltagent-subagents",
+    "voltagent-infra@voltagent-subagents",
+    "voltagent-core-dev@voltagent-subagents",
+    "voltagent-qa-sec@voltagent-subagents",
+    "voltagent-data-ai@voltagent-subagents",
+    "voltagent-dev-exp@voltagent-subagents",
+    "voltagent-domains@voltagent-subagents",
+    "voltagent-biz@voltagent-subagents",
+    "voltagent-meta@voltagent-subagents",
+    "voltagent-research@voltagent-subagents"
+  ]
+}
+EOF
+
+    # each bundle needs a cache dir with at least one file
+    local cache_base="$plugins_dir/cache/voltagent-subagents"
+    for bundle in voltagent-lang voltagent-infra voltagent-core-dev voltagent-qa-sec \
+                  voltagent-data-ai voltagent-dev-exp voltagent-domains voltagent-biz \
+                  voltagent-meta voltagent-research; do
+        mkdir -p "$cache_base/$bundle"
+        echo '{}' > "$cache_base/$bundle/manifest.json"
+    done
+}
+
 # Build a patched version of config-check.sh that:
 #   - Uses a hardcoded CONFIG_REPO instead of _detect_config_repo()
 #   - Runs with a controlled HOME
@@ -541,6 +582,9 @@ test_clean_state_no_output() {
 
     # No .sync-failed, no session-context, no inbox, no settings.json, no serena config
 
+    # Create mock plugin files so Check 11 (plugin-integrity) stays silent
+    create_mock_plugin_files "$mock_home"
+
     local patched
     patched=$(create_patched_script "$config_repo" "$mock_home" "$project_dir")
     local output rc=0
@@ -671,6 +715,9 @@ test_inbox_all_done() {
 
 - [x] **project**: Already done task
 EOF
+
+    # Create mock plugin files so Check 11 (plugin-integrity) stays silent
+    create_mock_plugin_files "$mock_home"
 
     local patched
     patched=$(create_patched_script "$config_repo" "$mock_home" "$project_dir")
