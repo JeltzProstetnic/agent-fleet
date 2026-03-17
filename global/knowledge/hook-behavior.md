@@ -15,3 +15,33 @@
 
 ## VPS service naming
 Systemd service names may not match the expected pattern. Always check with `ls /etc/systemd/system/<service>*` before restarting services.
+
+## Known Platform Quirks
+
+### PreToolUse hook protocol (CC 2.1.76+)
+
+**Problem:** `"Bash"` matcher in PreToolUse hooks fires on ALL tool calls (Read, Glob, Grep, etc.), not just Bash. CC displays "PreToolUse:Bash hook error" in the UI for each invocation.
+
+**Root cause:** Two separate issues:
+1. `matcher: "Bash"` fires on all tools — CC generates dispatcher-level error for non-matching tools
+2. `hookSpecificOutput` JSON format fails CC's Zod schema validation (`gN6` only accepts `{async: true}` or `{continue: boolean}`)
+
+**CC command hook protocol (verified by reading cli.js source):**
+- **Allow (pass through):** `exit 0` with EMPTY stdout — CC treats as `hook_success`, no UI noise
+- **Block:** `exit 2` with reason on stderr — CC treats as blocking error
+- **NEVER output `hookSpecificOutput` JSON** from command hooks — it fails the `gN6` Zod schema validation before reaching the `Vr8` parser that would handle it. The `hookSpecificOutput` format is for HTTP/callback hooks only.
+- Non-zero exit (not 2) — `hook_non_blocking_error` (UI error noise)
+
+**Fix:**
+1. Changed matcher from `"Bash"` to `""` in settings.json — hooks self-filter by tool_name
+2. Non-Bash tools: `exit 0` with no output (silent pass-through)
+3. Bash tools (not AFK): `exit 0` with no output
+4. Bash tools (AFK deny): `exit 2` with reason on stderr
+
+**Critical lesson:** Cannot verify hook UI errors from inside a Claude session — errors appear in terminal UI but NOT in tool results returned to the LLM. Use external testing (VM, manual terminal check, test scripts) to verify.
+
+**Performance:** Match-all means hooks fire on every tool call. The early-exit path for non-Bash tools adds ~0ms overhead (bash string match on already-read stdin, silent `exit 0`, no python3/jq spawn).
+
+### Settings.json location
+
+When using a CC mirror setup (e.g., `mclaude`), `CLAUDE_CONFIG_DIR` may point to a different directory than `~/.claude/`. CC reads `$CLAUDE_CONFIG_DIR/settings.json` — verify which file is actually live before editing. The default `~/.claude/settings.json` may be a dead file in mirror setups.
