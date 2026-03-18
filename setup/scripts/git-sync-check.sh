@@ -133,6 +133,9 @@ if [ "$BEHIND" -gt 0 ]; then
       git stash push --quiet -m "git-sync-check auto-stash" 2>/dev/null && STASHED=true
     fi
 
+    # Save pre-pull HEAD for deploy-sensitive path detection (CFG-208)
+    PRE_PULL_HEAD="$LOCAL"
+
     PULL_OK=false
     if [ -n "$SYNC_REMOTE" ]; then
       # Dual-remote: explicit merge from private remote only
@@ -155,6 +158,30 @@ if [ "$BEHIND" -gt 0 ]; then
     if [ "$STASHED" = true ]; then
       if ! git stash pop --quiet 2>/dev/null; then
         echo "WARNING: Stash pop had conflicts — resolve manually (changes in 'git stash list')."
+      fi
+    fi
+
+    # CFG-208: Auto-deploy if pulled commits include deploy-sensitive paths.
+    # Runs BEFORE SessionStart hook fires — avoids self-referencing hazard.
+    if [ "$PULL_OK" = true ]; then
+      DEPLOY_SENSITIVE_PREFIXES="global/hooks/ global/knowledge/ global/reference/ global/foundation/ global/domains/ setup/config/ setup/scripts/"
+      CHANGED_FILES=$(git diff --name-only "$PRE_PULL_HEAD" HEAD 2>/dev/null || true)
+      NEEDS_DEPLOY=false
+
+      for changed in $CHANGED_FILES; do
+        for prefix in $DEPLOY_SENSITIVE_PREFIXES; do
+          case "$changed" in
+            "$prefix"*) NEEDS_DEPLOY=true; break 2 ;;
+          esac
+        done
+      done
+
+      if [ "$NEEDS_DEPLOY" = true ]; then
+        SYNC_SCRIPT_PATH="$REPO_ROOT/sync.sh"
+        if [ -x "$SYNC_SCRIPT_PATH" ]; then
+          echo "Deploy-sensitive files changed — running sync.sh deploy..."
+          bash "$SYNC_SCRIPT_PATH" deploy 2>&1 || echo "WARNING: sync.sh deploy failed (non-blocking)."
+        fi
       fi
     fi
 
