@@ -248,6 +248,44 @@ check_lock() {
     return 2
 }
 
+# ── lock_age ──────────────────────────────────────────────────────────────
+# Compute human-readable age from lock timestamp (CFG-218)
+# Output: "Xd Yh Zm" (e.g., "2h 15m", "1d 3h", "5m")
+# Returns: 0 on success, 1 if no lock or unreadable
+
+lock_age() {
+    local project_dir="$1"
+    local lockfile="$project_dir/.claude/.session-lock"
+
+    [[ -f "$lockfile" ]] || return 1
+    _read_lock "$lockfile" || return 1
+
+    local lock_epoch now_epoch diff_secs
+    lock_epoch=$(date -u -d "$_LOCK_TIMESTAMP" +%s 2>/dev/null) || return 1
+    now_epoch=$(date -u +%s)
+    diff_secs=$((now_epoch - lock_epoch))
+
+    if [[ $diff_secs -lt 0 ]]; then
+        diff_secs=0
+    fi
+
+    local days hours minutes
+    days=$((diff_secs / 86400))
+    hours=$(( (diff_secs % 86400) / 3600 ))
+    minutes=$(( (diff_secs % 3600) / 60 ))
+
+    local result=""
+    if [[ $days -gt 0 ]]; then
+        result="${days}d ${hours}h"
+    elif [[ $hours -gt 0 ]]; then
+        result="${hours}h ${minutes}m"
+    else
+        result="${minutes}m"
+    fi
+
+    echo "$result"
+}
+
 # ── lock_info ───────────────────────────────────────────────────────────────
 # Print lock contents as human-readable text
 
@@ -271,6 +309,11 @@ lock_info() {
     echo "  Session ID: $_LOCK_SESSION"
     echo "  User:       $_LOCK_USER"
     echo "  Timestamp:  $_LOCK_TIMESTAMP"
+
+    # Age (CFG-218)
+    local _age
+    _age=$(lock_age "$project_dir" 2>/dev/null) || _age="unknown"
+    echo "  Age:        $_age"
 
     # Status check
     if [[ "$_LOCK_MACHINE" != "$(hostname)" ]]; then
