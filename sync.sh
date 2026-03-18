@@ -151,6 +151,9 @@ cmd_setup() {
     # Clean unwanted marketplace plugins
     clean_marketplace_plugins
 
+    # Run provisioning checks (VoltAgent, skill collections, CC version)
+    run_provisioning_checks
+
     # Verify setup was successful
     if verify_setup; then
         log_info "Setup complete. Live locations now symlinked to repo."
@@ -160,6 +163,64 @@ cmd_setup() {
         log_error "Some checks did not pass. Review the errors above."
         log_error "DO NOT start a Claude Code session until this is fixed."
         exit 1
+    fi
+}
+
+# ---- PROVISIONING: Verify and install additional components ----
+# Non-blocking — failures warn but don't prevent setup completion.
+run_provisioning_checks() {
+    log_info "Running provisioning checks..."
+
+    local config_dir="${CC_MIRROR_DIR:-$HOME/.cc-mirror/mclaude}/config"
+    local voltagent_script="${VOLTAGENT_INSTALL_SCRIPT:-$SCRIPT_DIR/setup/scripts/install-voltagent.sh}"
+    local skill_script="${SKILL_COLLECTIONS_INSTALL_SCRIPT:-$SCRIPT_DIR/setup/scripts/install-skill-collections.sh}"
+
+    # 1. VoltAgent marketplace
+    local voltagent_marker="$config_dir/plugins/marketplace.json"
+    if [[ -f "$voltagent_marker" ]]; then
+        log_info "VoltAgent marketplace: installed"
+    else
+        log_warn "VoltAgent marketplace not found — attempting install..."
+        if [[ -f "$voltagent_script" ]]; then
+            if bash "$voltagent_script" 2>&1; then
+                log_info "VoltAgent marketplace: installed successfully"
+            else
+                log_warn "VoltAgent install failed — run manually: bash $voltagent_script"
+            fi
+        else
+            log_warn "VoltAgent install script not found: $voltagent_script"
+        fi
+    fi
+
+    # 2. Skill collections
+    local skill_dir="$HOME/.local/share/skill-collections"
+    local skill_count=0
+    if [[ -d "$skill_dir" ]]; then
+        skill_count=$(find "$skill_dir" -maxdepth 2 -name ".git" -type d 2>/dev/null | wc -l)
+    fi
+    if [[ "$skill_count" -gt 0 ]]; then
+        log_info "Skill collections: installed ($skill_count repo(s))"
+    else
+        log_warn "Skill collections not found — attempting install..."
+        if [[ -f "$skill_script" ]]; then
+            if bash "$skill_script" 2>&1; then
+                log_info "Skill collections: installed successfully"
+            else
+                log_warn "Skill collections install failed — run manually: bash $skill_script"
+            fi
+        else
+            log_warn "Skill collections install script not found: $skill_script"
+        fi
+    fi
+
+    # 3. Claude Code version (informational only — don't auto-update)
+    local cc_pkg="${CC_MIRROR_DIR:-$HOME/.cc-mirror/mclaude}/npm/node_modules/@anthropic-ai/claude-code/package.json"
+    if [[ -f "$cc_pkg" ]]; then
+        local cc_version
+        cc_version=$(python3 -c "import json; print(json.load(open('$cc_pkg'))['version'])" 2>/dev/null || echo "unknown")
+        log_info "Claude Code version: $cc_version"
+    else
+        log_warn "Claude Code: not found at $cc_pkg"
     fi
 }
 
