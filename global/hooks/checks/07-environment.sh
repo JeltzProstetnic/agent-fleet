@@ -34,13 +34,12 @@ if 'env' in d and 'CC_MIRROR_SPLASH' in d['env']:
     fi
 fi
 
-# Check 33: Persona mail check — surface recent persona-labeled emails at startup
-# Configure PERSONA_MAIL_SCRIPT in your machine file or environment to enable.
-PERSONA_MAIL_SCRIPT="${PERSONA_MAIL_SCRIPT:-$CONFIG_REPO/setup/scripts/persona-mail-check.sh}"
-if [ -f "$PERSONA_MAIL_SCRIPT" ]; then
-    PERSONA_MAIL_OUTPUT=$(timeout 10 bash "$PERSONA_MAIL_SCRIPT" --since 24 2>/dev/null || true)
-    if [ -n "$PERSONA_MAIL_OUTPUT" ]; then
-        PERSONA_MAIL_SUBJECTS=$(echo "$PERSONA_MAIL_OUTPUT" | python3 -c "
+# Check 33: Bartl mail check — surface recent Bartl-labeled emails at startup
+BARTL_SCRIPT="$CONFIG_REPO/setup/scripts/bartl-mail-check.sh"
+if [ -f "$BARTL_SCRIPT" ]; then
+    BARTL_OUTPUT=$(timeout 10 bash "$BARTL_SCRIPT" --since 24 2>/dev/null || true)
+    if [ -n "$BARTL_OUTPUT" ]; then
+        BARTL_SUBJECTS=$(echo "$BARTL_OUTPUT" | python3 -c "
 import json,sys
 msgs=[]
 for line in sys.stdin:
@@ -50,10 +49,10 @@ for line in sys.stdin:
         d=json.loads(line)
         msgs.append(d.get('subject','?'))
     except: pass
-if msgs: print(f'PERSONA_MAIL: {len(msgs)} message(s) in last 24h: ' + '; '.join(msgs))
+if msgs: print(f'BARTL_MAIL: {len(msgs)} message(s) in last 24h: ' + '; '.join(msgs))
 " 2>/dev/null || true)
-        if [ -n "$PERSONA_MAIL_SUBJECTS" ]; then
-            INBOX_MSG="${INBOX_MSG:+$INBOX_MSG | }$PERSONA_MAIL_SUBJECTS"
+        if [ -n "$BARTL_SUBJECTS" ]; then
+            INBOX_MSG="${INBOX_MSG:+$INBOX_MSG | }$BARTL_SUBJECTS"
         fi
     fi
 fi
@@ -150,32 +149,79 @@ if [ ${#_doc_missing[@]} -gt 0 ]; then
 fi
 
 # Check 31: Session lock — detect if another session holds this project
+# CFG-210: Query AFD server first (authoritative), fall back to local .session-lock
+# CFG-218: Stale lock recovery — show staleness info, suggest force_release
 _SESSION_LOCK_LIB="$CONFIG_REPO/setup/scripts/session-lock.sh"
+_AFD_LIB="$CONFIG_REPO/afd/lib/afd-lib.sh"
 if [ -f "$_SESSION_LOCK_LIB" ]; then
     source "$_SESSION_LOCK_LIB"
-    check_lock "$PWD" 2>/dev/null
-    _lock_rc=$?
 
-    if [[ $_lock_rc -eq 2 ]] && [[ -n "${AFLEET_SESSION_ID:-}" ]]; then
-        _read_lock "$PWD/.claude/.session-lock" 2>/dev/null
-        if [[ "$_LOCK_SESSION" == "$AFLEET_SESSION_ID" ]]; then
-            _lock_rc=1
+    # Step 1: Try AFD lock query (primary, if available)
+    _afd_lock_checked=false
+    if [ -n "${AFD_TOKEN:-}" ] && [ -f "$_AFD_LIB" ]; then
+        source "$_AFD_LIB"
+        _project_name=$(basename "$PWD")
+        _afd_result=$(afd_lock_status "$_project_name" 2>/dev/null) || true
+
+        if [ -n "$_afd_result" ]; then
+            _afd_machine=$(echo "$_afd_result" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('machine',''))" 2>/dev/null) || true
+            _afd_session=$(echo "$_afd_result" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('sessionId',d.get('session_id','')))" 2>/dev/null) || true
+            _afd_stale=$(echo "$_afd_result" | python3 -c "import json,sys; d=json.load(sys.stdin); print(str(d.get('stale',False)).lower())" 2>/dev/null) || true
+            _afd_heartbeat=$(echo "$_afd_result" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('last_heartbeat',''))" 2>/dev/null) || true
+
+            if [ -n "$_afd_machine" ]; then
+                _our_machine=$(hostname 2>/dev/null || cat /etc/hostname 2>/dev/null || echo "unknown")
+                _our_session="${AFLEET_SESSION_ID:-}"
+
+                if [ "$_afd_machine" = "$_our_machine" ] && [ "$_afd_session" = "$_our_session" ]; then
+                    _afd_lock_checked=true  # Our lock — fine
+                elif [ -n "$_afd_machine" ]; then
+                    # CFG-218: Distinguish stale vs active based on heartbeat
+                    if [ "$_afd_stale" = "true" ]; then
+                        WARNINGS="${WARNINGS:+$WARNINGS | }SESSION_LOCKED_REMOTE: AFD reports project locked by $_afd_machine (session $_afd_session) — STALE (no heartbeat since $_afd_heartbeat). Use force_release to override."
+                    else
+                        WARNINGS="${WARNINGS:+$WARNINGS | }SESSION_LOCKED_REMOTE: AFD reports project locked by $_afd_machine (session $_afd_session) — ACTIVE (heartbeat $_afd_heartbeat). FOLLOWER — load knowledge/follower-mode.md and follow it."
+                    fi
+                    _afd_lock_checked=true
+                fi
+            fi
         fi
     fi
 
-    case $_lock_rc in
-        2)
+    # Step 2: Fall back to local lock check (when AFD unavailable or returned nothing)
+    if [ "$_afd_lock_checked" = false ]; then
+        check_lock "$PWD" 2>/dev/null
+        _lock_rc=$?
+
+        if [[ $_lock_rc -eq 2 ]] && [[ -n "${AFLEET_SESSION_ID:-}" ]]; then
             _read_lock "$PWD/.claude/.session-lock" 2>/dev/null
-            WARNINGS="${WARNINGS:+$WARNINGS | }SESSION_LOCKED: Project locked by PID $_LOCK_PID (session $_LOCK_SESSION) on this machine. FOLLOWER — load knowledge/follower-mode.md and follow it."
-            ;;
-        3)
-            _read_lock "$PWD/.claude/.session-lock" 2>/dev/null
-            WARNINGS="${WARNINGS:+$WARNINGS | }SESSION_LOCKED_REMOTE: Project locked by $_LOCK_MACHINE (session $_LOCK_SESSION). FOLLOWER — load knowledge/follower-mode.md and follow it."
-            ;;
-        0)
-            acquire_lock "$PWD" "${AFLEET_SESSION_ID:-}" 2>/dev/null
-            ;;
-        1)
-            ;;
-    esac
+            if [[ "$_LOCK_SESSION" == "$AFLEET_SESSION_ID" ]]; then
+                _lock_rc=1
+            fi
+        fi
+
+        case $_lock_rc in
+            2)
+                _read_lock "$PWD/.claude/.session-lock" 2>/dev/null
+                WARNINGS="${WARNINGS:+$WARNINGS | }SESSION_LOCKED: Project locked by PID $_LOCK_PID (session $_LOCK_SESSION) on this machine. FOLLOWER — load knowledge/follower-mode.md and follow it."
+                ;;
+            3)
+                # CFG-218: Serverless mode — present full lock info with age
+                _read_lock "$PWD/.claude/.session-lock" 2>/dev/null
+                _lock_age_str=$(lock_age "$PWD" 2>/dev/null) || _lock_age_str="unknown"
+                WARNINGS="${WARNINGS:+$WARNINGS | }SESSION_LOCKED_REMOTE: Project locked by $_LOCK_MACHINE (session $_LOCK_SESSION, user $_LOCK_USER, since $_LOCK_TIMESTAMP, age ${_lock_age_str}). Use force_release to override, or investigate on $_LOCK_MACHINE."
+                ;;
+            0)
+                acquire_lock "$PWD" "${AFLEET_SESSION_ID:-}" 2>/dev/null
+                # CFG-210: Also acquire AFD lock (non-blocking)
+                if [ -n "${AFD_TOKEN:-}" ] && [ -f "$_AFD_LIB" ]; then
+                    _pn=$(basename "$PWD")
+                    _our_machine=$(hostname 2>/dev/null || cat /etc/hostname 2>/dev/null || echo "unknown")
+                    afd_lock_acquire "$_pn" "$_our_machine" "${AFLEET_SESSION_ID:-$$}" "$$" 2>/dev/null || true
+                fi
+                ;;
+            1)
+                ;;
+        esac
+    fi
 fi
