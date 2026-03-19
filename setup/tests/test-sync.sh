@@ -105,6 +105,7 @@ test_settings_health_warns_missing_permissions() {
     local out
     out=$(
         HOME="$TEST_TMPDIR"
+        unset CC_MIRROR_DIR
         source <(sed -n '/^check_settings_health()/,/^}/p' "$SYNC_SCRIPT" \
             | sed 's/log_warn/echo WARN/g; s/log_info/echo INFO/g')
         check_settings_health
@@ -120,6 +121,7 @@ test_settings_health_clean() {
     local out
     out=$(
         HOME="$TEST_TMPDIR"
+        unset CC_MIRROR_DIR
         source <(sed -n '/^check_settings_health()/,/^}/p' "$SYNC_SCRIPT" \
             | sed 's/log_warn/echo WARN/g; s/log_info/echo INFO/g')
         check_settings_health
