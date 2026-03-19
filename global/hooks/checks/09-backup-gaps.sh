@@ -10,7 +10,8 @@ if [ -f "$_DMS_STATS" ] && [ ! -f "$_BACKUP_CHECK_MARKER" ]; then
     if [ -n "$_backup_output" ]; then
         _gap_count=$(echo "$_backup_output" | grep -c "^  WARNING:" 2>/dev/null || echo "0")
         if [ "$_gap_count" -gt 0 ]; then
-            _critical_gaps=$(echo "$_backup_output" | grep "^  WARNING:" | head -5 | sed 's/^  WARNING: //' | tr '\n' '; ' | sed 's/; $//')
+            # Extract creative + academic gaps (highest priority)
+            _critical_gaps=$(echo "$_backup_output" | grep "^  WARNING:" | grep -E "CRE-|ACA-" | head -5 | sed 's/^  WARNING: //' | tr '\n' '; ' | sed 's/; $//')
             WARNINGS="${WARNINGS:+$WARNINGS | }DMS backup gaps: $_gap_count document(s) have no backup location. Critical: $_critical_gaps"
         fi
         touch "$_BACKUP_CHECK_MARKER"

@@ -2,7 +2,7 @@
 # SessionStart hook: check for config sync failures, symlink health, and inbox tasks.
 # Outputs JSON with systemMessage so Claude sees the warning in context.
 #
-# Check modules live in checks/ subdirectory (01-sync-state.sh through 07-environment.sh).
+# Check modules live in checks/ subdirectory (01-sync-state.sh through 14-audit-staleness.sh).
 # Each module reads/modifies the shared variables below.
 
 # Auto-detect config repo: try symlink source, then known paths
@@ -13,10 +13,10 @@ _detect_config_repo() {
         echo "$(cd "$(dirname "$hook_real")/../.." && pwd)"
         return
     fi
-    for d in "$HOME/agent-fleet"; do
+    for d in "$HOME/cfg-agent-fleet" "$HOME/agent-fleet"; do
         [[ -f "$d/sync.sh" && ! -f "$d/.template-repo" ]] && echo "$d" && return
     done
-    echo "$HOME/agent-fleet"  # final fallback
+    echo "$HOME/cfg-agent-fleet"  # final fallback
 }
 
 # ── Shared state (used by all check modules) ──

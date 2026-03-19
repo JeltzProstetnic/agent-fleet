@@ -43,15 +43,15 @@ If hostname doesn't match any pattern, state the hostname and ask. If `CLAUDE.lo
 
 0. **ALWAYS check for remote changes — BEFORE reading any files.** Run `bash ~/agent-fleet/setup/scripts/git-sync-check.sh --pull <project-dir>` (pass the project directory as an argument — the script accepts an optional path). This fetches, reports incoming changes, and fast-forward pulls if behind. If it reports changes, re-read affected files. If it fails (diverged, merge conflict), resolve before proceeding. This applies to EVERY project, EVERY session, no exceptions. Reading stale files leads to wrong context, missed tasks, and wasted work.
 
-0.5. **Surface ALL systemMessage items to the user.** The SessionStart hook generates intelligence at 0 LLM tokens — suppressing its output defeats the purpose. Present every injected field: `WARNING:` (drift, branches, locks), `Upstream dependency check:`, `BARTL_MAIL:`, `FMS:`, `Documents found in tmp/`, `ACT_PENDING:`. One structured summary, before any file reads.
+0.5. **Surface ALL systemMessage items to the user.** The SessionStart hook generates intelligence at 0 LLM tokens — suppressing its output defeats the purpose. Present every injected field: `WARNING:` (drift, branches, locks), `Upstream dependency check:`, `FMS:`, `Documents found in tmp/`, `ACT_PENDING:`. One structured summary, before any file reads.
 
 1. **Read cross-project inbox** — skip if redundant. If `INBOX TASKS for <project>` appears in systemMessage, the hook already extracted this project's items — skip the full `inbox.md` read. Only read `~/agent-fleet/cross-project/inbox.md` manually when: (a) the hook didn't inject inbox data, or (b) you need child project tasks (check `Parent` column in `registry.md`). Report child project tasks to the user but don't delete them — the child project session handles that.
 
-2. **Read `next-session-task.md`** (if exists, `task: true`) — previous session's handoff. Read the `file:` it points to.
+2. **Check `HANDOFF:` in systemMessage.** If `HANDOFF: none`, skip. If `HANDOFF: <description> | file: <path>`, read the `file:` it points to.
 
 3. **Read the project's `CLAUDE.md`** (manifest) — it declares what domains to load
 
-4. **Read the project's `session-context.md`** (if exists) — current state and active tasks
+4. **Check `SESSION_CONTEXT:` in systemMessage.** If `SESSION_CONTEXT: blank`, skip reading. If `SESSION_CONTEXT: active — <goal>`, read `session-context.md` for full state.
 
 5. **Follow the manifest's Knowledge Loading table** — load only the listed domain files
 
@@ -88,6 +88,7 @@ If hostname doesn't match any pattern, state the hostname and ask. If `CLAUDE.lo
    | `lrn` command issued | `knowledge/learn-protocol.md` |
    | YouTube tabs (save/list/open) | Run `bash ~/agent-fleet/setup/scripts/youtube-tabs.sh save\|list\|open [query]` — no file to load, just invoke the script directly |
    | Cross-project navigation, project switching | `reference/cross-project-nav.md` |
+   | Self-awareness, plugin recommendation, agent roster gaps, "can I do X?", context window, model capabilities | `knowledge/fleet-capabilities.md` |
    | Statusline editing, GPI, statusline deployment | `knowledge/statusline-ops.md` |
    | Konsole tabs, qdbus, terminal tab operations | `knowledge/konsole-tabs.md` |
    | Filing GitHub issue on agent-fleet, `issue` command | `knowledge/fleet-issue-protocol.md` |
@@ -96,12 +97,12 @@ If hostname doesn't match any pattern, state the hostname and ask. If `CLAUDE.lo
    | Hook debugging, PreToolUse/UserPromptSubmit platform behavior | `knowledge/hook-behavior.md` |
    | Vault ops, credentials, deploy secrets, encrypt/decrypt | `knowledge/vault-ops.md` |
    | P4 fleet audit orchestration | `knowledge/audit-pattern-fleet.md` |
-   | Self-awareness, plugin recommendation, agent roster gaps, "can I do X?", context window, model capabilities | `knowledge/fleet-capabilities.md` |
    | SteamOS deployment, symlink bugs, reprovision issues | `knowledge/steam-deck-deployment.md` |
+   | NAS access, smbclient, file transfer to/from NAS | `knowledge/nas-cheatsheet.md` |
 
    All paths relative to `~/.claude/` unless absolute. Do NOT load unless triggered.
 
-7. **Check for project-specific knowledge**: `ls <project>/.claude/knowledge/` or `<project>/.claude/*.md`
+7. **Check `PROJECT_KNOWLEDGE:` in systemMessage.** If `PROJECT_KNOWLEDGE: none`, skip. If listed, read the relevant files from `<project>/.claude/knowledge/` and `<project>/.claude/`.
 
 8. **Populate session-context.md if blank.** If `SESSION_CONTEXT: blank` in systemMessage, populate the template fields before doing any other work: set `Last Updated` to current timestamp, `Machine` to the machine short name (from identity table), `Working Directory` to `$PWD`, and `Session Goal` to a brief description of the user's request. This is a WRITE step — previous steps are all READs, which is why blank templates persisted across sessions.
 
@@ -121,7 +122,7 @@ If hostname doesn't match any pattern, state the hostname and ask. If `CLAUDE.lo
 
 **Daily version check is automated** by the SessionStart hook (Check 13.5). It runs `npm view` once per day (date-gated marker file) and surfaces update availability via systemMessage. No Claude action needed — just relay findings.
 
-**First-session-of-day rule:** The first session each day handles triage (inbox, gmail, updates, handoffs). This consumes significant context. After completing triage, recommend the user run `/clear` to start a fresh working session with full context available. This is a recommendation, not a hard gate — the user decides.
+**First-session-of-day rule:** The first session each day handles triage (inbox, updates, handoffs). This consumes significant context. After completing triage, recommend the user run `/clear` to start a fresh working session with full context available. This is a recommendation, not a hard gate — the user decides.
 
 For manual investigation: read `~/.claude/reference/upstream-dependencies.md`.
 
@@ -129,6 +130,7 @@ For manual investigation: read `~/.claude/reference/upstream-dependencies.md`.
 
 ## Development Rules
 
+- **Work products are first-class deliverables.** Translations, builds, analysis docs, reviews, and any user-facing output MUST be committed in the same session they're produced. Never leave work products as untracked files across session boundaries. `tmp/` is for throwaway intermediaries only — if a file would be missed if lost, it doesn't belong in `tmp/`.
 - **Task tracking is primary work.** Backlog items, session handoffs, inbox tasks, and "I'll note this" commitments are first-class deliverables. Execute immediately when stated — never defer. Anti-pattern: "I'll add a backlog item" → proceeds to other work → forgets.
 - **Session leftovers → handover, not silent backlog.** Items deferred or left unfinished MUST appear in the next-session-task handover with explicit description. Never silently add them to the backlog only — they get lost in the priority bin. Backlog is for tracking, handover is for continuity. Both are needed: handover ensures the next session sees them immediately, backlog ensures long-term tracking.
 - **New backlog entries need user priority review.** When adding items to the backlog, present the proposed priorities to the user before or immediately after adding. The user decides priority — the agent proposes. Silently assigning P3/P4 to items the user may consider urgent is a recurring failure mode. Batch presentations are fine ("I added X at P2, Y at P3 — agree?").
@@ -136,9 +138,12 @@ For manual investigation: read `~/.claude/reference/upstream-dependencies.md`.
 - **No new files for daily state.** When a daily check needs persistent state (last scan date, last version check, last sync), embed it as a single line in a file that is ALREADY read at startup (session-context.md, CLAUDE.md metadata, etc.). Never create a separate tracking file — every extra file is an extra Read call per session. This is a recurring mistake pattern.
 - **Recurring task "last checked" dates:** Check "Last checked: YYYY-MM-DD" marker before executing recurring tasks. If checked today on any machine, skip. Research = once per fleet per day. Execution = per machine as needed.
 - **TDD only:** All new code and features MUST follow test-driven development. Write failing tests first, then implement to make them pass. No implementation code without a corresponding test. This applies to bash scripts, config logic, and any testable behavior.
+- **Scaling thresholds:** Bash scripts: warn at 400 LOC, split at 600. Test files: warn 800, split 1500. Knowledge .md: warn 200, split 350. Hook checks: warn 100, split 150. Functions: max 50 lines. Every `setup/scripts/*.sh` MUST have a `test-*.sh`. Enforced by config-check.sh module 13.
 - **Never delete user files without explicit confirmation.** Especially bulk operations. Local duplicates may exist for a reason (playback copies, offline access, performance, workflow). Always ask before `rm -rf`, even if files appear redundant. "Verified elsewhere" ≠ "safe to delete locally."
+- **Verify before destructive operations on user data.** Before trashing email, deleting files, or any irreversible action on user content, always verify the target matches the intent. Read the email/file content first — never act on search results, message IDs, or filenames alone.
+- **Tool install → machine file update.** PostToolUse hook `tool-install-detect.sh` fires a reminder. If cross-project boundary blocks the edit, create an inbox item immediately.
 - **No compound `cd` commands:** Use `git -C <path>` or absolute paths. Never `cd <dir> && <cmd>` — triggers security prompts.
-- **No speculative interactive calls.** Never call user-facing prompts (passphrase dialogs, confirmations, GUI input) "just to test." Use them directly for the real operation. Handle errors after, not before. This includes `sudo` -- Claude Code has no TTY for password input. Present sudo commands to the user instead of running them.
+- **No speculative interactive calls.** Never call user-facing prompts (passphrase dialogs, confirmations, GUI input) "just to test." Use them directly for the real operation. Handle errors after, not before. This includes `sudo` — Claude Code has no TTY for password input. Present sudo commands to the user instead of running them.
 - **Long-running ops need tmux/nohup.** Operations expected to run >5 minutes MUST use `tmux new-session -d -s <name>` or `nohup`, never Claude Code's `run_in_background` (killed on `/exit`). Log to `/tmp/<name>.log`. Leave a pending file with tmux session name and check commands. Before launching, register with GPI if available: `gpi start <id> "<label>" --log /tmp/<name>.log`.
 - **DMS-first file lookup.** When searching for user files/documents across machines or disks, check the DMS catalog first. Do targeted filesystem searches only for items not in the catalog -- broad find/glob sweeps should be a last resort, not the starting point.
 - **Dual-boot filesystem safety.** On dual-boot systems, be aware of cross-OS filesystem risks. Ext4 drives should not be mounted through Windows filesystem drivers -- use usbipd-win to attach USB devices to WSL instead. Mounting ext4 from Windows while Linux might also mount it risks corruption.
@@ -169,7 +174,7 @@ For manual investigation: read `~/.claude/reference/upstream-dependencies.md`.
 - **One vault, one owner.** The config repo's encrypted vault is the single source of truth for ALL secrets across ALL machines and projects. No other project maintains its own secrets vault. `vault-manage.sh deploy` provisions credentials to their target locations. Every credential, API key, token, and password MUST have a vault entry with a `deploy_to` target.
 - **Tracking is atomic with action.** When an action changes external state (email sent, backlog item committed to, submission filed, discovery made), update ALL canonical tracking files as part of the same operation -- not deferred to shutdown, not batched for later. The action is not complete until tracking reflects it.
 - **Discovery -> ingest.** When discovering information that would be useful to future sessions -- upstream capability changes, new patterns, platform behavior, tool quirks, user-relevant facts -- immediately persist it to the appropriate knowledge file. Don't just report findings; update the relevant knowledge files, machine files, domain files, or create new knowledge entries as appropriate. The finding is not "done" until persisted. This applies to: model/platform capabilities, API changes, deprecations, tool behavior discovered during work, and anything a new user or future session might ask about.
-- **Documentation coherence.** Knowledge files declare dependencies via `<!-- updates: path1, path2 -->` header comment. When editing a file, check its `updates:` list and update all listed dependents in the same operation.
+- **Documentation coherence.** Knowledge files declare dependencies via `<!-- updates: path1, path2 -->` (downstream: files this file's changes affect) and `<!-- consumed-by: path1 (reason), path2 (reason) -->` (upstream: files that read/use data from this file) header comments. When editing a file, check BOTH headers and update all listed files in the same operation.
 
 ## Persona System
 

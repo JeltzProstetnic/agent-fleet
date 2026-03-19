@@ -73,6 +73,14 @@ if [ "$DEP_LAST" != "$DEP_TODAY" ]; then
     fi
 fi
 
+# Check 15b: MEMORY.md / memory/ violation detection (fleet rules prohibit auto-memory)
+if [ -f "$PROJECT_DIR/MEMORY.md" ] || [ -d "$PROJECT_DIR/memory" ]; then
+    _mem_targets=""
+    [ -f "$PROJECT_DIR/MEMORY.md" ] && _mem_targets="MEMORY.md"
+    [ -d "$PROJECT_DIR/memory" ] && _mem_targets="${_mem_targets:+$_mem_targets or }memory/"
+    WARNINGS="${WARNINGS:+$WARNINGS | }[WARN] $PROJECT_DIR has $_mem_targets — fleet rules prohibit auto-memory. Delete and use proper fleet structure."
+fi
+
 # Check 13b: AFD client deployed — auto-source env if available
 if [ -f "$HOME/.afd-env" ] && [ -z "${AFD_TOKEN:-}" ]; then
     . "$HOME/.afd-env" 2>/dev/null || true

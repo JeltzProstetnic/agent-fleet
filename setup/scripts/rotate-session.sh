@@ -268,6 +268,30 @@ if [[ "$PENDING_TODAY" -gt 1 ]]; then
     echo "" >&2
 fi
 
+# --- Check for new backlog items without approval tracking ---
+if [[ -f "$PROJECT_DIR/backlog.md" ]]; then
+    # Find task IDs mentioned in session-context.md completed items
+    _SC_CFGIDS=$(printf '%s\n' "$CONTENT" | grep -oP '[A-Z]+-\d+' | sort -u || true)
+    if [[ -n "$_SC_CFGIDS" ]]; then
+        _UNAPPROVED=""
+        for _cid in $_SC_CFGIDS; do
+            # Check if this ID appears in backlog as an open item (new this session?)
+            _in_backlog=$(grep -c "^\- \[ \] .*\`$_cid\`" "$PROJECT_DIR/backlog.md" 2>/dev/null | head -1 || echo 0)
+            [ "$_in_backlog" -gt 0 ] || continue
+            # Check if session-context mentions approval for this item
+            _approved=$(printf '%s\n' "$CONTENT" | grep -ci "approv.*$_cid\|$_cid.*approv" || true)
+            if [[ "$_approved" -eq 0 ]]; then
+                _UNAPPROVED="${_UNAPPROVED:+$_UNAPPROVED, }$_cid"
+            fi
+        done
+        if [[ -n "$_UNAPPROVED" ]]; then
+            echo "WARNING: Open backlog items referenced in session without approval note: $_UNAPPROVED" >&2
+            echo "Add 'user approved <ID> at <priority>' to session-context.md Key Decisions." >&2
+            echo "" >&2
+        fi
+    fi
+fi
+
 # --- Reset session-context.md to blank template ---
 cat > "$SESSION_FILE" <<'EOF'
 # Session Context

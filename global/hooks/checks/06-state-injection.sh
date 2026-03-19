@@ -102,6 +102,23 @@ else
     INBOX_MSG="${INBOX_MSG:+$INBOX_MSG | }PROJECT_KNOWLEDGE: none"
 fi
 
+# Check 35: Sibling session detection — config repo ↔ template repo cross-project write gate
+_sibling_dir=""
+if [[ "$PROJECT_DIR" == */cfg-agent-fleet ]]; then
+    _sibling_dir="$HOME/agent-fleet"
+elif [[ "$PROJECT_DIR" == */agent-fleet ]] && [[ "$PROJECT_DIR" != */cfg-agent-fleet ]]; then
+    _sibling_dir="$HOME/cfg-agent-fleet"
+fi
+if [ -n "$_sibling_dir" ] && [ -d "$_sibling_dir" ]; then
+    _sibling_lock="$_sibling_dir/.session-lock"
+    if [ -f "$_sibling_lock" ]; then
+        _sib_machine=$(grep '^machine:' "$_sibling_lock" 2>/dev/null | head -1 | sed 's/^machine: *//')
+        INBOX_MSG="${INBOX_MSG:+$INBOX_MSG | }SIBLING_SESSION: active (${_sib_machine:-unknown})"
+    else
+        INBOX_MSG="${INBOX_MSG:+$INBOX_MSG | }SIBLING_SESSION: none"
+    fi
+fi
+
 # Check 25: Detect blank session-context.md — warn agent to populate deterministic fields
 if [[ -f "$PROJECT_DIR/session-context.md" ]]; then
     _sc_updated=$(sed -n 's/.*\*\*Last Updated\*\*: \(.\+\)/\1/p' "$PROJECT_DIR/session-context.md" 2>/dev/null | head -1)
