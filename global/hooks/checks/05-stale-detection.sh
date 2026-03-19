@@ -1,5 +1,5 @@
-# Check group 5: Stale file detection — tmp docs, mobile, stale pending files
-# Checks: 15, 16, 17
+# Check group 5: Stale file detection — tmp docs, mobile, stale pending files, inbox staleness
+# Checks: 15, 16, 17, 18
 # Shared vars used: CONFIG_REPO, WARNINGS, DEFAULT_BRANCH
 
 # Check 15: Scan project tmp/ dirs for documents that should be in DMS
@@ -27,7 +27,7 @@ fi
 # Check 16: Warn if agent-fleet-mobile is not cloned (mobile data won't sync)
 if grep -q 'mobile-collect\|mobile_collect' "$CONFIG_REPO/sync.sh" 2>/dev/null; then
     if [ ! -d "${USER_HOME:-$HOME}/agent-fleet-mobile" ]; then
-        WARNINGS="${WARNINGS:+$WARNINGS | }agent-fleet-mobile not cloned — mobile session data will not be synced. Clone it from your GitHub and place at ~/agent-fleet-mobile"
+        WARNINGS="${WARNINGS:+$WARNINGS | }agent-fleet-mobile not cloned — mobile session data will not be synced."
     fi
 fi
 
@@ -79,4 +79,30 @@ if [ -d "$CONFIG_REPO/docs" ]; then
 fi
 if [ -n "$STALE_MSG" ]; then
     WARNINGS="${WARNINGS:+$WARNINGS | }$STALE_MSG"
+fi
+
+# Check 18: Inbox staleness — warn if 3+ pending items are older than 7 days
+INBOX_FILE="$CONFIG_REPO/cross-project/inbox.md"
+if [ -f "$INBOX_FILE" ]; then
+    _inbox_stale_count=0
+    _inbox_oldest=""
+    _today_epoch=$(date +%s)
+    while IFS= read -r _line; do
+        # Only count unchecked items: - [ ]
+        case "$_line" in *"- [ ]"*) ;; *) continue ;; esac
+        # Extract date from Source:...YYYY-MM-DD or trailing YYYY-MM-DD
+        _item_date=$(echo "$_line" | grep -oE '[0-9]{4}-[0-9]{2}-[0-9]{2}' | tail -1)
+        [ -z "$_item_date" ] && continue
+        _item_epoch=$(date -d "$_item_date" +%s 2>/dev/null) || continue
+        _age_days=$(( (_today_epoch - _item_epoch) / 86400 ))
+        if [ "$_age_days" -gt 7 ]; then
+            _inbox_stale_count=$((_inbox_stale_count + 1))
+            if [ -z "$_inbox_oldest" ] || [ "$_item_date" \< "$_inbox_oldest" ]; then
+                _inbox_oldest="$_item_date"
+            fi
+        fi
+    done < "$INBOX_FILE"
+    if [ "$_inbox_stale_count" -ge 3 ]; then
+        WARNINGS="${WARNINGS:+$WARNINGS | }[WARN] Cross-project inbox: $_inbox_stale_count items older than 7 days (oldest: $_inbox_oldest)"
+    fi
 fi

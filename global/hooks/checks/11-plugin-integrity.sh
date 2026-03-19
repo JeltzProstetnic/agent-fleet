@@ -1,12 +1,19 @@
-# Check group 11: Plugin integrity
+# Check group 11: VoltAgent plugin integrity
 # Checks: 37, 38, 39, 40
 # Shared vars used: SETTINGS_FILE, WARNINGS
 #
 # Verifies that:
 #   37. voltagent-subagents marketplace is registered in known_marketplaces.json
-#   38. All expected VoltAgent plugin bundles are in installed_plugins.json
+#   38. All 10 expected VoltAgent plugin bundles are in installed_plugins.json
 #   39. Global enabledPlugins is empty (token budget rule)
 #   40. Plugin cache directories exist and are non-empty for installed bundles
+#
+# Expected state (from upstream-dependencies.md):
+#   Marketplace: voltagent-subagents
+#   Bundles: voltagent-lang, voltagent-infra, voltagent-core-dev, voltagent-qa-sec,
+#            voltagent-data-ai, voltagent-dev-exp, voltagent-domains, voltagent-biz,
+#            voltagent-meta, voltagent-research
+#   All at version 1.0.0. Global enabledPlugins must be {}.
 
 _PLUGIN_ISSUES=""
 _PLUGINS_DIR="$(dirname "$SETTINGS_FILE")/plugins"
@@ -21,11 +28,10 @@ voltagent-meta voltagent-research"
 # Check 37: voltagent-subagents marketplace registered
 if [ -f "$_MARKETPLACES_FILE" ]; then
     if ! grep -q '"voltagent-subagents"' "$_MARKETPLACES_FILE" 2>/dev/null; then
-        _PLUGIN_ISSUES="${_PLUGIN_ISSUES:+$_PLUGIN_ISSUES; }voltagent-subagents marketplace not registered in known_marketplaces.json"
+        _PLUGIN_ISSUES="${_PLUGIN_ISSUES:+$_PLUGIN_ISSUES; }voltagent-subagents marketplace not registered in known_marketplaces.json (run 'mclaude marketplace add VoltAgent/awesome-claude-code-subagents' to fix)"
     fi
 else
-    # Marketplace file doesn't exist — skip silently (plugins may not be set up)
-    :
+    _PLUGIN_ISSUES="${_PLUGIN_ISSUES:+$_PLUGIN_ISSUES; }voltagent-subagents marketplace not registered (known_marketplaces.json missing — reinstall required)"
 fi
 
 # Check 38: All expected plugin bundles installed
@@ -37,14 +43,17 @@ if [ -f "$_INSTALLED_FILE" ]; then
         fi
     done
     if [ -n "$_MISSING_BUNDLES" ]; then
-        _PLUGIN_ISSUES="${_PLUGIN_ISSUES:+$_PLUGIN_ISSUES; }missing installed plugin bundles: $_MISSING_BUNDLES"
+        _PLUGIN_ISSUES="${_PLUGIN_ISSUES:+$_PLUGIN_ISSUES; }missing installed plugin bundles: $_MISSING_BUNDLES (run 'mclaude plugins install <bundle>' to fix)"
     fi
+else
+    _PLUGIN_ISSUES="${_PLUGIN_ISSUES:+$_PLUGIN_ISSUES; }installed_plugins.json missing — VoltAgent plugin bundles may not be installed"
 fi
 
 # Check 39: Global enabledPlugins must be empty (token budget rule)
 # Only check if settings.json exists
 if [ -f "$SETTINGS_FILE" ]; then
     # Check if enabledPlugins has any non-whitespace content between braces
+    # A non-empty object will have at least one key (a quoted string)
     if python3 -c "
 import json, sys
 try:

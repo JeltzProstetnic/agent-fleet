@@ -1,6 +1,18 @@
 # Check group 3: Inbox and service config — inbox tasks, Serena, settings, branches
-# Checks: 6, 7, 8, 9
+# Checks: 5.5, 6, 7, 8, 9
 # Shared vars used: CONFIG_REPO, WARNINGS, INBOX_MSG, SETTINGS_FILE, DEFAULT_BRANCH
+
+# Check 5.5: Run mobile-collect BEFORE reading inbox (Bug 1 fix — ensures mobile
+# tasks are merged into inbox before Check 6 surfaces them to Claude)
+MOBILE_REPO="${USER_HOME:-$HOME}/agent-fleet-mobile"
+if [ -d "$MOBILE_REPO" ] && [ -f "$MOBILE_REPO/inbox/outbox.md" ]; then
+    MOBILE_TASKS=$(grep -c '^\- \[ \]' "$MOBILE_REPO/inbox/outbox.md" 2>/dev/null || echo "0")
+    if [ "$MOBILE_TASKS" -gt 0 ] 2>/dev/null; then
+        bash "$CONFIG_REPO/setup/scripts/mobile-deploy.sh" --collect \
+            --config-repo "$CONFIG_REPO" \
+            --target "$MOBILE_REPO" >/dev/null 2>&1 || true
+    fi
+fi
 
 # Check 6: Cross-project inbox — surface pending tasks for current project
 INBOX="$CONFIG_REPO/cross-project/inbox.md"

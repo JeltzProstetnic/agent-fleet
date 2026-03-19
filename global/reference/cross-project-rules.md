@@ -18,6 +18,15 @@ You may ONLY write to files inside your current working project. Writing to ANY 
 
 Reading files and executing scripts from any project is always permitted. Only writing/editing files outside your current working project is forbidden (except the inbox and shutdown strategy files).
 
+### Sibling Session Check — config repo pairs
+
+When a private config repo has a paired public template repo (or vice versa), these two projects share `global/`, hooks, and `setup/scripts/`. The SessionStart hook injects `SIBLING_SESSION:` into systemMessage with the sibling project's session lock state.
+
+- **`SIBLING_SESSION: none`** — No active session in the sibling project. Direct cross-project writes are permitted for this session (no inbox needed). Record this in session-context.md.
+- **`SIBLING_SESSION: active (<machine>)`** — Sibling has an active session. Normal inbox protocol applies. Do NOT write to the sibling project.
+- **Scope:** This override applies ONLY to recognized config repo sibling pairs. All other cross-project boundaries use the inbox unconditionally.
+- **Audit trail:** When using direct write access, note "SIBLING_SESSION: none — direct write" in session-context.md and commit messages.
+
 ## Cross-Project Inbox
 
 `~/agent-fleet/cross-project/inbox.md`
