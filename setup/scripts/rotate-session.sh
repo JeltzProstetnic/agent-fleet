@@ -270,15 +270,20 @@ fi
 
 # --- Check for new backlog items without approval tracking ---
 if [[ -f "$PROJECT_DIR/backlog.md" ]]; then
-    # Find task IDs mentioned in session-context.md completed items
-    _SC_CFGIDS=$(printf '%s\n' "$CONTENT" | grep -oP '[A-Z]+-\d+' | sort -u || true)
+    # Extract only progress checkboxes and key decisions — not carry-over, pending refs, etc.
+    _PROGRESS_CONTENT=$(printf '%s\n' "$CONTENT" | grep -i '^\s*- \[x\]' || true)
+    _DECISIONS_CONTENT=$(printf '%s\n' "$CONTENT" | awk '/^##+ Key Decisions/{flag=1; next} /^## /{flag=0} flag' | sed '/^$/d' || true)
+    _ACTIONABLE="${_PROGRESS_CONTENT}
+${_DECISIONS_CONTENT}"
+    # Find task IDs only in actionable sections (not carry-over, metadata, etc.)
+    _SC_CFGIDS=$(printf '%s\n' "$_ACTIONABLE" | grep -oP '[A-Z]+-\d+' | sort -u || true)
     if [[ -n "$_SC_CFGIDS" ]]; then
         _UNAPPROVED=""
         for _cid in $_SC_CFGIDS; do
             # Check if this ID appears in backlog as an open item (new this session?)
             _in_backlog=$(grep -c "^\- \[ \] .*\`$_cid\`" "$PROJECT_DIR/backlog.md" 2>/dev/null | head -1 || echo 0)
             [ "$_in_backlog" -gt 0 ] || continue
-            # Check if session-context mentions approval for this item
+            # Check if session-context mentions approval for this item (search full content)
             _approved=$(printf '%s\n' "$CONTENT" | grep -ci "approv.*$_cid\|$_cid.*approv" || true)
             if [[ "$_approved" -eq 0 ]]; then
                 _UNAPPROVED="${_UNAPPROVED:+$_UNAPPROVED, }$_cid"
