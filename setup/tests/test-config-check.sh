@@ -113,6 +113,9 @@ create_patched_script() {
 # Override HOME
 export HOME="$mock_home"
 
+# Reset CC_MIRROR_DIR so it falls back to \$HOME-based default in the hook
+unset CC_MIRROR_DIR
+
 # Point CONFIG_CHECK_DIR to the real checks/ modules (BASH_SOURCE breaks under eval)
 export CONFIG_CHECK_DIR="$REPO_ROOT/global/hooks/checks"
 
