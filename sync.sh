@@ -694,6 +694,16 @@ cmd_collect() {
                 # Safety 1: skip if the source has uncommitted changes (editing hazard)
                 if git -C "$SCRIPT_DIR" diff --name-only 2>/dev/null | grep -q "global/hooks/$base"; then
                     log_warn "Skipping hook collect: $base has uncommitted edits in repo"
+                    # Persist warning for SessionStart check 18 to surface
+                    local _marker="$SCRIPT_DIR/.collect-uncommitted-hooks"
+                    if [ ! -f "$_marker" ]; then
+                        echo "timestamp=$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$_marker"
+                        echo "files=$base" >> "$_marker"
+                    else
+                        # Append file if not already listed
+                        grep -q "$base" "$_marker" 2>/dev/null || \
+                            sed -i "s/^files=\(.*\)/files=\1 $base/" "$_marker"
+                    fi
                     continue
                 fi
                 # Safety 2: skip if repo version is newer than deployed version
@@ -730,6 +740,13 @@ cmd_collect() {
                 fi
             done
         done
+    fi
+
+    # Clean up collect marker if no uncommitted hooks remain
+    if [ -f "$SCRIPT_DIR/.collect-uncommitted-hooks" ]; then
+        if ! git -C "$SCRIPT_DIR" diff --name-only 2>/dev/null | grep -q "^global/hooks/"; then
+            rm -f "$SCRIPT_DIR/.collect-uncommitted-hooks"
+        fi
     fi
 
     # Collect project-specific rules

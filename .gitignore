@@ -51,6 +51,11 @@ build/
 # Setup marker (transient, per-machine)
 .setup-pending
 
+# Sync state markers (transient, per-machine)
+.sync-failed
+.sync-lock
+.collect-uncommitted-hooks
+
 # Machine catalog (auto-generated, per-machine)
 machine-catalog.md
 
