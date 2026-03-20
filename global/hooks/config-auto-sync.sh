@@ -99,6 +99,18 @@ if [ -f "$CONFIG_REPO/sync.sh" ]; then
     fi
 fi
 
+# --- Phase 0.8: Template propagation suggestion (CFG-242) ---
+# If template-push.sh exists and template repo is local, check if push is needed.
+# Appends to drift log for next session's startup to surface.
+_TPL_SCRIPT="$CONFIG_REPO/setup/scripts/template-push.sh"
+_TPL_DIR="$HOME/agent-fleet"
+if [ -f "$_TPL_SCRIPT" ] && [ -d "$_TPL_DIR/.git" ]; then
+    _TPL_DRIFT=$(bash "$_TPL_SCRIPT" --dry-run 2>&1 | grep -c 'Would copy\|Would sanitize' || true)
+    if [ "$_TPL_DRIFT" -gt 0 ]; then
+        printf 'TEMPLATE_PROPAGATION_NEEDED: %d file(s) changed — run sync.sh template-push\n' "$_TPL_DRIFT" >> "${DRIFT_LOG:-$CONFIG_REPO/.sync-warnings.log}"
+    fi
+fi
+
 # Clear any previous failure marker on success path
 sync_success() {
     rm -f "$FAIL_MARKER"

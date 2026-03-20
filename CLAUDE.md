@@ -1,3 +1,4 @@
+<!-- agent-fleet-managed — DO NOT overwrite with /init. This CLAUDE.md is maintained by agent-fleet. -->
 # Claude Config — Meta-Configuration Project
 
 Claude Code configuration management across all machines and projects.
