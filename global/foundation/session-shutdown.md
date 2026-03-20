@@ -32,6 +32,12 @@
 - [ ] If machine-specific state changed (tooling installed, patches applied, auth rotated) → update `~/.claude/machines/<machine>.md`
 - [ ] If new operational knowledge discovered (tool bugs, workarounds) → update or create `~/.claude/knowledge/<tool>.md`
 
+### 5.5. Postmortem pattern extraction
+- [ ] If this session identified reusable patterns from a project (e.g., "project X solved problem Y this way"):
+  - Check if the pattern is already in the type template (`setup/projects/_templates/<type>/`)
+  - If not: create an inbox task for the config project: `- [ ] **config**: Extract pattern "<description>" from <project> into <type> template`
+  - If this session IS a config session and the pattern is available: add it directly to the type template
+
 ### 6. Commit and push
 - [ ] `git add` changed files, commit with descriptive message
 - [ ] `git push` (or rely on SessionEnd auto-sync hook if configured)

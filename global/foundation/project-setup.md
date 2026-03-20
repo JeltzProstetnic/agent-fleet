@@ -31,7 +31,16 @@ Before selecting agents, determine whether VoltAgent bundles should be enabled a
 
 ## New Project Setup Steps
 
-1. **Understand the project** — read any existing files, ask the user about goals, tech stack, phases
+1. **Understand the project and determine type** — read any existing files, ask the user about goals, tech stack, phases
+   - Determine the project type from `reference/project-types.md` (canonical types: code, writing, research, config, infra, marketing, business, data, media, tooling)
+   - If no exact type match, use the closest canonical type or combine with `+` (e.g., `research + writing`)
+   - **Consult sibling projects** — structured comparison, not guessing:
+     1. **Find siblings:** Read `registry.md` Type column. Match projects with the same or overlapping types.
+     2. **Read each sibling's CLAUDE.md.** Extract: Knowledge Loading table, build commands, git rules, delivery rules, communication rules, directory structure, active roster.
+     3. **Compare against the type template.** Identify project-specific additions vs type-generic patterns.
+     4. **Weight by maturity.** If a sibling has 50+ commits, its patterns are battle-tested.
+     5. **Apply relevant patterns, skip project-specific ones.** Example: a writing project's publication workflow applies to other writing projects; its specific publisher's requirements don't.
+     6. **Document what you adopted** in a comment in the new project's CLAUDE.md.
 2. **Select subagents** — this is a judgment task:
    - Check the context window threshold (above) to decide if VoltAgent is appropriate
    - If VoltAgent is ON: browse plugin marketplace categories to understand what's available

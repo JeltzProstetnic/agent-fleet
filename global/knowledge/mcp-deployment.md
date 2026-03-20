@@ -1,5 +1,7 @@
 # MCP Server Deployment — Lessons & Patterns
 
+**MCP config changes require restart.** Changes to `.mcp.json` are invisible to the current session. After fixes: verify file, tell user to restart, flag verification pending. Never mark "done" without a live tool test in a new session.
+
 ## Pre-deployment checklist for new MCP servers
 
 When adding a new MCP server to the fleet, verify these BEFORE deploying to machines:
@@ -32,6 +34,21 @@ When adding a new MCP server to the fleet, verify these BEFORE deploying to mach
 - **Does it work on all target platforms?** (SteamOS, WSL, VPS, Fedora)
 - **PATH requirements**: always set explicit PATH in `.mcp.json` env — don't rely on shell PATH inheritance
 - **NVM node path (non-standard installs)**: Even when `npx` is called via its full NVM path (e.g., `/home/user/.nvm/versions/node/v22.x.x/bin/npx`), the spawned process may call `node` via PATH. If `node` isn't in the system PATH (SteamOS, some server distros), this fails with `/usr/bin/env: 'node': No such file or directory`. **Fix**: add the NVM bin directory to the PATH env var in `.mcp.json`, BEFORE the other entries: `"/home/user/.nvm/versions/node/v22.x.x/bin:/home/user/.local/bin:..."`. This affects ALL node-based MCP servers.
+
+### 6. uvx version compatibility (Python-based MCP servers)
+
+**Problem:** `uvx -y <package>` syntax varies by uv version:
+- **uv 0.9.x** (Fedora 42, older installs): `-y` flag doesn't exist → "unexpected argument '-y' found" error
+- **uv 0.10+** (npm installs, recent pipx): `-y` flag works (auto-confirm)
+
+**Impact:** MCP configs using `uvx -y` fail silently on older uv versions. Server appears "not configured" even when the config is present.
+
+**Mitigations:**
+- **Use version-agnostic syntax:** Just `uvx <package>` without `-y`. The interactive prompt concern doesn't apply in MCP context (no terminal).
+- **Document uv version per machine** in machine files
+- **vault-manage.sh deploy:** Should check uv version and warn if args may fail
+
+**Affected servers:** Any Python-based MCP server via uvx (mcp-atlassian, serena if installed via uvx, diagram, etc.)
 
 ## enabledMcpjsonServers — the silent killer
 
@@ -76,7 +93,8 @@ npx-based servers (`npx -y <package>`) have a recurring failure mode:
 
 ### Serena (code navigation)
 - Config: `~/.serena/serena_config.yml` — pre-deployed by configure-claude.sh
-- Key setting: `web_dashboard_open_on_launch: false`
+- Key setting: `web_dashboard_open_on_launch: false` (in config file)
+- **CLI override:** `--open-web-dashboard false` in MCP server args (takes precedence over config)
 - Onboarding: write memories for each project on first activation
 - Context: `--context claude-code` (optimized tool set for Claude Code)
 

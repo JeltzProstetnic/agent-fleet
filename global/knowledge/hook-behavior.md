@@ -1,5 +1,8 @@
 # Hook Behavior — Platform Findings
 
+## Design Principle: Auto-fix over warn
+When hooks detect a fixable issue (missing symlinks, stale config, permission blocks), auto-fix silently rather than just warning. Only warn when auto-fix fails.
+
 ## UserPromptSubmit doesn't fire for interrupt messages
 **Discovered:** 2026-03-07. When the user sends messages during agent execution (Agent tool subagents running), the `UserPromptSubmit` hook does NOT fire. It only fires for prompts submitted at the normal input line.
 
