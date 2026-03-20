@@ -250,6 +250,8 @@ bash ~/agent-fleet/setup/scripts/upgrade.sh --list-tags    # see checkpoints
 | Session state not persisting | Describe the symptom to the agent — it will diagnose |
 | General health check | `bash sync.sh status` |
 
+> **Warning: Never run `/init` in a project managed by Agent Fleet.** The `/init` command generates a fresh `CLAUDE.md`, overwriting the one Agent Fleet maintains. If this happens, restore it with `git checkout -- CLAUDE.md`. Agent Fleet's `CLAUDE.md` files contain an `<!-- agent-fleet-managed -->` marker comment — the presence of this marker is your signal that the file is managed and should not be regenerated.
+
 For architecture details, security model, and advanced troubleshooting, see the [README](../README.md).
 
 ---
