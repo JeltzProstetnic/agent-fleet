@@ -1,25 +1,11 @@
 #!/usr/bin/env bash
-# rtk-hook-version: 3
+# rtk-hook-version: 2
 # RTK Claude Code hook — rewrites commands to use rtk for token savings.
 # Requires: rtk >= 0.23.0, jq
-#
-# Matcher: "" (match-all). CC 2.1.76+ fires "Bash"-matched hooks on ALL tools,
-# producing "PreToolUse:Bash hook error" UI noise. Using match-all + self-filtering
-# eliminates the error while keeping identical behavior.
 #
 # This is a thin delegating hook: all rewrite logic lives in `rtk rewrite`,
 # which is the single source of truth (src/discover/registry.rs).
 # To add or change rewrite rules, edit the Rust registry — not this file.
-
-# Read stdin first (must drain pipe before any exit)
-INPUT=$(cat)
-
-# Non-Bash tools: exit 0 with no output (CC treats empty stdout + exit 0 as hook_success)
-if [[ "$INPUT" != *'"tool_name":"Bash"'* && "$INPUT" != *'"tool_name": "Bash"'* ]]; then
-    exit 0
-fi
-
-# --- From here on, we know it's a Bash tool call ---
 
 if ! command -v jq &>/dev/null; then
   echo "[rtk] WARNING: jq is not installed. Hook cannot rewrite commands. Install jq: https://jqlang.github.io/jq/download/" >&2
@@ -44,6 +30,7 @@ if [ -n "$RTK_VERSION" ]; then
   fi
 fi
 
+INPUT=$(cat)
 CMD=$(echo "$INPUT" | jq -r '.tool_input.command // empty')
 
 if [ -z "$CMD" ]; then
