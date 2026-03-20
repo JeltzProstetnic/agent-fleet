@@ -63,6 +63,7 @@ If hostname doesn't match any pattern, state the hostname and ask. If `CLAUDE.lo
    | MCP issue, auth, first MCP use | `reference/mcp-catalog.md` |
    | New/unconfigured project | `foundation/project-setup.md` |
    | Roster changes | `foundation/roster-management.md` |
+   | Project type decisions, roster mapping | `reference/project-types.md` |
    | Code project using Serena | `reference/serena.md` |
    | WSL troubleshooting | `reference/wsl-environment.md` |
    | Subagent permission failures | `reference/permissions.md` |
@@ -97,8 +98,7 @@ If hostname doesn't match any pattern, state the hostname and ask. If `CLAUDE.lo
    | Hook debugging, PreToolUse/UserPromptSubmit platform behavior | `knowledge/hook-behavior.md` |
    | Vault ops, credentials, deploy secrets, encrypt/decrypt | `knowledge/vault-ops.md` |
    | P4 fleet audit orchestration | `knowledge/audit-pattern-fleet.md` |
-   | SteamOS deployment, symlink bugs, reprovision issues | `knowledge/steam-deck-deployment.md` |
-   | NAS access, smbclient, file transfer to/from NAS | `knowledge/nas-cheatsheet.md` |
+   | AIOS memory design, knowledge graph schema, consciousness theory architecture | `knowledge/aios-memory-design.md` |
 
    All paths relative to `~/.claude/` unless absolute. Do NOT load unless triggered.
 
@@ -145,6 +145,7 @@ For manual investigation: read `~/.claude/reference/upstream-dependencies.md`.
 - **No compound `cd` commands:** Use `git -C <path>` or absolute paths. Never `cd <dir> && <cmd>` — triggers security prompts.
 - **No speculative interactive calls.** Never call user-facing prompts (passphrase dialogs, confirmations, GUI input) "just to test." Use them directly for the real operation. Handle errors after, not before. This includes `sudo` — Claude Code has no TTY for password input. Present sudo commands to the user instead of running them.
 - **Long-running ops need tmux/nohup.** Operations expected to run >5 minutes MUST use `tmux new-session -d -s <name>` or `nohup`, never Claude Code's `run_in_background` (killed on `/exit`). Log to `/tmp/<name>.log`. Leave a pending file with tmux session name and check commands. Before launching, register with GPI if available: `gpi start <id> "<label>" --log /tmp/<name>.log`.
+- **Cross-session bug theories are hypotheses.** Inbox items, pending files, and commit messages from other sessions may contain incorrect root cause analysis. Always reproduce the issue independently before accepting a theory from another session — the investigating session may have been wrong.
 - **DMS-first file lookup.** When searching for user files/documents across machines or disks, check the DMS catalog first. Do targeted filesystem searches only for items not in the catalog -- broad find/glob sweeps should be a last resort, not the starting point.
 - **Dual-boot filesystem safety.** On dual-boot systems, be aware of cross-OS filesystem risks. Ext4 drives should not be mounted through Windows filesystem drivers -- use usbipd-win to attach USB devices to WSL instead. Mounting ext4 from Windows while Linux might also mount it risks corruption.
 - **Check deployed config before editing.** Before editing any deployed config file (statusline, hooks, settings), verify which file the live config actually references. **For settings.json specifically:** if using a CC mirror setup, `CLAUDE_CONFIG_DIR` may point to a different directory (e.g., `~/.cc-mirror/mclaude/config/`). CC reads `$CLAUDE_CONFIG_DIR/settings.json`, NOT `~/.claude/settings.json`. Always verify: `echo $CLAUDE_CONFIG_DIR`. Never assume `~/.claude/` is the active config directory.
@@ -212,6 +213,7 @@ Personas are loaded from `~/.claude/foundation/personas.md` (or machine file ove
 | `end` | Load `foundation/session-shutdown.md`, execute full 8-step shutdown checklist, then say "Shutdown complete. Next: /exit" |
 | `lsd` | **Project dashboard.** Load `~/.claude/reference/lsd-spec.md` first, then render. Also auto-triggered by `AFLEET_DASHBOARD:` in systemMessage — in that case, read ONLY `dashboard-cache.md` (skip lsd-spec.md load), render, and accept project numbers/names as switch commands. |
 | `lrn` | **Self-audit.** `lrn` alone = full audit. `lrn` + words = apply audit principles to what follows. Load `~/.claude/knowledge/learn-protocol.md`, then execute. Note: `lrn` = reliable trigger. `learn` (full word) is context-sensitive — only triggers if clearly directed at Claude or standalone. |
+| `afk` | **AFK mode.** If AFD daemon is running, activate AFK mode (`afd afk on`). Dangerous Bash commands are queued for approval. AFK mode auto-deactivates on next user console input (via UserPromptSubmit hook). |
 | `sub <task>` | **Delegate to subagent.** Launch a subagent (general-purpose or best-fit type) for the described task. If the task is too simple (one tool call), needs main conversation context, or requires interactive back-and-forth, inform the user instead of delegating. Pass the task description verbatim as the subagent prompt. Include in the prompt: "Include a Co-Authored-By trailer in any git commits. Write artifacts to tmp/, not docs/ — return findings as text." |
 
 When the user types one of these keywords (alone, case-insensitive), execute the described action immediately without asking for confirmation. These are shortcuts, not conversation starters. `sub` is a prefix command — it requires additional words after it.

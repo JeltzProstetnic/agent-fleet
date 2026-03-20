@@ -71,6 +71,14 @@ Backlog grooming is a periodic cleanup task. When grooming (manually or via suba
 5. **Formatting cleanup**: Consistent format, no stray blank lines.
 6. **Re-sort**: After priority changes, re-sort the Open section by priority (P0 → P4).
 
+## Pre-Creation Checks
+
+Before creating a new backlog item `PRJ-NN`:
+
+1. **Dedup check.** Search both Open and Done sections for the same topic. `grep -i "keyword" backlog.md`. If a match exists, update the existing item instead of creating a new one.
+2. **Related item scan.** Identify items that are co-dependent, share a subsystem, or would benefit from being worked together. Link them: `Depends: PRJ-XX` or group under the same `Epic: E-XX`.
+3. **Cherry-pick rule.** When extracting ideas from an evaluation (competitor analysis, tool research, etc.), cross-check EVERY idea against Done items — completed work is invisible under momentum.
+
 ## Epic References
 
 Backlog items link to strategic epics defined in `docs/roadmap.md`. Add `Epic: E-XX` at the end of the item description to connect it to the roadmap.

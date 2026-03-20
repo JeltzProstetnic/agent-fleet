@@ -82,6 +82,30 @@ Prompt the subagent with:
     4. Does this need to run every session? → Only then consider a CLAUDE.md rule.
     5. Rules are the **most expensive** fix. Knowledge files are cheap. Extending existing files is cheapest. Default DOWN the hierarchy, not up.
 
+## Known Faulty Rule Patterns
+
+Catalog of rule formulations that reliably fail. When auditing rules (in CLAUDE.md, knowledge files, or project configs), flag any rule matching these patterns.
+
+### Pattern 1: Deferred Verification Instead of Atomic Action
+**Symptom:** Rule says "verify X matches Y before writing summary" or "check canonical state at shutdown."
+**Why it fails:** By verification time, the action is long past. The check depends on remembering to verify — which fails under cognitive load.
+**Fix:** Make tracking atomic with the action. "After sending email, update contacts.md IMMEDIATELY" not "verify contacts.md matches at shutdown."
+
+### Pattern 2: General Principle Instead of Action-Specific Trigger
+**Symptom:** Rule says "always do X when Y" where Y is a broad category (e.g., "when discovering information", "when the user shares context").
+**Why it fails:** Broad triggers don't fire on specific actions. "Discovery" isn't a discrete event — it's continuous. Nothing specific triggers the rule.
+**Fix:** Replace with concrete action triggers: "After running a web search that reveals a new tool capability → update fleet-capabilities.md."
+
+### Pattern 3: Pre-Step That Competes With the Main Action
+**Symptom:** Rule says "before doing X, first check Y" where X is the salient, motivated action and Y is an auxiliary check.
+**Why it fails:** When starting X, attention is on X's content, not on remembering to do Y first. The pre-step is cognitively invisible.
+**Fix:** Bundle pre-steps into a named workflow with numbered steps. "Outreach email workflow: step 1 check contacts, step 2 check log, step 3 draft" — not scattered independent rules.
+
+### Pattern 4: Principle Buried in a Wall of Rules
+**Symptom:** Important behavioral rule is item #27 in a 40-rule list, with no structural distinction from adjacent rules.
+**Why it fails:** Scanning a flat list of 40 rules for the relevant one requires perfect recall. Rules compete for attention equally.
+**Fix:** Group rules into workflows at the point of action (Communication Rules, Submission Rules, etc.) rather than one flat Development Rules list. Critical rules should be in the section where the action happens.
+
 ### Pattern 5: "Rule Exists — I'll Follow It Better"
 **Symptom:** Audit concludes "the rule already exists, I just need to follow it" or "acknowledged, no new rule needed."
 **Why it fails:** If the rule existed and was violated, the rule is structurally inadequate. "Follow it better" is not a systemic fix — it's the software equivalent of "we'll be more careful next time." The violation happened BECAUSE the rule's structure (wording, location, loading, enforcement tier) failed to prevent it — or because the root cause lies elsewhere entirely.
