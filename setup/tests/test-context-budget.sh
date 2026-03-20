@@ -6,7 +6,7 @@ source "$(dirname "$0")/test-helpers.sh"
 
 suite_header "context-budget"
 
-STATUSLINE_PATH="$REPO_ROOT/setup/config/statusline.sh"
+STATUSLINE_PATH="$REPO_ROOT/setup/config/statusline-command.sh"
 HOOK_PATH="$REPO_ROOT/global/hooks/context-budget.sh"
 TMPDIR_CB=$(mktemp -d)
 SIDECAR="$TMPDIR_CB/.context-budget.json"
