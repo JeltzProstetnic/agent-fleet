@@ -69,6 +69,7 @@ If hostname doesn't match any pattern, state the hostname and ask. If `CLAUDE.lo
    | Subagent permission failures | `reference/permissions.md` |
    | Cross-project coordination | `foundation/cross-project-sync.md` |
    | CLI tool usage, installed software | `reference/system-tools.md` |
+   | Atlassian/Jira MCP tools | `knowledge/jira-atlassian.md` |
    | dev-browser skill, browser automation | `knowledge/dev-browser-ops.md` |
    | Plan mode issues/hangs/freezes | `knowledge/plan-mode-issues.md` |
    | Persona setup/onboarding/rendering | `reference/persona-rules.md` |
@@ -83,10 +84,18 @@ If hostname doesn't match any pattern, state the hostname and ask. If `CLAUDE.lo
    | Documents, PDFs, file delivery | `reference/output-rules.md` |
    | Writing outside project, sync | `reference/cross-project-rules.md` |
    | Upstream deps, version tracking | `reference/upstream-dependencies.md` |
+   | Career, goals, job applications | `domains/life-management/career.md` |
+   | Family, personal background | `domains/life-management/family.md` |
+   | Cognitive style, communication | `domains/life-management/psych-profile.md` |
+   | Colleague context, networking | `domains/life-management/relationships.md` |
    | Email drafts, social posts, formal correspondence | `reference/communication-policy.md` |
    | Document management, catalog | `~/agent-fleet/docs/dms-guide.md` |
+   | FMS ops, file dedup, bulk moves | `knowledge/fms-ops.md` |
    | Audit, self-audit, meta-audit | `knowledge/audit-protocol.md` |
+   | Email triage, inbox management | `knowledge/gmail-management.md` |
    | `lrn` command issued | `knowledge/learn-protocol.md` |
+   | AFD daemon, task coordination | `knowledge/afd-ops.md` |
+   | NAS access, smbclient, file transfer | `knowledge/nas-cheatsheet.md` |
    | YouTube tabs (save/list/open) | Run `bash ~/agent-fleet/setup/scripts/youtube-tabs.sh save\|list\|open [query]` — no file to load, just invoke the script directly |
    | Cross-project navigation, project switching | `reference/cross-project-nav.md` |
    | Self-awareness, plugin recommendation, agent roster gaps, "can I do X?", context window, model capabilities | `knowledge/fleet-capabilities.md` |
@@ -96,7 +105,7 @@ If hostname doesn't match any pattern, state the hostname and ask. If `CLAUDE.lo
    | SESSION_LOCKED or SESSION_LOCKED_REMOTE in systemMessage | `knowledge/follower-mode.md` |
    | Session shutdown (`cls`, `end`, exit, shutdown) | `foundation/session-shutdown.md` |
    | Hook debugging, PreToolUse/UserPromptSubmit platform behavior | `knowledge/hook-behavior.md` |
-   | Vault ops, credentials, deploy secrets, encrypt/decrypt | `knowledge/vault-ops.md` |
+   | SteamOS deployment, symlink bugs, reprovision issues | `knowledge/steam-deck-deployment.md` |
    | P4 fleet audit orchestration | `knowledge/audit-pattern-fleet.md` |
    | AIOS memory design, knowledge graph schema, consciousness theory architecture | `knowledge/aios-memory-design.md` |
 
@@ -116,7 +125,7 @@ If hostname doesn't match any pattern, state the hostname and ask. If `CLAUDE.lo
 
 ## Temporary Rules
 
-- **PLAN MODE BROKEN — use Plan subagent instead.** `EnterPlanMode` hangs during extended thinking (crystallize stream stall, upstream bug #26224/#29712). Use `Task` tool with `subagent_type: "Plan"` for all planning tasks. Daily check: test `EnterPlanMode` → if it completes without hanging, remove this rule.
+- **PLAN MODE BROKEN — use Plan subagent instead.** `EnterPlanMode` hangs during extended thinking (crystallize stream stall, upstream bug #26224/#29712). Use `Task` tool with `subagent_type: "Plan"` for all planning tasks. Daily check: test `EnterPlanMode` → if it completes without hanging, remove this rule and delete `~/.claude/knowledge/plan-mode-issues.md` workaround section.
 
 ## Upstream Dependency Policy
 
@@ -173,13 +182,13 @@ For manual investigation: read `~/.claude/reference/upstream-dependencies.md`.
 - **Context budget awareness.** The `UserPromptSubmit` hook injects `CONTEXT_BUDGET: NN% used (Xk/Yk)` every turn. Thresholds align with statusline CRI colors: <50% (green) normal. 50-60% (cyan) fine for most work. 60-70% (orange) note if starting very large new tasks. 70-80% (yellow) recommend `/clear` before complex new work. >80% (red) checkpoint and suggest multi-session or `/clear`. When `CHECKPOINT_NEEDED:` appears in systemMessage (fires once at >70%), immediately update `session-context.md` with current progress, key decisions, and recovery instructions before responding to the user. This is the last reliable chance before potential compaction.
 - **Mid-session mobile data.** When `MOBILE_DATA:` appears in systemMessage, unmerged phone sessions exist. Run mobile-collect to ingest, then check cross-project inbox for new items. Check runs every 10 minutes automatically.
 - **One vault, one owner.** The config repo's encrypted vault is the single source of truth for ALL secrets across ALL machines and projects. No other project maintains its own secrets vault. `vault-manage.sh deploy` provisions credentials to their target locations. Every credential, API key, token, and password MUST have a vault entry with a `deploy_to` target.
-- **Tracking is atomic with action.** When an action changes external state (email sent, backlog item committed to, submission filed, discovery made), update ALL canonical tracking files as part of the same operation -- not deferred to shutdown, not batched for later. The action is not complete until tracking reflects it.
+- **Tracking is atomic with action.** When an action changes external state (email sent, backlog item committed to, submission filed, discovery made, person encountered), update ALL canonical tracking files as part of the same operation -- not deferred to shutdown, not batched for later. The action is not complete until tracking reflects it. This supersedes "narrative must match canonical state" as the primary defense -- that rule is kept as a verification backstop only.
 - **Discovery -> ingest.** When discovering information that would be useful to future sessions -- upstream capability changes, new patterns, platform behavior, tool quirks, user-relevant facts -- immediately persist it to the appropriate knowledge file. Don't just report findings; update the relevant knowledge files, machine files, domain files, or create new knowledge entries as appropriate. The finding is not "done" until persisted. This applies to: model/platform capabilities, API changes, deprecations, tool behavior discovered during work, and anything a new user or future session might ask about.
 - **Documentation coherence.** Knowledge files declare dependencies via `<!-- updates: path1, path2 -->` (downstream: files this file's changes affect) and `<!-- consumed-by: path1 (reason), path2 (reason) -->` (upstream: files that read/use data from this file) header comments. When editing a file, check BOTH headers and update all listed files in the same operation.
 
 ## Persona System
 
-Personas are loaded from `~/.claude/foundation/personas.md` (or machine file override). Prefix first substantive response with persona name in bold. **At session start and on every switch**, write active persona name to `~/.claude/.active-persona` (Read first, then Write — never Bash). Evaluate switching rules continuously. Full rules: `~/.claude/reference/persona-rules.md` (load for onboarding, setup, or rendering issues).
+Personas are loaded from `~/.claude/foundation/personas.md` (or machine file override). The SessionStart hook injects `PERSONA: <name>` — use that as the active persona (no need to read `.active-persona`). Prefix first substantive response with persona name in bold. **On every switch**, write active persona name to `~/.claude/.active-persona` (Read first, then Write — never Bash). Evaluate switching rules continuously. Full rules: `~/.claude/reference/persona-rules.md` (load for onboarding, setup, or rendering issues).
 
 ## Conventions
 
@@ -214,29 +223,11 @@ Personas are loaded from `~/.claude/foundation/personas.md` (or machine file ove
 | `lsd` | **Project dashboard.** Load `~/.claude/reference/lsd-spec.md` first, then render. Also auto-triggered by `AFLEET_DASHBOARD:` in systemMessage — in that case, read ONLY `dashboard-cache.md` (skip lsd-spec.md load), render, and accept project numbers/names as switch commands. |
 | `lrn` | **Self-audit.** `lrn` alone = full audit. `lrn` + words = apply audit principles to what follows. Load `~/.claude/knowledge/learn-protocol.md`, then execute. Note: `lrn` = reliable trigger. `learn` (full word) is context-sensitive — only triggers if clearly directed at Claude or standalone. |
 | `afk` | **AFK mode.** If AFD daemon is running, activate AFK mode (`afd afk on`). Dangerous Bash commands are queued for approval. AFK mode auto-deactivates on next user console input (via UserPromptSubmit hook). |
-| `sub <task>` | **Delegate to subagent.** Launch a subagent (general-purpose or best-fit type) for the described task. If the task is too simple (one tool call), needs main conversation context, or requires interactive back-and-forth, inform the user instead of delegating. Pass the task description verbatim as the subagent prompt. Include in the prompt: "Include a Co-Authored-By trailer in any git commits. Write artifacts to tmp/, not docs/ — return findings as text." |
+| `sub <task>` | **Delegate to subagent.** Launch a subagent (general-purpose or best-fit type) for the described task. If the task is too simple (one tool call), needs main conversation context, or requires interactive back-and-forth, inform the user instead of delegating. Pass the task description verbatim as the subagent prompt. Include in the prompt: "Do NOT commit, push, or create PRs. Write artifacts to tmp/, not docs/ — return findings as text." |
 
-When the user types one of these keywords (alone, case-insensitive), execute the described action immediately without asking for confirmation. These are shortcuts, not conversation starters. `sub` is a prefix command — it requires additional words after it.
+When the user types one of these keywords (anywhere in their message, case-insensitive), execute the described action immediately. These are shortcuts, not conversation starters — scan EVERY message for them before responding to other content. `sub` is a prefix command — it requires additional words after it.
 
 **Session shutdown checklist — MANDATORY.** `cls` and `end` are defined in the Quick Commands table above. The user may also request shutdown in natural language. If in doubt — session just started, shutdown just completed, or ambiguous language — ask once before proceeding. Once confirmed: load `~/.claude/foundation/session-shutdown.md` and run ALL steps without asking.
-
-## Memory Architecture
-
-**Two separate memory systems exist — do NOT confuse them:**
-
-| System | Location | What it stores | Managed by |
-|--------|----------|---------------|-----------|
-| **Agent-fleet knowledge** | `session-context.md`, `decisions.md`, `knowledge/` files, machine files | Rules, decisions, session state, domain knowledge, operational protocols | This configuration system (CLAUDE.md, foundation files, hooks) |
-| **MCP memory server** | `~/.claude/memory/` (graph-based JSONL) | Auto-memory: short orientation notes, per-project context hints | Claude Code's built-in memory system |
-
-**Rules of engagement:**
-- **Behavioral rules** → `CLAUDE.md` or foundation files. NEVER auto-memory.
-- **Session state** → `session-context.md`. NEVER auto-memory.
-- **Decisions & rationale** → `docs/decisions.md`. NEVER auto-memory.
-- **Domain knowledge** → `~/.claude/knowledge/` or `~/.claude/domains/`. NEVER auto-memory.
-- **Auto-memory is ONLY for:** temporary per-project orientation notes (<50 lines), quick pointers to canonical docs.
-
-If you catch yourself writing a rule, preference, or project fact to auto-memory, STOP — it belongs in the knowledge system instead.
 
 ## Meta-Rules
 
