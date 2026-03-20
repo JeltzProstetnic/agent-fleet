@@ -1,72 +1,101 @@
+<!-- consumed-by: setup/config/statusline-command.sh (context window size), foundation/project-setup.md (VoltAgent threshold, agent capabilities) -->
 # Fleet Capabilities — Self-Awareness Reference
 
-Load when: agent needs to understand its own capabilities, recommend plugins, or audit agent roster gaps.
-
-## Core Features
+Load when: agent needs to understand its own capabilities, recommend plugins, audit agent roster gaps, or answer "can I do X?" questions.
 
 These are YOUR features. Use them naturally ("the statusline shows..." not "your statusline shows...").
 
+---
+
+## Model & Platform Capabilities
+
+What the underlying model and Claude Code platform can do. Updated when upstream changes.
+
+| Capability | Details | Since |
+|-----------|---------|-------|
+| **Context window** | **1M tokens** (Opus 4.6 & Sonnet 4.6). GA since 2026-03-13. No config needed — requests >200K work automatically. Included in Max, Team, Enterprise at standard pricing. | CC 2.1.76, Anthropic 2026-03-13 |
+| **Media limits** | Up to 600 images or PDF pages per request (was 100) | 2026-03-13 |
+| **Effort levels** | low / medium / high. Medium is default for Opus 4.6. "ultrathink" keyword forces high effort for next turn. `max` level removed. | CC 2.1.68+ |
+| **PostCompact hook** | Fires after compaction. Can checkpoint state. PreCompact abandoned (#13572 closed). | CC 2.1.76 |
+| **SessionEnd timeout** | Configurable via `CLAUDE_CODE_SESSIONEND_HOOKS_TIMEOUT_MS` env var (default 1.5s). | CC 2.1.74 |
+| **Deferred tools** | MCP tools loaded via ToolSearch survive compaction (schema fix). | CC 2.1.76 |
+
+## Core — Infrastructure
+
+The foundation everything else runs on.
+
 | Feature | What it does | Key files |
 |---------|-------------|-----------|
-| MCP: Serena | Code navigation, symbol search, refactoring | `.mcp.json` |
-| MCP: GitHub | Repos, PRs, issues, code search | `.mcp.json` |
-| MCP: Google Workspace | Gmail search/read/send/draft, filters, labels | `.mcp.json` |
-| MCP: Playwright | Browser automation, screenshots, form filling | `.mcp.json` |
-| MCP: Diagram | Mermaid diagram generation (file or stream) | `.mcp.json` |
-| Hooks: SessionStart | `config-check.sh` — symlinks, git sync, version checks | `~/.claude/hooks/` |
-| Hooks: SessionEnd | `config-auto-sync.sh` — collect changes, commit, push | `~/.claude/hooks/` |
-| Statusline | Context usage indicator via `statusline.sh` | `~/.claude/statusline.sh` |
-| Personas | Configurable personas with semantic switching rules | `foundation/personas.md` |
-| Vault | Single source of truth for all secrets (AES-256-CBC) | `setup/secrets/vault.json.enc` |
-| Session system | Context persistence, rotation, history, handoff | `session-context.md`, `rotate-session.sh` |
-| Cross-project inbox | One-off task passing between projects | `cross-project/inbox.md` |
+| Multi-machine identity | Hostname detection → machine profile auto-loading | `CLAUDE.md` identity table, `machines/*.md` |
+| sync.sh | Bidirectional sync: repo ↔ deployed config (setup/deploy/collect/status/stamp) | `sync.sh` |
+| Vault | Single encrypted secrets store (AES-256-CBC), deploy to all targets | `secrets/vault.json.enc`, `vault-manage.sh` |
+| Registry | Project catalog with parent/child relationships, machine assignments | `registry.md` |
+| Hooks | SessionStart (config-check.sh), SessionEnd (auto-sync), PreToolUse (RTK token compression), PostToolUse (auto-lint, commit verify, tool install detect), UserPromptSubmit (context budget) | `global/hooks/` |
+| Session system | Context persistence, 3-layer history, pending file handover, rotation, crash recovery. Shutdown checklist loaded on-demand (`session-shutdown.md`). | `session-context.md`, `rotate-session.sh` |
+| Cross-project inbox | One-off task passing between projects, picked up per-session | `cross-project/inbox.md` |
+| Personas | Configurable dual-persona system with semantic switching rules, Day/Night mode | `foundation/personas.md` |
+| Quick commands | cls, end, lsd, lrn, afk, sub — keyword shortcuts | `CLAUDE.md` quick commands table |
+| Personality Patterns | Curated dual-persona combos (Workhorse+Empath, Builder+Critic, Mentor+Peer, Strategist+Tactician, Formal+Casual). Presented during first-run setup. | `foundation/first-run-refinement.md` section 2b |
+| afleet | Project launcher — pre-pull, project detection, session safety | `setup/scripts/afleet.sh` |
+| Dashboard (lsd) | Project overview with task counts, disk usage, status | `cross-project/dashboard-cache.md` |
+| Knowledge system | Domain files, machine files, conditional loading (on-demand), backlog convention | `domains/`, `machines/`, `knowledge/`, `reference/` |
+
+## Core Extended — Operational Tools
+
+Built on top of core infrastructure. Enhance the agent's operational capabilities.
+
+| Feature | What it does | Key files |
+|---------|-------------|-----------|
+| Statusline: CRI | Context Rot Indicator — context window usage bar, color-coded (green→yellow→red) | `setup/config/statusline-command.sh` |
+| Statusline: GPI | Grind Progress Indicator — background process progress with log enrichment | `setup/scripts/gpi.sh` |
+| Statusline: PDI | Personality Disorder Indicator — active persona name, color-matched | `setup/config/statusline-command.sh` |
+| lrn | Self-audit protocol — rule compliance, knowledge capture, process/architecture | `knowledge/learn-protocol.md` |
+| Mobile support | Separate repo for mobile Claude app session logging | `agent-fleet-mobile` |
+
+---
+
+## MCP Servers (Claude Code infrastructure, not agent-fleet features)
+
+MCP servers are configured per-machine in `.mcp.json`. They extend Claude Code's capabilities but are not part of agent-fleet itself. The fleet manages their configuration via vault deploy and machine files.
+
+Full catalog, routing rules, and troubleshooting: `reference/mcp-catalog.md`.
 
 ## Machine Tooling Capabilities
 
-Per-machine tools are inventoried in `~/.claude/machines/<machine>.md`. The agent CAN use these — check the machine file before saying "I can't do X".
+Per-machine tools are inventoried in `~/.claude/machines/<machine>.md`. Check before saying "I can't do X".
 
 | Capability | Tool | Check machine file for |
 |-----------|------|----------------------|
-| File conversion (docx, pptx, html → md/txt) | `pandoc` | Version in Installed Tooling table |
+| File conversion | `pandoc` | Version in Installed Tooling table |
 | PDF generation | `weasyprint` | Path in Installed Tooling table |
 | Encryption/decryption | `age`, `openssl` | Path in Installed Tooling table |
 | Mermaid diagrams | `mmdc` (mermaid-cli) | Path in Installed Tooling table |
 | Terminal multiplexing | `tmux` | Path in Installed Tooling table |
-| Python scripting | `python3`, `uv`/`uvx` | Version in Installed Tooling table |
-| Node.js scripting | `node`, `npm` | Version in Installed Tooling table |
-| Browser automation | Playwright MCP (headless) | MCP section in Core Features above |
-| File opening (GUI) | Platform-dependent | Known Issues section in machine file |
+| Python/Node scripting | `python3`, `uv`/`uvx`, `node`, `npm` | Version in Installed Tooling table |
+| Browser automation | Playwright MCP (headless) | MCP catalog |
+| File opening (GUI) | Platform-dependent | Known Issues in machine file |
 
-**"Can I do X?" protocol:** Before saying you can't do something, check: (1) MCP tools above, (2) machine file tooling table, (3) installed CLI tools (`which <tool>`). Only say "not available" after all three checks fail.
+**"Can I do X?" protocol:** Check (1) MCP tools, (2) machine file tooling table, (3) `which <tool>`. Only say "not available" after all three fail.
 
 ## Agent Capabilities
 
 ### Built-in (always available, 0 token cost)
 
-| Agent | Best for | Notes |
-|-------|----------|-------|
-| general-purpose | Multi-step tasks, file ops, code execution | Default subagent |
-| Explore | Fast codebase exploration, pattern/keyword search | Read-only, lightweight |
-| Plan | Architecture planning, implementation design | May have upstream issues — check knowledge/plan-mode-issues.md |
+| Agent | Best for |
+|-------|----------|
+| general-purpose | Multi-step tasks, file ops, code execution |
+| Explore | Fast codebase exploration, pattern/keyword search |
+| Plan | Architecture planning, implementation design (subagent workaround if plan mode broken) |
 
 ### Plugin Agents (per-project only, token cost per bundle)
 
-Available via VoltAgent and other marketplaces. Each bundle loads agent descriptions into context.
-
 | Bundle | Agents | ~Tokens | Best for |
 |--------|--------|---------|----------|
-| voltagent-lang | 27 | 67k | Language-specific coding (Rust, Go, Python, TS, etc.) |
+| voltagent-lang | 27 | 67k | Language-specific coding |
 | voltagent-infra | 16 | 37k | Docker, K8s, Terraform, CI/CD |
-| voltagent-qa-sec | 15 | 33k | Testing, security audits, OWASP |
+| voltagent-qa-sec | 15 | 33k | Testing, security audits |
 | voltagent-dev-exp | 14 | 32k | Git workflows, docs, code review |
 | voltagent-data-ai | 13 | 30k | ML, data pipelines, analytics |
-| code-review | 1 | 10k | Automated code review |
-| pr-review-toolkit | 1 | 10k | PR review with checklists |
-| feature-dev | 1 | 10k | Feature scaffolding |
-| hookify | 1 | 10k | Git hook generation |
-| trailofbits | 1 | 10k | Static analysis, security |
-| obra-superpowers | 1 | 10k | TDD workflow, debugging |
-| getsentry | 1 | 10k | Error tracking integration |
 
 ### Task-to-Plugin Mapping
 
@@ -74,15 +103,7 @@ Available via VoltAgent and other marketplaces. Each bundle loads agent descript
 |-----------|-----------------|------------------------|
 | Language-specific patterns | voltagent-lang | Simple code in familiar languages |
 | Infrastructure/deploy | voltagent-infra | Basic Docker/CI tasks |
-| Security audit | voltagent-qa-sec or trailofbits | Simple vulnerability checks |
-| Code review | code-review or voltagent-dev-exp | Short diffs, familiar code |
-| TDD workflow | obra-superpowers | Standard test frameworks |
-| Error tracking | getsentry | Manual log analysis |
+| Security audit | voltagent-qa-sec | Simple vulnerability checks |
+| Code review | voltagent-dev-exp | Short diffs, familiar code |
 
-## Recommendation Protocol
-
-1. **Per-project only.** Enable in `.claude/settings.local.json`, NEVER in global `settings.json`.
-2. **State the cost.** Before suggesting a plugin, state its token cost (from table above). One bundle at ~30k tokens = ~15% of context window.
-3. **One at a time.** Suggest one bundle per session. Don't nag after decline.
-4. **Night mode: defer.** If night mode is active, note the recommendation for next session instead of suggesting a restart.
-5. **Project CLAUDE.md.** Suggest adding `## Preferred Plugins` section listing approved plugins for the project.
+**Recommendation protocol:** Per-project only. State the cost. One at a time. Night mode: defer.
