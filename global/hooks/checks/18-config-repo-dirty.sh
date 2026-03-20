@@ -30,7 +30,7 @@ if [ -n "$_dirty_files" ]; then
     fi
 fi
 
-# Check 42: Collect-uncommitted marker — written by sync.sh collect when it
+# Collect-uncommitted marker — written by sync.sh collect when it
 # skips hooks due to uncommitted edits in the repo.
 _collect_marker="$CONFIG_REPO/.collect-uncommitted-hooks"
 if [ -f "$_collect_marker" ]; then
