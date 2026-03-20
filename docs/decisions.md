@@ -91,3 +91,19 @@
 ### CI implementation order: preflight → integration → GitHub Actions
 **Date:** 2026-03-12
 **Decision:** AFT-39/40/41 should be implemented in dependency order: preflight check (41) first (standalone, no Docker needed), then integration test (40, uses preflight), then GitHub Actions CI (39, orchestrates both). Matches hardening-plan.md Day 1→2→3 sequence.
+
+### Memory rule: supplementary, not prohibited
+**Date:** 2026-03-20
+**Decision:** Auto-memory (MEMORY.md) is "NOT the answer" / "usually wrong" rather than "NEVER" / "ALWAYS wrong." Fleet's structured system is primary for all defined knowledge types. Auto-memory remains available for things fleet doesn't cover — temporary orientation, observations, cross-session hints. Rationale: absolute prohibition blocked a useful safety net for uncovered cases.
+
+### sub command: prohibit subagent commits
+**Date:** 2026-03-20
+**Decision:** `sub` command prompt says "Do NOT commit, push, or create PRs" — not "Include Co-Authored-By." Main session controls what gets committed.
+
+### Quick commands scope: anywhere in message
+**Date:** 2026-03-20
+**Decision:** Quick command keywords (cls, end, lsd, etc.) trigger "anywhere in their message" not "alone." Enables natural use like "push and cls."
+
+### Persona startup: trust hook injection
+**Date:** 2026-03-20
+**Decision:** SessionStart hook injects `PERSONA:` — use that directly. No need to Read `.active-persona` at startup. Saves 2 tool calls per session.
