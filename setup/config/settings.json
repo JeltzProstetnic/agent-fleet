@@ -12,7 +12,8 @@
     "CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION": "0",
     "FORCE_COLOR": "1",
     "COLORTERM": "truecolor",
-    "CLAUDE_CODE_SESSIONEND_HOOKS_TIMEOUT_MS": "10000"
+    "CLAUDE_CODE_SESSIONEND_HOOKS_TIMEOUT_MS": "10000",
+    "TERM_PROGRAM_INHIBIT_ALTSCREEN": "1"
   },
   "permissions": {
     "allow": [
@@ -96,7 +97,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash ~/.claude/hooks/config-check.sh"
+            "command": "bash ~/.claude/hooks/safe-run.sh config-check.sh"
           }
         ]
       }
@@ -107,7 +108,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash ~/.claude/hooks/context-budget.sh"
+            "command": "bash ~/.claude/hooks/safe-run.sh context-budget.sh"
           }
         ]
       },
@@ -116,7 +117,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash ~/.claude/hooks/afk-deactivate.sh"
+            "command": "bash ~/.claude/hooks/safe-run.sh afk-deactivate.sh"
           }
         ]
       }
@@ -127,7 +128,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash ~/.claude/hooks/config-auto-sync.sh"
+            "command": "bash ~/.claude/hooks/safe-run.sh config-auto-sync.sh"
           }
         ]
       }
@@ -138,7 +139,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash ~/.claude/hooks/rtk-rewrite.sh"
+            "command": "bash ~/.claude/hooks/safe-run.sh rtk-rewrite.sh"
           }
         ]
       },
@@ -147,7 +148,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash ~/.claude/hooks/afd-relay.sh"
+            "command": "bash ~/.claude/hooks/safe-run.sh afd-relay.sh"
           }
         ]
       }
@@ -158,7 +159,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash ~/.claude/hooks/auto-lint.sh",
+            "command": "bash ~/.claude/hooks/safe-run.sh auto-lint.sh",
             "timeout": 10
           }
         ]
