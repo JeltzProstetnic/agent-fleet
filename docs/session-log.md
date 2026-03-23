@@ -4,6 +4,33 @@ Full session history. Newest first. Never pruned.
 
 <!-- Sessions are appended here by rotate-session.sh -->
 
+### 2026-03-23T18:45Z — WSL
+**Goal:** Work through open todos, inbox items, template propagation, VM test prep, anti-lockout hardening
+**Completed:**
+- OpenClaw vs agent-fleet positioning doc
+- Installer dual-mode UX design doc
+- 3 cfg inbox fixes (Gmail draft rule, communication-policy, EPUB/Kindle)
+- WSL postmortem → CFG-252/253 promoted
+- Cat 3 template propagation (session-protocol, settings.json hooks)
+- Manifest stamped — 0 flagged
+- Test VM (Ubuntu-24.04 WSL instance) created and provisioned
+- agent-fleet cloned + setup.sh in VM — all working
+- Hook dry-run: SETUP_PENDING correctly detected
+- LOCKOUT FIX: set -e removed from afleet.sh, fallback launch, all guards
+- 14-test integrity suite (test-afleet-integrity.sh)
+- CFG-254: afleet family added to template-sync-manifest
+- CFG-255-258 backlog items created (call-graph, wrapper, curl timeouts, python3 guard)
+**Key Decisions:**
+- OpenClaw = different category. Position against "dotfiles approach."
+- Installer dual-mode: guided vs --auto. P2 priority.
+- Test VM via WSL2 instance (not Multipass — Hyper-V needs reboot)
+- CRITICAL: set -e in launcher is the root cause of ALL lockouts. Removed permanently.
+- afleet.sh must NEVER use set -e. Integrity test enforces this.
+- install-skill-collections.sh bug: writes to global enabledPlugins (hook auto-fixes)
+**Pending at shutdown:** E2E onboarding test with API key (next session)
+**Recovery/Next session:**
+Test VM live: `wsl -d Ubuntu-24.04 -u aftest`. Cleanup: `wsl --unregister Ubuntu-24.04`.
+
 ### 2026-03-23T18:25Z — WSL
 **Goal:** Work through open todos, inbox items, template propagation, VM deployment test prep
 **Completed:**
