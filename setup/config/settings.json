@@ -162,6 +162,26 @@
             "type": "command",
             "command": "bash ~/.claude/hooks/safe-run.sh auto-lint.sh",
             "timeout": 10
+          },
+          {
+            "type": "command",
+            "command": "bash ~/.claude/hooks/safe-run.sh critical-edit-notify.sh",
+            "timeout": 5
+          }
+        ]
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash ~/.claude/hooks/safe-run.sh commit-verify.sh",
+            "timeout": 5
+          },
+          {
+            "type": "command",
+            "command": "bash ~/.claude/hooks/safe-run.sh tool-install-detect.sh",
+            "timeout": 5
           }
         ]
       }
