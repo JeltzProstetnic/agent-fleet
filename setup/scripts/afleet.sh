@@ -2,7 +2,25 @@
 # afleet — unified agent fleet launcher
 # Wraps mclaude with project detection, pre-launch sync, and interactive project picker.
 # Usage: afleet [<project>] [--list|-l] [--pick|-p] [--cwd <dir>] [--help|-h]
-set -euo pipefail
+set -uo pipefail  # NO set -e — launcher must NEVER crash. Every section handles its own errors.
+
+# ── Fallback launch ──────────────────────────────────────────────────────────
+# If anything critical fails, launch Claude Code directly (degraded but alive).
+_fallback_launch() {
+    echo "" >&2
+    echo "  !! AFLEET DEGRADED LAUNCH — $1" >&2
+    echo "  Launching Claude Code directly (no sync, no project detection)." >&2
+    echo "" >&2
+    local launcher=""
+    for c in "$HOME/.local/bin/mclaude" "$(command -v mclaude 2>/dev/null || true)" "$(command -v claude 2>/dev/null || true)"; do
+        [[ -n "$c" && -x "$c" ]] && launcher="$c" && break
+    done
+    if [[ -z "$launcher" ]]; then
+        echo "  FATAL: Neither mclaude nor claude found." >&2; exit 1
+    fi
+    cd "$HOME" 2>/dev/null || true
+    exec "$launcher"
+}
 
 # ── Config ───────────────────────────────────────────────────────────────────
 CONFIG_REPO="${CONFIG_REPO:-}"
@@ -22,9 +40,13 @@ INBOX_FILE="$CONFIG_REPO/cross-project/inbox.md"
 SYNC_SCRIPT="$CONFIG_REPO/setup/scripts/git-sync-check.sh"
 DRY_RUN="${AFLEET_DRY_RUN:-0}"
 
-# ── Source library (symlink-safe) ────────────────────────────────────────────
-_AFLEET_DIR="$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")"
-source "$_AFLEET_DIR/afleet-lib.sh"
+# ── Source library (symlink-safe, with fallback) ─────────────────────────────
+_AFLEET_DIR="$(dirname "$(readlink -f "${BASH_SOURCE[0]}" 2>/dev/null || echo "${BASH_SOURCE[0]}")")"
+if [[ -f "$_AFLEET_DIR/afleet-lib.sh" ]] && bash -n "$_AFLEET_DIR/afleet-lib.sh" 2>/dev/null; then
+    source "$_AFLEET_DIR/afleet-lib.sh" || _fallback_launch "afleet-lib.sh sourcing failed"
+else
+    _fallback_launch "afleet-lib.sh missing or has syntax errors"
+fi
 
 # ── Interactive picker ───────────────────────────────────────────────────────
 run_picker() {
@@ -187,10 +209,14 @@ while [[ $# -gt 0 ]]; do
         --list|-l) MODE="list"; shift ;;
         --pick|-p|--dash|-d) SHOW_PICKER=true; shift ;;
         --all) PICKER_ALL=1; shift ;;
-        --cwd) CWD_OVERRIDE="$2"; shift 2 ;;
+        --cwd) [[ $# -ge 2 ]] || { echo "Error: --cwd requires an argument" >&2; exit 1; }; CWD_OVERRIDE="$2"; shift 2 ;;
         # Recovery subcommands — delegate to afleet-recover.sh
         doctor|recover|rollback|safe-mode|safemode)
-            exec bash "$_AFLEET_DIR/afleet-recover.sh" "$@" ;;
+            if [[ -f "$_AFLEET_DIR/afleet-recover.sh" ]]; then
+                exec bash "$_AFLEET_DIR/afleet-recover.sh" "$@"
+            else
+                echo "Recovery module not yet installed." >&2; exit 1
+            fi ;;
         -*) echo "Unknown option: $1" >&2; exit 1 ;;
         *)  PROJECT_ARG="$1"; shift ;;
     esac
@@ -268,7 +294,7 @@ if $SHOW_PICKER; then
 fi
 
 # ── Pre-launch: SteamOS pre-flight ───────────────────────────────────────────
-steamos_preflight
+steamos_preflight || echo "  Warning: SteamOS preflight had issues — continuing" >&2
 
 # ── Pre-launch: git sync ────────────────────────────────────────────────────
 start_spinner "Syncing repos…"
@@ -282,7 +308,7 @@ if [[ "$TARGET_DIR" != "$CONFIG_REPO" && -f "$SYNC_SCRIPT" && -d "$CONFIG_REPO/.
 fi
 
 # Pre-pull all other local repos (CFG-129) — prevents stale cross-project state.
-AFLEET_SKIP_REPOS="$TARGET_DIR|$CONFIG_REPO" pre_pull_all_repos
+AFLEET_SKIP_REPOS="$TARGET_DIR|$CONFIG_REPO" pre_pull_all_repos || true
 
 # Auto-repair deployed hooks after config repo pull.
 # Compares repo hooks to deployed hooks; copies any that differ.
@@ -316,7 +342,7 @@ stop_spinner
 # ── Pre-launch: Telegram-to-inbox (CFG-238) ─────────────────────────────────
 # Check AFD for unprocessed Telegram messages from between sessions.
 # Creates inbox entries routed by @project-name tags. 0 LLM tokens.
-type telegram_inbox_check &>/dev/null && telegram_inbox_check
+type telegram_inbox_check &>/dev/null && { telegram_inbox_check || true; }
 
 # ── Pre-launch: acquire session lock (CFG-101) ──────────────────────────────
 # Local lock (same-machine protection) + optional server lock (cross-machine).
@@ -329,7 +355,7 @@ afleet_acquire_session_lock() {
 
     [[ -f "$lock_lib" ]] || return 0  # No lock library — skip
 
-    source "$lock_lib"
+    source "$lock_lib" 2>/dev/null || { echo "  Warning: session-lock.sh failed to load" >&2; return 0; }
     local session_id
     session_id=$(_generate_session_id)
 
@@ -349,7 +375,7 @@ afleet_acquire_session_lock() {
 
     # Try server lock — 409 = both-stop (CFG-101b)
     if [[ -f "$afd_lib" && -n "${AFD_TOKEN:-}" ]]; then
-        source "$afd_lib"
+        source "$afd_lib" 2>/dev/null || { echo "  Warning: afd-lib.sh failed to load" >&2; return 0; }
         local _lock_rc=0
         afd_lock_acquire "$project_name" "$(hostname)" "$session_id" "$$" 2>/tmp/.afleet-lock-msg || _lock_rc=$?
         if [[ "$_lock_rc" -eq 2 ]]; then
@@ -368,7 +394,9 @@ afleet_acquire_session_lock() {
     return 0
 }
 
-afleet_acquire_session_lock "$TARGET_DIR" "$TARGET_NAME" || exit 0
+afleet_acquire_session_lock "$TARGET_DIR" "$TARGET_NAME" || {
+    echo "  Warning: session lock failed — launching anyway" >&2
+}
 
 # ── Launch ───────────────────────────────────────────────────────────────────
 
@@ -377,7 +405,7 @@ if [[ "$DRY_RUN" == "1" ]]; then
     exit 0
 fi
 
-cd "$TARGET_DIR"
+cd "$TARGET_DIR" 2>/dev/null || { echo "  Warning: cannot cd to $TARGET_DIR — using HOME" >&2; cd "$HOME"; }
 
 MCLAUDE=""
 for candidate in "$HOME/.local/bin/mclaude" "$(command -v mclaude 2>/dev/null || true)"; do
