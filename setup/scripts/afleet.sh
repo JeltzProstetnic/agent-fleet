@@ -18,6 +18,7 @@ fi
 
 REGISTRY="$CONFIG_REPO/registry.md"
 DASHBOARD_CACHE="$CONFIG_REPO/cross-project/dashboard-cache.md"
+INBOX_FILE="$CONFIG_REPO/cross-project/inbox.md"
 SYNC_SCRIPT="$CONFIG_REPO/setup/scripts/git-sync-check.sh"
 DRY_RUN="${AFLEET_DRY_RUN:-0}"
 
@@ -36,8 +37,8 @@ run_picker() {
         local display_list
         display_list=$(echo "$cache_data" | PICKER_SHOW_ALL="$show_all" build_display_list)
 
-        # Clear screen, banner, and render project list
-        printf '\033[2J\033[3J\033[H'
+        # Clear visible screen for picker redraw (preserve scrollback)
+        printf '\033[2J\033[H'
         if [[ -t 1 ]]; then
             printf '\033[38;5;220m    ▄▀█ █▀▀\033[0m   \033[38;5;245mAgent Fleet\033[0m\n'
             printf '\033[38;5;220m    █▀█ █▀\033[0m    \033[38;5;240m━━━━━━━━━━━━\033[0m\n'
@@ -117,7 +118,7 @@ steamos_preflight() {
     fi
 }
 
-# ── Pre-pull all local repos ─────────────────────────────────────────────────
+# ── Pre-pull all local repos (CFG-129) ───────────────────────────────────────
 # Pulls all project repos listed in registry.md that exist locally.
 # Prevents stale cross-project state (e.g., tmp/ false alarms from already-moved files).
 # Non-fatal: failures are logged but don't block launch.
@@ -176,11 +177,20 @@ while [[ $# -gt 0 ]]; do
             echo "  afleet --dash       Alias for --pick (backwards compat)"
             echo "  afleet --cwd <dir>  Override working directory for project detection"
             echo "  afleet --all        Include P4-P5 projects in picker"
+            echo ""
+            echo "Recovery:"
+            echo "  afleet doctor       Health check — diagnose issues"
+            echo "  afleet recover      Auto-diagnose and fix common issues"
+            echo "  afleet rollback N   Roll back config repo by N commits + redeploy"
+            echo "  afleet safe-mode    Launch Claude Code with minimal config"
             exit 0 ;;
         --list|-l) MODE="list"; shift ;;
         --pick|-p|--dash|-d) SHOW_PICKER=true; shift ;;
         --all) PICKER_ALL=1; shift ;;
         --cwd) CWD_OVERRIDE="$2"; shift 2 ;;
+        # Recovery subcommands — delegate to afleet-recover.sh
+        doctor|recover|rollback|safe-mode|safemode)
+            exec bash "$_AFLEET_DIR/afleet-recover.sh" "$@" ;;
         -*) echo "Unknown option: $1" >&2; exit 1 ;;
         *)  PROJECT_ARG="$1"; shift ;;
     esac
@@ -188,10 +198,6 @@ done
 
 # ── List mode ────────────────────────────────────────────────────────────────
 if [[ "$MODE" == "list" ]]; then
-    if [[ ! -f "$REGISTRY" ]]; then
-        echo "No registry.md yet (fresh install). Only project: agent-fleet"
-        exit 0
-    fi
     printf "%-25s %s\n" "Project" "Path"
     printf "%-25s %s\n" "-------" "----"
     parse_registry | while IFS='|' read -r name path; do
@@ -205,17 +211,12 @@ fi
 # ── Project resolution ───────────────────────────────────────────────────────
 TARGET_DIR=""
 TARGET_NAME=""
-HAS_REGISTRY=false
-[[ -f "$REGISTRY" ]] && HAS_REGISTRY=true
 
 if [[ -n "$PROJECT_ARG" ]]; then
-    if $HAS_REGISTRY; then
-        MATCH=$(parse_registry | grep -i "^${PROJECT_ARG}|" | head -1 || true)
-    else
-        MATCH=""
-    fi
+    MATCH=$(parse_registry | grep -i "^${PROJECT_ARG}|" | head -1 || true)
     if [[ -z "$MATCH" ]]; then
-        echo "Error: project '$PROJECT_ARG' not found" >&2
+        echo "Error: project '$PROJECT_ARG' not found in registry.md" >&2
+        echo "Run 'afleet --list' to see available projects." >&2
         exit 1
     fi
     TARGET_NAME="${MATCH%%|*}"
@@ -236,13 +237,11 @@ else
             TARGET_NAME="$BASENAME"
             break
         fi
-        if $HAS_REGISTRY; then
-            MATCH=$(parse_registry | grep -i "^${BASENAME}|" | head -1 || true)
-            if [[ -n "$MATCH" ]]; then
-                TARGET_NAME="${MATCH%%|*}"
-                TARGET_DIR="${MATCH#*|}"
-                break
-            fi
+        MATCH=$(parse_registry | grep -i "^${BASENAME}|" | head -1 || true)
+        if [[ -n "$MATCH" ]]; then
+            TARGET_NAME="${MATCH%%|*}"
+            TARGET_DIR="${MATCH#*|}"
+            break
         fi
         CHECK_DIR="$(dirname "$CHECK_DIR")"
     done
@@ -282,12 +281,44 @@ if [[ "$TARGET_DIR" != "$CONFIG_REPO" && -f "$SYNC_SCRIPT" && -d "$CONFIG_REPO/.
     bash "$SYNC_SCRIPT" --pull "$CONFIG_REPO" >/dev/null 2>&1 || true
 fi
 
-# Pre-pull all other local repos — prevents stale cross-project state.
+# Pre-pull all other local repos (CFG-129) — prevents stale cross-project state.
 AFLEET_SKIP_REPOS="$TARGET_DIR|$CONFIG_REPO" pre_pull_all_repos
+
+# Auto-repair deployed hooks after config repo pull.
+# Compares repo hooks to deployed hooks; copies any that differ.
+# Prevents stale/broken hooks from persisting across sessions.
+if [[ -d "$CONFIG_REPO/global/hooks" && -d "$HOME/.claude/hooks" ]]; then
+    for _hook in "$CONFIG_REPO/global/hooks/"*.sh; do
+        [ -f "$_hook" ] || continue
+        _base=$(basename "$_hook")
+        _deployed="$HOME/.claude/hooks/$_base"
+        if [[ ! -f "$_deployed" ]] || ! cmp -s "$_hook" "$_deployed"; then
+            cp "$_hook" "$_deployed" && chmod +x "$_deployed"
+        fi
+    done
+    # Hook subdirectories (e.g., checks/)
+    for _subdir in "$CONFIG_REPO/global/hooks"/*/; do
+        [ -d "$_subdir" ] || continue
+        _sname=$(basename "$_subdir")
+        mkdir -p "$HOME/.claude/hooks/$_sname"
+        for _f in "$_subdir"*.sh; do
+            [ -f "$_f" ] || continue
+            _deployed="$HOME/.claude/hooks/$_sname/$(basename "$_f")"
+            if [[ ! -f "$_deployed" ]] || ! cmp -s "$_f" "$_deployed"; then
+                cp "$_f" "$_deployed"
+            fi
+        done
+    done
+fi
 
 stop_spinner
 
-# ── Pre-launch: acquire session lock ─────────────────────────────────────────
+# ── Pre-launch: Telegram-to-inbox (CFG-238) ─────────────────────────────────
+# Check AFD for unprocessed Telegram messages from between sessions.
+# Creates inbox entries routed by @project-name tags. 0 LLM tokens.
+type telegram_inbox_check &>/dev/null && telegram_inbox_check
+
+# ── Pre-launch: acquire session lock (CFG-101) ──────────────────────────────
 # Local lock (same-machine protection) + optional server lock (cross-machine).
 # Server lock is best-effort — fails silently if AFD unreachable or no token.
 afleet_acquire_session_lock() {
@@ -304,7 +335,7 @@ afleet_acquire_session_lock() {
 
     # Acquire local lock
     if ! acquire_lock "$project_dir" "$session_id"; then
-        echo "  Warning: Project locked by another session on this machine." >&2
+        echo "  ⚠ Project locked by another session on this machine." >&2
         lock_info "$project_dir" >&2
         printf '  Continue anyway? (y/N) '
         read -r _ans
@@ -316,20 +347,20 @@ afleet_acquire_session_lock() {
     # Export session ID for hooks (statusline heartbeat, SessionEnd release)
     export AFLEET_SESSION_ID="$session_id"
 
-    # Try server lock — 409 = both-stop
+    # Try server lock — 409 = both-stop (CFG-101b)
     if [[ -f "$afd_lib" && -n "${AFD_TOKEN:-}" ]]; then
         source "$afd_lib"
         local _lock_rc=0
         afd_lock_acquire "$project_name" "$(hostname)" "$session_id" "$$" 2>/tmp/.afleet-lock-msg || _lock_rc=$?
         if [[ "$_lock_rc" -eq 2 ]]; then
             echo "" >&2
-            echo "  $(cat /tmp/.afleet-lock-msg 2>/dev/null)" >&2
+            echo "  ✖ $(cat /tmp/.afleet-lock-msg 2>/dev/null)" >&2
             echo "  Both sessions should stop to avoid conflicts." >&2
             echo "  Use 'afd lock release $project_name' to force-clear if the other session is dead." >&2
             rm -f /tmp/.afleet-lock-msg
             return 1
         elif [[ "$_lock_rc" -ne 0 ]]; then
-            echo "  Warning: Server lock unavailable ($(cat /tmp/.afleet-lock-msg 2>/dev/null))" >&2
+            echo "  ⚠ Server lock unavailable ($(cat /tmp/.afleet-lock-msg 2>/dev/null))" >&2
         fi
         rm -f /tmp/.afleet-lock-msg
     fi
@@ -381,7 +412,7 @@ fi
 # suppresses CC's built-in banner (requires cc-mirror tweak to be applied).
 # Clear screen first for clean transition from picker.
 if [[ -t 1 ]]; then
-    printf '\033[2J\033[3J\033[H'
+    printf '\033[2J\033[H'
     __cc_ver=""
     __cc_pkg="${CC_MIRROR_DIR:-$HOME/.cc-mirror/mclaude}/npm/node_modules/@anthropic-ai/claude-code/package.json"
     if [[ -f "$__cc_pkg" ]]; then
@@ -401,6 +432,18 @@ AFLEET_LAUNCHED=1 AFLEET_PROJECT="$TARGET_NAME" CC_MIRROR_SPLASH=0 "$MCLAUDE"
 MCLAUDE_EXIT=$?
 
 # Clear pre-launch banner from primary buffer so it doesn't linger after CC exits
-[[ -t 1 ]] && printf '\033[2J\033[3J\033[H'
+[[ -t 1 ]] && printf '\033[2J\033[H'
+
+
+# ── Post-session: drive unmount reminder (WSL only) ─────────────────────────
+# Claude Code can't unmount (no sudo), so remind the user to do it manually.
+_mounted_drives=""
+for mp in /mnt/d /mnt/wsl/data8tb; do
+    mountpoint -q "$mp" 2>/dev/null && _mounted_drives="${_mounted_drives:+$_mounted_drives, }$mp"
+done
+if [[ -n "$_mounted_drives" ]]; then
+    printf '\n%b  ⚠ External drives still mounted: %s%b\n' "$C_BYEL" "$_mounted_drives" "$C_RST"
+    printf '%b  Eject from Windows: T7 Shield via tray icon, 8TB via "Safely Remove Hardware"%b\n\n' "$C_DIM" "$C_RST"
+fi
 
 exit $MCLAUDE_EXIT
