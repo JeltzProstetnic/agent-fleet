@@ -1,16 +1,14 @@
-Action: act
+Action: reference
+Tracked-by: AFT-42 (positioning), AFT-43 (installer UX), CFG-156 (VM test)
 
-# Next Session Tasks
+# Next Session Tasks — RESOLVED
 
 ## 1. OpenClaw vs agent-fleet positioning doc
-Write a positioning document differentiating agent-fleet from OpenClaw (or similar projects).
-Inbox item: `agent-fleet` section in cross-project inbox.
+DONE 2026-03-23. See `docs/positioning-vs-openclaw.md`.
 
 ## 2. Installer dual-mode UX
-Design an installer with dual-mode UX (guided vs automated).
-Inbox item: `agent-fleet` section in cross-project inbox.
+DONE 2026-03-23. See `docs/design-installer-dual-mode.md`.
 
 ## 3. VM deployment test (interactive)
-Run the end-to-end Multipass deployment test.
+DEFERRED — requires user interaction with Multipass.
 Full test plan: `/home/jeltz/cfg-agent-fleet/docs/pending-vm-deployment-test.md`
-Requires user interaction with Multipass.
