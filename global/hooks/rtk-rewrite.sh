@@ -37,6 +37,13 @@ if [ -z "$CMD" ]; then
   exit 0
 fi
 
+# Blocklist: commands whose rtk equivalent produces incompatible output.
+# rtk find outputs emoji-compressed format (📁 5F 1D:) that breaks parsing.
+FIRST_WORD="${CMD%% *}"
+case "$FIRST_WORD" in
+  find) exit 0 ;;
+esac
+
 # Delegate all rewrite logic to the Rust binary.
 # rtk rewrite exits 1 when there's no rewrite — hook passes through silently.
 REWRITTEN=$(rtk rewrite "$CMD" 2>/dev/null) || exit 0
