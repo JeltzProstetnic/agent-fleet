@@ -214,4 +214,8 @@ DEFAULT_BRANCH=$(git symbolic-ref "refs/remotes/$PUSH_REMOTE/HEAD" 2>/dev/null |
 git push "$PUSH_REMOTE" "$DEFAULT_BRANCH" 2>/dev/null \
     || sync_fail "push" "git push failed (network? auth?)"
 
+# --- Phase 3.5: Deploy repo → live (ensure deployed state matches committed state) ---
+# Fills the gap CFG-208 doesn't cover: same-machine deploy after own commit.
+bash "$CONFIG_REPO/sync.sh" deploy 2>/dev/null || true
+
 sync_success
