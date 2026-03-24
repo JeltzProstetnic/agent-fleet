@@ -207,7 +207,7 @@ Personas are loaded from `~/.claude/foundation/personas.md` (or machine file ove
 
 **URL/service identification:** When given a URL, identify the service first (x.com → Twitter, github.com → GitHub, etc.), check MCP catalog, then choose MCP vs CLI.
 
-**Backlog convention:** `backlog.md` at project root. Don't read at startup. Tasks use `PRJ-NN` IDs. Full format/IDs/prioritization rules: `~/.claude/reference/backlog-convention.md`.
+**Backlog convention:** `backlog.md` at project root. Don't read at startup. Tasks use `PRJ-NN` IDs. Three states: `[ ]` open, `[>]` in-progress, `[x]` done. Mark `[>]` when implementation begins; revert to `[ ]` at shutdown if incomplete. Full rules: `~/.claude/reference/backlog-convention.md`.
 
 **Cross-project boundary — HARD CONSTRAINT:** Only write inside current project directory. Cross-project goes through inbox. The config repo (`~/agent-fleet/*`) and `~/.claude/*` are owned by the config project — **no other project may write to them.** No exceptions — all cross-project communication goes through inbox, including template updates and sub-project `.claude/` maintenance. `sync.sh` may perform mechanical file copying as infrastructure automation, but all changes requiring judgment (commits, pushes, config decisions) go through the target project's own session. Load `~/.claude/reference/cross-project-rules.md` before writing outside.
 
