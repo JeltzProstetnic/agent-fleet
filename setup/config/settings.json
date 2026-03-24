@@ -152,6 +152,15 @@
             "command": "bash ~/.claude/hooks/safe-run.sh afd-relay.sh"
           }
         ]
+      },
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash ~/.claude/hooks/safe-run.sh risk-gate.sh"
+          }
+        ]
       }
     ],
     "PostToolUse": [
