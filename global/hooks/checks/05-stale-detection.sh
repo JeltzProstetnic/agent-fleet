@@ -93,7 +93,7 @@ if [ -f "$INBOX_FILE" ]; then
         # Extract date from Source:...YYYY-MM-DD or trailing YYYY-MM-DD
         _item_date=$(echo "$_line" | grep -oE '[0-9]{4}-[0-9]{2}-[0-9]{2}' | tail -1)
         [ -z "$_item_date" ] && continue
-        _item_epoch=$(date -d "$_item_date" +%s 2>/dev/null) || continue
+        _item_epoch=$(date -d "$_item_date" +%s 2>/dev/null || date -jf "%Y-%m-%d" "$_item_date" +%s 2>/dev/null) || continue
         _age_days=$(( (_today_epoch - _item_epoch) / 86400 ))
         if [ "$_age_days" -gt 7 ]; then
             _inbox_stale_count=$((_inbox_stale_count + 1))

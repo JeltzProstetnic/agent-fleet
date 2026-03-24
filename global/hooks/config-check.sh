@@ -5,10 +5,13 @@
 # Check modules live in checks/ subdirectory (01-sync-state.sh through 14-audit-staleness.sh).
 # Each module reads/modifies the shared variables below.
 
+# Source portable wrappers (provides _readlink_f for macOS compat)
+source "$(dirname "${BASH_SOURCE[0]}")/lib-portable.sh" 2>/dev/null || true
+
 # Auto-detect config repo: try symlink source, then known paths
 _detect_config_repo() {
     local hook_real
-    hook_real="$(readlink -f "${BASH_SOURCE[0]}" 2>/dev/null || echo "")"
+    hook_real="$(_readlink_f "${BASH_SOURCE[0]}" 2>/dev/null || echo "")"
     if [[ -n "$hook_real" && -f "$(dirname "$hook_real")/../../sync.sh" ]]; then
         echo "$(cd "$(dirname "$hook_real")/../.." && pwd)"
         return
@@ -34,7 +37,7 @@ PROJECT_DIR="$(pwd)"
 PROJECT_ROOT="$(git -C "$CONFIG_REPO" rev-parse --show-toplevel 2>/dev/null || echo "$CONFIG_REPO")"
 
 # ── Resolve checks directory ──
-_HOOK_DIR="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}" 2>/dev/null || echo "${BASH_SOURCE[0]}")")" && pwd)"
+_HOOK_DIR="$(cd "$(dirname "$(_readlink_f "${BASH_SOURCE[0]}" 2>/dev/null || echo "${BASH_SOURCE[0]}")")" && pwd)"
 _CHECKS_DIR="${CONFIG_CHECK_DIR:-${_HOOK_DIR}/checks}"
 
 # ── Source and execute check modules (alphabetical order) ──

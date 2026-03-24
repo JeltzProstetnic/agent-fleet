@@ -7,7 +7,7 @@
 AFD_CLI="${HOME}/.local/bin/afd"
 
 # --- 0. Signal user is active (for secondary deactivation in PreToolUse) ---
-date -Iseconds > "$HOME/.afd-user-active"
+date +%Y-%m-%dT%H:%M:%S%z > "$HOME/.afd-user-active"
 
 # --- 1. Deactivate AFK mode ---
 if [[ -f "$HOME/.afd-afk" ]]; then
