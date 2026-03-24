@@ -93,7 +93,7 @@ If hostname doesn't match any pattern, state the hostname and ask. If `CLAUDE.lo
    | FMS ops, file dedup, bulk moves | `knowledge/fms-ops.md` |
    | Audit, self-audit, meta-audit | `knowledge/audit-protocol.md` |
    | Email triage, inbox management | `knowledge/gmail-management.md` |
-   | `lrn` command issued | `knowledge/learn-protocol.md` |
+   | `lrn` command issued | `skills/lrn/SKILL.md` |
    | AFD daemon, task coordination | `knowledge/afd-ops.md` |
    | NAS access, smbclient, file transfer | `knowledge/nas-cheatsheet.md` |
    | YouTube tabs (save/list/open) | Run `bash ~/agent-fleet/setup/scripts/youtube-tabs.sh save\|list\|open [query]` — no file to load, just invoke the script directly |
@@ -222,7 +222,7 @@ Personas are loaded from `~/.claude/foundation/personas.md` (or machine file ove
 | `cls` | Load `foundation/session-shutdown.md`, execute full 8-step shutdown checklist, then say "Shutdown complete. Next: /clear" **If `cls` is the first message**, skip startup — just run shutdown. |
 | `end` | Load `foundation/session-shutdown.md`, execute full 8-step shutdown checklist, then say "Shutdown complete. Next: /exit" |
 | `lsd` | **Project dashboard.** Load `~/.claude/reference/lsd-spec.md` first, then render. Also auto-triggered by `AFLEET_DASHBOARD:` in systemMessage — in that case, read ONLY `dashboard-cache.md` (skip lsd-spec.md load), render, and accept project numbers/names as switch commands. |
-| `lrn` | **Self-audit.** `lrn` alone = full audit. `lrn` + words = apply audit principles to what follows. Load `~/.claude/knowledge/learn-protocol.md`, then execute. Note: `lrn` = reliable trigger. `learn` (full word) is context-sensitive — only triggers if clearly directed at Claude or standalone. |
+| `lrn` | **Self-audit.** `lrn` alone = full audit. `lrn` + words = apply audit principles to what follows. Load `~/.claude/skills/lrn/SKILL.md`, then execute. Note: `lrn` = reliable trigger. `learn` (full word) is context-sensitive — only triggers if clearly directed at Claude or standalone. |
 | `afk` | **AFK mode.** If AFD daemon is running, activate AFK mode (`afd afk on`). Dangerous Bash commands are queued for approval. AFK mode auto-deactivates on next user console input (via UserPromptSubmit hook). |
 | `sub <task>` | **Delegate to subagent.** Launch a subagent (general-purpose or best-fit type) for the described task. If the task is too simple (one tool call), needs main conversation context, or requires interactive back-and-forth, inform the user instead of delegating. Pass the task description verbatim as the subagent prompt. Include in the prompt: "Do NOT commit, push, or create PRs. Write artifacts to tmp/, not docs/ — return findings as text." |
 

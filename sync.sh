@@ -75,7 +75,7 @@ cmd_setup() {
     log_info "Linked: $CLAUDE_HOME/CLAUDE.md → $GLOBAL_DIR/CLAUDE.md"
 
     # Knowledge architecture directories (directory symlinks)
-    for dir in foundation reference domains knowledge machines; do
+    for dir in foundation reference domains knowledge machines skills; do
         if [ -d "$GLOBAL_DIR/$dir" ]; then
             # Remove whatever exists at the target — symlink, directory, or file
             if [ -L "$CLAUDE_HOME/$dir" ]; then
