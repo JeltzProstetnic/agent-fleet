@@ -88,11 +88,8 @@ if [[ ! -d "$EXTERNAL_PLUGINS_DIR" ]]; then
     exit 0
 fi
 
-# Build associative array of plugins to keep for fast lookup
-declare -A keep_map
-for p in "${KEEP_PLUGINS[@]}"; do
-    keep_map["$p"]=1
-done
+# Build newline-separated list for grep lookup (bash 3.2 compat — no declare -A)
+_KEEP_LIST=$(printf '%s\n' "${KEEP_PLUGINS[@]}")
 
 removed=0
 kept=0
@@ -103,7 +100,7 @@ for plugin_dir in "$EXTERNAL_PLUGINS_DIR"/*/; do
     name=$(basename "$plugin_dir")
     ((total++)) || true
 
-    if [[ -n "${keep_map[$name]:-}" ]]; then
+    if printf '%s\n' "$_KEEP_LIST" | grep -qxF "$name"; then
         ((kept++)) || true
         log_info "Keeping: $name"
         continue

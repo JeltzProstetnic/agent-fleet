@@ -316,7 +316,7 @@ SERENAYML
         # Serena may regenerate config with defaults on update — always enforce our settings
         if grep -q 'web_dashboard_open_on_launch: true' "${serena_config}"; then
             if [[ "${DRY_RUN}" == "false" ]]; then
-                sed -i 's/web_dashboard_open_on_launch: true/web_dashboard_open_on_launch: false/' "${serena_config}"
+                _sed_i 's/web_dashboard_open_on_launch: true/web_dashboard_open_on_launch: false/' "${serena_config}"
                 log_info "Serena config: re-enforced web_dashboard_open_on_launch=false"
             else
                 echo -e "${COLOR_YELLOW}[DRY RUN]${COLOR_RESET} Would fix: web_dashboard_open_on_launch in ${serena_config}"
@@ -324,7 +324,7 @@ SERENAYML
         fi
         if grep -q 'gui_log_window: true' "${serena_config}"; then
             if [[ "${DRY_RUN}" == "false" ]]; then
-                sed -i 's/gui_log_window: true/gui_log_window: false/' "${serena_config}"
+                _sed_i 's/gui_log_window: true/gui_log_window: false/' "${serena_config}"
                 log_info "Serena config: re-enforced gui_log_window=false"
             fi
         fi
@@ -578,7 +578,7 @@ configure_platform_settings() {
                 # Extract name from "**Name** —" pattern
                 derived_name=$(sed -n 's/.*\*\*\([^*]*\)\*\* —.*/\1/p' "${profile_file}" 2>/dev/null | head -1)
                 # Extract first email address
-                derived_email=$(grep -oP '[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}' "${profile_file}" 2>/dev/null | head -1)
+                derived_email=$(grep -oE '[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}' "${profile_file}" 2>/dev/null | head -1)
             fi
 
             if [[ -z "${current_name}" ]]; then

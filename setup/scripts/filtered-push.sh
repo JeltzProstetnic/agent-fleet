@@ -16,29 +16,6 @@
 
 set -euo pipefail
 
-# sanitize_text — redact personal/infrastructure data from text (e.g., commit messages)
-# Redacts: email addresses (except noreply@), IPv4 addresses, DESKTOP-*/srv* hostnames,
-# /home/<user>/ and /mnt/c/Users/<user>/ paths.
-sanitize_text() {
-    local text="$1"
-    # Redact /home/<user>/ paths (but not /home/ alone)
-    text=$(printf '%s' "$text" | sed -E 's|/home/[a-zA-Z0-9_.-]+/|/home/[REDACTED-USER]/|g')
-    # Redact /mnt/c/Users/<user>/ paths
-    text=$(printf '%s' "$text" | sed -E 's|/mnt/c/Users/[a-zA-Z0-9_.-]+/|/mnt/c/Users/[REDACTED-USER]/|g')
-    # Redact DESKTOP-* hostnames
-    text=$(printf '%s' "$text" | sed -E 's/DESKTOP-[A-Za-z0-9]+/[REDACTED-HOST]/g')
-    # Redact srv* hostnames (srv followed by digits)
-    text=$(printf '%s' "$text" | sed -E 's/\bsrv[0-9]+/[REDACTED-HOST]/g')
-    # Redact IPv4 addresses
-    text=$(printf '%s' "$text" | sed -E 's/[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}/[REDACTED-IP]/g')
-    # Redact email addresses, but preserve noreply@ addresses
-    # Strategy: replace noreply@ with a safe placeholder, redact all other emails, restore
-    text=$(printf '%s' "$text" | sed -E 's/noreply@/__NOREPLY_AT__/g')
-    text=$(printf '%s' "$text" | sed -E 's/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9._-]+\.[a-zA-Z]{2,}/[REDACTED-EMAIL]/g')
-    text=$(printf '%s' "$text" | sed -E 's/__NOREPLY_AT__/noreply@/g')
-    printf '%s\n' "$text"
-}
-
 DRY_RUN=false
 [[ "${1:-}" == "--dry-run" ]] && DRY_RUN=true
 
@@ -234,9 +211,8 @@ if git rev-parse --verify "refs/remotes/$PUBLIC_REMOTE/$BRANCH" &>/dev/null; the
     fi
 fi
 
-# Use the branch's latest commit message, sanitized for public consumption
+# Use the branch's latest commit message
 MAIN_MSG=$(git log -1 --format=%B "$BRANCH")
-MAIN_MSG=$(sanitize_text "$MAIN_MSG")
 COMMIT=$(echo "$MAIN_MSG" | git commit-tree "$TREE" "${PARENT_ARGS[@]}")
 
 echo "=== Pushing to $PUBLIC_REMOTE (filtered) ==="
