@@ -74,12 +74,14 @@ The shutdown checklist is in `foundation/session-shutdown.md` — loaded on dema
 10. **Pending file carry-over (Layer 0b):** Check `PENDING_FILES:` in systemMessage. If `none`, skip. If listed, those `docs/pending-*.md` files exist and must be processed:
     - **Read the `Action:` line** in each file's header (see format below). If no header exists, treat as `triage`.
     - **`present`** → Read fully, include in opening response to user. These are session-start deliverables.
-    - **`act`** → Read fully, execute immediately. Failure to act is a bug.
+    - **`act`** → Promote to backlog, create inbox items if cross-project, transition to `reference` with `Tracked-by:`.
     - **`triage`** → Read, promote actionable items to backlog as P0, then delete file.
     - **`await-user-decision`** → Read, present decision needed to user, note in carry-over items.
     - **`defer`** → List in session-context.md carry-over items without reading fully. No action needed.
+    - **`reference`** → Skip at startup. Do not read or present. Only read when actively working on a `Tracked-by` backlog item and needing deeper context. Delete the file when ALL `Tracked-by` items are closed (`- [x]` in backlog).
     - Files without an `Action:` line default to `triage` — read them to determine what's needed.
     - List all pending files and their outcomes in session-context.md under `## Carry-Over Items`.
     - Pending files are deleted after their items are fully resolved or promoted to backlog.
-    - **Pending file header format:** `Action: present|act|triage|await-user-decision|defer` as the first non-comment, non-title line.
+    - **Pending file header format:** `Action: present|act|triage|await-user-decision|defer|reference` as the first non-comment, non-title line.
+    - **Pending file intake — backlog promotion.** When promoting a pending file's content (findings, tasks, action items) to backlog entries, immediately: (1) add a `Tracked-by: CFG-xxx, CFG-yyy` header line listing all created backlog IDs, (2) strip any status-tracking content from the file (checklists, "Done:"/"Open:" lists, completion markers) — leave only analysis/context, (3) change `Action:` to `reference`.
     - **Resolved `await-user-decision` files:** When a session resolves the decisions an `await-user-decision` file tracks (by executing the work, getting user answers, or making the question moot), the file MUST be updated or deleted before shutdown. Shutdown step 1 should verify: check all remaining `await-user-decision` pending files and confirm their tracked items are still open. Stale decision files cause the next session to re-present already-answered questions.
