@@ -108,6 +108,7 @@ If hostname doesn't match any pattern, state the hostname and ask. If `CLAUDE.lo
    | SteamOS deployment, symlink bugs, reprovision issues | `knowledge/steam-deck-deployment.md` |
    | P4 fleet audit orchestration | `knowledge/audit-pattern-fleet.md` |
    | AIOS memory design, knowledge graph schema, consciousness theory architecture | `knowledge/aios-memory-design.md` |
+   | Risk gate blocks an edit (RISK_GATE in stderr) | `knowledge/risk-analysis-protocol.md` |
 
    All paths relative to `~/.claude/` unless absolute. Do NOT load unless triggered.
 
@@ -154,6 +155,7 @@ For manual investigation: read `~/.claude/reference/upstream-dependencies.md`.
 - **No compound `cd` commands:** Use `git -C <path>` or absolute paths. Never `cd <dir> && <cmd>` — triggers security prompts.
 - **No speculative interactive calls.** Never call user-facing prompts (passphrase dialogs, confirmations, GUI input) "just to test." Use them directly for the real operation. Handle errors after, not before. This includes `sudo` — Claude Code has no TTY for password input. Present sudo commands to the user instead of running them.
 - **Long-running ops need tmux/nohup.** Operations expected to run >5 minutes MUST use `tmux new-session -d -s <name>` or `nohup`, never Claude Code's `run_in_background` (killed on `/exit`). Log to `/tmp/<name>.log`. Leave a pending file with tmux session name and check commands. Before launching, register with GPI if available: `gpi start <id> "<label>" --log /tmp/<name>.log`.
+- **Tier 1 edits require risk subagent clearance.** When `risk-gate.sh` blocks an edit, load `knowledge/risk-analysis-protocol.md`, launch a risk subagent, and write the clearance file only after acceptable assessment. Never bypass by removing the hook.
 - **Cross-session bug theories are hypotheses.** Inbox items, pending files, and commit messages from other sessions may contain incorrect root cause analysis. Always reproduce the issue independently before accepting a theory from another session — the investigating session may have been wrong.
 - **DMS-first file lookup.** When searching for user files/documents across machines or disks, check the DMS catalog first. Do targeted filesystem searches only for items not in the catalog -- broad find/glob sweeps should be a last resort, not the starting point.
 - **Dual-boot filesystem safety.** On dual-boot systems, be aware of cross-OS filesystem risks. Ext4 drives should not be mounted through Windows filesystem drivers -- use usbipd-win to attach USB devices to WSL instead. Mounting ext4 from Windows while Linux might also mount it risks corruption.

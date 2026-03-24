@@ -51,6 +51,7 @@ fi
 # Source modular libraries
 source "$SCRIPT_DIR/sync-lib/common.sh"
 source "$SCRIPT_DIR/sync-lib/check.sh"
+source "$SCRIPT_DIR/sync-lib/pre-deploy.sh"
 
 # ---- SETUP: Replace live files with symlinks to repo ----
 cmd_setup() {
@@ -316,6 +317,10 @@ EOF
 
 # ---- DEPLOY: Copy from repo → live (for non-symlink setups or project rules) ----
 cmd_deploy() {
+    if ! pre_deploy_checks; then
+        log_error "Pre-deploy checks failed — aborting deploy"
+        return 1
+    fi
     log_info "Deploying config from repo → live locations"
 
     # Global CLAUDE.md
