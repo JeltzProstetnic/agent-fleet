@@ -10,7 +10,7 @@
 #   --collect   Merge outbox tasks from mobile repo into the main cross-project inbox
 #
 # Options:
-#   --config-repo PATH   Config repo root (default: auto-detect or ~/agent-fleet)
+#   --config-repo PATH   Config repo root (default: auto-detect or ~/cfg-agent-fleet)
 #   --target PATH        Mobile repo location (default: ~/agent-fleet-mobile)
 #   --home PATH          Home directory for finding projects (default: $HOME)
 
@@ -43,7 +43,7 @@ if [[ -z "$CONFIG_REPO" ]]; then
     if [[ -f "$SCRIPT_DIR/../../sync.sh" ]]; then
         CONFIG_REPO="$(cd "$SCRIPT_DIR/../.." && pwd)"
     else
-        CONFIG_REPO="$HOME/agent-fleet"
+        CONFIG_REPO="$HOME/cfg-agent-fleet"
     fi
 fi
 
@@ -52,7 +52,7 @@ fi
 # Defensive check: verify config repo exists
 if [[ ! -f "$CONFIG_REPO/sync.sh" ]]; then
     echo "ERROR: Config repo not found at $CONFIG_REPO (sync.sh missing)." >&2
-    echo "Set --config-repo or clone agent-fleet to ~/agent-fleet" >&2
+    echo "Set --config-repo or clone cfg-agent-fleet to ~/cfg-agent-fleet" >&2
     exit 2
 fi
 [[ -z "$USER_HOME" ]] && USER_HOME="$HOME"
@@ -89,7 +89,26 @@ merge_claude_branches() {
         return 0
     fi
 
-    # Find claude/* branches
+    # Fetch from remote to discover remote-only claude/* branches (Bug 2 fix)
+    if git -C "$TARGET" remote get-url origin >/dev/null 2>&1; then
+        git -C "$TARGET" fetch origin --prune >/dev/null 2>&1 || true
+
+        # Create local tracking branches for any remote-only claude/* branches
+        local remote_branches
+        remote_branches=$(git -C "$TARGET" branch -r --list "origin/claude/*" 2>/dev/null | sed 's/^[* ]*//')
+        if [[ -n "$remote_branches" ]]; then
+            while IFS= read -r rbranch; do
+                [[ -z "$rbranch" ]] && continue
+                local local_name="${rbranch#origin/}"
+                # Only create tracking branch if it doesn't exist locally
+                if ! git -C "$TARGET" rev-parse --verify "$local_name" >/dev/null 2>&1; then
+                    git -C "$TARGET" branch --track "$local_name" "$rbranch" >/dev/null 2>&1 || true
+                fi
+            done <<< "$remote_branches"
+        fi
+    fi
+
+    # Find claude/* branches (now includes any newly tracked remote branches)
     local branches
     branches=$(git -C "$TARGET" branch --list "claude/*" 2>/dev/null | sed 's/^[* ]*//')
 
@@ -104,12 +123,21 @@ merge_claude_branches() {
         git -C "$TARGET" checkout main >/dev/null 2>&1
     fi
 
+    local has_remote=false
+    if git -C "$TARGET" remote get-url origin >/dev/null 2>&1; then
+        has_remote=true
+    fi
+
     local merged_count=0
     while IFS= read -r branch; do
         [[ -z "$branch" ]] && continue
         log_info "Merging branch: $branch"
         if git -C "$TARGET" merge "$branch" --no-edit >/dev/null 2>&1; then
             git -C "$TARGET" branch -d "$branch" >/dev/null 2>&1
+            # Delete remote branch after successful merge (Bug 3 fix)
+            if [[ "$has_remote" == true ]]; then
+                git -C "$TARGET" push origin --delete "$branch" >/dev/null 2>&1 || true
+            fi
             merged_count=$((merged_count + 1))
         else
             log_warn "Failed to merge $branch — may have conflicts. Skipping."
@@ -245,6 +273,20 @@ cmd_deploy() {
         log_info "Copied: dashboard-cache.md"
     fi
 
+    # Cross-project inbox
+    if [[ -f "$CONFIG_REPO/cross-project/inbox.md" ]]; then
+        cp "$CONFIG_REPO/cross-project/inbox.md" "$TARGET/context/inbox.md"
+        stamp_file "$TARGET/context/inbox.md"
+        log_info "Copied: inbox.md"
+    fi
+
+    # Infrastructure strategy
+    if [[ -f "$CONFIG_REPO/cross-project/infrastructure-strategy.md" ]]; then
+        cp "$CONFIG_REPO/cross-project/infrastructure-strategy.md" "$TARGET/context/infrastructure-strategy.md"
+        stamp_file "$TARGET/context/infrastructure-strategy.md"
+        log_info "Copied: infrastructure-strategy.md"
+    fi
+
     # ── Generate machine index ───────────────────────────────────────────
 
     local machine_index="$TARGET/context/machine-index.md"
@@ -370,6 +412,8 @@ cmd_check_staleness() {
         "$CONFIG_REPO/global/foundation/personas.md|$TARGET/context/personas.md"
         "$CONFIG_REPO/registry.md|$TARGET/context/registry.md"
         "$CONFIG_REPO/cross-project/dashboard-cache.md|$TARGET/context/dashboard-cache.md"
+        "$CONFIG_REPO/cross-project/inbox.md|$TARGET/context/inbox.md"
+        "$CONFIG_REPO/cross-project/infrastructure-strategy.md|$TARGET/context/infrastructure-strategy.md"
     )
 
     for pair in "${source_target_pairs[@]}"; do
