@@ -477,15 +477,22 @@ deploy_afd() {
 }
 
 deploy_afleet() {
+    local wrapper_src="$SCRIPT_DIR/setup/scripts/afleet-wrapper.sh"
     local afleet_src="$SCRIPT_DIR/setup/scripts/afleet.sh"
     local nav_src="$SCRIPT_DIR/setup/scripts/afleet-nav.sh"
     local desktop_src="$SCRIPT_DIR/setup/config/afleet.desktop"
 
     mkdir -p "$HOME/.local/bin"
 
-    if [ -f "$afleet_src" ]; then
+    # Prefer wrapper (copied, survives repo corruption)
+    if [ -f "$wrapper_src" ]; then
+        [ -L "$HOME/.local/bin/afleet" ] && rm "$HOME/.local/bin/afleet"
+        cp "$wrapper_src" "$HOME/.local/bin/afleet"
+        chmod +x "$HOME/.local/bin/afleet"
+        log_info "Deployed: afleet-wrapper → ~/.local/bin/afleet (copied)"
+    elif [ -f "$afleet_src" ]; then
         ln -sf "$afleet_src" "$HOME/.local/bin/afleet"
-        log_info "Deployed: afleet → ~/.local/bin/ (symlink)"
+        log_info "Deployed: afleet → ~/.local/bin/ (symlink fallback)"
     fi
 
     if [ -f "$nav_src" ]; then
