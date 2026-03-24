@@ -5,12 +5,14 @@ A persistent, multi-project, multi-machine AI agent that manages your developmen
 ## Install, Launch, Talk
 
 ```bash
-git clone https://github.com/YOUR_USERNAME/agent-fleet ~/agent-fleet
+git clone https://github.com/JeltzProstetnic/agent-fleet ~/agent-fleet
 cd ~/agent-fleet && bash setup.sh
 afleet
 ```
 
 The agent introduces itself and asks how you work -- your projects, your communication style, your tools. No forms. No config files. Just a conversation. Everything after this point is "tell the agent what you need."
+
+> **Want your own copy?** On GitHub, click "Use this template" to create a private repo, then clone that instead. Setup detects the template origin and reconfigures remotes automatically.
 
 For a more detailed walkthrough, see the [Getting Started Guide](docs/getting-started.md).
 
@@ -29,17 +31,15 @@ For a more detailed walkthrough, see the [Getting Started Guide](docs/getting-st
 
 ### Five minutes to a working agent
 
-**1. Create your own copy**
-
-On GitHub, click **"Use this template" -> "Create a new repository"** (set it to **Private**). Then clone your copy:
+**1. Clone**
 
 ```bash
-git clone https://github.com/YOUR_USERNAME/agent-fleet ~/agent-fleet
+git clone https://github.com/JeltzProstetnic/agent-fleet ~/agent-fleet
 cd ~/agent-fleet
 bash setup.sh
 ```
 
-> **Do NOT fork.** GitHub forks are public by default and stay linked to the original. A template copy is private and independent -- your configuration, your repo, no link back.
+> **Want a private copy?** On GitHub, click **"Use this template" -> "Create a new repository"** (set it to **Private**), then clone your copy instead. Do NOT fork -- GitHub forks are public by default. Setup detects whether origin points to the template or your own repo and configures remotes accordingly.
 
 The script detects your OS, installs dependencies, creates symlinks, sets up session hooks, and installs the `afleet` launcher. If origin still points to the template repo, setup automatically renames it to `upstream` (for pulling updates) and clears origin -- your own repo gets set as origin during first-run setup.
 
