@@ -84,6 +84,8 @@ afleet
 
 Use `afleet`, not `claude` directly. `afleet` syncs repos, detects your project, and ensures everything is loaded before handing off to Claude Code.
 
+> **Do NOT run `/init`.** Claude Code's startup screen suggests running `/init` to create a CLAUDE.md. Agent Fleet already manages CLAUDE.md — running `/init` overwrites it with a blank stub, breaking your setup. If you accidentally run it: `git checkout -- CLAUDE.md` restores the managed version.
+
 ### What happens the first time
 
 Setup creates a `.setup-pending` marker. When Claude detects it, it triggers a one-time **first-run refinement** — a guided conversation that turns the mechanical setup into a personalized configuration.

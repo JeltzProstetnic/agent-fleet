@@ -63,6 +63,8 @@ afleet
 
 On first launch, the agent detects a `.setup-pending` marker and starts onboarding -- a conversation about who you are, what you work on, and how you want the agent to behave. It writes everything to the right config files. You can change any of it later by just telling the agent.
 
+> **Warning: Do NOT run `/init`.** Claude Code's splash screen recommends `/init` to create a CLAUDE.md. In an agent-fleet deployment, CLAUDE.md is already configured and managed. Running `/init` will overwrite it with a generic stub, breaking your entire setup. If this happens, restore with `git checkout -- CLAUDE.md`. A startup hook (`init-guard`) detects this and warns, but prevention is better than recovery.
+
 Every session after the first is automatic: pull latest config, load project knowledge, restore state, check for cross-project tasks.
 
 ---
