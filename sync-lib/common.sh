@@ -6,6 +6,9 @@
 #   RED, GREEN, YELLOW, NC
 #   log_info, log_warn, log_error (functions)
 
+# Source portable wrappers (_sed_i, _readlink_f, etc.)
+source "${GLOBAL_DIR:-$SCRIPT_DIR/global}/hooks/lib-portable.sh" 2>/dev/null || true
+
 # cc-mirror root (Claude Code installed via cc-mirror)
 CC_MIRROR_DIR="${CC_MIRROR_DIR:-$HOME/.cc-mirror/mclaude}"
 
