@@ -456,21 +456,27 @@ LAUNCHER_PATCH
         trap 'rm -f "${tmpfile}"' RETURN
 
         if [[ "${DRY_RUN}" == "false" ]]; then
-            awk '
-              /^exec node/ {
-                print "# Run update checker (interactive sessions only)"
-                print "if [[ -t 1 ]] && [[ \"$*\" != *\"--output-format\"* ]]; then"
-                print "  if [[ -x \"$HOME/.cc-mirror/mclaude/scripts/update-checker.sh\" ]]; then"
-                print "    \"$HOME/.cc-mirror/mclaude/scripts/update-checker.sh\" || true"
-                print "  fi"
-                print "fi"
-                print ""
-              }
-              { print }
-            ' "${LAUNCHER}" > "${tmpfile}"
+            # Insert update-checker before the exec line (match any exec, not just exec node)
+            local exec_line2
+            exec_line2=$(grep -n '^exec ' "${LAUNCHER}" | tail -1 | cut -d: -f1)
+            if [[ -z "${exec_line2}" ]]; then
+                log_error "No 'exec' line found in launcher — unexpected format"
+                return 1
+            fi
+            {
+                head -n $((exec_line2 - 1)) "${LAUNCHER}"
+                echo '# Run update checker (interactive sessions only)'
+                echo 'if [[ -t 1 ]] && [[ "$*" != *"--output-format"* ]]; then'
+                echo '  if [[ -x "$HOME/.cc-mirror/mclaude/scripts/update-checker.sh" ]]; then'
+                echo '    "$HOME/.cc-mirror/mclaude/scripts/update-checker.sh" || true'
+                echo '  fi'
+                echo 'fi'
+                echo ''
+                tail -n +"${exec_line2}" "${LAUNCHER}"
+            } > "${tmpfile}"
 
             # Verify
-            if [[ ! -s "${tmpfile}" ]] || ! grep -q "^exec node" "${tmpfile}"; then
+            if [[ ! -s "${tmpfile}" ]] || ! grep -q '^exec ' "${tmpfile}"; then
                 log_error "Update-checker patch validation failed"
                 return 1
             fi
