@@ -5,6 +5,8 @@
 # Reads ~/.claude/.gpi-completed.json (written by gpi done / statusline log detection)
 # Outputs systemMessage lines for injection
 
+source "$(dirname "${BASH_SOURCE[0]}")/lib-portable.sh" 2>/dev/null || true
+
 OUTPUT=""
 
 # Context budget from statusline sidecar
@@ -49,7 +51,7 @@ if [[ -d "$MOBILE_REPO/.git" ]]; then
     elif [[ "$MOBILE_CHECK_INTERVAL" -eq 0 ]]; then
         _do_mobile_check=true
     else
-        _marker_age=$(( $(date +%s) - $(stat -c %Y "$MOBILE_CHECK_MARKER" 2>/dev/null || echo 0) ))
+        _marker_age=$(( $(date +%s) - $(_stat_mtime "$MOBILE_CHECK_MARKER" 2>/dev/null || echo 0) ))
         [[ "$_marker_age" -ge "$MOBILE_CHECK_INTERVAL" ]] && _do_mobile_check=true
     fi
     if [[ "$_do_mobile_check" == "true" ]]; then

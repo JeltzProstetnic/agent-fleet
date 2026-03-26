@@ -51,6 +51,7 @@ fi
 # Source modular libraries
 source "$SCRIPT_DIR/sync-lib/common.sh"
 source "$SCRIPT_DIR/sync-lib/check.sh"
+source "$SCRIPT_DIR/sync-lib/pre-deploy.sh"
 
 # ---- SETUP: Replace live files with symlinks to repo ----
 cmd_setup() {
@@ -75,7 +76,7 @@ cmd_setup() {
     log_info "Linked: $CLAUDE_HOME/CLAUDE.md → $GLOBAL_DIR/CLAUDE.md"
 
     # Knowledge architecture directories (directory symlinks)
-    for dir in foundation reference domains knowledge machines; do
+    for dir in foundation reference domains knowledge machines skills; do
         if [ -d "$GLOBAL_DIR/$dir" ]; then
             # Remove whatever exists at the target — symlink, directory, or file
             if [ -L "$CLAUDE_HOME/$dir" ]; then
@@ -316,6 +317,10 @@ EOF
 
 # ---- DEPLOY: Copy from repo → live (for non-symlink setups or project rules) ----
 cmd_deploy() {
+    if ! pre_deploy_checks; then
+        log_error "Pre-deploy checks failed — aborting deploy"
+        return 1
+    fi
     log_info "Deploying config from repo → live locations"
 
     # Global CLAUDE.md
@@ -477,15 +482,22 @@ deploy_afd() {
 }
 
 deploy_afleet() {
+    local wrapper_src="$SCRIPT_DIR/setup/scripts/afleet-wrapper.sh"
     local afleet_src="$SCRIPT_DIR/setup/scripts/afleet.sh"
     local nav_src="$SCRIPT_DIR/setup/scripts/afleet-nav.sh"
     local desktop_src="$SCRIPT_DIR/setup/config/afleet.desktop"
 
     mkdir -p "$HOME/.local/bin"
 
-    if [ -f "$afleet_src" ]; then
+    # Prefer wrapper (copied, survives repo corruption)
+    if [ -f "$wrapper_src" ]; then
+        [ -L "$HOME/.local/bin/afleet" ] && rm "$HOME/.local/bin/afleet"
+        cp "$wrapper_src" "$HOME/.local/bin/afleet"
+        chmod +x "$HOME/.local/bin/afleet"
+        log_info "Deployed: afleet-wrapper → ~/.local/bin/afleet (copied)"
+    elif [ -f "$afleet_src" ]; then
         ln -sf "$afleet_src" "$HOME/.local/bin/afleet"
-        log_info "Deployed: afleet → ~/.local/bin/ (symlink)"
+        log_info "Deployed: afleet → ~/.local/bin/ (symlink fallback)"
     fi
 
     if [ -f "$nav_src" ]; then

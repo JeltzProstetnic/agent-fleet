@@ -16,7 +16,7 @@ if [ ! -f "$_audit_gate" ]; then
     else
         _last_audit=$(cat "$_audit_marker" 2>/dev/null)
         if [ -n "$_last_audit" ]; then
-            _last_epoch=$(date -d "$_last_audit" +%s 2>/dev/null) || _last_epoch=0
+            _last_epoch=$(date -d "$_last_audit" +%s 2>/dev/null || date -jf "%Y-%m-%d" "$_last_audit" +%s 2>/dev/null) || _last_epoch=0
             _now_epoch=$(date +%s)
             if [ "$_last_epoch" -gt 0 ]; then
                 _audit_days=$(( (_now_epoch - _last_epoch) / 86400 ))

@@ -406,7 +406,7 @@ ensure_tool_paths() {
     # Fallback: scan versions directory, pick latest by version sort
     if [[ -z "${node_bin_dir}" ]] && [[ -d "${nvm_dir}/versions/node" ]]; then
         local latest_version=""
-        latest_version="$(ls -1 "${nvm_dir}/versions/node/" 2>/dev/null | sort -V | tail -n1)"
+        latest_version="$(ls -1 "${nvm_dir}/versions/node/" 2>/dev/null | _sort_versions | tail -n1)"
         if [[ -n "${latest_version}" ]]; then
             local candidate="${nvm_dir}/versions/node/${latest_version}/bin"
             if [[ -d "${candidate}" ]] && [[ -x "${candidate}/node" ]]; then
@@ -451,6 +451,56 @@ files_identical() {
     local hash_cmd="sha256sum"
     [[ "$(uname -s)" == "Darwin" ]] && hash_cmd="shasum -a 256"
     [[ "$($hash_cmd "${file1}" | cut -d' ' -f1)" == "$($hash_cmd "${file2}" | cut -d' ' -f1)" ]]
+}
+
+# ============================================================================
+# PORTABLE WRAPPERS (GNU ↔ BSD/macOS)
+# ============================================================================
+
+# Portable sed in-place edit. Usage: _sed_i 's/old/new/' file
+_sed_i() {
+    if [[ "$(uname -s)" == "Darwin" ]]; then
+        sed -i '' "$@"
+    else
+        sed -i "$@"
+    fi
+}
+
+# Portable readlink -f (follows all symlinks to canonical path).
+_readlink_f() {
+    readlink -f "$1" 2>/dev/null && return
+    local target="$1"
+    [ "${target#/}" = "$target" ] && target="$PWD/$target"
+    while [ -L "$target" ]; do
+        local link
+        link=$(readlink "$target") || break
+        [ "${link#/}" = "$link" ] && link="$(dirname "$target")/$link"
+        target="$link"
+    done
+    local dir
+    dir=$(cd "$(dirname "$target")" 2>/dev/null && pwd -P) || return 1
+    echo "$dir/$(basename "$target")"
+}
+
+# Portable stat: modification time (epoch seconds).
+_stat_mtime() {
+    stat -c %Y "$1" 2>/dev/null || stat -f %m "$1" 2>/dev/null
+}
+
+# Portable stat: file size (bytes).
+_stat_size() {
+    stat -c %s "$1" 2>/dev/null || stat -f %z "$1" 2>/dev/null
+}
+
+# Portable version sort (replacement for GNU sort -V).
+# Reads lines from stdin, outputs sorted lines.
+# Tries sort -V first (GNU), falls back to dot-separated numeric sort.
+_sort_versions() {
+    local input
+    input=$(cat)
+    printf '%s\n' "$input" | sort -V 2>/dev/null && return
+    # macOS fallback: strip leading 'v', sort by dot-separated numeric fields, restore 'v'
+    printf '%s\n' "$input" | sed 's/^v/0v/' | sort -t. -k1,1n -k2,2n -k3,3n | sed 's/^0v/v/'
 }
 
 # ============================================================================

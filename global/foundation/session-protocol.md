@@ -74,7 +74,7 @@ The shutdown checklist is in `foundation/session-shutdown.md` — loaded on dema
 10. **Pending file carry-over (Layer 0b):** Check `PENDING_FILES:` in systemMessage. If `none`, skip. If listed, those `docs/pending-*.md` files exist and must be processed:
     - **Read the `Action:` line** in each file's header (see format below). If no header exists, treat as `triage`.
     - **`present`** → Read fully, include in opening response to user. These are session-start deliverables.
-    - **`act`** → Read fully, execute immediately. Failure to act is a bug.
+    - **`act`** → Promote to backlog, create inbox items if cross-project, transition to `reference` with `Tracked-by:`.
     - **`triage`** → Read, promote actionable items to backlog as P0, then delete file.
     - **`await-user-decision`** → Read, present decision needed to user, note in carry-over items.
     - **`defer`** → List in session-context.md carry-over items without reading fully. No action needed.

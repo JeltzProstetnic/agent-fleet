@@ -388,6 +388,7 @@ _install_deps_macos() {
         socat
         curl
         git
+        jq
         python3
         pipx
     )
@@ -556,7 +557,7 @@ setup_npm_global() {
         if [[ -f "${HOME}/.npmrc" ]] && grep -q '^prefix=' "${HOME}/.npmrc" 2>/dev/null; then
             log_warn "Removing stale prefix= from ~/.npmrc (incompatible with nvm)"
             if [[ "${DRY_RUN}" == "false" ]]; then
-                sed -i '/^prefix=/d' "${HOME}/.npmrc"
+                _sed_i '/^prefix=/d' "${HOME}/.npmrc"
                 # Remove .npmrc entirely if now empty
                 [[ ! -s "${HOME}/.npmrc" ]] && rm -f "${HOME}/.npmrc"
             else
