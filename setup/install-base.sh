@@ -35,7 +35,7 @@ set -euo pipefail
 
 # Resolve script directory
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+CONFIG_REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"  # The config repo root (cfg-agent-fleet or agent-fleet clone)
 
 # Source shared utilities
 source "${SCRIPT_DIR}/lib.sh"
@@ -44,9 +44,9 @@ source "${SCRIPT_DIR}/lib.sh"
 # TEMPLATE MARKER CLEANUP (defense-in-depth — install.sh also does this)
 # ============================================================================
 
-if [[ -f "${REPO_ROOT}/.template-repo" ]]; then
+if [[ -f "${CONFIG_REPO_ROOT}/.template-repo" ]]; then
     echo "Removing template marker (.template-repo)..."
-    rm -f "${REPO_ROOT}/.template-repo"
+    rm -f "${CONFIG_REPO_ROOT}/.template-repo"
 fi
 
 # ============================================================================

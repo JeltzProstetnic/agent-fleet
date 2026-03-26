@@ -29,7 +29,7 @@ set -euo pipefail
 
 # Resolve script directory
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+CONFIG_REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"  # The config repo root (cfg-agent-fleet or agent-fleet clone)
 
 # Source shared utilities
 source "${SCRIPT_DIR}/lib.sh"
@@ -40,12 +40,12 @@ source "${SCRIPT_DIR}/lib.sh"
 # .template-repo marks this as an uninitialized template clone. Remove it
 # before anything else — hooks check for it and warn if present.
 
-if [[ -f "${REPO_ROOT}/.template-repo" ]]; then
+if [[ -f "${CONFIG_REPO_ROOT}/.template-repo" ]]; then
     echo "Removing template marker (.template-repo)..."
-    rm -f "${REPO_ROOT}/.template-repo"
+    rm -f "${CONFIG_REPO_ROOT}/.template-repo"
     # Create .setup-pending to trigger first-run refinement on next Claude session
-    if [[ ! -f "${REPO_ROOT}/.setup-pending" ]]; then
-        touch "${REPO_ROOT}/.setup-pending"
+    if [[ ! -f "${CONFIG_REPO_ROOT}/.setup-pending" ]]; then
+        touch "${CONFIG_REPO_ROOT}/.setup-pending"
         echo "Created .setup-pending marker (triggers first-run configuration)."
     fi
 fi
@@ -57,7 +57,7 @@ fi
 # origin. This prevents accidental pushes back to the template. The user's
 # own repo will be set as origin during first-run refinement (or manually).
 
-_origin_url=$(git -C "${REPO_ROOT}" remote get-url origin 2>/dev/null || echo "")
+_origin_url=$(git -C "${CONFIG_REPO_ROOT}" remote get-url origin 2>/dev/null || echo "")
 
 # Template origin patterns — used to detect when origin points to the upstream
 # template (not a user's fork). Resolution order:
@@ -65,9 +65,9 @@ _origin_url=$(git -C "${REPO_ROOT}" remote get-url origin 2>/dev/null || echo ""
 #   2. TEMPLATE_ORGS environment variable (pipe-separated patterns)
 #   3. Generic default: matches any repo named "agent-fleet" (not a fork name)
 _template_patterns=""
-if [[ -f "${REPO_ROOT}/.template-orgs" ]]; then
+if [[ -f "${CONFIG_REPO_ROOT}/.template-orgs" ]]; then
     # Read patterns from file, join with | for grep -E
-    _template_patterns=$(grep -v '^#' "${REPO_ROOT}/.template-orgs" | grep -v '^\s*$' | tr '\n' '|' | sed 's/|$//')
+    _template_patterns=$(grep -v '^#' "${CONFIG_REPO_ROOT}/.template-orgs" | grep -v '^\s*$' | tr '\n' '|' | sed 's/|$//')
 fi
 if [[ -z "${_template_patterns}" && -n "${TEMPLATE_ORGS:-}" ]]; then
     _template_patterns="${TEMPLATE_ORGS}"
@@ -78,11 +78,11 @@ fi
 if [[ -n "${_origin_url}" ]] && echo "${_origin_url}" | grep -qE "${_template_patterns}"; then
     echo "Origin points to the template repo — renaming to 'upstream'..."
     # Only add upstream if it doesn't already exist
-    if ! git -C "${REPO_ROOT}" remote get-url upstream &>/dev/null; then
-        git -C "${REPO_ROOT}" remote rename origin upstream
+    if ! git -C "${CONFIG_REPO_ROOT}" remote get-url upstream &>/dev/null; then
+        git -C "${CONFIG_REPO_ROOT}" remote rename origin upstream
     else
         # upstream already exists, just remove origin
-        git -C "${REPO_ROOT}" remote remove origin
+        git -C "${CONFIG_REPO_ROOT}" remote remove origin
     fi
     echo "  Done. 'upstream' now tracks the template for updates."
     echo "  Your own repo will be set as 'origin' during first-run setup."
@@ -362,11 +362,11 @@ bash "${SCRIPT_DIR}/configure-claude.sh" \
 print_header "Phase 3: Deploy Agent Fleet Configuration"
 
 echo "Deploying global config, hooks, and knowledge files..."
-bash "${REPO_ROOT}/sync.sh" setup
+bash "${CONFIG_REPO_ROOT}/sync.sh" setup
 
 # Deploy afleet launcher
 mkdir -p "${HOME}/.local/bin"
-ln -sf "${REPO_ROOT}/setup/scripts/afleet.sh" "${HOME}/.local/bin/afleet"
+ln -sf "${CONFIG_REPO_ROOT}/setup/scripts/afleet.sh" "${HOME}/.local/bin/afleet"
 log_info "Deployed: afleet → ~/.local/bin/"
 
 # ============================================================================

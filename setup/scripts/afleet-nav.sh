@@ -145,10 +145,32 @@ parse_registry() {
     ' "$REGISTRY"
 }
 
-# Lookup a single project by name (case-insensitive)
+# Lookup a single project by name (case-insensitive, with prefix fallback)
 lookup_project() {
     local name="$1"
-    parse_registry | grep -i "^${name}|" | head -1 || true
+    # Try exact match first
+    local exact
+    exact=$(parse_registry | grep -i "^${name}|" | head -1 || true)
+    if [[ -n "$exact" ]]; then
+        echo "$exact"
+        return 0
+    fi
+    # Fall back to prefix match — return only if exactly one match
+    local prefix_matches
+    prefix_matches=$(parse_registry | grep -i "^${name}" || true)
+    local count
+    count=$(echo "$prefix_matches" | grep -c '.' || true)
+    if [[ "$count" -eq 1 ]]; then
+        echo "$prefix_matches"
+        return 0
+    elif [[ "$count" -gt 1 ]]; then
+        echo "Error: prefix '$name' matches multiple projects:" >&2
+        echo "$prefix_matches" | while IFS='|' read -r pname _rest; do
+            echo "  - $pname" >&2
+        done
+        return 1
+    fi
+    return 0
 }
 
 # ── Platform detection ────────────────────────────────────────────────────────
