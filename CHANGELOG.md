@@ -2,58 +2,50 @@
 
 All notable changes to Agent Fleet are documented here. This follows [Keep a Changelog](https://keepachangelog.com/) conventions.
 
-## [Unreleased] (v0.3)
+## [0.8] — 2026-03-26
+
+**Architecture-first release.** The repo is now the single source of truth — all config flows in one direction (repo → deployed). No more bidirectional sync. Full clean-room E2E tested on Ubuntu 24.04.
+
+### Architecture (breaking)
+- **Unidirectional authority:** `sync.sh collect` removed from normal workflow, renamed to `sync.sh recover --emergency`. SessionEnd hook runs deploy only.
+- **Deployed hooks are read-only:** `chmod 555` + `# MANAGED — DO NOT EDIT` header. Edit via `sync.sh edit <hook>`.
+- **Template variable rendering:** `render-template.sh` handles `__DUNDER__` substitution + `#__IF_PLATFORM__` conditionals. Replaces inline sed.
+- **Drift detection via git diff:** `sync.sh stamp` removed. `template-sync-manifest.md` is documentation only (no hashes).
+- **Modular sync.sh:** Split from 906 lines to 93-line dispatcher + 5 modules in `sync-lib/`.
 
 ### Added
-- `upgrade.sh` — one-command upgrade from upstream with automatic migrations
-- `migrations/` directory — version-gated migration scripts for breaking changes
-- `sync.sh check` — aggregated drift/staleness check across all propagation chains
-- `sync.sh check-template` — pre-publish validation (scans for personal data leaks)
-- `sync.sh stamp` — refresh manifest hashes after template sync
-- `.push-filter.conf` — dual-remote filtered push configuration
-- `afleet` launcher — unified entry point with project picker (`setup/scripts/afleet.sh`)
-- `afleet-nav` — cross-project navigation, info, and switch (`setup/scripts/afleet-nav.sh`)
-- Mobile access via `sync.sh mobile-deploy` / `sync.sh mobile-collect`
-- Context7 MCP server in default config
-- 13 new test suites (afleet, afleet-nav, clean-pending, clean-permissions, config-check, filtered-push, git-credential-mcp, install-base, install-fixes, lrn-command, mobile, plugin-inventory, template-drift)
-- `setup/vps/` — VPS bootstrap and web terminal setup
-- `setup/icons/` — desktop launcher icons
-- `setup/scripts/clean-permissions.sh` — removes shadowing permission blocks
-- `setup/scripts/clean-pending-files.sh` — cleanup after pending file resolution
-- `setup/scripts/plugin-inventory.sh` — audit installed plugins
-- Knowledge files: hook-behavior, dev-browser-ops, age-encryption, fleet-capabilities, audit-protocol, vault-ops, upstream-dependencies, learn-protocol
+- `afleet` launcher — unified entry point with project picker
+- `afleet-nav` — cross-project navigation, info, and switch
+- `.githooks/pre-push` — blocks push if personal data patterns detected in template
+- `render-template.sh` — pure bash template engine (~150 LOC)
+- `afleet doctor` / `afleet recover` / `afleet rollback` / `afleet safe-mode` — recovery tools
+- Session lock (PID-based, same-machine + cross-machine detection)
+- VoltAgent subagent marketplace integration (10 bundles, per-project enablement)
 - Statusline context meter with persona display and color coding
 - Day/night mode behavioral modifier in persona system
 - `lrn` self-audit quick command
 - `sub <task>` delegate-to-subagent quick command
-- Pending file carry-over with Action headers (present/act/triage/await-user-decision/defer)
-- Placeholder convention for setup scripts (`__VARIABLE_NAME__` format)
 - DMS guide for document management conventions
+- ~1,150 tests across 73 suites
 
 ### Changed
-- `setup.sh` is now a thin wrapper delegating to `setup/install.sh`
-- `install.sh` orchestrates two phases: `install-base.sh` (system deps) + `configure-claude.sh` (MCP, hooks)
-- Session protocol Rule 10 rewritten with Action-header-based pending file processing
-- `config-check.sh` expanded from 13 to 24 checks (auto-heal, plugin audit, session detection)
-- `sync.sh` enhanced with template-aware drift detection and personal data leak scanning
-- `git-sync-check.sh` now auto-stashes uncommitted changes during pull
-- Test suite expanded from 0 to 365 tests across 22 suites
+- `setup.sh` delegates to `install.sh` → `install-base.sh` (Phase 1) + `configure-claude.sh` (Phase 2) + `sync.sh setup` (Phase 3)
+- `install-base.sh` installs NVM + Node.js (no system Node prerequisite)
+- `configure-claude.sh` patches mclaude launcher for MCP enablement + update-checker
+- macOS portability: `_readlink_f`, `_sed_i`, `_stat_mtime`, `_stat_size` via `lib-portable.sh`
+- Test suite expanded from 0 to ~1,150 tests across 73 suites
 
 ### Fixed
-- `hostname` binary missing on SteamOS (portable `get_hostname()` in lib.sh)
-- Statusline crash on malformed/null JSON input
-- `sed -i''` incompatibility with macOS BSD sed (portable wrapper)
-- `timeout` command missing on macOS (portable wrapper)
-- `grep -q` exit code under `pipefail` (wrapped in `if` contexts)
-- `ln -sf` not replacing directories (explicit `rm -rf` before link)
-
-### Migration (v0.3)
-The `v0.3` migration runs automatically during `upgrade.sh`:
-1. Extracts hostname case entries from `sync.sh` to `sync.local.sh` (gitignored)
-2. Splits `personas.md` into framework defaults + `personas.local.md` (gitignored)
-3. Adds gitignore entries for new local files
-
-User customizations survive in `.local` files that are never touched by upgrades.
+- `((count++))` under `set -euo pipefail` returns exit 1 when count=0 — guarded with `|| true`
+- `${tmpfile}` in RETURN traps unbound after function scope under `set -u`
+- `require_cmd` / `require_file` / `require_dir` killed caller under `set -e` (VERBOSE && pattern)
+- NVM `readonly` variable conflict with `NVM_VERSION` (renamed to `FLEET_NVM_VERSION`)
+- `ensure_tool_paths` skipped NVM when system Node existed (EACCES on npm install -g)
+- Launcher patching matched `^exec node` but cc-mirror native creates `exec "/path/..."` — generic match
+- JSON injection in afd-lib.sh (`jq --arg` escaping)
+- Duplicate check numbers in hook modules (compound numbering: 4.1, 4.2)
+- Test HOME mutation (overridden to TEST_TMPDIR)
+- Session lock false positive: own session detected as rival (AFLEET_SESSION_ID check)
 
 ## [0.2] — 2026-02-27
 

@@ -379,7 +379,7 @@ agent-fleet/
 |   |   `-- _example/rules/CLAUDE.md   Example project config
 |   `-- tests/
 |       |-- run.sh                 Test runner
-|       `-- test-*.sh              36 test suites (627 tests)
+|       `-- test-*.sh              73 test suites (~1,150 tests)
 |
 |-- docs/
 |   |-- getting-started.md         Detailed setup and usage walkthrough
@@ -476,7 +476,7 @@ Add your own: copy `global/domains/_template/`, edit it, reference it from your 
 
 ### Test Suite
 
-570 tests across 33 suites, run via `setup/tests/run.sh`:
+~1,150 tests across 73 suites, run via `setup/tests/run.sh`:
 
 | Suite | Tests | Covers |
 |-------|------:|--------|
