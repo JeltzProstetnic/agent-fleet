@@ -413,13 +413,24 @@ LAUNCHER_PATCH
         tmpfile2=$(mktemp)
 
         if [[ "${DRY_RUN}" == "false" ]]; then
-            awk -v patch="$(cat "${tmpfile}")" '
-              /^exec node/ { print patch }
-              { print }
-            ' "${LAUNCHER}" > "${tmpfile2}"
+            # Insert patch before the exec line. Use sed with a file read (r)
+            # instead of awk -v, which corrupts content via C escape processing.
+            # Match any exec line (exec node, exec "/path/...", etc.)
+            local exec_line
+            exec_line=$(grep -n '^exec ' "${LAUNCHER}" | tail -1 | cut -d: -f1)
+            if [[ -z "${exec_line}" ]]; then
+                log_error "No 'exec' line found in launcher — unexpected format"
+                return 1
+            fi
+            # Insert patch file contents before the exec line
+            {
+                head -n $((exec_line - 1)) "${LAUNCHER}"
+                cat "${tmpfile}"
+                tail -n +"${exec_line}" "${LAUNCHER}"
+            } > "${tmpfile2}"
 
             # Verify the temp file is valid
-            if [[ ! -s "${tmpfile2}" ]] || ! grep -q "^exec node" "${tmpfile2}"; then
+            if [[ ! -s "${tmpfile2}" ]] || ! grep -q '^exec ' "${tmpfile2}"; then
                 log_error "Patch validation failed, launcher may be corrupted"
                 return 1
             fi
