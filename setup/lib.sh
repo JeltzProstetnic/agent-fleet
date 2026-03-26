@@ -317,7 +317,9 @@ require_cmd() {
         exit 1
     fi
 
-    [[ "${VERBOSE}" == "true" ]] && log_info "Found required command: ${cmd}"
+    if [[ "${VERBOSE}" == "true" ]]; then
+        log_info "Found required command: ${cmd}"
+    fi
 }
 
 # Require file exists
@@ -331,7 +333,9 @@ require_file() {
         exit 1
     fi
 
-    [[ "${VERBOSE}" == "true" ]] && log_info "Found required file: ${description}"
+    if [[ "${VERBOSE}" == "true" ]]; then
+        log_info "Found required file: ${description}"
+    fi
 }
 
 # Require directory exists
@@ -345,7 +349,9 @@ require_dir() {
         exit 1
     fi
 
-    [[ "${VERBOSE}" == "true" ]] && log_info "Found required directory: ${description}"
+    if [[ "${VERBOSE}" == "true" ]]; then
+        log_info "Found required directory: ${description}"
+    fi
 }
 
 # ============================================================================
@@ -375,13 +381,30 @@ ensure_tool_paths() {
         fi
     fi
 
-    # Step 2: If node is already in PATH, nothing more to do
+    # Step 2: If node is in PATH, check if NVM should take priority.
+    # When both system Node and NVM exist, NVM's node must come first —
+    # otherwise npm install -g uses the system prefix (EACCES).
+    local nvm_dir="${NVM_DIR:-${HOME}/.nvm}"
     if command -v node &>/dev/null; then
-        return 0
+        local current_node
+        current_node="$(command -v node)"
+        # If node is already under NVM, we're good
+        if [[ "${current_node}" == "${nvm_dir}"* ]]; then
+            return 0
+        fi
+        # If node comes from --path-prefix, trust the explicit override
+        if [[ -n "${PATH_PREFIX:-}" ]] && [[ "${current_node}" == "${PATH_PREFIX}"* ]]; then
+            return 0
+        fi
+        # System node found (e.g. /usr/bin/node from package manager).
+        # If NVM is installed, fall through to prepend NVM's node.
+        if [[ ! -d "${nvm_dir}/versions/node" ]]; then
+            return 0  # No NVM versions installed, system node is fine
+        fi
+        # Fall through to Step 3: NVM exists and should take priority
     fi
 
     # Step 3: Auto-detect NVM and add to PATH
-    local nvm_dir="${NVM_DIR:-${HOME}/.nvm}"
     if [[ ! -d "${nvm_dir}" ]]; then
         return 0
     fi

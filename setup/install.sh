@@ -333,9 +333,14 @@ bash "${SCRIPT_DIR}/install-base.sh" "${COMMON_ARGS[@]+"${COMMON_ARGS[@]}"}"
 
 # Source bashrc to pick up nvm/node installed by Phase 1.
 # This is needed because configure-claude.sh requires node and npm.
+# nvm.sh uses unset variables internally, so relax strict mode during source.
 export NVM_DIR="${HOME}/.nvm"
 # shellcheck disable=SC1091
-[[ -s "${NVM_DIR}/nvm.sh" ]] && source "${NVM_DIR}/nvm.sh"
+if [[ -s "${NVM_DIR}/nvm.sh" ]]; then
+    set +eu
+    source "${NVM_DIR}/nvm.sh" 2>/dev/null
+    set -eu
+fi
 export PATH="${HOME}/.npm-global/bin:${PATH}"
 
 # Verify node is available before Phase 2

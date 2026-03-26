@@ -62,8 +62,8 @@ fi
 # CONFIGURATION
 # ============================================================================
 
-readonly NVM_VERSION="v0.40.3"
-readonly NODE_VERSION="22"
+readonly FLEET_NVM_VERSION="v0.40.3"
+readonly FLEET_NODE_VERSION="22"
 readonly CC_MIRROR_VARIANT="mclaude"
 readonly TOTAL_STEPS=6
 
@@ -446,8 +446,12 @@ install_nodejs() {
     if [[ -s "${NVM_DIR}/nvm.sh" ]]; then
         log_info "NVM already installed at ${NVM_DIR}"
 
-        # Source nvm.sh with error protection (nvm init can return non-zero)
-        if ! source "${NVM_DIR}/nvm.sh" 2>/dev/null; then
+        # Source nvm.sh with relaxed strict mode (nvm uses unset vars + non-zero exits)
+        set +eu
+        source "${NVM_DIR}/nvm.sh" 2>/dev/null
+        local _nvm_src_rc=$?
+        set -eu
+        if [[ "$_nvm_src_rc" -ne 0 ]]; then
             log_warn "Failed to source nvm.sh — NVM may be corrupted, re-installing..."
             rm -rf "${NVM_DIR}"
             # Fall through to install block below
@@ -457,15 +461,15 @@ install_nodejs() {
             local node_versions
             node_versions=$(nvm list 2>/dev/null || true)
 
-            if echo "${node_versions}" | grep -q "${NODE_VERSION}"; then
+            if echo "${node_versions}" | grep -q "${FLEET_NODE_VERSION}"; then
                 local current_version
                 current_version=$(node --version 2>/dev/null || echo "none")
-                log_info "Node.js ${NODE_VERSION} already installed (current: ${current_version})"
+                log_info "Node.js ${FLEET_NODE_VERSION} already installed (current: ${current_version})"
 
                 # Make sure it's the default
-                if ! echo "${node_versions}" | grep -q "default -> ${NODE_VERSION}"; then
-                    log_info "Setting Node.js ${NODE_VERSION} as default..."
-                    run_cmd nvm alias default "${NODE_VERSION}"
+                if ! echo "${node_versions}" | grep -q "default -> ${FLEET_NODE_VERSION}"; then
+                    log_info "Setting Node.js ${FLEET_NODE_VERSION} as default..."
+                    run_cmd nvm alias default "${FLEET_NODE_VERSION}"
                 fi
 
                 SKIPPED_STEPS+=("nodejs (already installed)")
@@ -477,11 +481,11 @@ install_nodejs() {
         # Install nvm
         require_cmd curl "apt-get install curl"
 
-        log_info "Installing NVM ${NVM_VERSION}..."
+        log_info "Installing NVM ${FLEET_NVM_VERSION}..."
         if [[ "${DRY_RUN}" == "false" ]]; then
             local nvm_installer
             nvm_installer=$(mktemp)
-            curl -fsSL "https://raw.githubusercontent.com/nvm-sh/nvm/${NVM_VERSION}/install.sh" -o "$nvm_installer" || {
+            curl -fsSL "https://raw.githubusercontent.com/nvm-sh/nvm/${FLEET_NVM_VERSION}/install.sh" -o "$nvm_installer" || {
                 rm -f "$nvm_installer"
                 log_error "Failed to download NVM installer"
                 exit 1
@@ -494,39 +498,51 @@ install_nodejs() {
                 log_error "NVM installer appears truncated (${installer_size} bytes)"
                 exit 1
             fi
-            bash "$nvm_installer" || {
-                rm -f "$nvm_installer"
-                log_error "Failed to install NVM"
-                exit 1
-            }
+            # Run NVM installer with relaxed error handling.
+            # The NVM installer uses commands that return non-zero under set -e
+            # (git operations, npm detection). This is expected and not an error.
+            # Using a subshell (bash) so the parent set -e doesn't interfere.
+            local nvm_install_exit
+            nvm_install_exit=0
+            bash "$nvm_installer" 2>&1 || nvm_install_exit=$?
             rm -f "$nvm_installer"
-            source "${NVM_DIR}/nvm.sh" || {
+            if [[ "$nvm_install_exit" -ne 0 ]]; then
+                log_error "NVM installer exited with code ${nvm_install_exit}"
+                exit 1
+            fi
+            # Source NVM — nvm.sh uses unset variables and commands that may
+            # return non-zero, so temporarily relax strict mode
+            set +eu
+            source "${NVM_DIR}/nvm.sh" 2>/dev/null
+            local nvm_source_ok=$?
+            set -eu
+            if [[ "$nvm_source_ok" -ne 0 ]]; then
                 log_error "Failed to source NVM after installation"
                 exit 1
-            }
+            fi
         else
-            log_info "[DRY RUN] Would download and install NVM ${NVM_VERSION}"
+            log_info "[DRY RUN] Would download and install NVM ${FLEET_NVM_VERSION}"
         fi
     fi
 
     # Install Node.js
-    log_info "Installing Node.js ${NODE_VERSION}..."
+    log_info "Installing Node.js ${FLEET_NODE_VERSION}..."
     if [[ "${DRY_RUN}" == "false" ]]; then
-        nvm install "${NODE_VERSION}" || {
-            log_error "Failed to install Node.js ${NODE_VERSION}"
+        nvm install "${FLEET_NODE_VERSION}" || {
+            log_error "Failed to install Node.js ${FLEET_NODE_VERSION}"
             exit 1
         }
-        nvm use "${NODE_VERSION}"
-        nvm alias default "${NODE_VERSION}"
+        nvm use "${FLEET_NODE_VERSION}"
+        nvm alias default "${FLEET_NODE_VERSION}"
 
         local installed_version
         installed_version=$(node --version)
         log_info "Node.js ${installed_version} installed successfully"
         INSTALLED_STEPS+=("nodejs")
     else
-        log_info "[DRY RUN] Would run: nvm install ${NODE_VERSION}"
-        log_info "[DRY RUN] Would run: nvm use ${NODE_VERSION}"
-        log_info "[DRY RUN] Would run: nvm alias default ${NODE_VERSION}"
+        log_info "[DRY RUN] Would run: nvm install ${FLEET_NODE_VERSION}"
+        log_info "[DRY RUN] Would run: nvm use ${FLEET_NODE_VERSION}"
+        log_info "[DRY RUN] Would run: nvm alias default ${FLEET_NODE_VERSION}"
         INSTALLED_STEPS+=("nodejs (dry-run)")
     fi
 
@@ -838,7 +854,7 @@ main() {
     log_info "  4. cc-mirror package"
     log_info "  5. mclaude variant creation"
     echo ""
-    log_info "Configuration: NVM ${NVM_VERSION}, Node.js ${NODE_VERSION}"
+    log_info "Configuration: NVM ${FLEET_NVM_VERSION}, Node.js ${FLEET_NODE_VERSION}"
     log_info "Variant name: ${CC_MIRROR_VARIANT}"
     echo ""
 
