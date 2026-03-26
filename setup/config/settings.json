@@ -13,8 +13,7 @@
     "FORCE_COLOR": "1",
     "COLORTERM": "truecolor",
     "CLAUDE_CODE_SESSIONEND_HOOKS_TIMEOUT_MS": "10000",
-    "TERM_PROGRAM_INHIBIT_ALTSCREEN": "1",
-    "CLAUDE_CODE_DISABLE_VIRTUAL_SCROLL": "1"
+    "CONFIG_REPO": "__HOME__/agent-fleet"
   },
   "permissions": {
     "allow": [
