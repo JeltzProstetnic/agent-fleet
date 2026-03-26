@@ -23,9 +23,8 @@ For a more detailed walkthrough, see the [Getting Started Guide](docs/getting-st
 ### Prerequisites
 
 - Linux, macOS, or Windows with WSL
-- [Claude Code](https://docs.anthropic.com/en/docs/claude-code/getting-started) installed
-- git and Node.js 18+ installed
-- Python 3 (optional, recommended)
+- git, curl, and Python 3 installed
+- Node.js 18+ (optional — setup installs it via NVM if missing)
 
 **Windows users:** Claude Code runs inside WSL. If you haven't set it up: PowerShell as Admin, `wsl --install`, restart, open the Ubuntu app. Everything below happens in that terminal.
 

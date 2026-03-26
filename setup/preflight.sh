@@ -61,6 +61,10 @@ _pf_warn() {
     PREFLIGHT_HAS_WARNINGS=true
 }
 
+_pf_info() {
+    echo -e "  ${_PF_BLUE}[INFO]${_PF_RESET} $*"
+}
+
 _pf_section() {
     echo ""
     echo -e "${_PF_BOLD}${_PF_BLUE}--- $* ---${_PF_RESET}"
@@ -72,15 +76,17 @@ _pf_section() {
 # ============================================================================
 
 # Check required and recommended commands
-# Required: git, node, npm
+# Required: git (must be pre-installed)
+# Installer-handled: node, npm (installed by install-base.sh via NVM)
 # Recommended: python3/python, curl, jq
 check_commands() {
     _pf_section "Commands"
 
-    local required_cmds=("git" "node" "npm")
+    local required_cmds=("git")
+    local installer_cmds=("node" "npm")
     local recommended_cmds=("curl" "jq")
 
-    # Required commands
+    # Required commands (must exist before install)
     for cmd in "${required_cmds[@]}"; do
         if command -v "$cmd" &>/dev/null; then
             local version
@@ -88,6 +94,17 @@ check_commands() {
             _pf_pass "$cmd (required) -- $version"
         else
             _pf_fail "$cmd (required) -- not found"
+        fi
+    done
+
+    # Installer-handled commands (nice to have, installed if missing)
+    for cmd in "${installer_cmds[@]}"; do
+        if command -v "$cmd" &>/dev/null; then
+            local version
+            version=$("$cmd" --version 2>/dev/null | head -n1 || echo "unknown")
+            _pf_pass "$cmd (will be managed by installer) -- $version"
+        else
+            _pf_info "$cmd -- not found (will be installed by setup)"
         fi
     done
 
