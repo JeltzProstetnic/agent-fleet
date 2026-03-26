@@ -93,6 +93,8 @@ If hostname doesn't match any pattern, state the hostname and ask. If `CLAUDE.lo
    | FMS ops, file dedup, bulk moves | `knowledge/fms-ops.md` |
    | Audit, self-audit, meta-audit | `knowledge/audit-protocol.md` |
    | Email triage, inbox management | `knowledge/gmail-management.md` |
+   | Scrollback issues, terminal buffer overflow | `knowledge/scrollback-fix.md` |
+   | Writing or proposing new rules for CLAUDE.md or knowledge files | `knowledge/rule-writing.md` |
    | `lrn` command issued | `skills/lrn/SKILL.md` |
    | AFD daemon, task coordination | `knowledge/afd-ops.md` |
    | NAS access, smbclient, file transfer | `knowledge/nas-cheatsheet.md` |

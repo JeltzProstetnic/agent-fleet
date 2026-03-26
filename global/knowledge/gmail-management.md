@@ -3,20 +3,16 @@
 ## Overview
 
 Knowledge file for managing Gmail via Google Workspace MCP tools (`mcp__workspace__*`).
-Cross-project capability — Gmail serves aIware (researcher outreach), social (visibility),
-ivoclar (work routing), and personal/admin tasks.
+Cross-project capability — Gmail may serve multiple projects (outreach, visibility, work routing, personal/admin tasks).
 
 **Accounts covered:**
 | Address | Role | Notes |
 |---------|------|-------|
-| `jeltz.prostetnic@gmail.com` | Primary | Google Workspace MCP target. All MCP operations use this account. |
-| `matthias@matthiasgruber.com` | Professional/academic alias | Auto-forwards to gmail. Used for researcher pitches, conference submissions. |
-| `gutachten@matthiasgruber.com` | Expert witness alias | Auto-forwards to gmail. Receives gutachten-related correspondence. |
-| `bartl@matthiasgruber.com` | Bartl persona | Hostinger forwarder → gmail. Filtered to label `Bartl` (Label_15), skips inbox. Query: `label:Bartl`. Drafts for review only — never auto-send. |
+| `your-email@gmail.com` | Primary | Google Workspace MCP target. All MCP operations use this account. |
 
-**Bartl mail = intake queue.** When `BARTL_MAIL` appears in systemMessage: (1) read each message, (2) ingest content — create inbox tasks, backlog items, knowledge updates, or act immediately as appropriate, (3) **trash the email IMMEDIATELY** — not deferred, not batched, not "after processing all." Each message: read → ingest → trash, then next message. Processing is complete only when the email is trashed. Never leave processed Bartl mail in Gmail. This is identical to FMS intake: the source is destroyed after cataloging.
+Add additional aliases (professional, forwarding addresses) to this table as needed.
 
-**Why atomic trash:** A previous session read Bartl mail without trashing. A later session in a different project saw the same untrashed mail and re-processed it. Trash-after-read prevents cross-session dedup failures.
+**Persona mail = intake queue.** If using a persona-specific email address filtered to a label: (1) read each message, (2) ingest content — create inbox tasks, backlog items, knowledge updates, or act immediately as appropriate, (3) **trash the email IMMEDIATELY** — not deferred, not batched, not "after processing all." Each message: read → ingest → trash, then next message. Processing is complete only when the email is trashed. This prevents cross-session dedup failures where a later session re-processes untrashed mail.
 
 **Load trigger:** Gmail triage, inbox management, spam cleanup, label operations.
 
@@ -38,19 +34,17 @@ Inbox zero approach. Systematic, repeatable, 10-at-a-time batch processing.
 
 Before classifying any email, cross-reference the sender+topic against:
 
-1. **Cross-project inbox completed items** — `~/cfg-agent-fleet/cross-project/inbox.md` entries marked `[x]`
+1. **Cross-project inbox completed items** — `inbox.md` entries marked `[x]`
 2. **Recent git commit messages** — visible at session startup (git log in systemMessage)
 3. **Session history** — `session-history.md` if available
 
 If a sender+topic matches a completed item, **flag the match** and assess: is this the same correspondence already processed, or a new message requiring fresh action? Present the match context to the user rather than silently treating the email as new. The goal is informed triage — avoid both re-processing handled correspondence AND accidentally ignoring genuinely new follow-ups.
 
-**Root cause:** aIware Session 139 flagged a Nilsen email as actionable despite TWO completed inbox items and git log referencing it — no cross-reference was performed.
-
 ### Two-Inbox Strategy
 
-User's inbox = personal life (flights, orders, known people). Bartl label = project-related automated mail (CI, cloud notifications, service alerts). Progressive filtering: in doubt, leave in user's inbox. Add filters as patterns emerge during triage.
+User's inbox = personal life (flights, orders, known people). Persona label = project-related automated mail (CI, cloud notifications, service alerts). Progressive filtering: in doubt, leave in user's inbox. Add filters as patterns emerge during triage.
 
-**Bartl triage step:** At the start of each triage session, also check `label:Bartl is:unread` for automated mail that may need action (e.g., CI failures indicating broken tests).
+**Persona triage step:** At the start of each triage session, also check persona-labeled unread mail for automated messages that may need action (e.g., CI failures indicating broken tests).
 
 ### Workflow
 
@@ -81,29 +75,25 @@ Use `batch_modify_gmail_message_labels` when applying the same action to multipl
 
 ## Label Taxonomy
 
-Placeholder structure. Populate with actual Gmail labels via `list_gmail_labels`.
+Populate with actual Gmail labels via `list_gmail_labels`.
 
-### Expected Categories
+### Suggested Categories
 
 | Category | Label pattern | Purpose |
 |----------|--------------|---------|
-| **Persona routing** | `Bartl` | Bartl persona mail (bartl@matthiasgruber.com forwards here) |
-| **Project routing** | `aIware`, `social`, `ivoclar` | Route to project context |
+| **Persona routing** | `<persona-name>` | Persona-specific mail (forwarded/filtered) |
+| **Project routing** | `<project-name>` | Route to project context |
 | **Action status** | `action-needed`, `waiting-reply`, `deferred` | Track items requiring follow-up |
 | **Importance** | (use Gmail's built-in importance markers) | Priority signal |
 | **Sender type** | `researcher`, `conference`, `newsletter` | Classify by origin |
 
-### Actual Labels (discovered)
+### Discovered Labels
+
+_Populate this table during first triage session using `list_gmail_labels`._
 
 | Label | ID | Notes |
 |-------|-----|-------|
-| `Bartl` | Label_15 | bartl@matthiasgruber.com mail. Filter: `to:bartl@matthiasgruber.com` → label Bartl, skip inbox. |
-| `Accounts` | Label_10 | Account-related emails |
-| `Berge` | Label_12 | Mountain/hiking related |
-| `Jagd` | Label_13 | Hunting contacts (filter: from karlheinz.jehle, bernhard.bertsch, monika.doenz-breuss, mario.sohler, gerhard.lotteraner, joerg.gerstendoerfer) |
-| `matthias@matthiasgruber.com` | Label_2 | Professional alias mail |
-| `8PWC` | Label_7 | Wing Chun / martial arts (filter: wing chun OR wing tsun OR 8pwc OR Training OR WT) |
-| `[Imap]/Scheduled` | Label_14 | Legacy IMAP label |
+| | | |
 
 ## Sender Preferences
 
@@ -111,10 +101,9 @@ Known senders and their default disposition. Updated as triage decisions accumul
 
 | Sender / Domain | Disposition | Notes |
 |----------------|-------------|-------|
-| `notifications@github.com` (CI) | Bartl triage | Filter: subject "Run failed/cancelled/errored" → skip inbox, label Bartl. I process during triage — CI failures may need action. Created 2026-03-16. |
-| `CloudPlatform-noreply@google.com` | Bartl triage | Filter: all mail → skip inbox, label Bartl. I process during triage. Created 2026-03-16. |
+| `notifications@github.com` (CI) | Persona triage | Filter: subject "Run failed/cancelled/errored" → skip inbox, label persona. CI failures may need action. |
 
-_Empty — will be populated during triage sessions._
+_Populated during triage sessions._
 
 ## Spam & Cleanup Strategy
 
@@ -124,13 +113,13 @@ _Empty — will be populated during triage sessions._
 - Fake invoice / payment confirmation phishing
 - "Your account has been compromised" social engineering
 - Marketing from services with no prior relationship
-- Non-English bulk mail (unless expected — e.g., German business correspondence is legitimate)
+- Non-English bulk mail (unless expected — e.g., business correspondence in your language is legitimate)
 
 ### False Positive Recovery
 
 Gmail's spam filter occasionally catches legitimate mail, especially:
-- First-time senders from small domains (researcher outreach replies)
-- Auto-forwarded mail from matthiasgruber.com (forwarding chains lower sender reputation)
+- First-time senders from small domains (e.g., researcher outreach replies)
+- Auto-forwarded mail from custom domains (forwarding chains lower sender reputation)
 - Conference system auto-replies (noreply@ addresses)
 
 **Recovery protocol:**
@@ -163,7 +152,7 @@ Archived mail is fully searchable. Preferred search patterns:
 | Need | Query |
 |------|-------|
 | From a specific person | `from:name@domain.com` |
-| Project-related | `label:aIware` or `subject:(FMT OR consciousness)` |
+| Project-related | `label:<project>` or `subject:(<keywords>)` |
 | Recent important | `is:important newer_than:30d` |
 | Attachments from someone | `from:name has:attachment` |
 | Sent replies | `in:sent to:name@domain.com` |
@@ -172,7 +161,7 @@ Archived mail is fully searchable. Preferred search patterns:
 
 **Fleet-wide tracking.** Before any Gmail triage, check the marker below. After triage, update it. This prevents cross-session re-processing.
 
-<!-- Last triage: 2026-03-24 23:00 Steam_Deck cfg-agent-fleet -->
+<!-- Last triage: YYYY-MM-DD HH:MM machine project -->
 
 **High-water mark approach.** After each Gmail check, update BOTH (1) the fleet-wide marker above AND (2) session-context.md (e.g., `- **Last Gmail check**: 2026-03-17T16:30`). On next check, use `after:YYYY/MM/DD` based on the fleet marker date. This handles weekends, vacations, any gap length, AND cross-project dedup.
 
@@ -180,14 +169,10 @@ Archived mail is fully searchable. Preferred search patterns:
 
 **When the user says they expect a specific email:** Search by sender (`from:`) or subject (`subject:`). User-provided information overrides search results — if they say "there's an email" and the search returns nothing, broaden the search.
 
-**Origin:** Session 165 — missed a Kanai reply because search used `is:unread` and the user had already read it in Gmail.
-
 ## Decision Log
 
 Triage decisions and policy changes are logged here for pattern recognition.
 
 | Date | Decision | Rationale |
 |------|----------|-----------|
-| 2026-03-16 | Filter GitHub CI "Run failed" → Bartl label, skip inbox | 10+ per week. Project-related — Bartl processes during triage. CI failures may need attention. |
-| 2026-03-16 | Filter Google Cloud product updates → Bartl label, skip inbox | Automated vendor notifications. Bartl processes during triage. |
-| 2026-03-16 | **Two-inbox strategy.** Personal life mail (flights, orders, people) → user's inbox. Project-related automated mail → Bartl label (agent triage). Progressive: in doubt, leave in user's inbox. Add rules as patterns emerge. | User directive: "things related to my personal life belong in mine, project stuff in yours." |
+| | | |

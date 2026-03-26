@@ -29,6 +29,9 @@ Conditionally loaded files containing operational knowledge for specific tools a
 | `vault-ops.md` | Vault ops, credentials, deploy secrets, encrypt/decrypt | vault-manage.sh usage, passphrase handling, deploy targets |
 | `audit-protocol.md` | Audit, self-audit, meta-audit | 3 lines of defense, 8-step workflow, system invariants, audit log format |
 | `audit-pattern-fleet.md` | P4 fleet audit orchestration | Multi-agent audit pattern, parallel phases, coverage |
+| `gmail-management.md` | Gmail triage, inbox management, email | Triage protocol, draft lifecycle, label taxonomy, spam strategy |
+| `scrollback-fix.md` | Scrollback issues, terminal buffer overflow | Root cause, terminal-specific fixes, deployment checklist |
+| `rule-writing.md` | Writing or proposing new rules | Quality checklist, anti-patterns, process |
 
 ## Adding New Knowledge Files
 
