@@ -104,7 +104,12 @@ fi
 # ── Config repo detection ─────────────────────────────────────────────────────
 if [[ -z "$CONFIG_REPO" ]]; then
     for d in "$HOME/cfg-agent-fleet" "$HOME/agent-fleet"; do
-        [[ -f "$d/registry.md" ]] && CONFIG_REPO="$d" && break
+        [[ -f "$d/registry.md" && -f "$d/.config-repo" ]] && CONFIG_REPO="$d" && break
+    done
+fi
+if [[ -z "$CONFIG_REPO" ]]; then
+    for d in "$HOME/cfg-agent-fleet" "$HOME/agent-fleet"; do
+        [[ -f "$d/registry.md" && ! -f "$d/.template-repo" ]] && CONFIG_REPO="$d" && break
     done
 fi
 if [[ -z "$CONFIG_REPO" ]]; then
