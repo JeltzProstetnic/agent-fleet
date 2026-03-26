@@ -347,7 +347,7 @@ patch_mclaude_launcher() {
     # Cleanup trap for temp files
     local tmpfile tmpfile2=""
     tmpfile=$(mktemp)
-    trap 'rm -f "${tmpfile}" "${tmpfile2:-}"' RETURN
+    trap 'rm -f "${tmpfile:-}" "${tmpfile2:-}"' RETURN
 
     # Check if already patched
     if grep -q "__cc_enable_mcp" "${LAUNCHER}"; then
@@ -453,7 +453,7 @@ LAUNCHER_PATCH
         backup_file "${LAUNCHER}"
 
         tmpfile=$(mktemp)
-        trap 'rm -f "${tmpfile}"' RETURN
+        trap 'rm -f "${tmpfile:-}"' RETURN
 
         if [[ "${DRY_RUN}" == "false" ]]; then
             # Insert update-checker before the exec line (match any exec, not just exec node)
