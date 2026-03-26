@@ -93,7 +93,7 @@ If hostname doesn't match any pattern, state the hostname and ask. If `CLAUDE.lo
    | FMS ops, file dedup, bulk moves | `knowledge/fms-ops.md` |
    | Audit, self-audit, meta-audit | `knowledge/audit-protocol.md` |
    | Email triage, inbox management | `knowledge/gmail-management.md` |
-   | `lrn` command issued | `knowledge/learn-protocol.md` |
+   | `lrn` command issued | `skills/lrn/SKILL.md` |
    | AFD daemon, task coordination | `knowledge/afd-ops.md` |
    | NAS access, smbclient, file transfer | `knowledge/nas-cheatsheet.md` |
    | YouTube tabs (save/list/open) | Run `bash ~/agent-fleet/setup/scripts/youtube-tabs.sh save\|list\|open [query]` — no file to load, just invoke the script directly |
@@ -108,6 +108,7 @@ If hostname doesn't match any pattern, state the hostname and ask. If `CLAUDE.lo
    | SteamOS deployment, symlink bugs, reprovision issues | `knowledge/steam-deck-deployment.md` |
    | P4 fleet audit orchestration | `knowledge/audit-pattern-fleet.md` |
    | AIOS memory design, knowledge graph schema, consciousness theory architecture | `knowledge/aios-memory-design.md` |
+   | Risk gate blocks an edit (RISK_GATE in stderr) | `knowledge/risk-analysis-protocol.md` |
 
    All paths relative to `~/.claude/` unless absolute. Do NOT load unless triggered.
 
@@ -154,6 +155,7 @@ For manual investigation: read `~/.claude/reference/upstream-dependencies.md`.
 - **No compound `cd` commands:** Use `git -C <path>` or absolute paths. Never `cd <dir> && <cmd>` — triggers security prompts.
 - **No speculative interactive calls.** Never call user-facing prompts (passphrase dialogs, confirmations, GUI input) "just to test." Use them directly for the real operation. Handle errors after, not before. This includes `sudo` — Claude Code has no TTY for password input. Present sudo commands to the user instead of running them.
 - **Long-running ops need tmux/nohup.** Operations expected to run >5 minutes MUST use `tmux new-session -d -s <name>` or `nohup`, never Claude Code's `run_in_background` (killed on `/exit`). Log to `/tmp/<name>.log`. Leave a pending file with tmux session name and check commands. Before launching, register with GPI if available: `gpi start <id> "<label>" --log /tmp/<name>.log`.
+- **Tier 1 edits require risk subagent clearance.** When `risk-gate.sh` blocks an edit, load `knowledge/risk-analysis-protocol.md`, launch a risk subagent, and write the clearance file only after acceptable assessment. Never bypass by removing the hook.
 - **Cross-session bug theories are hypotheses.** Inbox items, pending files, and commit messages from other sessions may contain incorrect root cause analysis. Always reproduce the issue independently before accepting a theory from another session — the investigating session may have been wrong.
 - **DMS-first file lookup.** When searching for user files/documents across machines or disks, check the DMS catalog first. Do targeted filesystem searches only for items not in the catalog -- broad find/glob sweeps should be a last resort, not the starting point.
 - **Dual-boot filesystem safety.** On dual-boot systems, be aware of cross-OS filesystem risks. Ext4 drives should not be mounted through Windows filesystem drivers -- use usbipd-win to attach USB devices to WSL instead. Mounting ext4 from Windows while Linux might also mount it risks corruption.
@@ -205,7 +207,7 @@ Personas are loaded from `~/.claude/foundation/personas.md` (or machine file ove
 
 **URL/service identification:** When given a URL, identify the service first (x.com → Twitter, github.com → GitHub, etc.), check MCP catalog, then choose MCP vs CLI.
 
-**Backlog convention:** `backlog.md` at project root. Don't read at startup. Tasks use `PRJ-NN` IDs. Full format/IDs/prioritization rules: `~/.claude/reference/backlog-convention.md`.
+**Backlog convention:** `backlog.md` at project root. Don't read at startup. Tasks use `PRJ-NN` IDs. Three states: `[ ]` open, `[>]` in-progress, `[x]` done. Mark `[>]` when implementation begins; revert to `[ ]` at shutdown if incomplete. Full rules: `~/.claude/reference/backlog-convention.md`.
 
 **Cross-project boundary — HARD CONSTRAINT:** Only write inside current project directory. Cross-project goes through inbox. The config repo (`~/agent-fleet/*`) and `~/.claude/*` are owned by the config project — **no other project may write to them.** No exceptions — all cross-project communication goes through inbox, including template updates and sub-project `.claude/` maintenance. `sync.sh` may perform mechanical file copying as infrastructure automation, but all changes requiring judgment (commits, pushes, config decisions) go through the target project's own session. Load `~/.claude/reference/cross-project-rules.md` before writing outside.
 
@@ -222,7 +224,7 @@ Personas are loaded from `~/.claude/foundation/personas.md` (or machine file ove
 | `cls` | Load `foundation/session-shutdown.md`, execute full 8-step shutdown checklist, then say "Shutdown complete. Next: /clear" **If `cls` is the first message**, skip startup — just run shutdown. |
 | `end` | Load `foundation/session-shutdown.md`, execute full 8-step shutdown checklist, then say "Shutdown complete. Next: /exit" |
 | `lsd` | **Project dashboard.** Load `~/.claude/reference/lsd-spec.md` first, then render. Also auto-triggered by `AFLEET_DASHBOARD:` in systemMessage — in that case, read ONLY `dashboard-cache.md` (skip lsd-spec.md load), render, and accept project numbers/names as switch commands. |
-| `lrn` | **Self-audit.** `lrn` alone = full audit. `lrn` + words = apply audit principles to what follows. Load `~/.claude/knowledge/learn-protocol.md`, then execute. Note: `lrn` = reliable trigger. `learn` (full word) is context-sensitive — only triggers if clearly directed at Claude or standalone. |
+| `lrn` | **Self-audit.** `lrn` alone = full audit. `lrn` + words = apply audit principles to what follows. Load `~/.claude/skills/lrn/SKILL.md`, then execute. Note: `lrn` = reliable trigger. `learn` (full word) is context-sensitive — only triggers if clearly directed at Claude or standalone. |
 | `afk` | **AFK mode.** If AFD daemon is running, activate AFK mode (`afd afk on`). Dangerous Bash commands are queued for approval. AFK mode auto-deactivates on next user console input (via UserPromptSubmit hook). |
 | `sub <task>` | **Delegate to subagent.** Launch a subagent (general-purpose or best-fit type) for the described task. If the task is too simple (one tool call), needs main conversation context, or requires interactive back-and-forth, inform the user instead of delegating. Pass the task description verbatim as the subagent prompt. Include in the prompt: "Do NOT commit, push, or create PRs. Write artifacts to tmp/, not docs/ — return findings as text." |
 

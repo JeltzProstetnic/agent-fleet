@@ -90,7 +90,7 @@ RESULT=$("$AFD_CLI" notify all "$MSG" \
   --type permission --priority high --ref "$CODE" 2>&1)
 
 # Extract notification ID
-NOTIF_ID=$(echo "$RESULT" | grep -oP '#\K\d+')
+NOTIF_ID=$(echo "$RESULT" | grep -oE '#[0-9]+' | sed 's/^#//')
 
 if [[ -z "$NOTIF_ID" ]]; then
   echo "Failed to send permission request. Blocking command." >&2

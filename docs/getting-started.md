@@ -29,15 +29,13 @@ Claude Code requires either a **Max subscription** or **API access**.
 
 ## 2. Installation
 
-### Step 1: Create your copy
-
-On GitHub, click **"Use this template"** to create your own repo. Do NOT fork — forks can't be made private, and your config will contain personal data.
-
-Clone it:
+### Step 1: Clone
 
 ```bash
-git clone https://github.com/YOUR_USERNAME/agent-fleet ~/agent-fleet
+git clone https://github.com/JeltzProstetnic/agent-fleet ~/agent-fleet
 ```
+
+> **Want a private copy?** Click "Use this template" on GitHub to create your own repo, then clone that URL instead. Don't fork — forks can't be private and your config will contain personal data. Setup auto-detects the template origin and reconfigures remotes.
 
 ### Step 2: Run setup
 
@@ -85,6 +83,8 @@ afleet
 ```
 
 Use `afleet`, not `claude` directly. `afleet` syncs repos, detects your project, and ensures everything is loaded before handing off to Claude Code.
+
+> **Do NOT run `/init`.** Claude Code's startup screen suggests running `/init` to create a CLAUDE.md. Agent Fleet already manages CLAUDE.md — running `/init` overwrites it with a blank stub, breaking your setup. If you accidentally run it: `git checkout -- CLAUDE.md` restores the managed version.
 
 ### What happens the first time
 

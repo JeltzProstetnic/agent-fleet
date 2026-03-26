@@ -24,15 +24,30 @@ if ! bash -n "$HOOK_PATH" 2>/dev/null; then
   exit 0
 fi
 
-# --- Run with error trap ---
-output=$(bash "$HOOK_PATH" "$@" 2>&1) || {
+# --- Run the hook, capturing stdout and stderr separately ---
+# PreToolUse hooks use exit 2 + stderr to block tool calls.
+# We must preserve that signal while still catching crashes.
+_sr_tmp=$(mktemp /tmp/safe-run-stderr.XXXXXX)
+_stdout=""
+_stderr=""
+_stdout=$(bash "$HOOK_PATH" "$@" 2>"$_sr_tmp") || {
   rc=$?
-  # Print whatever output the hook produced before failing
-  [[ -n "$output" ]] && echo "$output"
+  _stderr=$(cat "$_sr_tmp" 2>/dev/null)
+  rm -f "$_sr_tmp"
+  if [[ $rc -eq 2 ]] && [[ -n "$_stderr" ]]; then
+    # Deliberate block (PreToolUse convention) — pass through
+    [[ -n "$_stdout" ]] && echo "$_stdout"
+    echo "$_stderr" >&2
+    exit 2
+  fi
+  # Unexpected failure — degrade gracefully
+  [[ -n "$_stdout" ]] && echo "$_stdout"
+  [[ -n "$_stderr" ]] && echo "$_stderr"
   echo "⚠ HOOK FAILED: $HOOK_NAME (exit $rc) — non-blocking"
   exit 0
 }
+rm -f "$_sr_tmp"
 
 # --- Success: pass through output ---
-[[ -n "$output" ]] && echo "$output"
+[[ -n "$_stdout" ]] && echo "$_stdout"
 exit 0

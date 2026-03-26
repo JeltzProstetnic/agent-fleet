@@ -11,10 +11,13 @@
 # On failure: writes a marker to .sync-failed
 # The SessionStart hook (config-check.sh) reads this marker and alerts the user.
 
+# Source portable wrappers (provides _readlink_f for macOS compat)
+source "$(dirname "${BASH_SOURCE[0]}")/lib-portable.sh" 2>/dev/null || true
+
 # Auto-detect config repo: try symlink source, then known paths
 _detect_config_repo() {
     local hook_real
-    hook_real="$(readlink -f "${BASH_SOURCE[0]}" 2>/dev/null || echo "")"
+    hook_real="$(_readlink_f "${BASH_SOURCE[0]}" 2>/dev/null || echo "")"
     if [[ -n "$hook_real" && -f "$(dirname "$hook_real")/../../sync.sh" ]]; then
         echo "$(cd "$(dirname "$hook_real")/../.." && pwd)"
         return
@@ -187,9 +190,10 @@ if [ -n "$SECRET_HITS" ]; then
         fi
     done)
     if [ -n "$SUSPICIOUS_FILES" ]; then
-        # Load into array to handle filenames with spaces safely
-        mapfile -t SUSPICIOUS_ARRAY <<< "$SUSPICIOUS_FILES"
-        git restore --staged "${SUSPICIOUS_ARRAY[@]}" 2>/dev/null || true
+        # Unstage each suspicious file individually (bash 3.2 compat — no mapfile)
+        while IFS= read -r _sf; do
+            [ -n "$_sf" ] && git restore --staged "$_sf" 2>/dev/null || true
+        done <<< "$SUSPICIOUS_FILES"
         printf 'AUTO-SYNC WARNING: Possible secrets detected in staged files: %s\n' \
             "${SUSPICIOUS_FILES//$'\n'/ }" >> "$CONFIG_REPO/.sync-warnings.log"
         printf 'time=%s\n' "$(date -u +'%Y-%m-%d %H:%M:%S UTC')" >> "$CONFIG_REPO/.sync-warnings.log"

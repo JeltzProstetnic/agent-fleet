@@ -276,7 +276,7 @@ if [[ -f "$PROJECT_DIR/backlog.md" ]]; then
     _ACTIONABLE="${_PROGRESS_CONTENT}
 ${_DECISIONS_CONTENT}"
     # Find task IDs only in actionable sections (not carry-over, metadata, etc.)
-    _SC_CFGIDS=$(printf '%s\n' "$_ACTIONABLE" | grep -oP '[A-Z]+-\d+' | sort -u || true)
+    _SC_CFGIDS=$(printf '%s\n' "$_ACTIONABLE" | grep -oE '[A-Z]+-[0-9]+' | sort -u || true)
     if [[ -n "$_SC_CFGIDS" ]]; then
         _UNAPPROVED=""
         for _cid in $_SC_CFGIDS; do
@@ -324,7 +324,7 @@ cat > "$SESSION_FILE" <<'EOF'
 EOF
 
 # Pre-populate deterministic fields so the template isn't fully blank
-sed -i "s/^\(- \*\*Last Updated\*\*:\)$/\1 $(date -Iseconds) (rotated)/" "$SESSION_FILE"
+_sed_i "s/^\(- \*\*Last Updated\*\*:\)$/\1 $(date +%Y-%m-%dT%H:%M:%S%z) (rotated)/" "$SESSION_FILE"
 echo "Reset session-context.md to blank template (pre-populated timestamp)."
 echo "Rotation complete."
 echo ""

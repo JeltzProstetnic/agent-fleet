@@ -103,12 +103,12 @@ fi
 
 # ── Config repo detection ─────────────────────────────────────────────────────
 if [[ -z "$CONFIG_REPO" ]]; then
-    for d in "$HOME/agent-fleet"; do
+    for d in "$HOME/cfg-agent-fleet" "$HOME/agent-fleet"; do
         [[ -f "$d/registry.md" ]] && CONFIG_REPO="$d" && break
     done
 fi
 if [[ -z "$CONFIG_REPO" ]]; then
-    echo "Error: config repo not found (tried ~/agent-fleet)" >&2
+    echo "Error: config repo not found (tried ~/cfg-agent-fleet, ~/agent-fleet)" >&2
     exit 1
 fi
 

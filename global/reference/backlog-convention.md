@@ -12,6 +12,7 @@ Every project has `backlog.md` at root. Do NOT read at session start — only wh
 ## Open
 
 - [ ] [P1] `PRJ-01` **Task title**: Description
+- [>] [P0] `PRJ-02` **Active task**: Being worked on right now
 
 ## Done
 
@@ -21,20 +22,34 @@ Every project has `backlog.md` at root. Do NOT read at session start — only wh
 Older completed items: `docs/backlog-archive.md`
 ```
 
+## Task States
+
+| Marker | State | Meaning |
+|--------|-------|---------|
+| `- [ ]` | Open | Available for work |
+| `- [>]` | In-progress | A session is actively working on this |
+| `- [x]` | Done | Completed |
+
+**In-progress rule:** Mark `[>]` when implementation begins (not at planning/triage). Revert to `[ ]` at shutdown if work is incomplete. Defense in depth — a session must forget both marking in-progress AND marking done for a stale item to resurface.
+
 ## Task IDs
 
 Every open task gets a stable ID: `PRJ-NN` where `PRJ` is a short project prefix (2-4 uppercase letters) and `NN` is a zero-padded sequential number. IDs are unique within a project — never reused, even after completion. The user can reference tasks by ID across sessions.
 
-Standard prefixes (customize for your projects):
+Standard prefixes:
 
 | Prefix | Project |
 |--------|---------|
-| `CFG` | Config/meta project |
-| `INF` | Infrastructure |
-| `APP` | Application project |
-| `WEB` | Web frontend |
-| `API` | Backend/API service |
-| `DOC` | Documentation project |
+| `CFG` | cfg-agent-fleet |
+| `AIW` | aIware |
+| `SOC` | social |
+| `INF` | infrastructure |
+| `IVO` | ivoclar |
+| `AFT` | agent-fleet |
+| `MUS` | muse |
+| `MBX` | mirror-box |
+| `CRU` | crucible |
+| `A2D` | ai2do |
 
 New projects: pick a 2-4 letter prefix, add to this table.
 
@@ -59,8 +74,8 @@ Backlog grooming is a periodic cleanup task. When grooming (manually or via suba
 1. **Move completed items**: All `[x]` items from Open → Done, grouped by date.
 2. **Priority updates**: Actively re-assess and **change** priority levels based on:
    - **Roadmap alignment**: items on the critical path for current-quarter epics get bumped up; items for future-quarter epics stay lower.
-   - **Dependency changes**: if a blocker was cleared, the unblocked item may warrant a priority bump.
-   - **Completion landscape**: when related work is done, remaining items may become more or less urgent (e.g., most of a block is done → the verification step is now the bottleneck).
+   - **Dependency changes**: if a blocker was cleared (e.g., CFG-56 done → CFG-60 unblocked), the unblocked item may warrant a priority bump.
+   - **Completion landscape**: when related work is done, remaining items may become more or less urgent (e.g., most of a storage block is done → the verification step is now the bottleneck).
    - **Strategic shifts**: user priorities, external deadlines, or new information that changes what matters.
    - **Blocked items**: items blocked on external factors (hardware, user action, another machine) should be demoted until unblocked.
 
@@ -76,7 +91,7 @@ Backlog grooming is a periodic cleanup task. When grooming (manually or via suba
 Before creating a new backlog item `PRJ-NN`:
 
 1. **Dedup check.** Search both Open and Done sections for the same topic. `grep -i "keyword" backlog.md`. If a match exists, update the existing item instead of creating a new one.
-2. **Related item scan.** Identify items that are co-dependent, share a subsystem, or would benefit from being worked together. Link them: `Depends: PRJ-XX` or group under the same `Epic: E-XX`.
+2. **Related item scan.** Identify items that are co-dependent, share a subsystem, or would benefit from being worked together. Link them: `Depends: CFG-XX` or group under the same `Epic: E-XX`.
 3. **Cherry-pick rule.** When extracting ideas from an evaluation (competitor analysis, tool research, etc.), cross-check EVERY idea against Done items — completed work is invisible under momentum.
 
 ## Epic References

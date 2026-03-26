@@ -33,11 +33,12 @@ done
 [ -n "$_fleet_upstream_version" ] || return 0 2>/dev/null || true
 
 # Compare versions — only warn if upstream is strictly newer
-# sort -V gives semver-correct ordering
+# Portable: try sort -V (GNU), fall back to dot-separated numeric sort (macOS)
 if [ "$_fleet_local_version" = "$_fleet_upstream_version" ]; then
     return 0 2>/dev/null || true
 fi
-_fleet_newer=$(printf '%s\n%s' "$_fleet_local_version" "$_fleet_upstream_version" | sort -V | tail -1)
+_fleet_newer=$(printf '%s\n%s' "$_fleet_local_version" "$_fleet_upstream_version" | sort -V 2>/dev/null || printf '%s\n%s' "$_fleet_local_version" "$_fleet_upstream_version" | sort -t. -k1,1n -k2,2n -k3,3n)
+_fleet_newer=$(printf '%s' "$_fleet_newer" | tail -1)
 if [ "$_fleet_newer" != "$_fleet_upstream_version" ]; then
     # Local is newer or equal — no update needed
     return 0 2>/dev/null || true

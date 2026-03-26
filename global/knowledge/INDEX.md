@@ -16,7 +16,8 @@ Conditionally loaded files containing operational knowledge for specific tools a
 | `mcp-deployment.md` | Adding new MCP server or debugging MCP server config | Pre-deployment checklist, port conflicts, onboarding suppression, per-server notes |
 | `plan-mode-issues.md` | Plan mode hangs, freezes, or unresponsive UI | Root cause (MCP deadlock), workarounds, diagnostic data |
 | `claude-code-permissions.md` | Permission prompts, settings.local.json issues | Override problem, fix procedure, prevention |
-| `learn-protocol.md` | `lrn`/`learn` command issued | Self-audit protocol: 3 parallel subagents for rule compliance, knowledge capture, and improvement finding |
+| `learn-protocol.md` | — (deprecated) | Redirect to `skills/lrn/SKILL.md` |
+| `risk-analysis-protocol.md` | Risk gate blocks an edit (RISK_GATE in stderr) | Subagent prompt, clearance protocol, T1 file inventory, known failure modes |
 | `hook-behavior.md` | Hook debugging, platform-specific hook issues | UserPromptSubmit gaps, PreToolUse subagent support, urandom quirks |
 | `dev-browser-ops.md` | Using dev-browser skill or browser automation | Startup, Chromium drift fix, session persistence |
 | `age-encryption.md` | Encryption tasks involving age/pyrage | age CLI TTY limitation, pyrage alternative, passphrase handling |
