@@ -43,6 +43,9 @@ log_info()  { echo -e "${GREEN}[INFO]${NC} $*"; }
 log_warn()  { echo -e "${YELLOW}[WARN]${NC} $*"; }
 log_error() { echo -e "${RED}[ERROR]${NC} $*"; }
 
+# Portable readlink -f (macOS compat — no GNU coreutils required)
+_readlink_f() { readlink -f "$1" 2>/dev/null && return; local t="$1"; [ "${t#/}" = "$t" ] && t="$PWD/$t"; while [ -L "$t" ]; do local l; l=$(readlink "$t") || break; [ "${l#/}" = "$l" ] && l="$(dirname "$t")/$l"; t="$l"; done; local d; d=$(cd "$(dirname "$t")" 2>/dev/null && pwd -P) || return 1; echo "$d/$(basename "$t")"; }
+
 # Source user-local overrides (hostname map, post-setup hook) if present
 if [[ -f "$SCRIPT_DIR/sync.local.sh" ]]; then
     source "$SCRIPT_DIR/sync.local.sh"
@@ -147,6 +150,12 @@ cmd_setup() {
     # Run user-defined post-setup hook (from sync.local.sh)
     if type local_post_setup &>/dev/null; then
         local_post_setup
+    fi
+
+    # Configure pre-push hook for personal data leak detection (CFG-295)
+    if [[ -f "$SCRIPT_DIR/.githooks/pre-push" ]]; then
+        git -C "$SCRIPT_DIR" config core.hooksPath .githooks 2>/dev/null || true
+        log_info "Configured git hooksPath → .githooks (pre-push leak detection)"
     fi
 
     # Clean unwanted marketplace plugins
