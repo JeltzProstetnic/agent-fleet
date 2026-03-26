@@ -517,13 +517,13 @@ deploy_helper_scripts() {
 
     if files_identical "${src_checker}" "${dest_checker}"; then
         log_info "update-checker.sh already up to date, skipping"
-        ((skipped_count++))
+        ((skipped_count++)) || true
     else
         backup_file "${dest_checker}"
         run_cmd cp "${src_checker}" "${dest_checker}"
         run_cmd chmod +x "${dest_checker}"
         log_success "Deployed: update-checker.sh"
-        ((deployed_count++))
+        ((deployed_count++)) || true
     fi
 
     # statusline-command.sh — context usage bar for Claude Code
@@ -536,13 +536,13 @@ deploy_helper_scripts() {
 
     if files_identical "${src_statusline}" "${dest_statusline}"; then
         log_info "statusline-command.sh already up to date, skipping"
-        ((skipped_count++))
+        ((skipped_count++)) || true
     else
         backup_file "${dest_statusline}"
         run_cmd cp "${src_statusline}" "${dest_statusline}"
         run_cmd chmod +x "${dest_statusline}"
         log_success "Deployed: statusline-command.sh -> ~/.claude/statusline-command.sh"
-        ((deployed_count++))
+        ((deployed_count++)) || true
     fi
     # Clean up legacy statusline.sh if it exists
     [ -f "${HOME}/.claude/statusline.sh" ] && rm -f "${HOME}/.claude/statusline.sh" && log_info "Removed legacy statusline.sh"
@@ -553,13 +553,13 @@ deploy_helper_scripts() {
 
     if files_identical "${src_installer}" "${dest_installer}"; then
         log_info "configure-claude.sh already up to date, skipping"
-        ((skipped_count++))
+        ((skipped_count++)) || true
     else
         backup_file "${dest_installer}"
         run_cmd cp "${src_installer}" "${dest_installer}"
         run_cmd chmod +x "${dest_installer}"
         log_success "Deployed: configure-claude.sh (reference copy)"
-        ((deployed_count++))
+        ((deployed_count++)) || true
     fi
 
     if [[ ${deployed_count} -gt 0 ]]; then
