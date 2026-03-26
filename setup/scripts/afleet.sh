@@ -22,9 +22,17 @@ _fallback_launch() {
     exec "$launcher"
 }
 
-# ── Config ───────────────────────────────────────────────────────────────────
-CONFIG_REPO="${CONFIG_REPO:-}"
-if [[ -z "$CONFIG_REPO" ]]; then
+# ── Config — detect config repo using shared library ─────────────────────────
+_LIB_DETECT=""
+for _p in "$HOME/.claude/hooks/lib-detect-repo.sh" "$(dirname "${BASH_SOURCE[0]}")/../../global/hooks/lib-detect-repo.sh"; do
+    [[ -f "$_p" ]] && _LIB_DETECT="$_p" && break
+done
+if [[ -n "$_LIB_DETECT" ]]; then
+    source "$_LIB_DETECT"
+    CONFIG_REPO="$(_detect_config_repo)"
+else
+    # Fallback: inline detection if shared lib not found
+    CONFIG_REPO=""
     for d in "$HOME/cfg-agent-fleet" "$HOME/agent-fleet"; do
         [[ -f "$d/sync.sh" && ! -f "$d/.template-repo" ]] && CONFIG_REPO="$d" && break
     done
