@@ -14,6 +14,84 @@ set -euo pipefail
 # Never use a pager — this script is non-interactive
 export GIT_PAGER=cat
 
+# ── Clone-if-missing: lookup registry and clone into empty project dir ─────
+# Returns 0 on success (repo cloned), 1 on failure (no match, no URL, clone failed)
+_try_clone_from_registry() {
+    local registry="${REGISTRY_PATH:-$HOME/cfg-agent-fleet/registry.md}"
+    [[ -f "$registry" ]] || return 1
+
+    # Normalize PWD to ~/path for matching against registry Path column
+    local cwd_pattern="${PWD/#$HOME/\~}"
+
+    # Parse registry: columns are |Name|P|Parent|Path|Repo|Machines|Type|Status|Notes
+    # Leading | creates an empty first field — _lead absorbs it
+    local repo_slug=""
+    while IFS='|' read -r _lead _name _pri _parent path repo _rest; do
+        # Strip backticks, whitespace
+        path=$(echo "$path" | tr -d '`' | xargs)
+        [[ "$path" == "$cwd_pattern" ]] || continue
+        repo_slug=$(echo "$repo" | tr -d '`' | sed 's/ *(private)//; s/ *(public)//' | xargs)
+        break
+    done < "$registry"
+
+    # No match or no URL
+    [[ -n "$repo_slug" && "$repo_slug" != "—" && "$repo_slug" != "-" ]] || return 1
+
+    # Construct clone URLs — support local paths (for testing) and GitHub slugs
+    local url_primary url_fallback
+    if [[ "$repo_slug" == /* || "$repo_slug" == *"://"* ]]; then
+        # Absolute path or full URL — use directly (no fallback)
+        url_primary="$repo_slug"
+        url_fallback=""
+    else
+        # GitHub slug (owner/repo)
+        url_primary="git@github.com:${repo_slug}.git"
+        url_fallback="https://github.com/${repo_slug}.git"
+    fi
+
+    echo "Empty project directory — found '$repo_slug' in registry."
+    echo "Attempting clone..."
+
+    # Use git init + remote + fetch + checkout (works in non-empty dirs, preserves .claude/)
+    git init -b main >/dev/null 2>&1 || return 1
+    git config user.email "auto@agent-fleet" 2>/dev/null || true
+    git config user.name "agent-fleet" 2>/dev/null || true
+
+    git remote add origin "$url_primary" 2>/dev/null || true
+
+    local fetched=false
+    if git fetch origin --quiet 2>/dev/null; then
+        fetched=true
+    elif [[ -n "$url_fallback" ]]; then
+        echo "SSH failed — trying HTTPS..."
+        git remote set-url origin "$url_fallback" 2>/dev/null
+        if git fetch origin --quiet 2>/dev/null; then
+            fetched=true
+        fi
+    fi
+
+    if [[ "$fetched" != "true" ]]; then
+        # Cleanup partial init
+        rm -rf .git
+        echo "Clone failed (remote unreachable). Check credentials and network."
+        return 1
+    fi
+
+    # Detect default branch and checkout
+    local default_branch
+    default_branch=$(git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's|refs/remotes/origin/||') || true
+    [[ -n "$default_branch" ]] || default_branch="main"
+
+    if ! git checkout -b "$default_branch" "origin/$default_branch" 2>/dev/null; then
+        # Branch might already exist from init
+        git checkout "$default_branch" 2>/dev/null || true
+        git branch -u "origin/$default_branch" 2>/dev/null || true
+    fi
+
+    echo "Cloned from registry ($repo_slug)."
+    return 0
+}
+
 AUTO_PULL=false
 REPO_PATH=""
 for arg in "$@"; do
@@ -32,10 +110,14 @@ if [ -n "$REPO_PATH" ]; then
   cd "$REPO_PATH"
 fi
 
-# Verify we're in a git repo
+# Verify we're in a git repo — if not, try clone-if-missing from registry
 if ! git rev-parse --is-inside-work-tree &>/dev/null; then
-  echo "ERROR: Not a git repo."
-  exit 2
+  if _try_clone_from_registry; then
+    : # Fall through to normal sync logic
+  else
+    echo "ERROR: Not a git repo."
+    exit 2
+  fi
 fi
 
 BRANCH=$(git symbolic-ref --short HEAD 2>/dev/null || echo "")
