@@ -150,7 +150,8 @@ After processing all selections, present a final overview of available capabilit
 - **Cross-project coordination** — tasks flow between projects automatically via an inbox system.
 
 **Available skills (activate by describing the problem):**
-- **Simulation & optimization** — discrete-event simulation for queueing, scheduling, resource allocation, throughput optimization. Say 'simulate' or describe a system with queues and servers.
+- **Simulation & optimization (SimOpt)** — discrete-event simulation for queueing, scheduling, resource allocation, throughput optimization. Say 'simulate' or describe a system with queues and servers.
+- **Browser automation** — web scraping, form filling, testing, screenshot capture via Playwright. Say 'go to [url]' or 'take a screenshot'.
 - **Self-audit (`lrn`)** — when something goes wrong, I analyze root causes and create prevention rules. Say `lrn` to trigger.
 
 **Multi-machine & server (available now, set up on demand):**
@@ -161,7 +162,6 @@ After processing all selections, present a final overview of available capabilit
 **Upcoming:**
 - **Muse** — AI-powered creative studio for image generation, art direction, and visual content creation
 - **Full GUI** — desktop dashboard with visual project management, progress indicators, and persona face
-- Browser automation — web scraping, form filling, testing
 
 Type `lsd` for a project dashboard anytime. Everything is documented — just ask."
 

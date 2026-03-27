@@ -6,7 +6,7 @@
 # 1. Auto-rotate the CURRENT PROJECT's session (if it has session-context.md)
 # 2. Commit session files in current project (if different from the config repo)
 # 3. Auto-rotate the config repo's own session
-# 4. Collect project rules, commit config repo changes, and push
+# 4. Deploy repo → live, commit config repo changes, and push
 #
 # On failure: writes a marker to .sync-failed
 # The SessionStart hook (config-check.sh) reads this marker and alerts the user.
@@ -14,19 +14,8 @@
 # Source portable wrappers (provides _readlink_f for macOS compat)
 source "$(dirname "${BASH_SOURCE[0]}")/lib-portable.sh" 2>/dev/null || true
 
-# Auto-detect config repo: try symlink source, then known paths
-_detect_config_repo() {
-    local hook_real
-    hook_real="$(_readlink_f "${BASH_SOURCE[0]}" 2>/dev/null || echo "")"
-    if [[ -n "$hook_real" && -f "$(dirname "$hook_real")/../../sync.sh" ]]; then
-        echo "$(cd "$(dirname "$hook_real")/../.." && pwd)"
-        return
-    fi
-    for d in "$HOME/agent-fleet"; do
-        [[ -f "$d/sync.sh" && ! -f "$d/.template-repo" ]] && echo "$d" && return
-    done
-    echo "$HOME/agent-fleet"  # final fallback
-}
+# Config repo detection — canonical source in lib-detect-repo.sh
+source "$(dirname "${BASH_SOURCE[0]}")/lib-detect-repo.sh" 2>/dev/null || true
 CONFIG_REPO="$(_detect_config_repo)"
 FAIL_MARKER="$CONFIG_REPO/.sync-failed"
 LOCK_FILE="$CONFIG_REPO/.sync-lock"
@@ -41,18 +30,19 @@ _SESSION_LOCK_LIB="$CONFIG_REPO/setup/scripts/session-lock.sh"
 _LOCK_SID="${AFLEET_SESSION_ID:-}"
 if [ -f "$_SESSION_LOCK_LIB" ]; then
     source "$_SESSION_LOCK_LIB"
+    _lock_file="$ORIGINAL_DIR/.claude/.session-lock"
     # Read session ID from lock file if not in env (hook PIDs differ between start/end)
-    if [ -z "$_LOCK_SID" ]; then
-        _lock_file="$ORIGINAL_DIR/.claude/.session-lock"
-        if [ -f "$_lock_file" ] && _read_lock "$_lock_file" 2>/dev/null; then
+    if [ -z "$_LOCK_SID" ] && [ -f "$_lock_file" ]; then
+        if _read_lock "$_lock_file" 2>/dev/null; then
             _LOCK_SID="$_LOCK_SESSION"
         fi
     fi
     if [ -n "$_LOCK_SID" ]; then
         release_lock "$ORIGINAL_DIR" "$_LOCK_SID" 2>/dev/null || true
-    else
-        # Fallback: force release if we can't determine session ID
-        force_release "$ORIGINAL_DIR" 2>/dev/null || true
+    fi
+    # Safety net: force-remove lock file if it still exists after release attempt (CFG-298)
+    if [ -f "$_lock_file" ]; then
+        force_release "$ORIGINAL_DIR" 2>/dev/null || rm -f "$_lock_file" 2>/dev/null || true
     fi
 fi
 # Release server lock if session ID is available (CFG-101)
@@ -102,15 +92,47 @@ if [ -f "$CONFIG_REPO/sync.sh" ]; then
     fi
 fi
 
-# --- Phase 0.8: Template propagation suggestion (CFG-242) ---
-# If template-push.sh exists and template repo is local, check if push is needed.
-# Appends to drift log for next session's startup to surface.
+# --- Phase 0.75: T2 deployment-critical edit detection (CFG-326) ---
+# Check if T2 files were modified this session. If so, warn that E2E tests should be run.
+# Does NOT block shutdown — informational only, surfaced at next session start.
+T2_MARKER="$CONFIG_REPO/.t2-edits-pending"
+if [ -d "$CONFIG_REPO/.git" ]; then
+    _t2_files=$(git -C "$CONFIG_REPO" diff --name-only HEAD 2>/dev/null || true)
+    if [ -z "$_t2_files" ]; then
+        _t2_files=$(git -C "$CONFIG_REPO" diff --name-only HEAD~1 2>/dev/null || true)
+    fi
+    _t2_hits=""
+    while IFS= read -r _f; do
+        [ -z "$_f" ] && continue
+        case "$_f" in
+            setup/install*.sh|setup/configure-*.sh|setup/lib.sh) _t2_hits="${_t2_hits:+$_t2_hits, }$_f" ;;
+            setup/scripts/upgrade.sh) _t2_hits="${_t2_hits:+$_t2_hits, }$_f" ;;
+            setup/config/*.json) _t2_hits="${_t2_hits:+$_t2_hits, }$_f" ;;
+            global/hooks/*.sh|global/hooks/checks/*.sh) _t2_hits="${_t2_hits:+$_t2_hits, }$_f" ;;
+        esac
+    done <<< "$_t2_files"
+    if [ -n "$_t2_hits" ]; then
+        echo "T2_EDITS: $_t2_hits" > "$T2_MARKER"
+    else
+        rm -f "$T2_MARKER"
+    fi
+fi
+
+# --- Phase 0.8: Automatic template propagation (CFG-242) ---
+# If template-push.sh exists and template repo is local, auto-push changes.
+# Category 1-2 files are auto-committed. Category 3 files are flagged only.
 _TPL_SCRIPT="$CONFIG_REPO/setup/scripts/template-push.sh"
 _TPL_DIR="$HOME/agent-fleet"
 if [ -f "$_TPL_SCRIPT" ] && [ -d "$_TPL_DIR/.git" ]; then
     _TPL_DRIFT=$(bash "$_TPL_SCRIPT" --dry-run 2>&1 | grep -c 'Would copy\|Would sanitize' || true)
     if [ "$_TPL_DRIFT" -gt 0 ]; then
-        printf 'TEMPLATE_PROPAGATION_NEEDED: %d file(s) changed — run sync.sh template-push\n' "$_TPL_DRIFT" >> "${DRIFT_LOG:-$CONFIG_REPO/.sync-warnings.log}"
+        # Auto-propagate and commit (Cat 1-2 only, Cat 3 flagged)
+        bash "$_TPL_SCRIPT" --commit 2>&1 | tail -5 || true
+        # Check if Category 3 files need manual review
+        _CAT3=$(bash "$_TPL_SCRIPT" --dry-run 2>&1 | grep -c 'Category 3\|manual review' || true)
+        if [ "$_CAT3" -gt 0 ]; then
+            printf 'TEMPLATE_PROPAGATION_CAT3: %d file(s) need manual review in agent-fleet session\n' "$_CAT3" >> "${DRIFT_LOG:-$CONFIG_REPO/.sync-warnings.log}"
+        fi
     fi
 fi
 
@@ -169,14 +191,30 @@ if [[ "$ORIGINAL_DIR" != "$CONFIG_REPO" && -f "$CONFIG_REPO/session-context.md" 
     fi
 fi
 
-# Collect project-specific rules
-COLLECT_OUTPUT=$(bash "$CONFIG_REPO/sync.sh" collect 2>&1) || sync_fail "collect" "sync.sh collect failed: $(echo "$COLLECT_OUTPUT" | tail -1)"
+# Deploy repo → live (v1.0: repo is sole source of truth, no more collect)
+DEPLOY_OUTPUT=$(bash "$CONFIG_REPO/sync.sh" deploy 2>&1) || sync_fail "deploy" "sync.sh deploy failed: $(echo "$DEPLOY_OUTPUT" | tail -1)"
 
 # Stage only expected directories and files — avoid staging unintended changes
 git add session-context.md session-history.md 2>/dev/null || true
 git add docs/ projects/ cross-project/ 2>/dev/null || true
 git add global/ backlog.md registry.md template-sync-manifest.md 2>/dev/null || true
-git diff --cached --quiet 2>/dev/null && sync_success  # Nothing to sync
+# If nothing new staged, still check for unpushed commits before exiting
+if git diff --cached --quiet 2>/dev/null; then
+    # No new changes to commit — but are there unpushed commits?
+    PUSH_REMOTE="origin"
+    if [ -f "$CONFIG_REPO/.push-filter.conf" ]; then
+        PR=$(grep '^private_remote=' "$CONFIG_REPO/.push-filter.conf" 2>/dev/null | head -1 | cut -d= -f2 | xargs)
+        [ -n "$PR" ] && PUSH_REMOTE="$PR"
+    fi
+    DEFAULT_BRANCH=$(git symbolic-ref "refs/remotes/$PUSH_REMOTE/HEAD" 2>/dev/null | sed "s|refs/remotes/$PUSH_REMOTE/||")
+    [ -z "$DEFAULT_BRANCH" ] && DEFAULT_BRANCH="main"
+    UNPUSHED=$(git log "$PUSH_REMOTE/$DEFAULT_BRANCH..HEAD" --oneline 2>/dev/null)
+    if [ -n "$UNPUSHED" ]; then
+        git push "$PUSH_REMOTE" "$DEFAULT_BRANCH" 2>/dev/null \
+            || sync_fail "push" "git push failed (unpushed commits exist)"
+    fi
+    sync_success
+fi
 
 # Secret scan: check staged diff for obvious secret patterns before committing
 STAGED_DIFF=$(git diff --cached 2>/dev/null)
@@ -218,8 +256,7 @@ DEFAULT_BRANCH=$(git symbolic-ref "refs/remotes/$PUSH_REMOTE/HEAD" 2>/dev/null |
 git push "$PUSH_REMOTE" "$DEFAULT_BRANCH" 2>/dev/null \
     || sync_fail "push" "git push failed (network? auth?)"
 
-# --- Phase 3.5: Deploy repo → live (ensure deployed state matches committed state) ---
-# Fills the gap CFG-208 doesn't cover: same-machine deploy after own commit.
-bash "$CONFIG_REPO/sync.sh" deploy 2>/dev/null || true
+# Phase 3 deploy (above) already ensures deployed state matches repo.
+# Phase 3.5 (redundant deploy) removed in v1.0 — repo is sole authority.
 
 sync_success
