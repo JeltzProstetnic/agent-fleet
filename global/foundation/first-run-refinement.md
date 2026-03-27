@@ -44,7 +44,7 @@ Z. Both
 
 * so I can help with your IT infrastructure like sorting files, fixing network issues, system problems etc.
 
-Pick whatever you like — letters for persona, numbers for projects, X/Y/Z for setup. Or skip anything you're not interested in right now.
+Pick whatever you like — letters for persona, numbers for projects, X/Y/Z for setup. You can also just tell me more about yourself (job, education, interests) — it helps me work better for you. Or skip anything you're not interested in right now.
 ```
 
 **Project types (labeled with numbers):**
