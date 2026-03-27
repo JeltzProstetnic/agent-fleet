@@ -41,7 +41,7 @@ fi
 
 # Check 1.5: Detect .setup-pending marker (first-run after install)
 if [ -f "$PROJECT_ROOT/.setup-pending" ]; then
-    WARNINGS="${WARNINGS:+$WARNINGS | }SETUP_PENDING: First-run setup. Your VERY FIRST output MUST be a friendly DON'T PANIC greeting (Douglas Adams reference — the user expects it). Then ask for their name to start personalization. Keep it warm, brief, non-technical. Load foundation/first-run-refinement.md for the full onboarding protocol. Do NOT wait for the user to ask — greet them immediately. Do NOT show technical output, file paths, or system messages before the greeting."
+    WARNINGS="${WARNINGS:+$WARNINGS | }SETUP_PENDING: First-run setup. The user saw a DON'T PANIC banner and was told to say hi. When they do, load foundation/first-run-refinement.md and start the onboarding conversation. Keep it warm, brief, non-technical. Ask for their name first. One question at a time."
 fi
 
 # Check 1.6: Does config repo exist?

@@ -411,6 +411,20 @@ afleet_acquire_session_lock "$TARGET_DIR" "$TARGET_NAME" || {
     echo "  Warning: session lock failed — launching anyway" >&2
 }
 
+# ── First-run banner (CFG-149) ───────────────────────────────────────────────
+if [[ -f "$TARGET_DIR/.setup-pending" ]]; then
+    echo "" >&2
+    echo "  ╔═══════════════════════════════════════╗" >&2
+    echo "  ║                                       ║" >&2
+    echo "  ║          D O N ' T   P A N I C        ║" >&2
+    echo "  ║                                       ║" >&2
+    echo "  ║     Everything is set up.              ║" >&2
+    echo "  ║     Just say hi.                       ║" >&2
+    echo "  ║                                       ║" >&2
+    echo "  ╚═══════════════════════════════════════╝" >&2
+    echo "" >&2
+fi
+
 # ── Launch ───────────────────────────────────────────────────────────────────
 
 if [[ "$DRY_RUN" == "1" ]]; then
