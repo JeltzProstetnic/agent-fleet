@@ -483,7 +483,13 @@ if [[ -t 1 ]]; then
 
 fi
 
-AFLEET_LAUNCHED=1 AFLEET_PROJECT="$TARGET_NAME" CC_MIRROR_SPLASH=0 "$MCLAUDE"
+# First-run: auto-submit "hi" so CC starts onboarding without waiting for input
+INITIAL_PROMPT=""
+if [[ -f "$TARGET_DIR/.setup-pending" ]]; then
+    INITIAL_PROMPT="hi"
+fi
+
+AFLEET_LAUNCHED=1 AFLEET_PROJECT="$TARGET_NAME" CC_MIRROR_SPLASH=0 "$MCLAUDE" $INITIAL_PROMPT
 MCLAUDE_EXIT=$?
 
 # Clear pre-launch banner from primary buffer so it doesn't linger after CC exits

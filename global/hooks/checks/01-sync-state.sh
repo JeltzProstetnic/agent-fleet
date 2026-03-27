@@ -41,7 +41,7 @@ fi
 
 # Check 1.5: Detect .setup-pending marker (first-run after install)
 if [ -f "$PROJECT_ROOT/.setup-pending" ]; then
-    WARNINGS="${WARNINGS:+$WARNINGS | }SETUP_PENDING: First-run setup. The user saw a DON'T PANIC banner and was told to say hi. When they do, load foundation/first-run-refinement.md and start the onboarding conversation. Keep it warm, brief, non-technical. Ask for their name first. One question at a time."
+    WARNINGS="${WARNINGS:+$WARNINGS | }SETUP_PENDING: First-run. Load foundation/first-run-refinement.md. Greet with DON'T PANIC, ask name. One question at a time."
 fi
 
 # Check 1.6: Does config repo exist?
