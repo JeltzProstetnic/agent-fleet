@@ -117,113 +117,61 @@ For each persona, store in `global/foundation/personas.md`:
 
 If the user declines: skip entirely, no persona section needed. The system works without it.
 
-### 3. MCP Server Setup
+### 3. Execute Selections
 
-Read `~/.mcp.json` to see what was configured during `setup.sh`. Check which servers are present and which are missing.
+Process whatever the user chose from the menu above. For each:
 
-**Walk through each unconfigured server and offer to set it up:**
+**Persona:** Write to `global/foundation/personas.md`. Ask for persona names if they want custom ones, otherwise use defaults (e.g., "Gears" + "Soft" for Workhorse + Empath). Briefly explain what they chose and mention they can change anytime.
 
-| Server | Package | What it does | Credentials needed |
-|--------|---------|-------------|-------------------|
-| **GitHub** | `@modelcontextprotocol/server-github` | Repos, issues, PRs, code search | Personal Access Token (repo scope) |
-| **Google Workspace** | `workspace-mcp` (via uvx) | Gmail, Docs, Sheets, Calendar, Drive | OAuth Client ID + Secret + email |
-| **Twitter/X** | `@enescinar/twitter-mcp` | Post tweets, search | API key/secret + access token/secret |
-| **Jira** | `mcp-atlassian` (via uvx) | Issues, boards, sprints | Instance URL + email + API token |
-| **Slack** | `@modelcontextprotocol/server-slack` | Channels, messages, threads | Bot token (xoxb-) |
-| **Linear** | `mcp-linear` | Issues, projects, cycles | API key |
-| **Postgres** | `@modelcontextprotocol/server-postgres` | Query databases directly | Connection string |
+**Project:** Create directory, initialize with `project-setup.md` template, add to `registry.md`. Walk through any project-specific setup.
 
-**Serena** (code navigation) is always included and needs no credentials.
+**Scan (X/Z):** Run infrastructure scan (step 2c above). Present findings, suggest projects based on what you find.
 
-**For each server the user wants:**
-1. Explain what credentials are needed and where to get them
-2. Ask the user to paste the credentials
-3. Update `~/.mcp.json` by reading the current file, adding the new server entry, and writing it back
-4. Tell the user they'll need to restart Claude Code for new servers to take effect
+**Connect (Y/Z):** For each service, explain what credentials are needed and where to get them. Services available:
+- **GitHub:** PAT with `repo` scope → https://github.com/settings/tokens
+- **Gmail/Calendar/Drive:** Google Cloud OAuth → https://console.cloud.google.com/apis/credentials
+- **Twitter/X:** Developer app → https://developer.x.com
+- **Jira:** API token → https://id.atlassian.com/manage-profile/security/api-tokens
+- **LinkedIn, Slack, Postgres:** credentials as needed
 
-**Important notes for credential collection:**
-- GitHub: PAT needs `repo` scope at minimum. URL: https://github.com/settings/tokens
-- Google Workspace: Requires a Google Cloud project with OAuth 2.0 credentials and enabled APIs (Gmail, Drive, Calendar, Docs, Sheets). URL: https://console.cloud.google.com/apis/credentials
-- Twitter: Requires a developer app at https://developer.x.com with OAuth 1.0a (read+write)
-- Jira: API token from https://id.atlassian.com/manage-profile/security/api-tokens
-- Slack: Bot token from a Slack app at https://api.slack.com/apps
-- Linear: API key from https://linear.app/settings/api
+Update `~/.mcp.json` for each. Remind user to restart CC for new servers.
 
-**If the user already configured everything in setup.sh**, acknowledge that and move on. Don't push servers they don't need.
+### 4. Features Showcase
 
-**If the user isn't sure what they need**, suggest starting with GitHub (most universally useful for developers) and adding others as needed.
+After processing all selections, present a final overview of available capabilities. This is informational — no action needed from the user.
 
-### 4. Select Relevant Domains
+"You're all set. Here's what's available to you now — and what you can unlock later:
 
-Read `global/domains/INDEX.md`. Show the available domains:
+**Built-in capabilities:**
+- **Backlog management** — every project gets a `backlog.md` with prioritized tasks, tracked automatically. No external tool needed. (If you use Jira, I can work with that too — it just costs more tokens per operation.)
+- **Session memory** — I remember what we were doing across sessions, machines, and crashes. Say `cls` to shut down cleanly.
+- **Document management** — I can catalog, organize, and track documents across your machines. PDFs, reports, research papers — filed and findable.
+- **File management** — sorting, deduplication, bulk operations, cross-disk organization. Tell me about your file chaos and I'll help.
+- **Cross-project coordination** — tasks flow between projects automatically via an inbox system.
 
-- **Software Development** — TDD protocol, code quality patterns
-- **Publications** — Markdown-to-PDF pipeline, test-driven authoring
-- **Engagement** — Twitter/X engagement protocol
-- **IT Infrastructure** — Servers, Docker, DNS, deployment
+**Available skills (activate by describing the problem):**
+- **Simulation & optimization** — discrete-event simulation for queueing, scheduling, resource allocation, throughput optimization. Say 'simulate' or describe a system with queues and servers.
+- **Self-audit (`lrn`)** — when something goes wrong, I analyze root causes and create prevention rules. Say `lrn` to trigger.
 
-Ask: "Which of these match what you do? You can also describe domains you need that aren't here yet."
+**Upcoming:**
+- **Muse** — AI-powered creative studio for image generation, art direction, and visual content creation
+- Mobile access — manage projects from your phone
+- Multi-machine sync — same setup on office PC, laptop, server
+- Browser automation — web scraping, form filling, testing
 
-Note their selections — they'll use these when setting up projects.
+Type `lsd` for a project dashboard anytime. Everything is documented — just ask."
 
-### 5. Set Up First Project (Optional)
+### 5. Verify and Clean Up
 
-Ask: "Do you have a project you'd like to configure now? If so, what's the directory path?"
-
-If yes:
-1. Read the project directory to understand what it is
-2. Create a `CLAUDE.md` manifest for it (use the template in `setup/projects/_example/rules/CLAUDE.md`)
-3. Add it to `registry.md`
-4. Create an initial `session-context.md` in the project
-5. Deploy the rules: copy the manifest to `<project>/.claude/CLAUDE.md`
-
-If no: explain how to do it later ("just open Claude in any project directory and say 'set up this project'").
-
-### 6. Customize Global Prompt (If Needed)
-
-Ask: "Any rules you want Claude to always follow across all projects?"
-
-Examples to prompt:
-- Output preferences (language, format)
-- Tool preferences ("always use bun instead of npm")
-- Safety preferences ("always ask before committing")
-- Style preferences ("keep responses short")
-
-If they have preferences, add them to the Conventions section of `global/CLAUDE.md`.
-
-### 7. Verify and Clean Up
-
-- Run `bash sync.sh status` to verify everything is linked correctly
-- Delete the `.setup-pending` marker file
-- Create an initial `session-context.md` for the config repo itself
-- Commit everything: "Initial configuration after interactive setup"
-
-### 8. Mobile Access (Optional)
-
-Ask: "Do you want to access your agent fleet from a phone or tablet?"
-
-If yes:
-- Explain: mobile mode gives read-only access to projects + ability to post tasks from anywhere
-- Run `bash sync.sh mobile-deploy` to generate `~/agent-fleet-mobile/`
-- The mobile repo has its own lightweight CLAUDE.md — no startup checklist, instant-on
-- Tasks posted to mobile outbox are auto-collected at next session end on any full machine
-- Push the mobile repo to a private GitHub repo for phone access via the Claude Code mobile app
-
-If no: skip. They can run `bash sync.sh mobile-deploy` anytime later.
-
-### 9. Summary
-
-Tell the user:
-- What was configured (profile, MCP servers, domains, projects)
-- How to sync across machines (`git push` from here, `git pull` + `bash setup.sh` on the other machine)
-- How to add more projects later
-- How to add more MCP servers later (edit `~/.mcp.json`, restart Claude)
-- How to customize further (edit files in this repo, then `bash sync.sh deploy`)
+- Run `bash sync.sh status` to verify everything is linked
+- Delete `.setup-pending` marker file
+- Create initial `session-context.md`
+- Commit: "Initial configuration after interactive setup"
 
 ## Important
 
 - **Be conversational**, not robotic. This is onboarding, not a form.
-- **Skip steps the user doesn't care about.** If they say "just coding, nothing fancy" — don't push domains, customization, etc.
-- **Keep it under 10 minutes.** Don't over-explain. The system is self-documenting.
-- **Delete `.setup-pending`** when done. This protocol should only run once.
-- **MCP changes require restart.** If you added servers, remind the user to restart Claude Code.
+- **Skip steps the user doesn't care about.** Process only what they chose.
+- **Keep it under 10 minutes.** Don't over-explain.
+- **Delete `.setup-pending`** when done. This protocol runs once.
+- **MCP changes require restart.** Remind the user if servers were added.
