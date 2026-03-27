@@ -51,6 +51,9 @@ build/
 # Setup marker (transient, per-machine)
 .setup-pending
 
+# User preferences (persists across upgrades, per-machine)
+.agent-fleet-channel
+
 # Sync state markers (transient, per-machine)
 .sync-failed
 .sync-lock
