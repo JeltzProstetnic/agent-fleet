@@ -153,10 +153,14 @@ After processing all selections, present a final overview of available capabilit
 - **Simulation & optimization** — discrete-event simulation for queueing, scheduling, resource allocation, throughput optimization. Say 'simulate' or describe a system with queues and servers.
 - **Self-audit (`lrn`)** — when something goes wrong, I analyze root causes and create prevention rules. Say `lrn` to trigger.
 
+**Multi-machine & server (available now, set up on demand):**
+- **Multi-machine sync** — same setup on office PC, laptop, home server, Steam Deck. Git-based, automatic.
+- **Server deployment** — run agent fleet on a VPS for remote/mobile access via web terminal
+- **Mobile access** — lightweight repo for managing projects from your phone
+
 **Upcoming:**
 - **Muse** — AI-powered creative studio for image generation, art direction, and visual content creation
-- Mobile access — manage projects from your phone
-- Multi-machine sync — same setup on office PC, laptop, server
+- **Full GUI** — desktop dashboard with visual project management, progress indicators, and persona face
 - Browser automation — web scraping, form filling, testing
 
 Type `lsd` for a project dashboard anytime. Everything is documented — just ask."
