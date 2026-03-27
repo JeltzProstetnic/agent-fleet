@@ -16,20 +16,14 @@ _sched_lib="$_sched_config_repo/setup/scripts/sched-lib.sh"
 [[ -f "$_sched_lib" ]] || return 0 2>/dev/null || exit 0
 source "$_sched_lib"
 
-# Detect machine from HOSTNAME (matches CLAUDE.md identity table)
+# Detect machine from HOSTNAME
+# Override: set SCHED_MACHINE in your machine overlay or env
 _sched_detect_machine() {
-    local hn="${HOSTNAME:-$(hostname 2>/dev/null)}"
-    local user="${USER:-$(whoami 2>/dev/null)}"
-    case "$hn" in
-        srv943133)       echo "vps" ;;
-        DESKTOP-*)       echo "wsl" ;;
-        steamdeck*|jupiter*) echo "steamdeck" ;;
-        nuc*)            echo "nuc" ;;
-        fedora*)
-            [[ "$user" == "gruber" ]] && echo "office" || echo "fedora-home"
-            ;;
-        *)               echo "" ;;
-    esac
+    # If already set (e.g., by machine overlay), use it
+    [[ -n "${SCHED_MACHINE:-}" ]] && echo "$SCHED_MACHINE" && return 0
+    # Users: add hostname→machine mapping in your CLAUDE.md identity table
+    # and customize this function in setup/config/machines/<name>/tasks.sh
+    echo ""
 }
 
 # Detect project from PWD
