@@ -55,7 +55,11 @@ fi
 # ── Output JSON ──
 SYSTEM_MSG=""
 if [ -n "$WARNINGS" ]; then
-    SYSTEM_MSG="WARNING: $(printf '%s' "$WARNINGS" | tr '\n' ' ') Tell the user about this issue immediately before doing any other work."
+    if [ "$FIRST_RUN_MODE" -eq 1 ]; then
+        SYSTEM_MSG="$(printf '%s' "$WARNINGS" | tr '\n' ' ')"
+    else
+        SYSTEM_MSG="WARNING: $(printf '%s' "$WARNINGS" | tr '\n' ' ') Tell the user about this issue immediately before doing any other work."
+    fi
 fi
 if [ -n "$INBOX_MSG" ]; then
     SYSTEM_MSG="${SYSTEM_MSG:+$SYSTEM_MSG | }$(printf '%s' "$INBOX_MSG" | tr '\n' ' ')"
