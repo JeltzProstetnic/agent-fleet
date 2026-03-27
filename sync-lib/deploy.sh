@@ -270,6 +270,12 @@ deploy_afleet() {
         log_info "Deployed: afleet.desktop → ~/.local/share/applications/"
     fi
 
+    # Deploy 'af' shortcut (symlink to afleet)
+    if [ -x "$HOME/.local/bin/afleet" ] && [ ! -e "$HOME/.local/bin/af" ]; then
+        ln -sf "$HOME/.local/bin/afleet" "$HOME/.local/bin/af"
+        log_info "Deployed: af → afleet (symlink)"
+    fi
+
     # Deploy Windows .bat bridge (WSL only)
     local bat_src="$SCRIPT_DIR/setup/scripts/afleet.bat"
     if [ -f "$bat_src" ] && [ -n "${WSL_DISTRO_NAME:-}" ]; then

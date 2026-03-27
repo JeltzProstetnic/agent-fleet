@@ -41,7 +41,7 @@ fi
 
 # Check 1.5: Detect .setup-pending marker (first-run after install)
 if [ -f "$PROJECT_ROOT/.setup-pending" ]; then
-    WARNINGS="${WARNINGS:+$WARNINGS | }SETUP_PENDING: First-run setup not yet completed (.setup-pending marker found). Load foundation/first-run-refinement.md and actively guide the user through machine setup, profile creation, and MCP credential configuration. Do NOT wait for the user to ask — initiate setup immediately."
+    WARNINGS="${WARNINGS:+$WARNINGS | }SETUP_PENDING: First-run setup. Your VERY FIRST output MUST be a friendly DON'T PANIC greeting (Douglas Adams reference — the user expects it). Then ask for their name to start personalization. Keep it warm, brief, non-technical. Load foundation/first-run-refinement.md for the full onboarding protocol. Do NOT wait for the user to ask — greet them immediately. Do NOT show technical output, file paths, or system messages before the greeting."
 fi
 
 # Check 1.6: Does config repo exist?

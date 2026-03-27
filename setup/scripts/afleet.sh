@@ -22,23 +22,25 @@ _fallback_launch() {
     exec "$launcher"
 }
 
-# ── Config — detect config repo using shared library ─────────────────────────
+# ── Config ───────────────────────────────────────────────────────────────────
+# Detect config repo using shared library
 _LIB_DETECT=""
 for _p in "$HOME/.claude/hooks/lib-detect-repo.sh" "$(dirname "${BASH_SOURCE[0]}")/../../global/hooks/lib-detect-repo.sh"; do
     [[ -f "$_p" ]] && _LIB_DETECT="$_p" && break
 done
 if [[ -n "$_LIB_DETECT" ]]; then
     source "$_LIB_DETECT"
+    # PERSONAL_CONFIG_REPO: the user's personal config repo (cfg-agent-fleet), not the template
     CONFIG_REPO="$(_detect_config_repo)"
 else
     # Fallback: inline detection if shared lib not found
     CONFIG_REPO=""
     for d in "$HOME/cfg-agent-fleet" "$HOME/agent-fleet"; do
-        [[ -f "$d/sync.sh" && ! -f "$d/.template-repo" ]] && CONFIG_REPO="$d" && break
+        [[ -f "$d/sync.sh" ]] && CONFIG_REPO="$d" && break
     done
 fi
 if [[ -z "$CONFIG_REPO" ]]; then
-    echo "Error: config repo not found (tried ~/cfg-agent-fleet, ~/agent-fleet)" >&2
+    echo "ERROR: Cannot find config repo (cfg-agent-fleet or agent-fleet)" >&2
     exit 1
 fi
 
@@ -48,8 +50,11 @@ INBOX_FILE="$CONFIG_REPO/cross-project/inbox.md"
 SYNC_SCRIPT="$CONFIG_REPO/setup/scripts/git-sync-check.sh"
 DRY_RUN="${AFLEET_DRY_RUN:-0}"
 
+# ── Portable readlink -f (needed before any library is sourced) ───────────────
+_readlink_f() { readlink -f "$1" 2>/dev/null && return; local t="$1"; [ "${t#/}" = "$t" ] && t="$PWD/$t"; while [ -L "$t" ]; do local l; l=$(readlink "$t") || break; [ "${l#/}" = "$l" ] && l="$(dirname "$t")/$l"; t="$l"; done; local d; d=$(cd "$(dirname "$t")" 2>/dev/null && pwd -P) || return 1; echo "$d/$(basename "$t")"; }
+
 # ── Source library (symlink-safe, with fallback) ─────────────────────────────
-_AFLEET_DIR="$(dirname "$(readlink -f "${BASH_SOURCE[0]}" 2>/dev/null || echo "${BASH_SOURCE[0]}")")"
+_AFLEET_DIR="$(dirname "$(_readlink_f "${BASH_SOURCE[0]}" 2>/dev/null || echo "${BASH_SOURCE[0]}")")"
 if [[ -f "$_AFLEET_DIR/afleet-lib.sh" ]] && bash -n "$_AFLEET_DIR/afleet-lib.sh" 2>/dev/null; then
     source "$_AFLEET_DIR/afleet-lib.sh" || _fallback_launch "afleet-lib.sh sourcing failed"
 else
@@ -201,7 +206,7 @@ while [[ $# -gt 0 ]]; do
             echo "Usage: afleet [<project>] [--list|-l] [--pick|-p] [--cwd <dir>]"
             echo ""
             echo "  afleet              Auto-detect project from CWD, or show project picker"
-            echo "  afleet <project>    Open specific project by name (from registry.md)"
+            echo "  afleet <project>    Open specific project by name or prefix (from registry.md)"
             echo "  afleet --list       Show available projects (non-interactive)"
             echo "  afleet --pick       Show interactive project picker"
             echo "  afleet --dash       Alias for --pick (backwards compat)"
@@ -247,11 +252,25 @@ TARGET_DIR=""
 TARGET_NAME=""
 
 if [[ -n "$PROJECT_ARG" ]]; then
+    # Try exact match first (case-insensitive)
     MATCH=$(parse_registry | grep -i "^${PROJECT_ARG}|" | head -1 || true)
     if [[ -z "$MATCH" ]]; then
-        echo "Error: project '$PROJECT_ARG' not found in registry.md" >&2
-        echo "Run 'afleet --list' to see available projects." >&2
-        exit 1
+        # Fall back to prefix match
+        PREFIX_MATCHES=$(parse_registry | grep -i "^${PROJECT_ARG}" || true)
+        MATCH_COUNT=$(echo "$PREFIX_MATCHES" | grep -c '.' || true)
+        if [[ "$MATCH_COUNT" -eq 1 ]]; then
+            MATCH="$PREFIX_MATCHES"
+        elif [[ "$MATCH_COUNT" -gt 1 ]]; then
+            echo "Error: prefix '$PROJECT_ARG' matches multiple projects:" >&2
+            echo "$PREFIX_MATCHES" | while IFS='|' read -r name _path; do
+                echo "  - $name" >&2
+            done
+            exit 1
+        else
+            echo "Error: project '$PROJECT_ARG' not found in registry.md" >&2
+            echo "Run 'afleet --list' to see available projects." >&2
+            exit 1
+        fi
     fi
     TARGET_NAME="${MATCH%%|*}"
     TARGET_DIR="${MATCH#*|}"
@@ -280,9 +299,8 @@ else
         CHECK_DIR="$(dirname "$CHECK_DIR")"
     done
 
-    # Fallback — show picker instead of old dashboard marker
+    # Fallback — show picker or auto-launch on first-run
     if [[ -z "$TARGET_DIR" ]]; then
-        SHOW_PICKER=true
         if [[ -d "$HOME/cfg-agent-fleet" ]]; then
             TARGET_DIR="$HOME/cfg-agent-fleet"
             TARGET_NAME="cfg-agent-fleet"
@@ -292,6 +310,12 @@ else
         else
             echo "Error: no project detected and no base project found" >&2
             exit 1
+        fi
+        # First-run: skip picker, go straight to config project
+        if [[ -f "$TARGET_DIR/.setup-pending" ]]; then
+            SHOW_PICKER=false
+        else
+            SHOW_PICKER=true
         fi
     fi
 fi
@@ -318,31 +342,12 @@ fi
 # Pre-pull all other local repos (CFG-129) — prevents stale cross-project state.
 AFLEET_SKIP_REPOS="$TARGET_DIR|$CONFIG_REPO" pre_pull_all_repos || true
 
-# Auto-repair deployed hooks after config repo pull.
-# Compares repo hooks to deployed hooks; copies any that differ.
-# Prevents stale/broken hooks from persisting across sessions.
-if [[ -d "$CONFIG_REPO/global/hooks" && -d "$HOME/.claude/hooks" ]]; then
-    for _hook in "$CONFIG_REPO/global/hooks/"*.sh; do
-        [ -f "$_hook" ] || continue
-        _base=$(basename "$_hook")
-        _deployed="$HOME/.claude/hooks/$_base"
-        if [[ ! -f "$_deployed" ]] || ! cmp -s "$_hook" "$_deployed"; then
-            cp "$_hook" "$_deployed" && chmod +x "$_deployed"
-        fi
-    done
-    # Hook subdirectories (e.g., checks/)
-    for _subdir in "$CONFIG_REPO/global/hooks"/*/; do
-        [ -d "$_subdir" ] || continue
-        _sname=$(basename "$_subdir")
-        mkdir -p "$HOME/.claude/hooks/$_sname"
-        for _f in "$_subdir"*.sh; do
-            [ -f "$_f" ] || continue
-            _deployed="$HOME/.claude/hooks/$_sname/$(basename "$_f")"
-            if [[ ! -f "$_deployed" ]] || ! cmp -s "$_f" "$_deployed"; then
-                cp "$_f" "$_deployed"
-            fi
-        done
-    done
+# Full deploy: hooks, settings, project rules, rosters, statusline, etc.
+# Replaces the old hook-only repair — sync.sh deploy is idempotent and
+# ensures settings.json env vars (CONFIG_REPO), hooks, and all config
+# are current after git pull. Suppressed output — errors still surface.
+if [[ -f "$CONFIG_REPO/sync.sh" ]]; then
+    bash "$CONFIG_REPO/sync.sh" deploy >/dev/null 2>&1 || true
 fi
 
 stop_spinner
