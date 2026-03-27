@@ -483,28 +483,10 @@ if [[ -t 1 ]]; then
 
 fi
 
-# First-run: auto-submit DON'T PANIC banner as initial prompt (stays visible in chat)
+# First-run: auto-submit prompt so CC starts onboarding without waiting
 INITIAL_PROMPT=""
 if [[ -f "$TARGET_DIR/.setup-pending" ]]; then
-    read -r -d '' INITIAL_PROMPT << 'BANNER' || true
-
- ██████╗   ██████╗  ███╗   ██╗ ██╗ ████████╗
- ██╔══██╗ ██╔═══██╗ ████╗  ██║ ██║ ╚══██╔══╝
- ██║  ██║ ██║   ██║ ██╔██╗ ██║ ╚═╝    ██║
- ██║  ██║ ██║   ██║ ██║╚██╗██║        ██║
- ██████╔╝ ╚██████╔╝ ██║ ╚████║ ██╗    ██║
- ╚═════╝   ╚═════╝  ╚═╝  ╚═══╝ ╚═╝    ╚═╝
-
- ██████╗  █████╗  ███╗   ██╗ ██╗  ██████╗
- ██╔══██╗██╔══██╗ ████╗  ██║ ██║ ██╔════╝
- ██████╔╝███████║ ██╔██╗ ██║ ██║ ██║
- ██╔═══╝ ██╔══██║ ██║╚██╗██║ ██║ ██║
- ██║     ██║  ██║ ██║ ╚████║ ██║ ╚██████╗
- ╚═╝     ╚═╝  ╚═╝ ╚═╝  ╚═══╝ ╚═╝  ╚═════╝
-
- Starting up Agent Fleet. Begin onboarding.
-
-BANNER
+    INITIAL_PROMPT="hi"
 fi
 
 AFLEET_LAUNCHED=1 AFLEET_PROJECT="$TARGET_NAME" CC_MIRROR_SPLASH=0 "$MCLAUDE" $INITIAL_PROMPT

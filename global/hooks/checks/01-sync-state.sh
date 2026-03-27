@@ -41,7 +41,7 @@ fi
 
 # Check 1.5: Detect .setup-pending marker (first-run after install)
 if [ -f "$PROJECT_ROOT/.setup-pending" ]; then
-    WARNINGS="${WARNINGS:+$WARNINGS | }SETUP_PENDING: First-run. Load foundation/first-run-refinement.md. Greet with DON'T PANIC, ask name. One question at a time."
+    WARNINGS="${WARNINGS:+$WARNINGS | }SETUP_PENDING: Load foundation/first-run-refinement.md and follow it."
 fi
 
 # Check 1.6: Does config repo exist?
