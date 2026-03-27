@@ -469,10 +469,10 @@ if [[ -t 1 ]]; then
 
 fi
 
-# First-run: auto-submit prompt so CC starts onboarding without waiting
+# First-run: auto-submit DON'T PANIC ASCII art as initial prompt (visible in chat)
 INITIAL_PROMPT=""
 if [[ -f "$TARGET_DIR/.setup-pending" ]]; then
-    INITIAL_PROMPT="hi"
+    INITIAL_PROMPT="$(printf '%s\n' '' ' ██████╗   ██████╗  ███╗   ██╗ ╗ ████████╗' ' ██╔══██╗ ██╔═══██╗ ████╗  ██║ ║ ╚══██╔══╝' ' ██║  ██║ ██║   ██║ ██╔██╗ ██║   ║    ██║' ' ██║  ██║ ██║   ██║ ██║╚██╗██║        ██║' ' ██████╔╝ ╚██████╔╝ ██║ ╚████║ ╗    ██║' ' ╚═════╝   ╚═════╝  ╚═╝  ╚═══╝ ╝    ╚═╝' '' ' ██████╗  █████╗  ███╗   ██╗ ██╗  ██████╗' ' ██╔══██╗██╔══██╗ ████╗  ██║ ██║ ██╔════╝' ' ██████╔╝███████║ ██╔██╗ ██║ ██║ ██║' ' ██╔═══╝ ██╔══██║ ██║╚██╗██║ ██║ ██║' ' ██║     ██║  ██║ ██║ ╚████║ ██║ ╚██████╗' ' ╚═╝     ╚═╝  ╚═╝ ╚═╝  ╚═══╝ ╚═╝  ╚═════╝' '' ' Starting Agent Fleet.')"
 fi
 
 AFLEET_LAUNCHED=1 AFLEET_PROJECT="$TARGET_NAME" CC_MIRROR_SPLASH=0 "$MCLAUDE" $INITIAL_PROMPT
