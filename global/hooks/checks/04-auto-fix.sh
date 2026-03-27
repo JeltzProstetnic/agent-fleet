@@ -1,14 +1,15 @@
+#!/usr/bin/env bash
 # Check group 4: Auto-fix — permissions, CLAUDE.local, FMS, drift, deps, AFD, bash perm
-# Checks: 10, 11, 12, 14, 13, 13.5, 13b
+# Checks: 4.1, 4.2, 4.3, 4.4, 4.5, 4.6, 4.7, 4.8
 # Shared vars used: CONFIG_REPO, WARNINGS, INBOX_MSG, SETTINGS_FILE
 
-# Check 10: Auto-remove stale permissions blocks from project settings.local.json
+# Check 4.1: Auto-remove stale permissions blocks from project settings.local.json
 CLEAN_PERMS_SCRIPT="$CONFIG_REPO/setup/scripts/clean-permissions.sh"
 if [ -f "$CLEAN_PERMS_SCRIPT" ]; then
     bash "$CLEAN_PERMS_SCRIPT" 2>/dev/null || true
 fi
 
-# Check 11: Validate CLAUDE.local.md @import target exists
+# Check 4.2: Validate CLAUDE.local.md @import target exists
 CLAUDE_LOCAL="$HOME/CLAUDE.local.md"
 if [ -f "$CLAUDE_LOCAL" ]; then
     IMPORT_TARGET=$(grep '^@' "$CLAUDE_LOCAL" | head -1 | sed 's/^@//' | sed "s|~|$HOME|g")
@@ -17,7 +18,7 @@ if [ -f "$CLAUDE_LOCAL" ]; then
     fi
 fi
 
-# Check 12: FMS intake — report pending files across all drop locations
+# Check 4.3: FMS intake — report pending files across all drop locations
 FMS_MSG=""
 FMS_SCRIPT="$CONFIG_REPO/dms/scripts/fms-intake.sh"
 if [ -x "$FMS_SCRIPT" ] || [ -f "$FMS_SCRIPT" ]; then
@@ -30,7 +31,7 @@ if [ -n "$FMS_MSG" ]; then
     INBOX_MSG="${INBOX_MSG:+$INBOX_MSG | }$FMS_MSG"
 fi
 
-# Check 14: Auto-heal Bash(bash:*) in settings.json permissions.allow
+# Check 4.4: Auto-heal Bash(bash:*) in settings.json permissions.allow
 if [ -f "$SETTINGS_FILE" ]; then
     if grep -q '"permissions"' "$SETTINGS_FILE" 2>/dev/null; then
         if ! grep -q 'Bash(bash:\*)' "$SETTINGS_FILE" 2>/dev/null; then
@@ -42,7 +43,7 @@ if [ -f "$SETTINGS_FILE" ]; then
     fi
 fi
 
-# Check 13: Surface propagation drift warnings from previous session's sync.sh check
+# Check 4.5: Surface propagation drift warnings from previous session's sync.sh check
 DRIFT_LOG="$CONFIG_REPO/.sync-warnings.log"
 if [ -f "$DRIFT_LOG" ] && [ -s "$DRIFT_LOG" ]; then
     DRIFT_CONTENT=$(cat "$DRIFT_LOG" | tr '\n' '; ' | sed 's/; $//')
@@ -50,11 +51,20 @@ if [ -f "$DRIFT_LOG" ] && [ -s "$DRIFT_LOG" ]; then
     rm -f "$DRIFT_LOG"
 fi
 
-# Check 13.5: Daily upstream dependency check (once per day, gated by marker file)
-DEP_MARKER="$HOME/.claude/.dep-check-date"
-DEP_TODAY=$(date +%Y-%m-%d)
-DEP_LAST=$(cat "$DEP_MARKER" 2>/dev/null || echo "never")
-if [ "$DEP_LAST" != "$DEP_TODAY" ]; then
+# Check 4.6: Daily upstream dependency check (once per day, gated by sched-lib)
+_dep_sched_lib="${CONFIG_REPO:-}/setup/scripts/sched-lib.sh"
+_dep_run=1
+if [ -f "$_dep_sched_lib" ]; then
+    source "$_dep_sched_lib"
+    SCHED_MARKER_DIR="${SCHED_MARKER_DIR:-/tmp}"
+    sched_is_due "cc-dep-check" "daily" || _dep_run=0
+else
+    # fallback inline marker
+    _dep_gate="/tmp/.cc-dep-check-$(date +%Y-%m-%d)"
+    [ ! -f "$_dep_gate" ] || _dep_run=0
+    [ "$_dep_run" -eq 1 ] && touch "$_dep_gate"
+fi
+if [ "$_dep_run" -eq 1 ]; then
     DEP_RESULTS=""
     if command -v npm >/dev/null 2>&1; then
         CC_LATEST=$(timeout 5 npm view @anthropic-ai/claude-code version 2>/dev/null || echo "?")
@@ -66,14 +76,18 @@ if [ "$DEP_LAST" != "$DEP_TODAY" ]; then
             DEP_RESULTS="Claude Code update available: $CC_INSTALLED → $CC_LATEST (read changelog before updating)"
         fi
     fi
-    mkdir -p "$(dirname "$DEP_MARKER")"
-    echo "$DEP_TODAY" > "$DEP_MARKER"
+    # Mark done (sched-lib or fallback)
+    if type sched_mark_done &>/dev/null; then
+        sched_mark_done "cc-dep-check" "daily"
+    elif [ -z "${_dep_gate:-}" ]; then
+        touch "/tmp/.cc-dep-check-$(date +%Y-%m-%d)"
+    fi
     if [ -n "$DEP_RESULTS" ]; then
         WARNINGS="${WARNINGS:+$WARNINGS | }Upstream dependency check: $DEP_RESULTS"
     fi
 fi
 
-# Check 15b: MEMORY.md / memory/ violation detection (fleet rules prohibit auto-memory)
+# Check 4.7: MEMORY.md / memory/ violation detection (fleet rules prohibit auto-memory)
 if [ -f "$PROJECT_DIR/MEMORY.md" ] || [ -d "$PROJECT_DIR/memory" ]; then
     _mem_targets=""
     [ -f "$PROJECT_DIR/MEMORY.md" ] && _mem_targets="MEMORY.md"
@@ -81,7 +95,7 @@ if [ -f "$PROJECT_DIR/MEMORY.md" ] || [ -d "$PROJECT_DIR/memory" ]; then
     WARNINGS="${WARNINGS:+$WARNINGS | }[WARN] $PROJECT_DIR has $_mem_targets — fleet rules prohibit auto-memory. Delete and use proper fleet structure."
 fi
 
-# Check 13b: AFD client deployed — auto-source env if available
+# Check 4.8: AFD client deployed — auto-source env if available
 if [ -f "$HOME/.afd-env" ] && [ -z "${AFD_TOKEN:-}" ]; then
     . "$HOME/.afd-env" 2>/dev/null || true
 fi

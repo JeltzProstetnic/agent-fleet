@@ -1,34 +1,29 @@
 #!/usr/bin/env bash
 # Fleet-wide scheduled tasks — sourced by check 19
 # These tasks run on ALL machines. Machine-specific tasks go in machines/<name>/tasks.sh.
+#
+# NOTE: Tasks that are already handled by numbered check modules (04, 09, 13, 14, 15b, 17)
+# should NOT be registered here — those checks use sched_is_due/sched_mark_done directly.
+# This file is for NEW tasks that don't have a dedicated check module.
 
-# Daily: check for upstream agent-fleet updates
-sched_task "fleet-update-check" \
-    --interval daily \
-    --scope fleet \
-    --exec auto \
-    --desc "Check for upstream agent-fleet updates" \
-    --cmd 'bash "$_sched_config_repo/global/hooks/checks/17-fleet-updates.sh" 2>&1 | tail -5'
-
-# Weekly: check upstream dependencies (CC version, VoltAgent, MCP servers)
-sched_task "upstream-dep-check" \
+# Weekly: review upstream dependencies beyond CC (VoltAgent, MCP servers, TweakCC)
+sched_task "upstream-dep-review" \
     --interval weekly \
     --scope fleet \
     --exec prompted \
-    --desc "Review upstream dependencies for available updates"
+    --desc "Review upstream dependencies for available updates (VoltAgent, MCP, TweakCC)"
 
-# Weekly: backlog health check
-sched_task "backlog-health" \
+# Weekly: backlog health review (separate from check 15b's P0/P1 count — this is a human review prompt)
+sched_task "backlog-review" \
     --interval weekly \
     --scope per-project \
     --project "" \
-    --exec prompted \
-    --desc "Review backlog for stale items, priority drift, and overdue tasks"
+    --exec manual \
+    --desc "Review backlog for stale items, priority drift, and items that can be closed"
 
-# Monthly: scaling threshold check
-sched_task "scaling-check" \
+# Monthly: cross-project inbox cleanup
+sched_task "inbox-cleanup" \
     --interval monthly \
     --scope fleet \
-    --exec auto \
-    --desc "Check script/file scaling thresholds" \
-    --cmd 'bash "$_sched_config_repo/global/hooks/checks/13-scaling-thresholds.sh" 2>&1 | grep -c WARN || echo 0'
+    --exec prompted \
+    --desc "Review cross-project inbox for items older than 14 days — promote to backlog or delete"
