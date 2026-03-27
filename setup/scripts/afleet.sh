@@ -469,13 +469,35 @@ if [[ -t 1 ]]; then
 
 fi
 
-# First-run: auto-submit DON'T PANIC ASCII art as initial prompt (visible in chat)
+# First-run: write DON'T PANIC ASCII art to temp file, pass via --prompt-file or quoted arg
 INITIAL_PROMPT=""
 if [[ -f "$TARGET_DIR/.setup-pending" ]]; then
-    INITIAL_PROMPT="$(printf '%s\n' '' ' ██████╗   ██████╗  ███╗   ██╗ ╗ ████████╗' ' ██╔══██╗ ██╔═══██╗ ████╗  ██║ ║ ╚══██╔══╝' ' ██║  ██║ ██║   ██║ ██╔██╗ ██║   ║    ██║' ' ██║  ██║ ██║   ██║ ██║╚██╗██║        ██║' ' ██████╔╝ ╚██████╔╝ ██║ ╚████║ ╗    ██║' ' ╚═════╝   ╚═════╝  ╚═╝  ╚═══╝ ╝    ╚═╝' '' ' ██████╗  █████╗  ███╗   ██╗ ██╗  ██████╗' ' ██╔══██╗██╔══██╗ ████╗  ██║ ██║ ██╔════╝' ' ██████╔╝███████║ ██╔██╗ ██║ ██║ ██║' ' ██╔═══╝ ██╔══██║ ██║╚██╗██║ ██║ ██║' ' ██║     ██║  ██║ ██║ ╚████║ ██║ ╚██████╗' ' ╚═╝     ╚═╝  ╚═╝ ╚═╝  ╚═══╝ ╚═╝  ╚═════╝' '' ' Starting Agent Fleet.')"
+    INITIAL_PROMPT=$(cat << 'DONTPANIC'
+
+ ██████╗   ██████╗  ███╗   ██╗ ╗ ████████╗
+ ██╔══██╗ ██╔═══██╗ ████╗  ██║ ║ ╚══██╔══╝
+ ██║  ██║ ██║   ██║ ██╔██╗ ██║   ║    ██║
+ ██║  ██║ ██║   ██║ ██║╚██╗██║        ██║
+ ██████╔╝ ╚██████╔╝ ██║ ╚████║ ╗    ██║
+ ╚═════╝   ╚═════╝  ╚═╝  ╚═══╝ ╝    ╚═╝
+
+ ██████╗  █████╗  ███╗   ██╗ ██╗  ██████╗
+ ██╔══██╗██╔══██╗ ████╗  ██║ ██║ ██╔════╝
+ ██████╔╝███████║ ██╔██╗ ██║ ██║ ██║
+ ██╔═══╝ ██╔══██║ ██║╚██╗██║ ██║ ██║
+ ██║     ██║  ██║ ██║ ╚████║ ██║ ╚██████╗
+ ╚═╝     ╚═╝  ╚═╝ ╚═╝  ╚═══╝ ╚═╝  ╚═════╝
+
+ Starting Agent Fleet.
+DONTPANIC
+)
 fi
 
-AFLEET_LAUNCHED=1 AFLEET_PROJECT="$TARGET_NAME" CC_MIRROR_SPLASH=0 "$MCLAUDE" $INITIAL_PROMPT
+if [[ -n "$INITIAL_PROMPT" ]]; then
+    AFLEET_LAUNCHED=1 AFLEET_PROJECT="$TARGET_NAME" CC_MIRROR_SPLASH=0 "$MCLAUDE" "$INITIAL_PROMPT"
+else
+    AFLEET_LAUNCHED=1 AFLEET_PROJECT="$TARGET_NAME" CC_MIRROR_SPLASH=0 "$MCLAUDE"
+fi
 MCLAUDE_EXIT=$?
 
 # Clear pre-launch banner from primary buffer so it doesn't linger after CC exits
