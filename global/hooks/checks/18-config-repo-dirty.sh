@@ -1,3 +1,4 @@
+#!/usr/bin/env bash
 # Check group 18: Config repo dirty state + ghost session detection
 # Detects uncommitted changes in cfg-agent-fleet at session start.
 # Also detects ghost sessions: blank session-context.md + dirty repo = previous
@@ -14,7 +15,7 @@ _dirty_files=$(git -C "$CONFIG_REPO" status --porcelain 2>/dev/null | grep -v '^
 if [ -n "$_dirty_files" ]; then
     _dirty_count=$(echo "$_dirty_files" | wc -l | tr -d ' ')
     _dirty_list=$(echo "$_dirty_files" | tr '\n' ', ' | sed 's/,$//')
-    WARNINGS="${WARNINGS:+$WARNINGS | }CONFIG_REPO_DIRTY: cfg-agent-fleet has $_dirty_count uncommitted file(s): $_dirty_list. Previous session left changes without committing. Run 'git -C $CONFIG_REPO diff' to review."
+    WARNINGS="${WARNINGS:+$WARNINGS | }CONFIG_REPO_DIRTY: $(basename "$CONFIG_REPO") has $_dirty_count uncommitted file(s): $_dirty_list. Previous session left changes without committing. Run 'git -C $CONFIG_REPO diff' to review."
 
     # Ghost session detection: if we're IN the config repo project AND
     # session-context.md is blank (freshly rotated) but repo has uncommitted changes,
@@ -25,7 +26,7 @@ if [ -n "$_dirty_files" ]; then
             _session_goal=$(sed -n 's/.*\*\*Session Goal\*\*: \(.\+\)/\1/p' "$CONFIG_REPO/session-context.md" 2>/dev/null | head -1)
         fi
         if [ -z "$_session_goal" ]; then
-            WARNINGS="${WARNINGS:+$WARNINGS | }GHOST_SESSION: Previous cfg-agent-fleet session left $_dirty_count uncommitted file(s) without logging to session-log.md. Review changes, commit or revert, then proceed."
+            WARNINGS="${WARNINGS:+$WARNINGS | }GHOST_SESSION: Previous $(basename "$CONFIG_REPO") session left $_dirty_count uncommitted file(s) without logging to session-log.md. Review changes, commit or revert, then proceed."
         fi
     fi
 fi

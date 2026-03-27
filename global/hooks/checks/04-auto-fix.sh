@@ -51,6 +51,14 @@ if [ -f "$DRIFT_LOG" ] && [ -s "$DRIFT_LOG" ]; then
     rm -f "$DRIFT_LOG"
 fi
 
+# Check 4.5b: Surface T2 deployment-critical edit warnings (CFG-326)
+T2_MARKER="$CONFIG_REPO/.t2-edits-pending"
+if [ -f "$T2_MARKER" ] && [ -s "$T2_MARKER" ]; then
+    T2_CONTENT=$(cat "$T2_MARKER")
+    WARNINGS="${WARNINGS:+$WARNINGS | }$T2_CONTENT — run E2E tests before release: bash setup/tests/run.sh && vm-exec.sh afleet-e2e"
+    rm -f "$T2_MARKER"
+fi
+
 # Check 4.6: Daily upstream dependency check (once per day, gated by sched-lib)
 _dep_sched_lib="${CONFIG_REPO:-}/setup/scripts/sched-lib.sh"
 _dep_run=1
