@@ -50,10 +50,29 @@ stop_spinner() {
 }
 
 # ── Registry parsing ─────────────────────────────────────────────────────────
+# Returns name|path lines from registry.md. If registry.md is missing:
+#   - First run (.setup-pending exists): returns empty (no projects yet)
+#   - Otherwise: auto-creates a minimal registry.md with the config project
 parse_registry() {
     if [[ ! -f "$REGISTRY" ]]; then
-        echo "Error: registry.md not found at $REGISTRY" >&2
-        return 1
+        # First run — no registry expected yet, return empty
+        if [[ -f "$CONFIG_REPO/.setup-pending" ]]; then
+            return 0
+        fi
+        # Not first run — auto-create minimal registry with config project
+        local config_name
+        config_name="$(basename "$CONFIG_REPO")"
+        mkdir -p "$(dirname "$REGISTRY")"
+        cat > "$REGISTRY" << EOF
+# Project Registry
+
+## Projects
+
+| Project | Priority | Parent | Path | GitHub Remote | Machines | Type | Phase | Notes |
+|---------|----------|--------|------|--------------|----------|------|-------|-------|
+| ${config_name} | P1 | — | \`~/${config_name}\` | | $(hostname 2>/dev/null || echo "unknown") | meta | active | Auto-created by afleet |
+EOF
+        echo "Note: Created minimal registry.md at $REGISTRY" >&2
     fi
     awk -F'|' '
         /^\|/ {
@@ -410,4 +429,71 @@ resolve_selection() {
         fi
     done
     return 1
+}
+
+# ── Telegram-to-inbox (CFG-238) ─────────────────────────────────────────────
+# Check AFD for unprocessed Telegram messages and create inbox entries.
+# Called pre-launch (0 LLM tokens). Messages with @project-name tags are
+# routed to the named project; untagged or unknown tags go to cfg-agent-fleet.
+# Testable: uses PATH for afd discovery, CONFIG_REPO for registry/inbox.
+telegram_inbox_check() {
+    command -v afd >/dev/null 2>&1 || return 0
+
+    local raw_messages
+    raw_messages=$(afd messages 2>/dev/null) || return 0
+    [[ -z "$raw_messages" ]] && return 0
+
+    # Build project name list from registry (lowercase for matching)
+    local -A project_names=()
+    while IFS='|' read -r name _path; do
+        [[ -z "$name" ]] && continue
+        local lower
+        lower=$(echo "$name" | tr '[:upper:]' '[:lower:]')
+        project_names["$lower"]="$name"
+    done < <(parse_registry)
+
+    local inbox_file="$INBOX_FILE"
+    local count=0
+    local -A routed_projects=()
+    local today
+    today=$(date +%Y-%m-%d)
+
+    while IFS= read -r line; do
+        [[ -z "$line" ]] && continue
+
+        # Parse JSON — extract message field (lightweight, no jq dependency)
+        local msg
+        msg=$(echo "$line" | sed -n 's/.*"message":"\([^"]*\)".*/\1/p')
+        [[ -z "$msg" ]] && continue
+
+        # Extract @tag (first occurrence)
+        local tag="" target="" clean_msg="$msg"
+        if [[ "$msg" =~ @([a-zA-Z0-9_-]+) ]]; then
+            tag="${BASH_REMATCH[1]}"
+            local tag_lower
+            tag_lower=$(echo "$tag" | tr '[:upper:]' '[:lower:]')
+            if [[ -n "${project_names[$tag_lower]:-}" ]]; then
+                target="${project_names[$tag_lower]}"
+                # Remove @tag from message for cleaner inbox entry
+                clean_msg=$(echo "$msg" | sed "s/@${tag}[[:space:]]*//" | sed 's/^[[:space:]]*//')
+            fi
+        fi
+
+        # Fallback: no tag or unknown tag → cfg-agent-fleet
+        if [[ -z "$target" ]]; then
+            target="cfg-agent-fleet"
+            clean_msg="$msg"
+        fi
+
+        # Append inbox entry
+        echo "- [ ] **${target}**: ${clean_msg}. Source: Telegram ${today}." >> "$inbox_file"
+        ((count++)) || true
+        routed_projects["$target"]=1
+    done <<< "$raw_messages"
+
+    if [[ $count -gt 0 ]]; then
+        local project_list
+        project_list=$(printf '%s\n' "${!routed_projects[@]}" | sort | paste -sd', ')
+        printf '  📨 %d Telegram message(s) → inbox (%s)\n' "$count" "$project_list"
+    fi
 }

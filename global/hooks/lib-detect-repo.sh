@@ -40,6 +40,11 @@ _detect_config_repo() {
         [[ -f "$d/sync.sh" && ! -f "$d/.template-repo" ]] && echo "$d" && return
     done
 
-    # 5. Final fallback
+    # 5. Scan: .template-repo marker — template user's config repo (CFG-329)
+    for d in "$HOME/cfg-agent-fleet" "$HOME/agent-fleet"; do
+        [[ -f "$d/sync.sh" && -f "$d/.template-repo" ]] && echo "$d" && return
+    done
+
+    # 6. Final fallback
     echo "$HOME/cfg-agent-fleet"
 }
