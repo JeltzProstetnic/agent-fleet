@@ -8,19 +8,8 @@
 # Source portable wrappers (provides _readlink_f for macOS compat)
 source "$(dirname "${BASH_SOURCE[0]}")/lib-portable.sh" 2>/dev/null || true
 
-# Auto-detect config repo: try symlink source, then known paths
-_detect_config_repo() {
-    local hook_real
-    hook_real="$(_readlink_f "${BASH_SOURCE[0]}" 2>/dev/null || echo "")"
-    if [[ -n "$hook_real" && -f "$(dirname "$hook_real")/../../sync.sh" ]]; then
-        echo "$(cd "$(dirname "$hook_real")/../.." && pwd)"
-        return
-    fi
-    for d in "$HOME/cfg-agent-fleet" "$HOME/agent-fleet"; do
-        [[ -f "$d/sync.sh" && ! -f "$d/.template-repo" ]] && echo "$d" && return
-    done
-    echo "$HOME/cfg-agent-fleet"  # final fallback
-}
+# Config repo detection — canonical source in lib-detect-repo.sh
+source "$(dirname "${BASH_SOURCE[0]}")/lib-detect-repo.sh" 2>/dev/null || true
 
 # ── Shared state (used by all check modules) ──
 CONFIG_REPO="$(_detect_config_repo)"
@@ -40,10 +29,25 @@ PROJECT_ROOT="$(git -C "$CONFIG_REPO" rev-parse --show-toplevel 2>/dev/null || e
 _HOOK_DIR="$(cd "$(dirname "$(_readlink_f "${BASH_SOURCE[0]}" 2>/dev/null || echo "${BASH_SOURCE[0]}")")" && pwd)"
 _CHECKS_DIR="${CONFIG_CHECK_DIR:-${_HOOK_DIR}/checks}"
 
+# ── First-run mode: suppress non-critical checks when .setup-pending exists ──
+FIRST_RUN_MODE=0
+if [ -f "$PROJECT_ROOT/.setup-pending" ] || [ -f "$CONFIG_REPO/.setup-pending" ]; then
+    FIRST_RUN_MODE=1
+    INBOX_MSG="${INBOX_MSG:+$INBOX_MSG | }[INFO] First-run mode — skipping non-essential checks (.setup-pending detected)"
+fi
+
 # ── Source and execute check modules (alphabetical order) ──
 if [ -d "$_CHECKS_DIR" ]; then
     for _check_file in "$_CHECKS_DIR"/*.sh; do
         [ -f "$_check_file" ] || continue
+        # In first-run mode, only load critical checks
+        if [ "$FIRST_RUN_MODE" -eq 1 ]; then
+            _check_basename="$(basename "$_check_file")"
+            case "$_check_basename" in
+                01-sync-state.sh|04-auto-fix.sh|06a-session-state.sh) ;;
+                *) continue ;;
+            esac
+        fi
         source "$_check_file" 2>/dev/null || true
     done
 fi
