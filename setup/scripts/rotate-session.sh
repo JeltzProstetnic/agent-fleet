@@ -281,7 +281,8 @@ ${_DECISIONS_CONTENT}"
         _UNAPPROVED=""
         for _cid in $_SC_CFGIDS; do
             # Check if this ID appears in backlog as an open item (new this session?)
-            _in_backlog=$(grep -c "^\- \[ \] .*\`$_cid\`" "$PROJECT_DIR/backlog.md" 2>/dev/null | head -1 || echo 0)
+            _in_backlog=$(grep -c "^\- \[ \] .*\`$_cid\`" "$PROJECT_DIR/backlog.md" 2>/dev/null || true)
+            _in_backlog="${_in_backlog:-0}"
             [ "$_in_backlog" -gt 0 ] || continue
             # Check if session-context mentions approval for this item (search full content)
             _approved=$(printf '%s\n' "$CONTENT" | grep -ci "approv.*$_cid\|$_cid.*approv" || true)
