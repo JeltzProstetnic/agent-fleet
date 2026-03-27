@@ -20,13 +20,60 @@ The user already sees a DON'T PANIC ASCII banner as their first message. Your fi
 
 Read `global/foundation/user-profile.md`. The auto-generated version is minimal.
 
-Ask **only two things**, one at a time:
+**Flow (one question per turn):**
+
 1. **Name** — "What's your name?"
-2. **What they do / want help with** — "What do you do?" or "What would you like me to help with?"
+2. **After getting the name**, offer two concrete next steps (not an open question):
 
-**Do NOT ask about communication style or preferences.** Infer these from how the user writes. The persona pattern choice (step 2b) covers interaction style. Asking "how do you like to communicate?" is useless — people don't know how to answer it.
+"Nice to meet you, [name]. Here's what I can do right now:
 
-Update `user-profile.md` after these two answers. Adapt your vocabulary to match theirs — a scientist gets scientific vocabulary, a developer gets technical depth, a manager gets strategic framing.
+**A)** I'll scan your machine — installed tools, network, disks, data sources — and show you what I found. Takes a minute.
+**B)** You tell me what you're working on and I'll set up a project for it.
+
+Which sounds better? (Or just tell me what you need — I'll figure it out.)"
+
+**Do NOT ask vague questions** like "What do you do?" or "What would you like help with?" — users don't know how to answer that. Offer concrete actions instead.
+
+After the user chooses, adapt accordingly:
+- **If A (scan):** Run system discovery (see step 3 below), then offer project types based on what you found.
+- **If B (project):** Show project types (see step 2c below) and help set one up.
+- **If they just describe work:** Infer the project type and set it up.
+
+Update `user-profile.md` with name and whatever you learn. Adapt vocabulary to match theirs.
+
+### 2c. Project Types (show when user chooses B or after scan)
+
+When helping the user set up their first project, present these types:
+
+| # | Type | What it's for |
+|---|------|---------------|
+| 1 | **Code** | Software development — any language, framework, or platform |
+| 2 | **Writing** | Long-form authoring — books, fiction, creative writing |
+| 3 | **Research** | Academic research, publications, data analysis |
+| 4 | **Infrastructure** | Servers, networking, deployment, home lab |
+| 5 | **Marketing** | Social media, engagement, visibility campaigns |
+| 6 | **Business** | Process analysis, corporate tooling, decision support |
+| 7 | **Data** | Data processing, catalogs, ETL, search/indexing |
+| 8 | **Media** | Media management — organization, dedup, sync |
+| 9 | **Tooling** | Integration tooling — connecting systems, automation |
+| 10 | **Config** | Configuration management, meta-tooling (like this project) |
+
+"Pick a number, or just describe what you're doing — I'll figure out the type."
+
+After selection, create the project directory, initialize with `project-setup.md`, and add to registry.md.
+
+### 3. Infrastructure Scan (when user chooses A)
+
+Run a quick scan and report findings conversationally:
+- **Installed tools:** `node`, `python`, `git`, `docker`, `npm`, `cargo`, etc.
+- **Disks/mounts:** `df -h` for available storage
+- **Network:** hostname, SSH keys in `~/.ssh/`, any running services
+- **Data sources:** databases, CSV/JSON files, interesting directories
+- **Existing projects:** git repos under `~/`
+
+Present findings as: "Here's what I found on your machine: [summary]. Based on this, it looks like you could use projects for [suggestions]."
+
+Then show project types (step 2c) with recommendations highlighted based on what you found.
 
 ### 2b. Configure Agent Personas
 
