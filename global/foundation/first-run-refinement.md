@@ -20,30 +20,34 @@ The user already sees a DON'T PANIC ASCII banner as their first message. Your fi
 
 Read `global/foundation/user-profile.md`. The auto-generated version is minimal.
 
-**Flow (one question per turn):**
+**Flow:**
 
 1. **Name** — "What's your name?"
-2. **After getting the name**, offer two concrete next steps (not an open question):
+2. **After getting the name**, present ALL options in one structured message. Do NOT ask one thing at a time from here — show the full menu:
 
-"Nice to meet you, [name]. Here's what I can do right now:
+```
+Nice to meet you, [name].
 
-**A)** I'll scan your machine — installed tools, network, disks, data sources — and show you what I found. Takes a minute.
-**B)** You tell me what you're working on and I'll set up a project for it.
+Next I recommend setting up a persona pattern and working hours for your own good:
 
-Which sounds better? (Or just tell me what you need — I'll figure it out.)"
+[Persona patterns table — see step 2b below, labeled with letters]
 
-**Do NOT ask vague questions** like "What do you do?" or "What would you like help with?" — users don't know how to answer that. Offer concrete actions instead.
+Also we can set up one or several new projects:
 
-After the user chooses, adapt accordingly:
-- **If A (scan):** Run system discovery (see step 3 below), then offer project types based on what you found.
-- **If B (project):** Show project types (see step 2c below) and help set one up.
-- **If they just describe work:** Infer the project type and set it up.
+[Project types table — see below, labeled with numbers]
 
-Update `user-profile.md` with name and whatever you learn. Adapt vocabulary to match theirs.
+Finally I would recommend you to let me:
 
-### 2c. Project Types (show when user chooses B or after scan)
+X. Scan your machine and infrastructure to discover my environment (recommended*)
+Y. Connect with services like email, calendar, social media and so on
+Z. Both
 
-When helping the user set up their first project, present these types:
+* so I can help with your IT infrastructure like sorting files, fixing network issues, system problems etc.
+
+Pick whatever you like — letters for persona, numbers for projects, X/Y/Z for setup. Or skip anything you're not interested in right now.
+```
+
+**Project types (labeled with numbers):**
 
 | # | Type | What it's for |
 |---|------|---------------|
@@ -56,13 +60,13 @@ When helping the user set up their first project, present these types:
 | 7 | **Data** | Data processing, catalogs, ETL, search/indexing |
 | 8 | **Media** | Media management — organization, dedup, sync |
 | 9 | **Tooling** | Integration tooling — connecting systems, automation |
-| 10 | **Config** | Configuration management, meta-tooling (like this project) |
+| 10 | **Custom** | Describe what you need — I'll figure it out |
 
-"Pick a number, or just describe what you're doing — I'll figure out the type."
+**Do NOT ask vague questions.** Present concrete choices. The user picks letters/numbers/X/Y/Z. Process whatever they choose, skip what they don't mention.
 
-After selection, create the project directory, initialize with `project-setup.md`, and add to registry.md.
+Update `user-profile.md` with name and whatever you learn. Adapt vocabulary to match theirs.
 
-### 3. Infrastructure Scan (when user chooses A)
+### 2c. Infrastructure Scan (when user picks X or Z)
 
 Run a quick scan and report findings conversationally:
 - **Installed tools:** `node`, `python`, `git`, `docker`, `npm`, `cargo`, etc.
@@ -71,9 +75,18 @@ Run a quick scan and report findings conversationally:
 - **Data sources:** databases, CSV/JSON files, interesting directories
 - **Existing projects:** git repos under `~/`
 
-Present findings as: "Here's what I found on your machine: [summary]. Based on this, it looks like you could use projects for [suggestions]."
+Present findings as: "Here's what I found on your machine: [summary]. Based on this, you might want projects for [suggestions]."
 
-Then show project types (step 2c) with recommendations highlighted based on what you found.
+### 2d. Service Connection (when user picks Y or Z)
+
+Offer to connect external services via MCP:
+- **Email:** Gmail, Outlook
+- **Calendar:** Google Calendar
+- **Social:** Twitter/X, LinkedIn
+- **Code:** GitHub, GitLab
+- **Work tools:** Jira, Confluence, Slack
+
+Each connection requires API keys or OAuth. Walk the user through setup one service at a time.
 
 ### 2b. Configure Agent Personas
 
