@@ -83,5 +83,13 @@ except Exception:
     fi
 fi
 
+# LRN skill trigger detection — safety net for skill invocation
+if read -r _hook_input 2>/dev/null; then
+    _user_msg=$(echo "$_hook_input" | python3 -c "import sys,json; print(json.load(sys.stdin).get('message',''))" 2>/dev/null) || true
+    if [[ "$_user_msg" =~ (^|[[:space:]])(lrn|LRN)($|[[:space:]]) ]]; then
+        OUTPUT="${OUTPUT:+$OUTPUT | }LRN_TRIGGERED: Invoke the lrn skill via Skill tool. Load SKILL.md + references/known-faulty-patterns.md before responding."
+    fi
+fi
+
 [[ -n "$OUTPUT" ]] && echo "$OUTPUT"
 exit 0

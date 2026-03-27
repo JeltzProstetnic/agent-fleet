@@ -42,7 +42,11 @@ If analysis reaches this conclusion, re-enter classification. The rule failed st
 
 "Rule exists" is the START of root cause analysis, never the conclusion.
 
-## 3. Formulate findings
+## 3. Load references
+
+Read `references/known-faulty-patterns.md` before formulating any findings.
+
+## 4. Formulate findings
 
 One block per finding. No prose.
 
@@ -71,13 +75,13 @@ hook/script (0 tokens) > extend existing file (0 unless triggered) > new knowled
 
 **Bias check per finding:** (1) Existing file covers this? Extend it. (2) Could be a hook? Automate. (3) One-time fix? Backlog, not rule. (4) Needs every session? Only then CLAUDE.md. Default DOWN the hierarchy.
 
-## 4. Optional: Explore subagent
+## 5. Optional: Explore subagent
 
 Launch ONE Explore subagent ONLY when the gate check identifies a rule that exists but failed structurally AND tracing requires 3+ files. If obvious from 1-2 files, read inline.
 
 Subagent returns: one-sentence revised rule + target file + tier. Do NOT launch subagents for triage or knowledge capture. One subagent maximum.
 
-## 5. Present and wait
+## 6. Present and wait
 
 Order findings by tier (cheapest first), then severity. Scan every FIX against Known Faulty Patterns before presenting. Then STOP. Wait for user approval.
 
@@ -85,8 +89,9 @@ Order findings by tier (cheapest first), then severity. Scan every FIX against K
 - "yes" / "go" -- execute all as presented.
 - User edits a FIX -- use their version VERBATIM. Never re-expand.
 - User rejects -- drop it. Do not re-propose.
+- Any other user input (scope additions, questions, corrections) resets the gate -- re-present updated findings before executing.
 
-## 6. Execute
+## 7. Execute
 
 Edit targets. Commit with rationale in message (never in rule text). Re-read each edit to verify style fit.
 

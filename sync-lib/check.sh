@@ -98,41 +98,44 @@ check_personal_data_leaks() {
     fi
 }
 
-# ---- Template drift check (hash-based) ----
+# ---- Template drift check (diff-based) ----
 check_template_drift() {
     local template_dir="$HOME/agent-fleet"
     [ -d "$template_dir" ] || return 0
-
-    if ! command -v python3 >/dev/null 2>&1; then
-        log_warn "python3 not found — skipping template drift check"
-        return 0
-    fi
 
     local manifest="$SCRIPT_DIR/template-sync-manifest.md"
     [ -f "$manifest" ] || { log_warn "template-sync-manifest.md missing — cannot check template drift"; return 0; }
 
     local drift_count=0
-    local tracked_files
-    tracked_files=$(grep -oP '^\| `[^`]+` \| `[0-9a-f]{8}`' "$manifest" | sed 's/^| `//;s/` | `/|/;s/`$//' || true)
+    local identical_files intentional_files
+    identical_files=$(_extract_manifest_section "Must Be Identical" "$manifest")
+    intentional_files=$(_extract_manifest_section "Intentional Diffs" "$manifest")
 
-    local line file_path hash
-    while IFS= read -r line; do
-        [ -n "$line" ] || continue
-        file_path="${line%%|*}"
-        hash="${line##*|}"
-        [ -n "$file_path" ] && [ -n "$hash" ] || continue
-
-        local full_path="$SCRIPT_DIR/$file_path"
-        [ -f "$full_path" ] || continue
-
-        local current_hash
-        current_hash=$(python3 -c "import binascii,sys;print(format(binascii.crc32(open(sys.argv[1],'rb').read())&0xFFFFFFFF,'08x'))" "$full_path")
-
-        if [ "$current_hash" != "$hash" ]; then
-            log_warn "$file_path: hash stale ($hash → $current_hash). Propagate structural changes, then run 'sync.sh stamp'"
+    # Check "Must Be Identical" files — should match template exactly
+    local file_path
+    while IFS= read -r file_path; do
+        [ -n "$file_path" ] || continue
+        local personal_file="$SCRIPT_DIR/$file_path"
+        local template_file="$template_dir/$file_path"
+        [ -f "$personal_file" ] || continue
+        [ -f "$template_file" ] || continue
+        if ! diff -q "$personal_file" "$template_file" >/dev/null 2>&1; then
+            log_warn "$file_path differs from template — propagate update"
             drift_count=$((drift_count + 1))
         fi
-    done <<< "$tracked_files"
+    done <<< "$identical_files"
+
+    # Check "Intentional Diffs" files — expected to differ, just note them
+    while IFS= read -r file_path; do
+        [ -n "$file_path" ] || continue
+        local personal_file="$SCRIPT_DIR/$file_path"
+        local template_file="$template_dir/$file_path"
+        [ -f "$personal_file" ] || continue
+        [ -f "$template_file" ] || continue
+        if diff -q "$personal_file" "$template_file" >/dev/null 2>&1; then
+            log_warn "$file_path is identical to template — consider promoting to 'Must Be Identical'"
+        fi
+    done <<< "$intentional_files"
 
     if [ "$drift_count" -gt 0 ]; then
         log_warn "$drift_count file(s) drifted. Review and propagate to template."
@@ -157,14 +160,14 @@ cmd_check() {
 
     local total_issues=0
 
-    # ── 1. Template drift (smart: byte-diff for identical, hash for intentional) ──
+    # ── 1. Template drift (diff-based) ──
     log_info "Checking template drift..."
     local manifest="$check_repo_root/template-sync-manifest.md"
     if [ ! -f "$manifest" ]; then
         log_warn "template-sync-manifest.md missing — cannot check template drift"
         total_issues=$((total_issues + 1))
-    elif ! command -v python3 >/dev/null 2>&1; then
-        log_warn "python3 not found — skipping template drift check"
+    elif [ ! -d "$check_template_dir" ]; then
+        log_info "Template dir not present — skipping drift check"
     else
         local drift_count=0
 
@@ -172,58 +175,33 @@ cmd_check() {
         identical_files=$(_extract_manifest_section "Must Be Identical" "$manifest")
         intentional_files=$(_extract_manifest_section "Intentional Diffs" "$manifest")
 
-        # ── 1a. "Must Be Identical" files ──
-        local line file_path hash
-        while IFS= read -r line; do
-            [ -n "$line" ] || continue
-            file_path="${line%%|*}"
-            hash="${line##*|}"
-            [ -n "$file_path" ] && [ -n "$hash" ] || continue
-
+        # ── 1a. "Must Be Identical" files — should match template exactly ──
+        local file_path
+        while IFS= read -r file_path; do
+            [ -n "$file_path" ] || continue
             local personal_file="$check_repo_root/$file_path"
+            local template_file="$check_template_dir/$file_path"
             [ -f "$personal_file" ] || continue
-
-            if [ -d "$check_template_dir" ]; then
-                local template_file="$check_template_dir/$file_path"
-                if [ -f "$template_file" ]; then
-                    if ! diff -q "$personal_file" "$template_file" >/dev/null 2>&1; then
-                        log_warn "$file_path differs from template — propagate update"
-                        drift_count=$((drift_count + 1))
-                    fi
-                else
-                    local current_hash
-                    current_hash=$(python3 -c "import binascii,sys;print(format(binascii.crc32(open(sys.argv[1],'rb').read())&0xFFFFFFFF,'08x'))" "$personal_file")
-                    if [ "$current_hash" != "$hash" ]; then
-                        log_warn "$file_path drifted (was: $hash, now: $current_hash) — template file missing"
-                        drift_count=$((drift_count + 1))
-                    fi
-                fi
-            else
-                local current_hash
-                current_hash=$(python3 -c "import binascii,sys;print(format(binascii.crc32(open(sys.argv[1],'rb').read())&0xFFFFFFFF,'08x'))" "$personal_file")
-                if [ "$current_hash" != "$hash" ]; then
-                    log_warn "$file_path drifted (was: $hash, now: $current_hash)"
-                    drift_count=$((drift_count + 1))
-                fi
+            if [ ! -f "$template_file" ]; then
+                log_warn "$file_path: not found in template"
+                drift_count=$((drift_count + 1))
+                continue
+            fi
+            if ! diff -q "$personal_file" "$template_file" >/dev/null 2>&1; then
+                log_warn "$file_path differs from template — propagate update"
+                drift_count=$((drift_count + 1))
             fi
         done <<< "$identical_files"
 
-        # ── 1b. "Intentional Diffs" files ──
-        while IFS= read -r line; do
-            [ -n "$line" ] || continue
-            file_path="${line%%|*}"
-            hash="${line##*|}"
-            [ -n "$file_path" ] && [ -n "$hash" ] || continue
-
+        # ── 1b. "Intentional Diffs" files — expected to differ ──
+        while IFS= read -r file_path; do
+            [ -n "$file_path" ] || continue
             local personal_file="$check_repo_root/$file_path"
+            local template_file="$check_template_dir/$file_path"
             [ -f "$personal_file" ] || continue
-
-            local current_hash
-            current_hash=$(python3 -c "import binascii,sys;print(format(binascii.crc32(open(sys.argv[1],'rb').read())&0xFFFFFFFF,'08x'))" "$personal_file")
-
-            if [ "$current_hash" != "$hash" ]; then
-                log_warn "$file_path: hash stale ($hash → $current_hash). Propagate structural changes, then run 'sync.sh stamp'"
-                drift_count=$((drift_count + 1))
+            [ -f "$template_file" ] || continue
+            if diff -q "$personal_file" "$template_file" >/dev/null 2>&1; then
+                log_warn "$file_path is identical to template — consider promoting to 'Must Be Identical'"
             fi
         done <<< "$intentional_files"
 
@@ -292,7 +270,7 @@ cmd_check() {
             if [ ! -f "$deployed" ]; then
                 log_warn "Hook $base: not deployed"
                 hook_drift=$((hook_drift + 1))
-            elif ! diff -q "$hook" "$deployed" >/dev/null 2>&1; then
+            elif ! diff <(cat "$hook") <(sed '/^# MANAGED/d' "$deployed") >/dev/null 2>&1; then
                 log_warn "Hook $base: drifted (repo ≠ deployed)"
                 hook_drift=$((hook_drift + 1))
             fi
