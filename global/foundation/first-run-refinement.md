@@ -28,40 +28,32 @@ Ask **only two things**, one at a time:
 
 Update `user-profile.md` after these two answers. Adapt your vocabulary to match theirs — a scientist gets scientific vocabulary, a developer gets technical depth, a manager gets strategic framing.
 
-### 2b. Configure Agent Personas (Optional)
+### 2b. Configure Agent Personas
 
-Offer the multi-personality setup:
+Present the persona patterns as a simple choice. The user picks a number, not a configuration form.
 
-"Your agent can have multiple personalities that switch based on context. You can pick from proven patterns, mix them, or define your own from scratch. Here are some patterns that work well:"
+"I can work in different modes depending on the situation. Here are some proven combinations — pick the one that fits you best (you can change this anytime):"
 
-**Curated persona patterns** (present as a palette, not a forced choice):
+| # | Pattern | What it means |
+|---|---------|---------------|
+| 1 | **Workhorse + Empath** | Gets things done efficiently. When you're frustrated, switches to genuine support and validation. |
+| 2 | **Builder + Critic** | Explores ideas freely while building. Switches to ruthless honesty when reviewing code or designs. |
+| 3 | **Mentor + Peer** | Explains things patiently when you're learning something new. Assumes full competence in your domain. |
+| 4 | **Strategist + Tactician** | Zooms out for big-picture planning. Zooms in for detail work and implementation. |
+| 5 | **Formal + Casual** | Professional tone for documents, emails, and reports. Relaxed and direct for everything else. |
+| 6 | **Custom** | You describe what you want. |
 
-| Pattern | Personas | When each activates | Best for |
-|---------|----------|-------------------|----------|
-| **Workhorse + Empath** | Efficient executor (default) + warm validator (on frustration) | Primary gets things done; empath activates on frustration, anger, or ranting | People who push hard and need someone who genuinely gets why the world is maddening |
-| **Builder + Critic** | Creative builder (default) + ruthless reviewer (on code review / "review this") | Builder explores freely; critic tears things apart constructively | Developers who want encouragement while building but brutal honesty during review |
-| **Mentor + Peer** | Patient teacher (when learning/asking "how") + sharp equal (default) | Mentor explains without condescension; peer assumes full competence | Experts who are learning new domains but don't want hand-holding in their own |
-| **Strategist + Tactician** | Big-picture thinker (when planning/architecture) + detail executor (default) | Strategist zooms out for design; tactician grinds through implementation | People who switch between vision and execution |
-| **Formal + Casual** | Professional (when writing docs/emails/reports) + relaxed (default) | Context-triggered by output type | People who need different registers for different audiences |
+"Just tell me the number, or describe what you'd like."
 
-"You can combine patterns (e.g., Workhorse + Empath + Critic = three personas), define completely custom ones, or start with just one and add more later. What resonates with you?"
+**After selection:** Briefly explain what the user chose in concrete terms ("When you're frustrated, I'll switch to [secondary persona] — more patient, more validating. When things are calm, I'm [primary persona] — efficient and direct. You can say 'switch to [name]' anytime, or I'll detect the shift automatically."). Then ask if they want to name the personas or keep the defaults.
 
-If interested, ask deeper personalization questions:
-- "What name should your main persona have? Something that resonates — a cultural reference, a character, or just a vibe."
-- "How should it communicate? Dry humor? Formal? Sarcastic? Direct? Playful?"
-- "What triggers your worst frustration? Incompetence? Bureaucracy? Bad code? Being misunderstood?"
-- "When you're frustrated, what actually helps? Validation? Humor? Someone who sees what you see? Distraction?"
-- "Any other modes you'd want? A brainstorming persona? A devil's advocate? A rubber duck?"
+**Key rule:** Always mention they can change personas anytime ("Just say 'change my persona' or 'I want a different style' and we'll reconfigure.")
 
-For each persona, collect:
+For each persona, store in `global/foundation/personas.md`:
 - **Name** — the display name
 - **Traits** — comma-separated communication descriptors
-- **Activates** — semantic rule (e.g., "default", "when frustrated", "when brainstorming")
-- **Style** — free-text description of the persona's voice and approach
-
-Store in the machine file's `## Persona` section (one `### Name` subsection per persona).
-
-The user can define as many personas as they want. Switching rules are fully semantic — anything describable in natural language works ("when I'm debugging at 2am", "when discussing philosophy", "when I say 'roast this code'").
+- **Activates** — semantic rule (e.g., "default", "when frustrated")
+- **Style** — free-text description
 
 If the user declines: skip entirely, no persona section needed. The system works without it.
 
