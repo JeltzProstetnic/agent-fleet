@@ -1,12 +1,20 @@
+#!/usr/bin/env bash
 # Check group 13: File LOC scaling thresholds (daily)
 # Surfaces warnings when files exceed size limits, suggesting refactoring or splitting.
 # Shared vars used: CONFIG_REPO, WARNINGS
 
-_SCALING_MARKER="/tmp/.scaling-check-$(date +%Y-%m-%d)"
-
-# Daily gate — run once per day
-[ -f "$_SCALING_MARKER" ] && return 0 2>/dev/null || true
-[ -f "$_SCALING_MARKER" ] && exit 0 2>/dev/null || true
+# Daily gate via sched-lib (if available) or fallback to inline marker
+_sched_lib="${CONFIG_REPO:-}/setup/scripts/sched-lib.sh"
+if [ -f "$_sched_lib" ]; then
+    source "$_sched_lib"
+    SCHED_MARKER_DIR="${SCHED_MARKER_DIR:-/tmp}"
+    sched_is_due "scaling-check" "daily" || return 0 2>/dev/null || true
+else
+    # fallback inline marker
+    _gate="/tmp/.scaling-check-$(date +%Y-%m-%d)"
+    [ ! -f "$_gate" ] || return 0 2>/dev/null || true
+    touch "$_gate"
+fi
 
 _scaling_violations=""
 _scaling_count=0
@@ -49,5 +57,11 @@ _check_files "$CONFIG_REPO/global/hooks/*.sh" 200 300 "hook"
 
 if [ "$_scaling_count" -gt 0 ]; then
     WARNINGS="${WARNINGS:+$WARNINGS | }SCALING: $_scaling_count file(s) exceed LOC thresholds: $_scaling_violations"
-    touch "$_SCALING_MARKER"
+fi
+
+# Mark done (sched-lib or fallback)
+if type sched_mark_done &>/dev/null; then
+    sched_mark_done "scaling-check" "daily"
+elif [ -z "${_gate:-}" ]; then
+    touch "/tmp/.scaling-check-$(date +%Y-%m-%d)"
 fi
