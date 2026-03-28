@@ -14,6 +14,10 @@ set -euo pipefail
 [[ "${LIB_SH_LOADED:-}" == "true" ]] && return 0
 readonly LIB_SH_LOADED="true"
 
+# Source portable wrappers (_sed_i, _readlink_f, _to_native_path, etc.)
+_LIB_SH_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "${_LIB_SH_DIR}/../global/hooks/lib-portable.sh" 2>/dev/null || true
+
 # ============================================================================
 # GLOBALS
 # ============================================================================

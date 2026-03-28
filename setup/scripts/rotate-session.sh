@@ -238,6 +238,21 @@ else
         EXISTING=""
     fi
 
+    # Validate: no merge conflict markers in log file
+    if grep -qE '^(<{7}|>{7}|={7})' "$LOG_FILE" 2>/dev/null; then
+        echo "WARNING: Merge conflict markers found in session-log.md — cleaning before write." >&2
+        grep -vE '^(<{7}|>{7}|={7})' "$LOG_FILE" > "${LOG_FILE}.clean" && mv "${LOG_FILE}.clean" "$LOG_FILE"
+        # Re-extract after cleaning
+        FIRST_ENTRY_LINE=$(grep -n '^### ' "$LOG_FILE" | head -1 | cut -d: -f1 || true)
+        if [[ -n "$FIRST_ENTRY_LINE" ]]; then
+            HEADER=$(head -n $((FIRST_ENTRY_LINE - 1)) "$LOG_FILE")
+            EXISTING=$(tail -n +$FIRST_ENTRY_LINE "$LOG_FILE")
+        else
+            HEADER=$(cat "$LOG_FILE")
+            EXISTING=""
+        fi
+    fi
+
     {
         echo "$HEADER"
         echo ""
@@ -327,6 +342,18 @@ EOF
 # Pre-populate deterministic fields so the template isn't fully blank
 _sed_i "s/^\(- \*\*Last Updated\*\*:\)$/\1 $(date +%Y-%m-%dT%H:%M:%S%z) (rotated)/" "$SESSION_FILE"
 echo "Reset session-context.md to blank template (pre-populated timestamp)."
+
+# --- Write post-rotation marker for SessionEnd hook ---
+# If commits happen after rotation, the SessionEnd hook will detect them
+# and append to session-log automatically. Zero-token automation.
+_POST_ROTATION_MARKER="$PROJECT_DIR/.post-rotation-commit"
+_CURRENT_HEAD=$(git -C "$PROJECT_DIR" rev-parse HEAD 2>/dev/null || true)
+if [[ -n "$_CURRENT_HEAD" ]]; then
+    # Format: <hash> <unix_timestamp>
+    # The timestamp allows the consumer to reject stale markers from crashed sessions
+    echo "$_CURRENT_HEAD $(date +%s)" > "$_POST_ROTATION_MARKER"
+fi
+
 echo "Rotation complete."
 echo ""
 echo "Reminder: if significant decisions were made, update docs/decisions.md."

@@ -369,9 +369,14 @@ print_header "Phase 3: Deploy Agent Fleet Configuration"
 echo "Deploying global config, hooks, and knowledge files..."
 bash "${CONFIG_REPO_ROOT}/sync.sh" setup
 
-# Deploy afleet launcher
+# Deploy afleet launcher (sync.sh setup already does this via deploy_afleet,
+# but this is a safety fallback for first-run)
 mkdir -p "${HOME}/.local/bin"
-ln -sf "${CONFIG_REPO_ROOT}/setup/scripts/afleet.sh" "${HOME}/.local/bin/afleet"
+if [[ "${OSTYPE}" == msys* || "${OSTYPE}" == cygwin* ]]; then
+    cp -f "${CONFIG_REPO_ROOT}/setup/scripts/afleet.sh" "${HOME}/.local/bin/afleet"
+else
+    ln -sf "${CONFIG_REPO_ROOT}/setup/scripts/afleet.sh" "${HOME}/.local/bin/afleet"
+fi
 log_info "Deployed: afleet → ~/.local/bin/"
 
 # ============================================================================

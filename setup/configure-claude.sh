@@ -50,7 +50,12 @@ source "${SCRIPT_DIR}/lib.sh"
 CC_MIRROR_VARIANT="mclaude"
 CONFIG_DIR="${HOME}/.cc-mirror/${CC_MIRROR_VARIANT}/config"
 SCRIPTS_DIR="${HOME}/.cc-mirror/${CC_MIRROR_VARIANT}/scripts"
-LAUNCHER="${HOME}/.local/bin/${CC_MIRROR_VARIANT}"
+# Platform-aware launcher path (CFG-335)
+if [[ "${OSTYPE}" == msys* || "${OSTYPE}" == cygwin* ]]; then
+    LAUNCHER="${HOME}/.cc-mirror/bin/${CC_MIRROR_VARIANT}.cmd"
+else
+    LAUNCHER="${HOME}/.local/bin/${CC_MIRROR_VARIANT}"
+fi
 
 TOTAL_STEPS=5
 
@@ -341,6 +346,13 @@ SERENAYML
 
 patch_mclaude_launcher() {
     log_step 3 "${TOTAL_STEPS}" "Patch mclaude Launcher"
+
+    # Windows .cmd launchers can't contain bash functions (CFG-335)
+    if [[ "${OSTYPE}" == msys* || "${OSTYPE}" == cygwin* ]]; then
+        log_info "Skipping launcher patching on Windows (.cmd files cannot contain bash)"
+        SKIPPED_STEPS+=("launcher patching (Windows .cmd)")
+        return 0
+    fi
 
     require_file "${LAUNCHER}" "mclaude launcher (run install-base.sh first)"
 
@@ -718,6 +730,21 @@ configure_platform_settings() {
         log_info "    (from your agent-fleet directory)"
         log_info "  - Shell config lives in ~/${shellrc_name} (not ~/.bash_profile)"
         echo ""
+    fi
+
+    # --- Ensure ~/.local/bin in PATH (needed for afleet, git-credential-mcp) ---
+    # On Linux, most distros add this by default. On MINGW64/Git Bash, it's missing. (CFG-336)
+    if ! echo "$PATH" | tr ':' '\n' | grep -qxF "$HOME/.local/bin"; then
+        local marker="# agent-fleet: local bin path"
+        if ! grep -qF "$marker" "${shellrc}" 2>/dev/null; then
+            backup_file "${shellrc}"
+            if [[ "${DRY_RUN}" == "false" ]]; then
+                printf '\n%s\nexport PATH="$HOME/.local/bin:$PATH"\n' "$marker" >> "${shellrc}"
+                log_success "Added ~/.local/bin to PATH in ${shellrc_name}"
+            else
+                echo -e "${COLOR_YELLOW}[DRY RUN]${COLOR_RESET} Would add ~/.local/bin to PATH in ${shellrc_name}"
+            fi
+        fi
     fi
 
     log_success "Platform settings configured"

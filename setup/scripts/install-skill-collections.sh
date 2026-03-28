@@ -50,6 +50,9 @@ MARKETPLACE_DIR="${CONFIG_DIR}/plugins/marketplaces"
 SKILL_COLLECTIONS_DIR="${HOME}/.local/share/skill-collections"
 SETTINGS_FILE="${CONFIG_DIR}/settings.json"
 
+# Convert paths for native Python on Windows/MSYS (CFG-336)
+_PY_SETTINGS_FILE=$(_to_native_path "${SETTINGS_FILE}" 2>/dev/null || echo "${SETTINGS_FILE}")
+
 # Marketplace repos — cloned into plugins/marketplaces/<dir-name>/
 # Format: "dir-name|git-url"
 MARKETPLACE_REPOS=(
@@ -213,7 +216,7 @@ if [[ "${DRY_RUN}" == "false" ]]; then
     python3 -c "
 import json, sys
 
-settings_path = '${SETTINGS_FILE}'
+settings_path = '${_PY_SETTINGS_FILE}'
 with open(settings_path, 'r') as f:
     settings = json.load(f)
 
@@ -249,6 +252,7 @@ log_success "Plugin registration complete"
 
 # If we're running from within the agent-fleet repo, also update the template
 TEMPLATE_SETTINGS="${SCRIPT_DIR}/../config/settings.json"
+_PY_TEMPLATE_SETTINGS=$(_to_native_path "${TEMPLATE_SETTINGS}" 2>/dev/null || echo "${TEMPLATE_SETTINGS}")
 if [[ -f "${TEMPLATE_SETTINGS}" ]]; then
     print_header "Step 4: Update settings.json template"
 
@@ -256,7 +260,7 @@ if [[ -f "${TEMPLATE_SETTINGS}" ]]; then
         python3 -c "
 import json
 
-template_path = '${TEMPLATE_SETTINGS}'
+template_path = '${_PY_TEMPLATE_SETTINGS}'
 with open(template_path, 'r') as f:
     template = json.load(f)
 
