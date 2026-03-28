@@ -724,9 +724,13 @@ install_cc_mirror() {
 create_mclaude_variant() {
     log_step 6 "${TOTAL_STEPS}" "Create mclaude Variant"
 
-    # Check if mclaude launcher already exists
-    if [[ -f "${HOME}/.local/bin/mclaude" ]]; then
-        log_info "mclaude launcher already exists at ~/.local/bin/mclaude"
+    # Check if mclaude launcher already exists (platform-aware path, CFG-335)
+    local _launcher_check="${HOME}/.local/bin/mclaude"
+    if [[ "${OSTYPE}" == msys* || "${OSTYPE}" == cygwin* ]]; then
+        _launcher_check="${HOME}/.cc-mirror/bin/mclaude.cmd"
+    fi
+    if [[ -f "$_launcher_check" ]]; then
+        log_info "mclaude launcher already exists at $_launcher_check"
         SKIPPED_STEPS+=("mclaude-variant (already exists)")
         log_success "mclaude variant verified"
         return 0
