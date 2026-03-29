@@ -28,7 +28,7 @@ _fallback() {
     if [[ -n "$_fb" ]]; then
         exec $_fb
     fi
-    for _c in "$_HOME/.local/bin/mclaude" "$(command -v mclaude 2>/dev/null)" "$(command -v claude 2>/dev/null)"; do
+    for _c in "$_HOME/.local/bin/mclaude" "$_HOME/.cc-mirror/bin/mclaude.cmd" "$(command -v mclaude 2>/dev/null)" "$(command -v claude 2>/dev/null)"; do
         [[ -n "$_c" && -x "$_c" ]] && exec "$_c"
     done
     echo "  FATAL: Neither mclaude nor claude found." >&2
