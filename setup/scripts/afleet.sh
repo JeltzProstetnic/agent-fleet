@@ -12,7 +12,7 @@ _fallback_launch() {
     echo "  Launching Claude Code directly (no sync, no project detection)." >&2
     echo "" >&2
     local launcher=""
-    for c in "$HOME/.local/bin/mclaude" "$(command -v mclaude 2>/dev/null || true)" "$(command -v claude 2>/dev/null || true)"; do
+    for c in "$HOME/.local/bin/mclaude" "$HOME/.cc-mirror/bin/mclaude.cmd" "$(command -v mclaude 2>/dev/null || true)" "$(command -v claude 2>/dev/null || true)"; do
         [[ -n "$c" && -x "$c" ]] && launcher="$c" && break
     done
     if [[ -z "$launcher" ]]; then
@@ -421,7 +421,7 @@ fi
 cd "$TARGET_DIR" 2>/dev/null || { echo "  Warning: cannot cd to $TARGET_DIR — using HOME" >&2; cd "$HOME"; }
 
 MCLAUDE=""
-for candidate in "$HOME/.local/bin/mclaude" "$(command -v mclaude 2>/dev/null || true)"; do
+for candidate in "$HOME/.local/bin/mclaude" "$HOME/.cc-mirror/bin/mclaude.cmd" "$(command -v mclaude 2>/dev/null || true)"; do
     [[ -x "$candidate" ]] && MCLAUDE="$candidate" && break
 done
 

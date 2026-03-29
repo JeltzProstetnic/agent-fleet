@@ -12,6 +12,13 @@ if [[ -z "$CONFIG_REPO" ]]; then
     done
 fi
 
+# Source portable wrappers for _to_native_path (needed for Python calls on MINGW64)
+for _portable in "$CONFIG_REPO/global/hooks/lib-portable.sh" "$HOME/.claude/hooks/lib-portable.sh"; do
+    [[ -f "$_portable" ]] && source "$_portable" && break
+done
+# Fallback no-op if lib-portable.sh not found
+type _to_native_path &>/dev/null || _to_native_path() { echo "$1"; }
+
 CLAUDE_CONFIG_DIR="${CLAUDE_CONFIG_DIR:-$HOME/.claude}"
 
 # ── Colors ──────────────────────────────────────────────────────────────────
@@ -64,7 +71,8 @@ check_settings_json() {
         fi
         return 1
     fi
-    if ! python3 -c "import json; json.load(open('$settings'))" 2>/dev/null; then
+    local _py_settings; _py_settings=$(_to_native_path "$settings")
+    if ! python3 -c "import json; json.load(open('$_py_settings'))" 2>/dev/null; then
         CHECK_MSG="Settings file is not valid JSON: $settings"
         return 1
     fi
@@ -175,9 +183,10 @@ check_session_locks() {
     fi
 
     local lock_pid lock_machine lock_ts
-    lock_pid=$(python3 -c "import json; d=json.load(open('$lock_file')); print(d.get('pid','?'))" 2>/dev/null || echo "?")
-    lock_machine=$(python3 -c "import json; d=json.load(open('$lock_file')); print(d.get('machine','?'))" 2>/dev/null || echo "?")
-    lock_ts=$(python3 -c "import json; d=json.load(open('$lock_file')); print(d.get('timestamp','?'))" 2>/dev/null || echo "?")
+    local _py_lock; _py_lock=$(_to_native_path "$lock_file")
+    lock_pid=$(python3 -c "import json; d=json.load(open('$_py_lock')); print(d.get('pid','?'))" 2>/dev/null || echo "?")
+    lock_machine=$(python3 -c "import json; d=json.load(open('$_py_lock')); print(d.get('machine','?'))" 2>/dev/null || echo "?")
+    lock_ts=$(python3 -c "import json; d=json.load(open('$_py_lock')); print(d.get('timestamp','?'))" 2>/dev/null || echo "?")
 
     # Check if PID is still alive (same machine only)
     local hostname
