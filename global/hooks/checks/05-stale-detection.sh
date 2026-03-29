@@ -69,7 +69,18 @@ if [ -d "$CONFIG_REPO/docs" ]; then
         fi
 
         if [ "$FILE_AGE_DAYS" -ge 2 ]; then
-            if [ ! -f "$BACKLOG_FILE" ] || ! grep -q "$PF_BASE" "$BACKLOG_FILE" 2>/dev/null; then
+            # Check if file is tracked: either filename in backlog OR Tracked-by header in file
+            _is_tracked=0
+            if [ -f "$BACKLOG_FILE" ] && grep -q "$PF_BASE" "$BACKLOG_FILE" 2>/dev/null; then
+                _is_tracked=1
+            fi
+            if [ "$_is_tracked" -eq 0 ]; then
+                _tracked_by=$(head -5 "$pf" | sed -n 's/^Tracked-by: *\(.*\)/\1/p' | head -1)
+                if [ -n "$_tracked_by" ]; then
+                    _is_tracked=1
+                fi
+            fi
+            if [ "$_is_tracked" -eq 0 ]; then
                 if ! echo "$STALE_MSG" | grep -q "$PF_BASE" 2>/dev/null; then
                     STALE_MSG="${STALE_MSG:+$STALE_MSG | }Stale pending files: $PF_BASE (${FILE_AGE_DAYS}d, no backlog item)"
                 fi
