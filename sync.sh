@@ -3,7 +3,7 @@
 #
 # Usage:
 #   bash sync.sh deploy    — Push config from repo → live locations
-#   bash sync.sh collect   — Pull config from live locations → repo
+#   bash sync.sh recover --emergency  — Pull config from live → repo (emergency only)
 #   bash sync.sh status    — Show what's different between repo and live
 #   bash sync.sh setup     — Initial setup: replace live files with symlinks to repo
 #
@@ -978,28 +978,78 @@ cmd_stamp() {
     [ "$skipped" -eq 0 ] || log_warn "Skipped $skipped missing file(s)"
 }
 
+# ---- RECOVER: Emergency collect from live (v1.0 wrapper) ----
+cmd_recover() {
+    if [[ "${1:-}" == "--emergency" ]]; then
+        cmd_collect
+    else
+        echo "Usage: bash sync.sh recover --emergency" >&2
+        echo "  The --emergency flag is required to confirm intent." >&2
+        echo "  This copies deployed files back into the repo (use only when deployed files have unsaved edits)." >&2
+        exit 1
+    fi
+}
+
 # ---- Main ----
 case "${1:-help}" in
     setup)          cmd_setup ;;
     deploy)         cmd_deploy ;;
-    collect)        cmd_collect ;;
+    recover)        shift; cmd_recover "$@" ;;
+    collect)        echo "WARNING: 'collect' is deprecated. Use 'recover --emergency'." >&2; cmd_recover --emergency ;;
     check)          shift; cmd_check "$@" ;;
     check-template) shift; cmd_check_template "$@" ;;
-    stamp)          cmd_stamp ;;
+    edit)
+        shift
+        hook_name="${1:-}"
+        if [[ -z "$hook_name" ]]; then
+            echo "Usage: bash sync.sh edit <hook-name>" >&2
+            echo "Opens the repo source of a deployed hook for editing." >&2
+            echo "Example: bash sync.sh edit config-check.sh" >&2
+            exit 1
+        fi
+        # Find the hook source in global/hooks/ (including subdirectories)
+        hook_source=""
+        if [[ -f "$SCRIPT_DIR/global/hooks/$hook_name" ]]; then
+            hook_source="$SCRIPT_DIR/global/hooks/$hook_name"
+        else
+            for subdir in "$SCRIPT_DIR/global/hooks"/*/; do
+                [ -d "$subdir" ] || continue
+                if [[ -f "$subdir$hook_name" ]]; then
+                    hook_source="$subdir$hook_name"
+                    break
+                fi
+            done
+        fi
+        if [[ -z "$hook_source" ]]; then
+            echo "Hook not found: $hook_name" >&2
+            echo "Available hooks:" >&2
+            ls "$SCRIPT_DIR/global/hooks/"*.sh 2>/dev/null | xargs -n1 basename >&2
+            exit 1
+        fi
+        echo "Source: $hook_source"
+        if [[ -n "${EDITOR:-}" ]]; then
+            "$EDITOR" "$hook_source"
+        elif command -v code >/dev/null 2>&1; then
+            code "$hook_source"
+        else
+            echo "Set \$EDITOR or install VS Code to open automatically." >&2
+        fi
+        ;;
+    stamp)          echo "The stamp command has been removed in v1.0. Drift detection now uses direct file comparison." >&2; exit 1 ;;
     status)         cmd_status ;;
     mobile-deploy)  bash "$SCRIPT_DIR/setup/scripts/mobile-deploy.sh" ;;
     mobile-collect) bash "$SCRIPT_DIR/setup/scripts/mobile-deploy.sh" --collect ;;
     *)
-        echo "Usage: bash sync.sh {setup|deploy|collect|check|check-template|stamp|status|mobile-deploy|mobile-collect}"
+        echo "Usage: bash sync.sh {setup|deploy|edit|recover|check|check-template|status|mobile-deploy|mobile-collect}"
         echo ""
-        echo "  setup          — Replace live files with symlinks to repo (recommended, one-time)"
-        echo "  deploy         — Copy from repo → live locations (for non-symlink setups)"
-        echo "  collect        — Copy from live locations → repo (capture session edits)"
-        echo "  check          — Check all propagation chains for drift/staleness"
-        echo "  check-template — Pre-publish check: exclusions, personal data, config"
-        echo "  stamp          — Refresh all manifest hashes to current values (after template sync)"
-        echo "  status         — Show differences between repo and live"
-        echo "  mobile-deploy  — Generate/refresh the mobile agent-fleet repo"
-        echo "  mobile-collect — Merge mobile outbox tasks into cross-project inbox"
+        echo "  setup              — Replace live files with symlinks to repo (recommended, one-time)"
+        echo "  deploy             — Copy from repo → live locations (hooks deployed read-only)"
+        echo "  edit <hook>        — Open repo source of a deployed hook for editing"
+        echo "  recover --emergency — Copy from live → repo (emergency only, when deployed files have unsaved edits)"
+        echo "  check              — Check all propagation chains for drift/staleness"
+        echo "  check-template     — Pre-publish check: exclusions, personal data, config"
+        echo "  status             — Show differences between repo and live"
+        echo "  mobile-deploy      — Generate/refresh the mobile agent-fleet repo"
+        echo "  mobile-collect     — Merge mobile outbox tasks into cross-project inbox"
         ;;
 esac

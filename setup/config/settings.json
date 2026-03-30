@@ -12,6 +12,7 @@
     "CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION": "0",
     "FORCE_COLOR": "1",
     "COLORTERM": "truecolor",
+    "TERM_PROGRAM": "konsole",
     "CLAUDE_CODE_SESSIONEND_HOOKS_TIMEOUT_MS": "10000",
     "CONFIG_REPO": "__HOME__/agent-fleet"
   },
@@ -157,7 +158,25 @@
         "hooks": [
           {
             "type": "command",
+            "command": "bash ~/.claude/hooks/safe-run.sh cfg-boundary-guard.sh"
+          }
+        ]
+      },
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
             "command": "bash ~/.claude/hooks/safe-run.sh risk-gate.sh"
+          }
+        ]
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash ~/.claude/hooks/safe-run.sh unc-path-guard.sh"
           }
         ]
       }

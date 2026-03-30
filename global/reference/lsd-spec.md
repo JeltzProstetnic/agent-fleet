@@ -35,7 +35,7 @@ Each tier gets its own box-drawing table with a tier header. This is the key vis
 
 **Path column removed** — paths are predictable (`~/project-name`), removing them saves width for the Tasks column which needs room for P1 names.
 
-**Sub-projects** render directly under their declared parent (per the Parent column in the cache), indented with `+- ` prefix (uniform for all children — no distinction between middle/last). No number.
+**Sub-projects** render directly under their declared parent (per the Parent column in the cache). Children use tree characters for visual hierarchy. Children get **lowercase letters** (a, b, c...) as selectors, indented from parent numbers for visual separation. Promoted children (child priority < parent priority) get their own **number** at their priority tier with `(parent)` suffix on type. **Blank lines** separate parent groups (parent + its children = one group, then blank line, then next group).
 
 **Dynamic column widths — MANDATORY for all columns.** Follow this algorithm for EVERY tier table:
 
