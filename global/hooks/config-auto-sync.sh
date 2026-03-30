@@ -25,6 +25,14 @@ CLEAN_PERMS_SCRIPT="$CONFIG_REPO/setup/scripts/clean-permissions.sh"
 # Capture the original working directory (the project the user was in)
 ORIGINAL_DIR="$(pwd)"
 
+# --- Shutdown progress indicator ---
+# Writes to stderr so the user sees progress while hooks run after /exit.
+# Prevents premature console close during multi-second shutdown.
+_shutdown_progress() { printf '\r\033[K  %s' "$1" >&2; }
+_shutdown_done() { printf '\r\033[K  Shutdown tasks done.\n' >&2; }
+
+_shutdown_progress "Shutdown: releasing locks..."
+
 # --- Phase -1: Release session lock (local + server) ---
 _SESSION_LOCK_LIB="$CONFIG_REPO/setup/scripts/session-lock.sh"
 _LOCK_SID="${AFLEET_SESSION_ID:-}"
@@ -139,14 +147,18 @@ fi
 # Clear any previous failure marker on success path
 sync_success() {
     rm -f "$FAIL_MARKER"
+    _shutdown_done
     exit 0
 }
 
 sync_fail() {
     local stage="$1" detail="$2"
     printf 'stage=%s\ntime=%s\ndetail=%s\n' "$stage" "$(date -u +'%Y-%m-%d %H:%M:%S UTC')" "$detail" > "$FAIL_MARKER"
+    printf '\r\033[K  Shutdown: failed at %s (see .sync-failed)\n' "$stage" >&2
     exit 0  # Still exit 0 — don't block session end
 }
+
+_shutdown_progress "Shutdown: rotating session..."
 
 # --- Phase 1: Auto-rotate current project's session ---
 # If the project has a populated session-context.md, archive it before it goes stale.
@@ -157,6 +169,15 @@ if [[ -f "$ORIGINAL_DIR/session-context.md" && -s "$ORIGINAL_DIR/session-context
         echo "$(date -u +'%Y-%m-%d %H:%M:%S UTC') rotate-session failed for $ORIGINAL_DIR" >> "$CONFIG_REPO/.sync-warnings.log"
         _ORIG_ROTATE_OK=0
     fi
+fi
+
+# --- Phase 1.5: Append post-rotation commits for current project ---
+# If rotation happened earlier in this session and commits followed, record them.
+# Skip when ORIGINAL_DIR == CONFIG_REPO — Phase 3.5 handles it after flock.
+# Pre-flock modifications strand uncommitted if another session holds the lock.
+_APPEND_SCRIPT="$CONFIG_REPO/setup/scripts/append-post-rotation.sh"
+if [[ -f "$_APPEND_SCRIPT" && -f "$ORIGINAL_DIR/.post-rotation-commit" && "$ORIGINAL_DIR" != "$CONFIG_REPO" ]]; then
+    bash "$_APPEND_SCRIPT" "$ORIGINAL_DIR" 2>/dev/null || true
 fi
 
 # --- Phase 2: Commit session files in current project (if separate from config repo) ---
@@ -172,6 +193,8 @@ if [[ "$_ORIG_ROTATE_OK" -eq 1 && "$ORIGINAL_DIR" != "$CONFIG_REPO" && -d "$ORIG
         fi
     )
 fi
+
+_shutdown_progress "Shutdown: deploying config..."
 
 # --- Phase 3: Config repo sync ---
 cd "$CONFIG_REPO" 2>/dev/null || sync_fail "cd" "Config repo not found at $CONFIG_REPO"
@@ -193,6 +216,13 @@ fi
 
 # Deploy repo → live (v1.0: repo is sole source of truth, no more collect)
 DEPLOY_OUTPUT=$(bash "$CONFIG_REPO/sync.sh" deploy 2>&1) || sync_fail "deploy" "sync.sh deploy failed: $(echo "$DEPLOY_OUTPUT" | tail -1)"
+
+# --- Phase 3.5: Detect post-rotation commits and append to session-log ---
+# Extracted to append-post-rotation.sh for testability. Fails silently on error.
+_APPEND_SCRIPT="$CONFIG_REPO/setup/scripts/append-post-rotation.sh"
+if [[ -f "$_APPEND_SCRIPT" ]]; then
+    bash "$_APPEND_SCRIPT" "$CONFIG_REPO" 2>/dev/null || true
+fi
 
 # Stage only expected directories and files — avoid staging unintended changes
 git add session-context.md session-history.md 2>/dev/null || true

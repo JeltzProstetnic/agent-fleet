@@ -25,7 +25,7 @@ If hostname doesn't match any pattern, state the hostname and ask. If `CLAUDE.lo
 
 ## Session Start — Loading Protocol
 
-**MANDATORY — NEVER SKIP.** Complete ALL steps before doing ANY user task. The user's first message often IS the trigger for startup — do not treat it as reason to skip loading. Even if the user asks something urgent, load first, then respond. A 30-second startup is always acceptable; lost context from skipping is not. **Exception:** When the SessionStart hook injects `AFLEET_DASHBOARD:` in systemMessage, follow those instructions instead — defer startup until the user gives a non-dashboard command.
+**MANDATORY — NEVER SKIP.** Complete ALL steps before doing ANY user task. The user's first message often IS the trigger for startup — do not treat it as reason to skip loading. Even if the user asks something urgent, load first, then respond. A 30-second startup is always acceptable; lost context from skipping is not.
 
 **Template-clone detection:** If `.template-repo` exists in the config repo root OR `user-profile.md` still contains only the auto-generated placeholder text, this is a fresh/unconfigured installation. In this case:
 - **SKIP** steps 1 (inbox), 2 (handoff), 4 (session-context), and persona activation
@@ -41,9 +41,9 @@ If hostname doesn't match any pattern, state the hostname and ask. If `CLAUDE.lo
 
 **Manual steps — execute in order:**
 
-0. **ALWAYS check for remote changes — BEFORE reading any files.** Run `bash ~/agent-fleet/setup/scripts/git-sync-check.sh --pull <project-dir>` (pass the project directory as an argument — the script accepts an optional path). This fetches, reports incoming changes, and fast-forward pulls if behind. If it reports changes, re-read affected files. If it fails (diverged, merge conflict), resolve before proceeding. This applies to EVERY project, EVERY session, no exceptions. Reading stale files leads to wrong context, missed tasks, and wasted work.
+0. **ALWAYS check for remote changes — BEFORE reading any files.** Run `bash ~/agent-fleet/setup/scripts/git-sync-check.sh --pull <project-dir>` (pass the project directory as an argument — the script accepts an optional path). This fetches, reports incoming changes, and fast-forward pulls if behind. If it reports changes, re-read affected files. If it fails (diverged, merge conflict), resolve before proceeding. This applies to EVERY project, EVERY session, no exceptions.
 
-0.5. **Surface ALL systemMessage items to the user.** The SessionStart hook generates intelligence at 0 LLM tokens — suppressing its output defeats the purpose. Present every injected field: `WARNING:` (drift, branches, locks), `Upstream dependency check:`, `FMS:`, `Documents found in tmp/`, `ACT_PENDING:`. One structured summary, before any file reads.
+0.5. **Surface ALL systemMessage items to the user.** The SessionStart hook generates intelligence at 0 LLM tokens — suppressing its output defeats the purpose. Present every injected field: `WARNING:` (drift, branches, locks), `Upstream dependency check:`, `FMS_INGEST_NEEDED:`, `Documents found in tmp/`, `ACT_PENDING:`. One structured summary, before any file reads. **When `FMS_INGEST_NEEDED:` reports pending files, load `knowledge/fms-ops.md` and file them interactively (auto-file unambiguous, ask for ambiguous; delete from drop folder after filing).**
 
 1. **Read cross-project inbox** — skip if redundant. If `INBOX TASKS for <project>` appears in systemMessage, the hook already extracted this project's items — skip the full `inbox.md` read. Only read `~/agent-fleet/cross-project/inbox.md` manually when: (a) the hook didn't inject inbox data, or (b) you need child project tasks (check `Parent` column in `registry.md`). Report child project tasks to the user but don't delete them — the child project session handles that.
 
@@ -94,6 +94,7 @@ If hostname doesn't match any pattern, state the hostname and ask. If `CLAUDE.lo
    | Audit, self-audit, meta-audit | `knowledge/audit-protocol.md` |
    | Email triage, inbox management | `knowledge/gmail-management.md` |
    | Scrollback issues, terminal buffer overflow | `knowledge/scrollback-fix.md` |
+   | Word inline editing, .docx review extraction, author review round | `knowledge/word-editing-extraction.md` |
    | Writing or proposing new rules for CLAUDE.md or knowledge files | `knowledge/rule-writing.md` |
    | `lrn` command issued | `skills/lrn/SKILL.md` |
    | AFD daemon, task coordination | `knowledge/afd-ops.md` |
@@ -111,12 +112,14 @@ If hostname doesn't match any pattern, state the hostname and ask. If `CLAUDE.lo
    | P4 fleet audit orchestration | `knowledge/audit-pattern-fleet.md` |
    | AIOS memory design, knowledge graph schema, consciousness theory architecture | `knowledge/aios-memory-design.md` |
    | Risk gate blocks an edit (RISK_GATE in stderr) | `knowledge/risk-analysis-protocol.md` |
+   | Risk tiers, E2E test requirements, privacy scrub, IT security compliance | `knowledge/risk-management.md` |
+   | SimOpt, simulation, optimization, queueing, throughput, capacity planning | `knowledge/simopt-ops.md` |
 
    All paths relative to `~/.claude/` unless absolute. Do NOT load unless triggered.
 
 7. **Check `PROJECT_KNOWLEDGE:` in systemMessage.** If `PROJECT_KNOWLEDGE: none`, skip. If listed, read the relevant files from `<project>/.claude/knowledge/` and `<project>/.claude/`.
 
-8. **Populate session-context.md if blank.** If `SESSION_CONTEXT: blank` in systemMessage, populate the template fields before doing any other work: set `Last Updated` to current timestamp, `Machine` to the machine short name (from identity table), `Working Directory` to `$PWD`, and `Session Goal` to a brief description of the user's request. This is a WRITE step — previous steps are all READs, which is why blank templates persisted across sessions.
+8. **Populate session-context.md if blank.** If `SESSION_CONTEXT: blank` in systemMessage, populate the template fields before doing any other work: set `Last Updated` to current timestamp, `Machine` to the machine short name (from identity table), `Working Directory` to `$PWD`, and `Session Goal` to a brief description of the user's request.
 
 10. **Startup/shutdown messages must be human-readable.** "Last session shut down correctly, starting fresh" — not "Session context is blank (freshly rotated)".
 
@@ -149,15 +152,16 @@ For manual investigation: read `~/.claude/reference/upstream-dependencies.md`.
 - **Token cost awareness:** Prefer bash/hook automation (0 LLM tokens) over behavioral rules loaded into CLAUDE.md (tokens every session). Evaluate token cost when editing rules.
 - **No new files for daily state.** When a daily check needs persistent state (last scan date, last version check, last sync), embed it as a single line in a file that is ALREADY read at startup (session-context.md, CLAUDE.md metadata, etc.). Never create a separate tracking file — every extra file is an extra Read call per session. This is a recurring mistake pattern.
 - **Recurring task "last checked" dates:** Check "Last checked: YYYY-MM-DD" marker before executing recurring tasks. If checked today on any machine, skip. Research = once per fleet per day. Execution = per machine as needed.
-- **TDD only:** All new code and features MUST follow test-driven development. Write failing tests first, then implement to make them pass. No implementation code without a corresponding test. This applies to bash scripts, config logic, and any testable behavior.
+- **TDD only:** All new code and features MUST follow test-driven development. Write failing tests first, then implement to make them pass. No implementation code without a corresponding test. **Before any code changes, run existing tests to establish a regression baseline. After implementation, re-run the full suite to verify no regressions.** This applies to bash scripts, config logic, and any testable behavior. Tests MUST verify runtime behavior, not just config file contents.
 - **Scaling thresholds:** Bash scripts: warn at 400 LOC, split at 600. Test files: warn 800, split 1500. Knowledge .md: warn 200, split 350. Hook checks: warn 100, split 150. Functions: max 50 lines. Every `setup/scripts/*.sh` MUST have a `test-*.sh`. Enforced by config-check.sh module 13.
-- **Never delete user files without explicit confirmation.** Especially bulk operations. Local duplicates may exist for a reason (playback copies, offline access, performance, workflow). Always ask before `rm -rf`, even if files appear redundant. "Verified elsewhere" ≠ "safe to delete locally."
+- **Never delete or modify user state without explicit confirmation.** This includes files, terminal profiles, email filters, system preferences, and running session properties. Especially bulk operations. Local duplicates and custom settings may exist for a reason. "Verified elsewhere" ≠ "safe to delete locally."
 - **Verify before destructive operations on user data.** Before trashing email, deleting files, or any irreversible action on user content, always verify the target matches the intent. Read the email/file content first — never act on search results, message IDs, or filenames alone.
 - **Tool install → machine file update.** PostToolUse hook `tool-install-detect.sh` fires a reminder. If cross-project boundary blocks the edit, create an inbox item immediately.
 - **No compound `cd` commands:** Use `git -C <path>` or absolute paths. Never `cd <dir> && <cmd>` — triggers security prompts.
 - **No speculative interactive calls.** Never call user-facing prompts (passphrase dialogs, confirmations, GUI input) "just to test." Use them directly for the real operation. Handle errors after, not before. This includes `sudo` — Claude Code has no TTY for password input. Present sudo commands to the user instead of running them.
 - **Long-running ops need tmux/nohup.** Operations expected to run >5 minutes MUST use `tmux new-session -d -s <name>` or `nohup`, never Claude Code's `run_in_background` (killed on `/exit`). Log to `/tmp/<name>.log`. Leave a pending file with tmux session name and check commands. Before launching, register with GPI if available: `gpi start <id> "<label>" --log /tmp/<name>.log`.
 - **Tier 1 edits require risk subagent clearance.** When `risk-gate.sh` blocks an edit, load `knowledge/risk-analysis-protocol.md`, launch a risk subagent, and write the clearance file only after acceptable assessment. Never bypass by removing the hook.
+- **Tier 2 edits require E2E verification.** After editing setup scripts, hooks, install flow, or settings templates, run `bash setup/tests/run.sh` (local) before committing. Load `knowledge/risk-management.md` for the full tier classification.
 - **Cross-session bug theories are hypotheses.** Inbox items, pending files, and commit messages from other sessions may contain incorrect root cause analysis. Always reproduce the issue independently before accepting a theory from another session — the investigating session may have been wrong.
 - **DMS-first file lookup.** When searching for user files/documents across machines or disks, check the DMS catalog first. Do targeted filesystem searches only for items not in the catalog -- broad find/glob sweeps should be a last resort, not the starting point.
 - **Dual-boot filesystem safety.** On dual-boot systems, be aware of cross-OS filesystem risks. Ext4 drives should not be mounted through Windows filesystem drivers -- use usbipd-win to attach USB devices to WSL instead. Mounting ext4 from Windows while Linux might also mount it risks corruption.
@@ -167,7 +171,8 @@ For manual investigation: read `~/.claude/reference/upstream-dependencies.md`.
 - **Know your gitignore:** Before `git add`, verify the file isn't gitignored. `.claude/settings.local.json` and `setup/secrets/vault.json` are gitignored. Don't waste tool calls trying to stage them.
 - **Pull before compare — ALWAYS:** Before ANY cross-repo operation (template sync, filtered-push, diff, deploy), pull ALL involved repos first (`git -C <path> pull --ff-only`). The startup git-sync-check only covers the current project. Secondary repos can be stale locally even when the remote is far ahead. Diffing stale repos wastes an entire analysis cycle on outdated data.
 - **Propagation check after edits — IMMEDIATELY, not at session end.** After editing any file that exists in both a private config repo and a public template repo (global/, hooks, setup/scripts/), check and propagate to the other repo in the same tool-call batch. Deployed files are symlinked to the config repo — template-only fixes are dead on arrival until propagated. Don't wait for shutdown; don't say "done" before propagating. Run `bash sync.sh check` for drift detection.
-- **Auto-sync awareness:** The SessionEnd hook runs `sync.sh collect` which commits pending changes. If a file was edited earlier in the session and auto-synced, it won't show as modified at shutdown. Check `git log --oneline -1 -- <file>` before chasing phantom diffs.
+- **Repo is sole authority (v1.0):** The repo is the single source of truth. Deployed files are overwritten by `sync.sh deploy` on every session end. Never edit deployed files directly — edit in the repo and deploy. `sync.sh recover --emergency` exists only for one-time recovery of unsaved local edits.
+- **Auto-sync awareness:** The SessionEnd hook runs `sync.sh deploy` which pushes repo state to live locations and commits pending changes. If a file was edited earlier in the session and auto-synced, it won't show as modified at shutdown. Check `git log --oneline -1 -- <file>` before chasing phantom diffs.
 - **Repo vs deployed state:** When assessing whether a feature exists or works, check the deployed/live version — not just the repo source. `sync.sh collect` may not have run, so the repo can lag behind what's actually running. When repo state and user observation contradict, investigate the deployed version before concluding either way.
 - **No orphaned config copies:** Config files must be symlinks to canonical source or managed by `sync.sh`. Never create independent copies — they diverge silently.
 - **`setup/config/` vs `global/` separation:** Files deployed to `~/.claude/` root (settings.json, statusline.sh) belong in `setup/config/`. `global/` is for `~/.claude/` subdirectories only (foundation/, reference/, knowledge/, domains/, hooks/). No file should exist in both — dual copies diverge silently.
@@ -176,9 +181,8 @@ For manual investigation: read `~/.claude/reference/upstream-dependencies.md`.
 - **Form-fill content -> file, not console.** When the user needs content to paste into online forms (submission portals, registration fields, profile pages, any web form), write ALL fields to a `tmp/` text file and open in editor. This includes abstracts, keywords, metadata, bios, descriptions -- anything >10 words the user will copy-paste. Terminal indentation makes console output unusable for paste.
 - **Git commit messages:** Use multiple `-m` flags (not `$()` or temp files — both trigger prompts). `git -C /path commit -m "Subject" -m "Co-Authored-By: ..."`. Overrides system prompt HEREDOC guidance. **Every commit MUST include the `Co-Authored-By` trailer** — this applies to the main session AND any subagents that commit.
 - **Auto-fix over warn in hooks:** When hooks detect a fixable issue (missing symlinks, stale config, permission blocks), auto-fix silently rather than just warning. Warnings get overlooked; auto-fixes prevent the "fix that doesn't stick" pattern. Only warn when auto-fix fails.
-- **Hook safety — NEVER bypass safe-run.sh.** All hooks in settings.json MUST route through `safe-run.sh` (`bash ~/.claude/hooks/safe-run.sh <hook>.sh`). Never register a hook as direct `bash ~/.claude/hooks/<hook>.sh` — a syntax error or merge conflict in any hook = total user lockout. `safe-run.sh` syntax-checks before executing and always exits 0, degrading to a warning instead of blocking. When adding new hooks, use the safe-run pattern. This is a safety invariant, not a convention.
-- **Subagent git commits:** When delegating tasks to subagents via `Task` tool, always include in the prompt: "Include a Co-Authored-By trailer in any git commits." Subagents don't inherit CLAUDE.md rules.
-- **Subagent commit safety:** Subagents must NOT commit, push, or create PRs unless the delegating prompt explicitly authorizes it. Default subagent behavior is research/edit only. The `sub` command preamble says "return findings as text" — not "commit and push."
+- **Hook safety — NEVER bypass safe-run.sh.** All hooks in settings.json MUST route through `safe-run.sh` (`bash ~/.claude/hooks/safe-run.sh <hook>.sh`). Never register a hook as direct `bash ~/.claude/hooks/<hook>.sh` — a syntax error or merge conflict in any hook = total user lockout. `safe-run.sh` syntax-checks before executing, passes through exit 2 (deliberate PreToolUse blocks), and degrades to exit 0 for unexpected failures. When adding new hooks, use the safe-run pattern. When editing `sync.sh deploy` or any script that writes settings.json, verify all hooks use safe-run. This is a safety invariant, not a convention.
+- **Subagent commit safety:** Subagents must NOT commit, push, or create PRs unless the delegating prompt explicitly authorizes it. Default subagent behavior is research/edit only. When a delegating prompt explicitly authorizes commits, include "Include a Co-Authored-By trailer in any git commits" in the subagent prompt. Subagents don't inherit CLAUDE.md rules — all constraints must be in the prompt.
 - **Image flood prevention:** When the user starts pasting screenshots as a workaround for file access failure, STOP and solve the access problem first. One file download = 2 tool calls; 20 screenshots = 40k tokens wasted. Fix the root cause (download the file, mount the drive, fix the path) instead of accepting screenshot after screenshot.
 - **PDF awareness:** Use the Read tool's `pages:` parameter for PDFs instead of accepting page screenshots. The Read tool natively reads PDFs — never let the user waste tokens photographing pages when `Read(file_path, pages: "1-5")` exists.
 - **Parallelization is mandatory.** When multiple independent tasks exist, launch them as parallel subagents. When multiple independent tool calls exist, make them in a single message. Never serialize independent work. `lrn` audits flag sequential execution of parallelizable work as a rule violation. This applies to: research queries, file reads, test runs, git operations, and any work without data dependencies.
@@ -188,6 +192,7 @@ For manual investigation: read `~/.claude/reference/upstream-dependencies.md`.
 - **Mid-session mobile data.** When `MOBILE_DATA:` appears in systemMessage, unmerged phone sessions exist. Run mobile-collect to ingest, then check cross-project inbox for new items. Check runs every 10 minutes automatically.
 - **One vault, one owner.** The config repo's encrypted vault is the single source of truth for ALL secrets across ALL machines and projects. No other project maintains its own secrets vault. `vault-manage.sh deploy` provisions credentials to their target locations. Every credential, API key, token, and password MUST have a vault entry with a `deploy_to` target.
 - **Tracking is atomic with action.** When an action changes external state (email sent, backlog item committed to, submission filed, discovery made, person encountered), update ALL canonical tracking files as part of the same operation -- not deferred to shutdown, not batched for later. The action is not complete until tracking reflects it. This supersedes "narrative must match canonical state" as the primary defense -- that rule is kept as a verification backstop only.
+- **No duplicate status tracking.** Only `backlog.md` tracks item status (open/done). Pending files, RCA docs, and session logs MUST NOT maintain their own completion checklists for items that have backlog entries. One source of truth, one place to update.
 - **Discovery -> ingest.** When discovering information that would be useful to future sessions -- upstream capability changes, new patterns, platform behavior, tool quirks, user-relevant facts -- immediately persist it to the appropriate knowledge file. Don't just report findings; update the relevant knowledge files, machine files, domain files, or create new knowledge entries as appropriate. The finding is not "done" until persisted. This applies to: model/platform capabilities, API changes, deprecations, tool behavior discovered during work, and anything a new user or future session might ask about.
 - **Documentation coherence.** Knowledge files declare dependencies via `<!-- updates: path1, path2 -->` (downstream: files this file's changes affect) and `<!-- consumed-by: path1 (reason), path2 (reason) -->` (upstream: files that read/use data from this file) header comments. When editing a file, check BOTH headers and update all listed files in the same operation.
 
@@ -206,6 +211,8 @@ Personas are loaded from `~/.claude/foundation/personas.md` (or machine file ove
 **Output rule:** Documents → PDF. Copy-paste content → plain text files. Full rules: `~/.claude/reference/output-rules.md`.
 
 **MCP-first rule:** Prefer MCP tools over CLI. GitHub MCP for repos/issues/PRs, Google Workspace MCP for email, Serena for code nav. Only fall back to CLI when MCP genuinely can't do the operation. Full troubleshooting: `mcp-catalog.md`.
+
+**Gmail draft dedup rule:** Before recreating a Gmail draft via `draft_gmail_message`, check the Sent folder first — the user may have already sent it. Missing draft ≠ lost draft.
 
 **URL/service identification:** When given a URL, identify the service first (x.com → Twitter, github.com → GitHub, etc.), check MCP catalog, then choose MCP vs CLI.
 
@@ -232,17 +239,25 @@ Personas are loaded from `~/.claude/foundation/personas.md` (or machine file ove
 
 When the user types one of these keywords (anywhere in their message, case-insensitive), execute the described action immediately. These are shortcuts, not conversation starters — scan EVERY message for them before responding to other content. `sub` is a prefix command — it requires additional words after it.
 
-**Session shutdown checklist — MANDATORY.** `cls` and `end` are defined in the Quick Commands table above. The user may also request shutdown in natural language. If in doubt — session just started, shutdown just completed, or ambiguous language — ask once before proceeding. Once confirmed: load `~/.claude/foundation/session-shutdown.md` and run ALL steps without asking.
+**Session shutdown checklist — MANDATORY.** `cls` and `end` are defined in the Quick Commands table above. The user may also request shutdown in natural language. If in doubt — session just started or ambiguous language — ask once before proceeding. Once confirmed: load `~/.claude/foundation/session-shutdown.md` and run ALL steps without asking.
+
+**Shutdown is invalidated by any continued interaction.** If the session continues after a completed shutdown (user asks a question, runs `lrn`, any follow-up), the shutdown state is void — the next `cls` or `end` must re-run the FULL checklist from step 0 with no shortcuts.
+
+**Project switch = shutdown first.** When the user asks to switch to a different project and work has already been done in this session, run the full shutdown checklist before switching. Unsaved session state, uncommitted changes, and untracked handoffs are lost on `/clear`.
 
 ## Meta-Rules
 
 **Rules live in rules, not in memory.** Behavioral rules → `CLAUDE.md` or foundation files. Never auto-memory.
 
-**Rule changes require user consent — NO EXCEPTIONS.** When adding or modifying rules (in CLAUDE.md, knowledge files, or anywhere persistent), ALWAYS present proposed rules to the user and only persist after explicit approval. Never write rules silently.
+**Rule changes require user consent — NO EXCEPTIONS.** When adding or modifying rules (in CLAUDE.md, knowledge files, or anywhere persistent):
+1. **Analyze via subagent.** Launch a subagent to read the target file. Identify overlapping rules — **if any conflict, the proposal MUST include edits to resolve them.** Return: proposed text (one sentence, flat imperative, matching target file style), placement, and token cost tier.
+2. **Present to user.** Show the subagent's proposed rule text and analysis. User approves, modifies, or rejects.
+3. **Persist only after explicit approval.** Never write rules silently.
+Skip step 1 for trivial edits (typo fixes, date updates, mechanical reformatting).
 
 **Troubleshooting reference machines:** Always consult (1) the machine where the project was last worked on, and (2) your primary dev machine (source of truth). Don't fix from scratch what was already fixed elsewhere.
 
-**Sync:** `bash ~/agent-fleet/sync.sh setup|deploy|collect|status`
+**Sync:** `bash ~/agent-fleet/sync.sh setup|deploy|status` (emergency: `recover --emergency`)
 
 **New project:** Add to `registry.md`. See `~/.claude/foundation/project-setup.md`.
 

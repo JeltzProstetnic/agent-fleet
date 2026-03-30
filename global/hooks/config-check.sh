@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # SessionStart hook: check for config sync failures, symlink health, and inbox tasks.
-# Outputs JSON with systemMessage so Claude sees the warning in context.
+# Outputs JSON with additionalContext so Claude sees the warning in context (invisible to user).
 #
 # Check modules live in checks/ subdirectory (01-sync-state.sh through 14-audit-staleness.sh).
 # Each module reads/modifies the shared variables below.
@@ -67,9 +67,9 @@ fi
 
 if [ -n "$SYSTEM_MSG" ]; then
     if command -v python3 >/dev/null 2>&1; then
-        python3 -c "import json,sys; print(json.dumps({'systemMessage': sys.argv[1]}))" "$SYSTEM_MSG"
+        python3 -c "import json,sys; print(json.dumps({'additionalContext': sys.argv[1]}))" "$SYSTEM_MSG"
     elif command -v node >/dev/null 2>&1; then
-        node -e "console.log(JSON.stringify({systemMessage: process.argv[1]}))" "$SYSTEM_MSG"
+        node -e "console.log(JSON.stringify({additionalContext: process.argv[1]}))" "$SYSTEM_MSG"
     fi
 fi
 
