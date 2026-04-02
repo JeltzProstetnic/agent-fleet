@@ -5,7 +5,7 @@ A persistent, multi-project, multi-machine AI agent that manages your developmen
 ## Install, Launch, Talk
 
 ```bash
-git clone https://github.com/JeltzProstetnic/agent-fleet ~/agent-fleet
+git clone https://github.com/YOUR_USERNAME/agent-fleet ~/agent-fleet
 cd ~/agent-fleet && bash setup.sh
 afleet
 ```
@@ -33,7 +33,7 @@ For a more detailed walkthrough, see the [Getting Started Guide](docs/getting-st
 **1. Clone**
 
 ```bash
-git clone https://github.com/JeltzProstetnic/agent-fleet ~/agent-fleet
+git clone https://github.com/YOUR_USERNAME/agent-fleet ~/agent-fleet
 cd ~/agent-fleet
 bash setup.sh
 ```
