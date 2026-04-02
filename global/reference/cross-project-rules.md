@@ -6,7 +6,7 @@
 
 You may ONLY write to files inside your current working project. Writing to ANY file in another project's directory is FORBIDDEN — even if you know the path, even if it seems convenient, even for "shared" files. The ONLY legal way to affect another project is through the cross-project inbox. Violations of this rule cause silent data corruption and task loss.
 
-**No exceptions.** All cross-project communication — including template updates and sub-project `.claude/` maintenance — goes through the inbox. `sync.sh` may perform mechanical file copying as infrastructure automation (symlinks, stripped template copies), but all changes requiring judgment (commits, pushes, config decisions) go through the target project's own session via inbox tasks.
+**No exceptions.** All cross-project communication — including template updates and sub-project `.claude/` maintenance — goes through the inbox. `sync.sh` may perform mechanical file copying as infrastructure automation (symlinks, stripped template copies), but all changes requiring judgment (commits, pushes, config decisions) go through the target project's own session via inbox tasks. System and infrastructure projects use the inbox like everyone else.
 
 ### Path Ownership (concrete mapping)
 
