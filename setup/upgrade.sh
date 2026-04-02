@@ -4,7 +4,7 @@
 # Usage: bash upgrade.sh [--dry-run]
 #
 # Prerequisites: upstream remote must be configured
-#   git remote add upstream https://github.com/YOUR_USERNAME/agent-fleet.git
+#   git remote add upstream https://github.com/JeltzProstetnic/agent-fleet.git
 
 set -euo pipefail
 
@@ -60,7 +60,7 @@ log_info "Current version: $CURRENT_VERSION"
 
 if ! git -C "$REPO_DIR" remote get-url upstream &>/dev/null; then
     log_error "No 'upstream' remote configured."
-    log_error "Add it with: git remote add upstream https://github.com/YOUR_USERNAME/agent-fleet.git"
+    log_error "Add it with: git remote add upstream https://github.com/JeltzProstetnic/agent-fleet.git"
     exit 1
 fi
 
