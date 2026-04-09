@@ -23,21 +23,23 @@ _fallback_launch() {
 }
 
 # ── Config ───────────────────────────────────────────────────────────────────
-# Detect config repo using shared library
-_LIB_DETECT=""
-for _p in "$HOME/.claude/hooks/lib-detect-repo.sh" "$(dirname "${BASH_SOURCE[0]}")/../../global/hooks/lib-detect-repo.sh"; do
-    [[ -f "$_p" ]] && _LIB_DETECT="$_p" && break
-done
-if [[ -n "$_LIB_DETECT" ]]; then
-    source "$_LIB_DETECT"
-    # PERSONAL_CONFIG_REPO: the user's personal config repo (cfg-agent-fleet), not the template
-    CONFIG_REPO="$(_detect_config_repo)"
-else
-    # Fallback: inline detection if shared lib not found
-    CONFIG_REPO=""
-    for d in "$HOME/cfg-agent-fleet" "$HOME/agent-fleet"; do
-        [[ -f "$d/sync.sh" ]] && CONFIG_REPO="$d" && break
+# Detect config repo using shared library (skipped if CONFIG_REPO already set)
+if [[ -z "${CONFIG_REPO:-}" ]]; then
+    _LIB_DETECT=""
+    for _p in "$HOME/.claude/hooks/lib-detect-repo.sh" "$(dirname "${BASH_SOURCE[0]}")/../../global/hooks/lib-detect-repo.sh"; do
+        [[ -f "$_p" ]] && _LIB_DETECT="$_p" && break
     done
+    if [[ -n "$_LIB_DETECT" ]]; then
+        source "$_LIB_DETECT"
+        # PERSONAL_CONFIG_REPO: the user's personal config repo (cfg-agent-fleet), not the template
+        CONFIG_REPO="$(_detect_config_repo)"
+    else
+        # Fallback: inline detection if shared lib not found
+        CONFIG_REPO=""
+        for d in "$HOME/cfg-agent-fleet" "$HOME/agent-fleet"; do
+            [[ -f "$d/sync.sh" ]] && CONFIG_REPO="$d" && break
+        done
+    fi
 fi
 if [[ -z "$CONFIG_REPO" ]]; then
     echo "ERROR: Cannot find config repo (cfg-agent-fleet or agent-fleet)" >&2
@@ -49,6 +51,14 @@ DASHBOARD_CACHE="$CONFIG_REPO/cross-project/dashboard-cache.md"
 INBOX_FILE="$CONFIG_REPO/cross-project/inbox.md"
 SYNC_SCRIPT="$CONFIG_REPO/setup/scripts/git-sync-check.sh"
 DRY_RUN="${AFLEET_DRY_RUN:-0}"
+
+# ── Pre-picker: pull config repo so registry.md is current ──────────────────
+# Must happen BEFORE parse_registry / picker — otherwise new projects added on
+# other machines won't appear. Timeout prevents network hangs from blocking launch.
+_PRE_PICKER_TIMEOUT="${AFLEET_PRE_PICKER_TIMEOUT:-10}"
+if [[ -f "$SYNC_SCRIPT" && -d "$CONFIG_REPO/.git" ]]; then
+    timeout "$_PRE_PICKER_TIMEOUT" bash "$SYNC_SCRIPT" --pull "$CONFIG_REPO" >/dev/null 2>&1 || true
+fi
 
 # ── Portable readlink -f (needed before any library is sourced) ───────────────
 _readlink_f() { readlink -f "$1" 2>/dev/null && return; local t="$1"; [ "${t#/}" = "$t" ] && t="$PWD/$t"; while [ -L "$t" ]; do local l; l=$(readlink "$t") || break; [ "${l#/}" = "$l" ] && l="$(dirname "$t")/$l"; t="$l"; done; local d; d=$(cd "$(dirname "$t")" 2>/dev/null && pwd -P) || return 1; echo "$d/$(basename "$t")"; }
@@ -153,6 +163,32 @@ steamos_preflight() {
     fi
 }
 
+# ── Binary preflight (CFG-370) ──────────────────────────────────────────────
+# Checks external binaries afleet depends on. Critical = abort. Optional = degrade.
+# Testable via: AFLEET_PREFLIGHT_RESULT (receives "ok" or "missing:<list>")
+afleet_check_binaries() {
+    local missing_critical=() missing_optional=()
+    for bin in git bash; do
+        command -v "$bin" &>/dev/null || missing_critical+=("$bin")
+    done
+    for bin in script timeout node fzf; do
+        command -v "$bin" &>/dev/null || missing_optional+=("$bin")
+    done
+    if (( ${#missing_critical[@]} )); then
+        echo "  FATAL: required binaries missing: ${missing_critical[*]}" >&2
+        echo "  Install them and retry." >&2
+        AFLEET_PREFLIGHT_RESULT="missing:${missing_critical[*]}"
+        return 1
+    fi
+    if (( ${#missing_optional[@]} )); then
+        echo "  ⚠ Optional binaries missing: ${missing_optional[*]} (degraded mode)" >&2
+        AFLEET_PREFLIGHT_RESULT="missing:${missing_optional[*]}"
+        return 0
+    fi
+    AFLEET_PREFLIGHT_RESULT="ok"
+    return 0
+}
+
 # ── Pre-pull all local repos (CFG-129) ───────────────────────────────────────
 # Pulls all project repos listed in registry.md that exist locally.
 # Prevents stale cross-project state (e.g., tmp/ false alarms from already-moved files).
@@ -247,6 +283,9 @@ if [[ "$MODE" == "list" ]]; then
     exit 0
 fi
 
+# ── Binary preflight ────────────────────────────────────────────────────────
+afleet_check_binaries || _fallback_launch "missing critical binaries"
+
 # ── Project resolution ───────────────────────────────────────────────────────
 TARGET_DIR=""
 TARGET_NAME=""
@@ -331,12 +370,9 @@ steamos_preflight || echo "  Warning: SteamOS preflight had issues — continuin
 # ── Pre-launch: git sync ────────────────────────────────────────────────────
 start_spinner "Syncing repos…"
 
-if [[ -f "$SYNC_SCRIPT" && -d "$TARGET_DIR/.git" ]]; then
+# Config repo already pulled pre-picker — only pull target if it's a different repo.
+if [[ "$TARGET_DIR" != "$CONFIG_REPO" && -f "$SYNC_SCRIPT" && -d "$TARGET_DIR/.git" ]]; then
     bash "$SYNC_SCRIPT" --pull "$TARGET_DIR" >/dev/null 2>&1 || true
-fi
-
-if [[ "$TARGET_DIR" != "$CONFIG_REPO" && -f "$SYNC_SCRIPT" && -d "$CONFIG_REPO/.git" ]]; then
-    bash "$SYNC_SCRIPT" --pull "$CONFIG_REPO" >/dev/null 2>&1 || true
 fi
 
 # Pre-pull all other local repos (CFG-129) — prevents stale cross-project state.
@@ -493,15 +529,40 @@ DONTPANIC
 )
 fi
 
-if [[ -n "$INITIAL_PROMPT" ]]; then
-    AFLEET_LAUNCHED=1 AFLEET_PROJECT="$TARGET_NAME" CC_MIRROR_SPLASH=0 "$MCLAUDE" "$INITIAL_PROMPT"
-else
-    AFLEET_LAUNCHED=1 AFLEET_PROJECT="$TARGET_NAME" CC_MIRROR_SPLASH=0 "$MCLAUDE"
-fi
-MCLAUDE_EXIT=$?
+# ── Session terminal log ──────────────────────────────────────────────────────
+# WT historySize caps at 32767 (SHORT_MAX). script(1) captures full terminal
+# output to a file. Last 3 logs per project, stored next to session-context.md.
+__afleet_logdir="$TARGET_DIR/docs/terminal-logs"
+mkdir -p "$__afleet_logdir" 2>/dev/null || true
+# Rotate: keep last 3
+ls -t "$__afleet_logdir"/session-*.log 2>/dev/null | tail -n +4 | xargs rm -f 2>/dev/null || true
+__afleet_logfile="$__afleet_logdir/session-$(date +%Y%m%d-%H%M%S).log"
+export MCLAUDE_SESSION_LOG="$__afleet_logfile"
+export AFLEET_LAUNCHED=1 AFLEET_PROJECT="$TARGET_NAME" CC_MIRROR_SPLASH=0
 
-# Clear pre-launch banner from primary buffer so it doesn't linger after CC exits
-[[ -t 1 ]] && printf '\033[2J\033[H'
+# script -c runs through sh -c; MCLAUDE is a simple path, INITIAL_PROMPT single-quoted
+# Fallback: if script(1) is not installed (Fedora 42 splits it into util-linux-script),
+# exec mclaude directly without terminal logging.
+if command -v script &>/dev/null; then
+    if [[ -n "$INITIAL_PROMPT" ]]; then
+        script -q -f -e -c "$MCLAUDE '${INITIAL_PROMPT//\'/\'\\\'\'}'" "$__afleet_logfile"
+    else
+        script -q -f -e -c "$MCLAUDE" "$__afleet_logfile"
+    fi
+    MCLAUDE_EXIT=$?
+else
+    echo "  ⚠ script(1) not found — terminal logging disabled (install util-linux-script)" >&2
+    if [[ -n "$INITIAL_PROMPT" ]]; then
+        "$MCLAUDE" "$INITIAL_PROMPT"
+    else
+        "$MCLAUDE"
+    fi
+    MCLAUDE_EXIT=$?
+fi
+
+# Clear pre-launch banner from primary buffer so it doesn't linger after CC exits.
+# ONLY on clean exit — non-zero exit leaves error messages visible (CFG-370 lesson).
+[[ -t 1 && ${MCLAUDE_EXIT:-1} -eq 0 ]] && printf '\033[2J\033[H'
 
 
 # ── Post-session: drive unmount reminder (WSL only) ─────────────────────────

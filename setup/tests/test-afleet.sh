@@ -25,6 +25,46 @@ create_mock_registry() {
 EOF
 }
 
+create_mock_dashboard_cache() {
+    local dir="$1"
+    mkdir -p "$dir/cross-project"
+    cat > "$dir/cross-project/dashboard-cache.md" << 'EOF'
+# Dashboard Cache
+
+Last refreshed: 2026-03-09 12:00 UTC on dev-main
+
+| Project | Priority | Parent | Path | Type | Tasks | Size | Deadline | P1Names | LastDone |
+|---------|----------|--------|------|------|-------|------|----------|---------|----------|
+| project-alpha | P1 | — | ~/project-alpha | research (p) | 21 open | 444M | Mar 27 | ALF-16 Fellowship | Submitted paper |
+| my-config | P1 | — | ~/my-config | meta/config | 51 open | 153M |  |  | Hook expansion |
+| project-beta | P1 | — | ~/project-beta | engagement | 18 open | 1.9M |  | Day 10 | Email audit |
+| project-gamma | P2 | — | ~/project-gamma | code | — | — |  |  | Gallery v2 |
+| project-delta | P2 | — | ~/project-delta | tooling | 15 open | 11G |  |  |  |
+| infrastructure | P2 | my-config | ~/infrastructure | infra | 9 open | 27M |  |  |  |
+| project-epsilon | P2 | project-alpha | ~/project-epsilon | code | — | — |  |  |  |
+| agent-fleet | P3 | my-config | ~/agent-fleet | template | ~50 drift | 7.2M |  |  |  |
+| project-zeta | P1 | project-delta | ~/project-delta/project-zeta | code | 10 open | 995M |  | ZET-7 deploy |  |
+| project-eta | P3 | — | ~/project-eta | code | — | — |  |  |  |
+| project-theta | P4 | — | ~/project-theta | media | — | — |  |  |  |
+| project-iota | P5 | — | ~/project-iota | code | — | — |  |  |  |
+EOF
+}
+
+create_full_mock_env() {
+    local dir="$TEST_TMPDIR/env"
+    local home="$TEST_TMPDIR/home"
+    mkdir -p "$dir/cross-project" "$home/.local/bin" "$home/.claude"
+    create_mock_registry "$dir"
+    create_mock_dashboard_cache "$dir"
+    # Create a fake mclaude
+    cat > "$home/.local/bin/mclaude" << 'MOCK'
+#!/usr/bin/env bash
+echo "MOCK_MCLAUDE_CALLED dir=$(pwd)"
+MOCK
+    chmod +x "$home/.local/bin/mclaude"
+    echo "$dir"
+}
+
 create_mock_env() {
     local dir="$TEST_TMPDIR/env"
     local home="$TEST_TMPDIR/home"
@@ -194,45 +234,6 @@ test_cwd_detected_project_no_picker() {
 run_test "CWD-detected project does not show picker" test_cwd_detected_project_no_picker
 
 # ── 7. Dashboard cache parsing ─────────────────────────────────────────────
-
-create_mock_dashboard_cache() {
-    local dir="$1"
-    cat > "$dir/cross-project/dashboard-cache.md" << 'EOF'
-# Dashboard Cache
-
-Last refreshed: 2026-03-09 12:00 UTC on dev-main
-
-| Project | Priority | Parent | Path | Type | Tasks | Size | Deadline | P1Names | LastDone |
-|---------|----------|--------|------|------|-------|------|----------|---------|----------|
-| project-alpha | P1 | — | ~/project-alpha | research (p) | 21 open | 444M | Mar 27 | ALF-16 Fellowship | Submitted paper |
-| my-config | P1 | — | ~/my-config | meta/config | 51 open | 153M |  |  | Hook expansion |
-| project-beta | P1 | — | ~/project-beta | engagement | 18 open | 1.9M |  | Day 10 | Email audit |
-| project-gamma | P2 | — | ~/project-gamma | code | — | — |  |  | Gallery v2 |
-| project-delta | P2 | — | ~/project-delta | tooling | 15 open | 11G |  |  |  |
-| infrastructure | P2 | my-config | ~/infrastructure | infra | 9 open | 27M |  |  |  |
-| project-epsilon | P2 | project-alpha | ~/project-epsilon | code | — | — |  |  |  |
-| agent-fleet | P3 | my-config | ~/agent-fleet | template | ~50 drift | 7.2M |  |  |  |
-| project-zeta | P1 | project-delta | ~/project-delta/project-zeta | code | 10 open | 995M |  | ZET-7 deploy |  |
-| project-eta | P3 | — | ~/project-eta | code | — | — |  |  |  |
-| project-theta | P4 | — | ~/project-theta | media | — | — |  |  |  |
-| project-iota | P5 | — | ~/project-iota | code | — | — |  |  |  |
-EOF
-}
-
-create_full_mock_env() {
-    local dir="$TEST_TMPDIR/env"
-    local home="$TEST_TMPDIR/home"
-    mkdir -p "$dir/cross-project" "$home/.local/bin" "$home/.claude"
-    create_mock_registry "$dir"
-    create_mock_dashboard_cache "$dir"
-    # Create a fake mclaude
-    cat > "$home/.local/bin/mclaude" << 'MOCK'
-#!/usr/bin/env bash
-echo "MOCK_MCLAUDE_CALLED dir=$(pwd)"
-MOCK
-    chmod +x "$home/.local/bin/mclaude"
-    echo "$dir"
-}
 
 test_parse_dashboard_cache() {
     local env_dir
