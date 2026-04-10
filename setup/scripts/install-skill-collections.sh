@@ -198,53 +198,16 @@ done
 log_success "Skill collections: ${cloned_count} new, ${skipped_count} already present"
 
 # ============================================================================
-# STEP 3: REGISTER PLUGINS IN SETTINGS.JSON
+# STEP 3: PLUGIN ENABLEMENT (per-project only)
 # ============================================================================
 
-print_header "Step 3: Register Plugins in settings.json"
+print_header "Step 3: Plugin Enablement"
 
-if [[ ! -f "${SETTINGS_FILE}" ]]; then
-    log_error "settings.json not found at ${SETTINGS_FILE}"
-    log_error "Run configure-claude.sh first to deploy the base settings."
-    exit 1
-fi
+log_info "Plugins are NOT enabled globally (token budget rule)."
+log_info "Per-project enablement: run setup-project-roster.sh for each project."
+log_info "Global enabledPlugins in settings.json stays empty by design."
 
-log_info "Merging enabledPlugins entries into ${SETTINGS_FILE}..."
-
-if [[ "${DRY_RUN}" == "false" ]]; then
-    # Build JSON patch from PLUGIN_ENTRIES
-    python3 -c "
-import json, sys
-
-settings_path = '${_PY_SETTINGS_FILE}'
-with open(settings_path, 'r') as f:
-    settings = json.load(f)
-
-plugins = settings.setdefault('enabledPlugins', {})
-entries = [line.split('|') for line in '''$(printf '%s\n' "${PLUGIN_ENTRIES[@]}")'''.strip().splitlines()]
-
-added = 0
-for key, enabled in entries:
-    if key not in plugins:
-        plugins[key] = enabled == 'true'
-        added += 1
-
-with open(settings_path, 'w') as f:
-    json.dump(settings, f, indent=2)
-    f.write('\n')
-
-print(f'  Added {added} new plugin entries, {len(entries) - added} already present')
-"
-else
-    echo "  [DRY RUN] Would add plugin entries to settings.json:"
-    for entry in "${PLUGIN_ENTRIES[@]}"; do
-        key="${entry%%|*}"
-        enabled="${entry#*|}"
-        echo "    ${key} = ${enabled}"
-    done
-fi
-
-log_success "Plugin registration complete"
+log_success "Plugin registration complete (marketplace cached, per-project enablement deferred)"
 
 # ============================================================================
 # STEP 4: UPDATE SETTINGS TEMPLATE (if in agent-fleet repo)
