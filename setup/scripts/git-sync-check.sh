@@ -277,6 +277,39 @@ if [ "$BEHIND" -gt 0 ]; then
   fi
 fi
 
+# ── Version update check ─────────────────────────────────────────────────────
+# After sync, compare local .agent-fleet-version with remote (fetched) version.
+# This detects when the user is on an older tagged release and a newer one exists.
+_check_fleet_version() {
+  local version_file="$REPO_ROOT/.agent-fleet-version"
+  [[ -f "$version_file" ]] || return 0
+
+  local local_ver
+  local_ver=$(cat "$version_file" 2>/dev/null | tr -d '[:space:]')
+  [[ -n "$local_ver" ]] || return 0
+
+  # Check remote version file (already fetched)
+  local remote_ver
+  local remote_ref="${SYNC_REMOTE:-origin}/$BRANCH"
+  remote_ver=$(git show "$remote_ref:.agent-fleet-version" 2>/dev/null | tr -d '[:space:]') || return 0
+  [[ -n "$remote_ver" ]] || return 0
+
+  if [[ "$local_ver" != "$remote_ver" ]]; then
+    # Compare versions (simple string compare works for semver without pre-release)
+    if [[ "$(printf '%s\n' "$local_ver" "$remote_ver" | sort -V | head -1)" == "$local_ver" && "$local_ver" != "$remote_ver" ]]; then
+      echo ""
+      echo -e "\033[1;33m[UPDATE AVAILABLE]\033[0m agent-fleet $local_ver → $remote_ver"
+      echo "  Run: bash ~/agent-fleet/setup/scripts/upgrade.sh"
+      echo ""
+    fi
+  fi
+}
+
+# Run version check if this is an agent-fleet repo (has .agent-fleet-version)
+if [[ -f "$REPO_ROOT/.agent-fleet-version" ]]; then
+  _check_fleet_version
+fi
+
 if [ "$AHEAD" -gt 0 ]; then
   echo "Ahead of remote by $AHEAD commit(s) (unpushed). No action needed."
   exit 0
