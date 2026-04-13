@@ -220,200 +220,192 @@ build_display_list() {
     done
 }
 
-# ── Render picker ────────────────────────────────────────────────────────────
-# Input: build_display_list output (stdin)
-# Output: formatted box-drawing table to stdout
-render_picker() {
-    local term_width="${COLUMNS:-$(tput cols 2>/dev/null || echo 80)}"
-    local -a labels=() names=() types=() tasks_arr=() sizes=() prios=() is_child=() parents_arr=() p1names_arr=()
-    local i=0
+# ── Render picker (helpers) ──────────────────────────────────────────────────
+# Shared state: _RP_labels[], _RP_names[], _RP_types[], _RP_tasks[],
+#   _RP_sizes[], _RP_prios[], _RP_is_child[], _RP_parents[], _RP_p1names[],
+#   _RP_total, _RP_col_name, _RP_col_type, _RP_col_tasks, _RP_col_size,
+#   _RP_inner_width
+# These arrays are populated by render_picker() before calling helpers.
 
-    while IFS='|' read -r label name type tasks size prio child parent path p1names; do
-        [[ -z "$label" ]] && continue
-        labels+=("$label")
-        names+=("$name")
-        types+=("$type")
-        tasks_arr+=("$tasks")
-        sizes+=("$size")
-        prios+=("$prio")
-        is_child+=("$child")
-        parents_arr+=("$parent")
-        p1names_arr+=("$p1names")
-        ((i++)) || true
-    done
-    local total=$i
+# Tier colors
+_tier_color() {
+    case "$1" in
+        P1) printf '%b' "$C_BRED" ;;
+        P2) printf '%b' "$C_BYEL" ;;
+        P3) printf '%b' "$C_BCYN" ;;
+        *) printf '%b' "$C_DIM" ;;
+    esac
+}
+_tier_label() {
+    case "$1" in
+        P1) echo "P1 CRITICAL" ;;
+        P2) echo "P2 ACTIVE" ;;
+        P3) echo "P3 ONGOING" ;;
+        P4) echo "P4 PAUSED" ;;
+        P5) echo "P5 DORMANT" ;;
+    esac
+}
 
-    # Column widths — fixed + elastic Tasks column
-    # Row format: │  LL  NAME..  TYPE..  TASKS..  SIZE  │
-    # Fixed spacing: 2+2+2 (label zone) + 4×2 (inter-column) + 2 (trailing) = 14 chars
-    # Plus 2 for the │ border chars = 16 total overhead
-    local col_name=18
-    local col_type=14
-    local col_size=6
-    local col_tasks=$((term_width - col_name - col_type - col_size - 16))
-    [[ $col_tasks -lt 12 ]] && col_tasks=12
-    [[ $col_tasks -gt 50 ]] && col_tasks=50
-
-    local inner_width=$((14 + col_name + col_type + col_tasks + col_size))
-
-    # Tier colors
-    _tier_color() {
-        case "$1" in
-            P1) printf '%b' "$C_BRED" ;;
-            P2) printf '%b' "$C_BYEL" ;;
-            P3) printf '%b' "$C_BCYN" ;;
-            *) printf '%b' "$C_DIM" ;;
-        esac
-    }
-    _tier_label() {
-        case "$1" in
-            P1) echo "P1 CRITICAL" ;;
-            P2) echo "P2 ACTIVE" ;;
-            P3) echo "P3 ONGOING" ;;
-            P4) echo "P4 PAUSED" ;;
-            P5) echo "P5 DORMANT" ;;
-        esac
-    }
-
-    # Build tasks display string
-    _format_tasks() {
-        local tasks="$1" p1names="$2" max_w="$3"
-        local result=""
-        if [[ "$tasks" == "—" || -z "$tasks" ]]; then
-            result="—"
-        else
-            result="$tasks"
-            if [[ -n "$p1names" ]]; then
-                # Convert pipe-separated to semicolon-separated
-                local names_str="${p1names//|/; }"
-                result="$result — $names_str"
-            fi
+# Build tasks display string
+_format_tasks() {
+    local tasks="$1" p1names="$2" max_w="$3"
+    local result=""
+    if [[ "$tasks" == "—" || -z "$tasks" ]]; then
+        result="—"
+    else
+        result="$tasks"
+        if [[ -n "$p1names" ]]; then
+            local names_str="${p1names//|/; }"
+            result="$result — $names_str"
         fi
-        # Truncate
-        if [[ ${#result} -gt $max_w ]]; then
-            result="${result:0:$((max_w - 1))}…"
+    fi
+    if [[ ${#result} -gt $max_w ]]; then
+        result="${result:0:$((max_w - 1))}…"
+    fi
+    echo "$result"
+}
+
+# Printf width adjusted for multibyte chars (├─, └─, —, …)
+_pw() {
+    local target=$1 text="$2"
+    local bytes chars
+    bytes=$(printf '%s' "$text" | wc -c)
+    chars=${#text}
+    echo $((target + bytes - chars))
+}
+
+# Draw horizontal line
+_hline() {
+    local char="$1" left="$2" right="$3"
+    printf '%b' "$C_DIM"
+    printf '%s' "$left"
+    for ((x=0; x<_RP_inner_width; x++)); do printf '%s' "$char"; done
+    printf '%s' "$right"
+    printf '%b\n' "$C_RST"
+}
+
+# Print tier header: label line + opening hline
+# Args: $1=tier, $2=previous_tier (empty if first)
+_render_tier_header() {
+    local tier="$1" prev_tier="$2"
+    if [[ -n "$prev_tier" ]]; then
+        _hline "─" "└" "┘"
+        echo
+    fi
+    local tier_color tier_lbl
+    tier_color=$(_tier_color "$tier")
+    tier_lbl=$(_tier_label "$tier")
+    printf '  %b%s%b\n' "$tier_color" "$tier_lbl" "$C_RST"
+    _hline "─" "┌" "┐"
+}
+
+# Format and print a single row
+# Args: $1=index into _RP arrays
+_render_row() {
+    local idx="$1"
+    local label="${_RP_labels[$idx]}"
+    local name="${_RP_names[$idx]}"
+    local type="${_RP_types[$idx]}"
+    local size="${_RP_sizes[$idx]}"
+    local child="${_RP_is_child[$idx]}"
+    [[ -z "$size" || "$size" == "—" ]] && size="—"
+    local tasks_str
+    tasks_str=$(_format_tasks "${_RP_tasks[$idx]}" "${_RP_p1names[$idx]}" "$_RP_col_tasks")
+
+    # Truncate type
+    if [[ ${#type} -gt $((_RP_col_type - 1)) ]]; then
+        type="${type:0:$((_RP_col_type - 2))}…"
+    fi
+
+    # Build name display — children get tree prefix
+    local name_display="$name"
+    local label_color="$C_BWHT"
+    if [[ "$child" == "1" ]]; then
+        label_color="$C_DIM"
+        local tree_char="└─"
+        if [[ $((idx + 1)) -lt $_RP_total && "${_RP_is_child[$((idx+1))]}" == "1" && "${_RP_parents[$((idx+1))]}" == "${_RP_parents[$idx]}" ]]; then
+            tree_char="├─"
         fi
-        echo "$result"
-    }
+        name_display="$tree_char $name_display"
+    fi
+    if [[ ${#name_display} -gt $((_RP_col_name - 1)) ]]; then
+        name_display="${name_display:0:$((_RP_col_name - 2))}…"
+    fi
 
-    # Printf width adjusted for multibyte chars (├─, └─, —, …)
-    # printf %-*s uses byte width, not display width — this compensates
-    _pw() {
-        local target=$1 text="$2"
-        local bytes chars
-        bytes=$(printf '%s' "$text" | wc -c)
-        chars=${#text}
-        echo $((target + bytes - chars))
-    }
+    printf '%b│%b  %b%s%b  %-*s  %-*s  %-*s  %*s  %b│%b\n' \
+        "$C_DIM" "$C_RST" \
+        "$label_color" "$(printf '%2s' "$label")" "$C_RST" \
+        "$(_pw "$_RP_col_name" "$name_display")" "$name_display" \
+        "$(_pw "$_RP_col_type" "$type")" "$type" \
+        "$(_pw "$_RP_col_tasks" "$tasks_str")" "$tasks_str" \
+        "$(_pw "$_RP_col_size" "$size")" "$size" \
+        "$C_DIM" "$C_RST"
+}
 
-    # Draw horizontal line
-    _hline() {
-        local char="$1" left="$2" right="$3"
-        printf '%b' "$C_DIM"
-        printf '%s' "$left"
-        for ((x=0; x<inner_width; x++)); do printf '%s' "$char"; done
-        printf '%s' "$right"
-        printf '%b\n' "$C_RST"
-    }
-
-    # Render by tier
-    local current_tier=""
-    local p4p5_count=0
-    local prev_item_tier=""
-
-    for ((i=0; i<total; i++)); do
-        local tier="${prios[$i]}"
-        local child="${is_child[$i]}"
-
-        # Count P4-P5 for footer
-        if [[ "$tier" == "P4" || "$tier" == "P5" ]]; then
-            ((p4p5_count++)) || true
-        fi
-
-        # New tier?
-        if [[ "$tier" != "$current_tier" ]]; then
-            # Close previous tier
-            if [[ -n "$current_tier" ]]; then
-                _hline "─" "└" "┘"
-                echo
-            fi
-
-            current_tier="$tier"
-            local tier_color
-            tier_color=$(_tier_color "$tier")
-            local tier_label
-            tier_label=$(_tier_label "$tier")
-
-            # Tier header
-            printf '  %b%s%b\n' "$tier_color" "$tier_label" "$C_RST"
-            _hline "─" "┌" "┐"
-        fi
-
-        # Blank line between groups (except first item in tier)
-        if [[ "$child" == "0" && "$tier" == "$prev_item_tier" ]]; then
-            printf '%b│%*s│%b\n' "$C_DIM" "$inner_width" "" "$C_RST"
-        fi
-
-        # Format fields
-        local label="${labels[$i]}"
-        local name="${names[$i]}"
-        local type="${types[$i]}"
-        local size="${sizes[$i]}"
-        [[ -z "$size" || "$size" == "—" ]] && size="—"
-        local tasks_str
-        tasks_str=$(_format_tasks "${tasks_arr[$i]}" "${p1names_arr[$i]}" "$col_tasks")
-
-        # Truncate type
-        if [[ ${#type} -gt $((col_type - 1)) ]]; then
-            type="${type:0:$((col_type - 2))}…"
-        fi
-        # Build name display — children get tree prefix in the name column
-        local name_display="$name"
-        local label_color="$C_BWHT"
-        if [[ "$child" == "1" ]]; then
-            label_color="$C_DIM"
-            local tree_char="└─"
-            if [[ $((i + 1)) -lt $total && "${is_child[$((i+1))]}" == "1" && "${parents_arr[$((i+1))]}" == "${parents_arr[$i]}" ]]; then
-                tree_char="├─"
-            fi
-            name_display="$tree_char $name_display"
-        fi
-        # Truncate name
-        if [[ ${#name_display} -gt $((col_name - 1)) ]]; then
-            name_display="${name_display:0:$((col_name - 2))}…"
-        fi
-
-        # Unified row format — same printf for parent and child
-        # _pw compensates for multibyte chars (├─ └─ — …) in printf width
-        printf '%b│%b  %b%s%b  %-*s  %-*s  %-*s  %*s  %b│%b\n' \
-            "$C_DIM" "$C_RST" \
-            "$label_color" "$(printf '%2s' "$label")" "$C_RST" \
-            "$(_pw "$col_name" "$name_display")" "$name_display" \
-            "$(_pw "$col_type" "$type")" "$type" \
-            "$(_pw "$col_tasks" "$tasks_str")" "$tasks_str" \
-            "$(_pw "$col_size" "$size")" "$size" \
-            "$C_DIM" "$C_RST"
-        prev_item_tier="$tier"
-    done
-
-    # Close last tier
+# Render footer: close last tier box, P4-P5 hidden count, action bar
+# Args: $1=current_tier, $2=p4p5_count
+_render_footer() {
+    local current_tier="$1" p4p5_count="$2"
     if [[ -n "$current_tier" ]]; then
         _hline "─" "└" "┘"
     fi
-
-    # P4-P5 footer (when hidden)
     if [[ "$p4p5_count" -eq 0 ]]; then
-        # Count hidden P4-P5 from full cache
         local hidden
         hidden=$(parse_dashboard_cache 2>/dev/null | awk -F'|' '$2 ~ /P[45]/' | wc -l)
         if [[ "$hidden" -gt 0 ]]; then
             printf '\n  %b+ %d paused/dormant (afleet --pick --all)%b\n' "$C_DIM" "$hidden" "$C_RST"
         fi
     fi
-
-    # Action bar
     printf '\n  %b[#/a]%b select  %b[q]%b quit  %b[Enter]%b cwd project  %b[a]%b show all\n' \
         "$C_BOLD" "$C_RST" "$C_BOLD" "$C_RST" "$C_BOLD" "$C_RST" "$C_BOLD" "$C_RST"
+}
+
+# ── Render picker (coordinator) ─────────────────────────────────────────────
+# Input: build_display_list output (stdin)
+# Output: formatted box-drawing table to stdout
+render_picker() {
+    local term_width="${COLUMNS:-$(tput cols 2>/dev/null || echo 80)}"
+    _RP_labels=(); _RP_names=(); _RP_types=(); _RP_tasks=(); _RP_sizes=()
+    _RP_prios=(); _RP_is_child=(); _RP_parents=(); _RP_p1names=()
+    local i=0
+
+    while IFS='|' read -r label name type tasks size prio child parent path p1names; do
+        [[ -z "$label" ]] && continue
+        _RP_labels+=("$label"); _RP_names+=("$name"); _RP_types+=("$type")
+        _RP_tasks+=("$tasks"); _RP_sizes+=("$size"); _RP_prios+=("$prio")
+        _RP_is_child+=("$child"); _RP_parents+=("$parent"); _RP_p1names+=("$p1names")
+        ((i++)) || true
+    done
+    _RP_total=$i
+
+    # Column widths — fixed + elastic Tasks column
+    _RP_col_name=18; _RP_col_type=14; _RP_col_size=6
+    _RP_col_tasks=$((term_width - _RP_col_name - _RP_col_type - _RP_col_size - 16))
+    [[ $_RP_col_tasks -lt 12 ]] && _RP_col_tasks=12
+    [[ $_RP_col_tasks -gt 50 ]] && _RP_col_tasks=50
+    _RP_inner_width=$((14 + _RP_col_name + _RP_col_type + _RP_col_tasks + _RP_col_size))
+
+    # Main render loop
+    local current_tier="" p4p5_count=0 prev_item_tier=""
+    for ((i=0; i<_RP_total; i++)); do
+        local tier="${_RP_prios[$i]}" child="${_RP_is_child[$i]}"
+
+        if [[ "$tier" == "P4" || "$tier" == "P5" ]]; then
+            ((p4p5_count++)) || true
+        fi
+        if [[ "$tier" != "$current_tier" ]]; then
+            _render_tier_header "$tier" "$current_tier"
+            current_tier="$tier"
+        fi
+        if [[ "$child" == "0" && "$tier" == "$prev_item_tier" ]]; then
+            printf '%b│%*s│%b\n' "$C_DIM" "$_RP_inner_width" "" "$C_RST"
+        fi
+
+        _render_row "$i"
+        prev_item_tier="$tier"
+    done
+
+    _render_footer "$current_tier" "$p4p5_count"
 }
 
 # ── Resolve selection ────────────────────────────────────────────────────────
