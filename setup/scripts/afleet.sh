@@ -223,177 +223,7 @@ pre_pull_all_repos() {
     done < <(parse_registry)
 }
 
-# ── Source guard ─────────────────────────────────────────────────────────────
-# When sourced for testing, only define functions — don't execute main logic
-if [[ "${AFLEET_SOURCE_ONLY:-0}" == "1" ]]; then
-    return 0 2>/dev/null || exit 0
-fi
-
-# ── Main logic ───────────────────────────────────────────────────────────────
-CWD_OVERRIDE=""
-SHOW_PICKER=false
-PROJECT_ARG=""
-MODE="launch"
-PICKER_ALL=0
-
-while [[ $# -gt 0 ]]; do
-    case "$1" in
-        --help|-h)
-            echo "Usage: afleet [<project>] [--list|-l] [--pick|-p] [--cwd <dir>]"
-            echo ""
-            echo "  afleet              Auto-detect project from CWD, or show project picker"
-            echo "  afleet <project>    Open specific project by name or prefix (from registry.md)"
-            echo "  afleet --list       Show available projects (non-interactive)"
-            echo "  afleet --pick       Show interactive project picker"
-            echo "  afleet --dash       Alias for --pick (backwards compat)"
-            echo "  afleet --cwd <dir>  Override working directory for project detection"
-            echo "  afleet --all        Include P4-P5 projects in picker"
-            echo ""
-            echo "Recovery:"
-            echo "  afleet doctor       Health check — diagnose issues"
-            echo "  afleet recover      Auto-diagnose and fix common issues"
-            echo "  afleet rollback N   Roll back config repo by N commits + redeploy"
-            echo "  afleet safe-mode    Launch Claude Code with minimal config"
-            exit 0 ;;
-        --list|-l) MODE="list"; shift ;;
-        --pick|-p|--dash|-d) SHOW_PICKER=true; shift ;;
-        --all) PICKER_ALL=1; shift ;;
-        --cwd) [[ $# -ge 2 ]] || { echo "Error: --cwd requires an argument" >&2; exit 1; }; CWD_OVERRIDE="$2"; shift 2 ;;
-        # Recovery subcommands — delegate to afleet-recover.sh
-        doctor|recover|rollback|safe-mode|safemode)
-            if [[ -f "$_AFLEET_DIR/afleet-recover.sh" ]]; then
-                exec bash "$_AFLEET_DIR/afleet-recover.sh" "$@"
-            else
-                echo "Recovery module not yet installed." >&2; exit 1
-            fi ;;
-        -*) echo "Unknown option: $1" >&2; exit 1 ;;
-        *)  PROJECT_ARG="$1"; shift ;;
-    esac
-done
-
-# ── List mode ────────────────────────────────────────────────────────────────
-if [[ "$MODE" == "list" ]]; then
-    printf "%-25s %s\n" "Project" "Path"
-    printf "%-25s %s\n" "-------" "----"
-    parse_registry | while IFS='|' read -r name path; do
-        local_exists=""
-        [[ -d "$path" ]] && local_exists="*" || local_exists=" "
-        printf "%-25s %s %s\n" "$name" "$path" "$local_exists"
-    done
-    exit 0
-fi
-
-# ── Binary preflight ────────────────────────────────────────────────────────
-afleet_check_binaries || _fallback_launch "missing critical binaries"
-
-# ── Project resolution ───────────────────────────────────────────────────────
-TARGET_DIR=""
-TARGET_NAME=""
-
-if [[ -n "$PROJECT_ARG" ]]; then
-    # Try exact match first (case-insensitive)
-    MATCH=$(parse_registry | grep -i "^${PROJECT_ARG}|" | head -1 || true)
-    if [[ -z "$MATCH" ]]; then
-        # Fall back to prefix match
-        PREFIX_MATCHES=$(parse_registry | grep -i "^${PROJECT_ARG}" || true)
-        MATCH_COUNT=$(echo "$PREFIX_MATCHES" | grep -c '.' || true)
-        if [[ "$MATCH_COUNT" -eq 1 ]]; then
-            MATCH="$PREFIX_MATCHES"
-        elif [[ "$MATCH_COUNT" -gt 1 ]]; then
-            echo "Error: prefix '$PROJECT_ARG' matches multiple projects:" >&2
-            echo "$PREFIX_MATCHES" | while IFS='|' read -r name _path; do
-                echo "  - $name" >&2
-            done
-            exit 1
-        else
-            echo "Error: project '$PROJECT_ARG' not found in registry.md" >&2
-            echo "Run 'afleet --list' to see available projects." >&2
-            exit 1
-        fi
-    fi
-    TARGET_NAME="${MATCH%%|*}"
-    TARGET_DIR="${MATCH#*|}"
-    if [[ ! -d "$TARGET_DIR" ]]; then
-        echo "Error: project '$TARGET_NAME' directory does not exist: $TARGET_DIR" >&2
-        exit 1
-    fi
-else
-    DETECT_DIR="${CWD_OVERRIDE:-$(pwd)}"
-    [[ "$DETECT_DIR" == /mnt/* ]] && DETECT_DIR=""
-
-    CHECK_DIR="${DETECT_DIR:-/}"
-    while [[ "$CHECK_DIR" != "/" ]]; do
-        BASENAME="$(basename "$CHECK_DIR")"
-        if [[ -d "$CHECK_DIR/.claude" && -f "$CHECK_DIR/CLAUDE.md" ]]; then
-            TARGET_DIR="$CHECK_DIR"
-            TARGET_NAME="$BASENAME"
-            break
-        fi
-        MATCH=$(parse_registry | grep -i "^${BASENAME}|" | head -1 || true)
-        if [[ -n "$MATCH" ]]; then
-            TARGET_NAME="${MATCH%%|*}"
-            TARGET_DIR="${MATCH#*|}"
-            break
-        fi
-        CHECK_DIR="$(dirname "$CHECK_DIR")"
-    done
-
-    # Fallback — show picker or auto-launch on first-run
-    if [[ -z "$TARGET_DIR" ]]; then
-        if [[ -d "$HOME/cfg-agent-fleet" ]]; then
-            TARGET_DIR="$HOME/cfg-agent-fleet"
-            TARGET_NAME="cfg-agent-fleet"
-        elif [[ -d "$HOME/agent-fleet" ]]; then
-            TARGET_DIR="$HOME/agent-fleet"
-            TARGET_NAME="agent-fleet"
-        else
-            echo "Error: no project detected and no base project found" >&2
-            exit 1
-        fi
-        # First-run: skip picker, go straight to config project
-        if [[ -f "$TARGET_DIR/.setup-pending" ]]; then
-            SHOW_PICKER=false
-        else
-            SHOW_PICKER=true
-        fi
-    fi
-fi
-
-# ── Interactive picker ───────────────────────────────────────────────────────
-if $SHOW_PICKER; then
-    PICKER_SHOW_ALL="$PICKER_ALL" run_picker || true
-fi
-
-# ── Pre-launch: SteamOS pre-flight ───────────────────────────────────────────
-steamos_preflight || echo "  Warning: SteamOS preflight had issues — continuing" >&2
-
-# ── Pre-launch: git sync ────────────────────────────────────────────────────
-start_spinner "Syncing repos…"
-
-# Config repo already pulled pre-picker — only pull target if it's a different repo.
-if [[ "$TARGET_DIR" != "$CONFIG_REPO" && -f "$SYNC_SCRIPT" && -d "$TARGET_DIR/.git" ]]; then
-    bash "$SYNC_SCRIPT" --pull "$TARGET_DIR" >/dev/null 2>&1 || true
-fi
-
-# Pre-pull all other local repos (CFG-129) — prevents stale cross-project state.
-AFLEET_SKIP_REPOS="$TARGET_DIR|$CONFIG_REPO" pre_pull_all_repos || true
-
-# Full deploy: hooks, settings, project rules, rosters, statusline, etc.
-# Replaces the old hook-only repair — sync.sh deploy is idempotent and
-# ensures settings.json env vars (CONFIG_REPO), hooks, and all config
-# are current after git pull. Suppressed output — errors still surface.
-if [[ -f "$CONFIG_REPO/sync.sh" ]]; then
-    bash "$CONFIG_REPO/sync.sh" deploy >/dev/null 2>&1 || true
-fi
-
-stop_spinner
-
-# ── Pre-launch: Telegram-to-inbox (CFG-238) ─────────────────────────────────
-# Check AFD for unprocessed Telegram messages from between sessions.
-# Creates inbox entries routed by @project-name tags. 0 LLM tokens.
-type telegram_inbox_check &>/dev/null && { telegram_inbox_check || true; }
-
-# ── Pre-launch: acquire session lock (CFG-101) ──────────────────────────────
+# ── Session lock acquisition (CFG-101) ──────────────────────────────────────
 # Local lock (same-machine protection) + optional server lock (cross-machine).
 # Server lock is best-effort — fails silently if AFD unreachable or no token.
 afleet_acquire_session_lock() {
@@ -443,36 +273,212 @@ afleet_acquire_session_lock() {
     return 0
 }
 
-afleet_acquire_session_lock "$TARGET_DIR" "$TARGET_NAME" || {
-    echo "  Warning: session lock failed — launching anyway" >&2
+# ── resolve_project — Arg parsing + project resolution ──────────────────────
+# Sets globals: CWD_OVERRIDE, SHOW_PICKER, PROJECT_ARG, MODE, PICKER_ALL,
+#               TARGET_DIR, TARGET_NAME
+# May exit for --help, --list, recovery subcommands, or errors.
+resolve_project() {
+    CWD_OVERRIDE=""
+    SHOW_PICKER=false
+    PROJECT_ARG=""
+    MODE="launch"
+    PICKER_ALL=0
+
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --help|-h)
+                echo "Usage: afleet [<project>] [--list|-l] [--pick|-p] [--cwd <dir>]"
+                echo ""
+                echo "  afleet              Auto-detect project from CWD, or show project picker"
+                echo "  afleet <project>    Open specific project by name or prefix (from registry.md)"
+                echo "  afleet --list       Show available projects (non-interactive)"
+                echo "  afleet --pick       Show interactive project picker"
+                echo "  afleet --dash       Alias for --pick (backwards compat)"
+                echo "  afleet --cwd <dir>  Override working directory for project detection"
+                echo "  afleet --all        Include P4-P5 projects in picker"
+                echo ""
+                echo "Recovery:"
+                echo "  afleet doctor       Health check — diagnose issues"
+                echo "  afleet recover      Auto-diagnose and fix common issues"
+                echo "  afleet rollback N   Roll back config repo by N commits + redeploy"
+                echo "  afleet safe-mode    Launch Claude Code with minimal config"
+                exit 0 ;;
+            --list|-l) MODE="list"; shift ;;
+            --pick|-p|--dash|-d) SHOW_PICKER=true; shift ;;
+            --all) PICKER_ALL=1; shift ;;
+            --cwd) [[ $# -ge 2 ]] || { echo "Error: --cwd requires an argument" >&2; exit 1; }; CWD_OVERRIDE="$2"; shift 2 ;;
+            # Recovery subcommands — delegate to afleet-recover.sh
+            doctor|recover|rollback|safe-mode|safemode)
+                if [[ -f "$_AFLEET_DIR/afleet-recover.sh" ]]; then
+                    exec bash "$_AFLEET_DIR/afleet-recover.sh" "$@"
+                else
+                    echo "Recovery module not yet installed." >&2; exit 1
+                fi ;;
+            -*) echo "Unknown option: $1" >&2; exit 1 ;;
+            *)  PROJECT_ARG="$1"; shift ;;
+        esac
+    done
+
+    # ── List mode ────────────────────────────────────────────────────────────
+    if [[ "$MODE" == "list" ]]; then
+        printf "%-25s %s\n" "Project" "Path"
+        printf "%-25s %s\n" "-------" "----"
+        parse_registry | while IFS='|' read -r name path; do
+            local_exists=""
+            [[ -d "$path" ]] && local_exists="*" || local_exists=" "
+            printf "%-25s %s %s\n" "$name" "$path" "$local_exists"
+        done
+        exit 0
+    fi
+
+    # ── Binary preflight ─────────────────────────────────────────────────────
+    afleet_check_binaries || _fallback_launch "missing critical binaries"
+
+    # ── Project resolution ───────────────────────────────────────────────────
+    TARGET_DIR=""
+    TARGET_NAME=""
+
+    if [[ -n "$PROJECT_ARG" ]]; then
+        # Try exact match first (case-insensitive)
+        MATCH=$(parse_registry | grep -i "^${PROJECT_ARG}|" | head -1 || true)
+        if [[ -z "$MATCH" ]]; then
+            # Fall back to prefix match
+            PREFIX_MATCHES=$(parse_registry | grep -i "^${PROJECT_ARG}" || true)
+            MATCH_COUNT=$(echo "$PREFIX_MATCHES" | grep -c '.' || true)
+            if [[ "$MATCH_COUNT" -eq 1 ]]; then
+                MATCH="$PREFIX_MATCHES"
+            elif [[ "$MATCH_COUNT" -gt 1 ]]; then
+                echo "Error: prefix '$PROJECT_ARG' matches multiple projects:" >&2
+                echo "$PREFIX_MATCHES" | while IFS='|' read -r name _path; do
+                    echo "  - $name" >&2
+                done
+                exit 1
+            else
+                echo "Error: project '$PROJECT_ARG' not found in registry.md" >&2
+                echo "Run 'afleet --list' to see available projects." >&2
+                exit 1
+            fi
+        fi
+        TARGET_NAME="${MATCH%%|*}"
+        TARGET_DIR="${MATCH#*|}"
+        if [[ ! -d "$TARGET_DIR" ]]; then
+            echo "Error: project '$TARGET_NAME' directory does not exist: $TARGET_DIR" >&2
+            exit 1
+        fi
+    else
+        DETECT_DIR="${CWD_OVERRIDE:-$(pwd)}"
+        [[ "$DETECT_DIR" == /mnt/* ]] && DETECT_DIR=""
+
+        CHECK_DIR="${DETECT_DIR:-/}"
+        while [[ "$CHECK_DIR" != "/" ]]; do
+            BASENAME="$(basename "$CHECK_DIR")"
+            if [[ -d "$CHECK_DIR/.claude" && -f "$CHECK_DIR/CLAUDE.md" ]]; then
+                TARGET_DIR="$CHECK_DIR"
+                TARGET_NAME="$BASENAME"
+                break
+            fi
+            MATCH=$(parse_registry | grep -i "^${BASENAME}|" | head -1 || true)
+            if [[ -n "$MATCH" ]]; then
+                TARGET_NAME="${MATCH%%|*}"
+                TARGET_DIR="${MATCH#*|}"
+                break
+            fi
+            CHECK_DIR="$(dirname "$CHECK_DIR")"
+        done
+
+        # Fallback — show picker or auto-launch on first-run
+        if [[ -z "$TARGET_DIR" ]]; then
+            if [[ -d "$HOME/cfg-agent-fleet" ]]; then
+                TARGET_DIR="$HOME/cfg-agent-fleet"
+                TARGET_NAME="cfg-agent-fleet"
+            elif [[ -d "$HOME/agent-fleet" ]]; then
+                TARGET_DIR="$HOME/agent-fleet"
+                TARGET_NAME="agent-fleet"
+            else
+                echo "Error: no project detected and no base project found" >&2
+                exit 1
+            fi
+            # First-run: skip picker, go straight to config project
+            if [[ -f "$TARGET_DIR/.setup-pending" ]]; then
+                SHOW_PICKER=false
+            else
+                SHOW_PICKER=true
+            fi
+        fi
+    fi
+
+    # ── Interactive picker ───────────────────────────────────────────────────
+    if $SHOW_PICKER; then
+        PICKER_SHOW_ALL="$PICKER_ALL" run_picker || true
+    fi
 }
 
-# ── Launch ───────────────────────────────────────────────────────────────────
+# ── pre_launch_sync — SteamOS preflight, git sync, Telegram, session lock ───
+# Reads globals: TARGET_DIR, TARGET_NAME, CONFIG_REPO, SYNC_SCRIPT
+pre_launch_sync() {
+    # ── SteamOS pre-flight ───────────────────────────────────────────────────
+    steamos_preflight || echo "  Warning: SteamOS preflight had issues — continuing" >&2
 
-if [[ "$DRY_RUN" == "1" ]]; then
-    echo "DRY_RUN: would cd to $TARGET_DIR and exec mclaude"
-    exit 0
-fi
+    # ── Git sync ─────────────────────────────────────────────────────────────
+    start_spinner "Syncing repos…"
 
-cd "$TARGET_DIR" 2>/dev/null || { echo "  Warning: cannot cd to $TARGET_DIR — using HOME" >&2; cd "$HOME"; }
+    # Config repo already pulled pre-picker — only pull target if it's a different repo.
+    if [[ "$TARGET_DIR" != "$CONFIG_REPO" && -f "$SYNC_SCRIPT" && -d "$TARGET_DIR/.git" ]]; then
+        bash "$SYNC_SCRIPT" --pull "$TARGET_DIR" >/dev/null 2>&1 || true
+    fi
 
-MCLAUDE=""
-for candidate in "$HOME/.local/bin/mclaude" "$HOME/.cc-mirror/bin/mclaude.cmd" "$(command -v mclaude 2>/dev/null || true)"; do
-    [[ -x "$candidate" ]] && MCLAUDE="$candidate" && break
-done
+    # Pre-pull all other local repos (CFG-129) — prevents stale cross-project state.
+    AFLEET_SKIP_REPOS="$TARGET_DIR|$CONFIG_REPO" pre_pull_all_repos || true
 
-if [[ -z "$MCLAUDE" ]]; then
-    echo "Error: mclaude not found. Install via cc-mirror." >&2
-    exit 1
-fi
+    # Full deploy: hooks, settings, project rules, rosters, statusline, etc.
+    # Replaces the old hook-only repair — sync.sh deploy is idempotent and
+    # ensures settings.json env vars (CONFIG_REPO), hooks, and all config
+    # are current after git pull. Suppressed output — errors still surface.
+    if [[ -f "$CONFIG_REPO/sync.sh" ]]; then
+        bash "$CONFIG_REPO/sync.sh" deploy >/dev/null 2>&1 || true
+    fi
 
-# ── TweakCC config repair ────────────────────────────────────────────────────
-# CC updates reset tweakcc config.json to defaults. Re-apply our settings
-# so the CC built-in logo stays hidden and the AF banner is the only splash.
-# Runs every launch — idempotent, costs nothing if already correct.
-__tweakcc_cfg="${CC_MIRROR_DIR:-$HOME/.cc-mirror/mclaude}/tweakcc/config.json"
-if [[ -f "$__tweakcc_cfg" ]] && command -v node >/dev/null 2>&1; then
-    node -e "
+    stop_spinner
+
+    # ── Telegram-to-inbox (CFG-238) ──────────────────────────────────────────
+    # Check AFD for unprocessed Telegram messages from between sessions.
+    # Creates inbox entries routed by @project-name tags. 0 LLM tokens.
+    type telegram_inbox_check &>/dev/null && { telegram_inbox_check || true; }
+
+    # ── Acquire session lock (CFG-101) ───────────────────────────────────────
+    afleet_acquire_session_lock "$TARGET_DIR" "$TARGET_NAME" || {
+        echo "  Warning: session lock failed — launching anyway" >&2
+    }
+}
+
+# ── launch_mclaude — mclaude detection, TweakCC, banner, exec ───────────────
+# Reads globals: DRY_RUN, TARGET_DIR, TARGET_NAME
+# Sets globals: MCLAUDE_EXIT
+launch_mclaude() {
+    if [[ "$DRY_RUN" == "1" ]]; then
+        echo "DRY_RUN: would cd to $TARGET_DIR and exec mclaude"
+        exit 0
+    fi
+
+    cd "$TARGET_DIR" 2>/dev/null || { echo "  Warning: cannot cd to $TARGET_DIR — using HOME" >&2; cd "$HOME"; }
+
+    MCLAUDE=""
+    for candidate in "$HOME/.local/bin/mclaude" "$HOME/.cc-mirror/bin/mclaude.cmd" "$(command -v mclaude 2>/dev/null || true)"; do
+        [[ -x "$candidate" ]] && MCLAUDE="$candidate" && break
+    done
+
+    if [[ -z "$MCLAUDE" ]]; then
+        echo "Error: mclaude not found. Install via cc-mirror." >&2
+        exit 1
+    fi
+
+    # ── TweakCC config repair ────────────────────────────────────────────────
+    # CC updates reset tweakcc config.json to defaults. Re-apply our settings
+    # so the CC built-in logo stays hidden and the AF banner is the only splash.
+    # Runs every launch — idempotent, costs nothing if already correct.
+    __tweakcc_cfg="${CC_MIRROR_DIR:-$HOME/.cc-mirror/mclaude}/tweakcc/config.json"
+    if [[ -f "$__tweakcc_cfg" ]] && command -v node >/dev/null 2>&1; then
+        node -e "
 const fs = require('fs');
 const f = '$__tweakcc_cfg';
 const c = JSON.parse(fs.readFileSync(f, 'utf8'));
@@ -481,34 +487,34 @@ if (c.settings?.misc?.hideStartupBanner !== true) { c.settings.misc.hideStartupB
 if (c.settings?.misc?.hideStartupClawd !== true) { c.settings.misc.hideStartupClawd = true; changed = true; }
 if (changed) { fs.writeFileSync(f, JSON.stringify(c, null, 2) + '\n'); }
 " 2>/dev/null || true
-fi
-
-# ── Banner: AF fleet banner with CC version ──────────────────────────────────
-# Replaces both mclaude splash and CC built-in banner with a single clean banner.
-# CC_MIRROR_SPLASH=0 suppresses mclaude's splash; TweakCC hideStartupBanner
-# suppresses CC's built-in banner (requires cc-mirror tweak to be applied).
-# Clear screen first for clean transition from picker.
-if [[ -t 1 ]]; then
-    printf '\033[2J\033[H'
-    __cc_ver=""
-    __cc_pkg="${CC_MIRROR_DIR:-$HOME/.cc-mirror/mclaude}/npm/node_modules/@anthropic-ai/claude-code/package.json"
-    if [[ -f "$__cc_pkg" ]]; then
-        __cc_ver=$(node -e "process.stdout.write(require('$__cc_pkg').version)" 2>/dev/null || true)
     fi
-    printf '\n'
-    printf '\033[38;5;220m    ▄▀█ █▀▀\033[0m   \033[38;5;245m%s\033[0m\n' "$TARGET_NAME"
-    printf '\033[38;5;220m    █▀█ █▀\033[0m    \033[38;5;240m━━━━━━━━━━━━\033[0m\n'
-    if [[ -n "$__cc_ver" ]]; then
-        printf '              \033[38;5;243mClaude Code v%s\033[0m\n' "$__cc_ver"
+
+    # ── Banner: AF fleet banner with CC version ──────────────────────────────
+    # Replaces both mclaude splash and CC built-in banner with a single clean banner.
+    # CC_MIRROR_SPLASH=0 suppresses mclaude's splash; TweakCC hideStartupBanner
+    # suppresses CC's built-in banner (requires cc-mirror tweak to be applied).
+    # Clear screen first for clean transition from picker.
+    if [[ -t 1 ]]; then
+        printf '\033[2J\033[H'
+        __cc_ver=""
+        __cc_pkg="${CC_MIRROR_DIR:-$HOME/.cc-mirror/mclaude}/npm/node_modules/@anthropic-ai/claude-code/package.json"
+        if [[ -f "$__cc_pkg" ]]; then
+            __cc_ver=$(node -e "process.stdout.write(require('$__cc_pkg').version)" 2>/dev/null || true)
+        fi
+        printf '\n'
+        printf '\033[38;5;220m    ▄▀█ █▀▀\033[0m   \033[38;5;245m%s\033[0m\n' "$TARGET_NAME"
+        printf '\033[38;5;220m    █▀█ █▀\033[0m    \033[38;5;240m━━━━━━━━━━━━\033[0m\n'
+        if [[ -n "$__cc_ver" ]]; then
+            printf '              \033[38;5;243mClaude Code v%s\033[0m\n' "$__cc_ver"
+        fi
+        printf '\n'
+
     fi
-    printf '\n'
 
-fi
-
-# First-run: write DON'T PANIC ASCII art to temp file, pass via --prompt-file or quoted arg
-INITIAL_PROMPT=""
-if [[ -f "$TARGET_DIR/.setup-pending" ]]; then
-    INITIAL_PROMPT=$(cat << 'DONTPANIC'
+    # First-run: write DON'T PANIC ASCII art to temp file, pass via --prompt-file or quoted arg
+    INITIAL_PROMPT=""
+    if [[ -f "$TARGET_DIR/.setup-pending" ]]; then
+        INITIAL_PROMPT=$(cat << 'DONTPANIC'
 
  ██████╗   ██████╗  ███╗   ██╗ ████████╗
  ██╔══██╗ ██╔═══██╗ ████╗  ██║ ╚══██╔══╝
@@ -527,53 +533,69 @@ if [[ -f "$TARGET_DIR/.setup-pending" ]]; then
  Starting Agent Fleet.
 DONTPANIC
 )
-fi
-
-# ── Session terminal log ──────────────────────────────────────────────────────
-# WT historySize caps at 32767 (SHORT_MAX). script(1) captures full terminal
-# output to a file. Last 3 logs per project, stored next to session-context.md.
-__afleet_logdir="$TARGET_DIR/docs/terminal-logs"
-mkdir -p "$__afleet_logdir" 2>/dev/null || true
-# Rotate: keep last 3
-ls -t "$__afleet_logdir"/session-*.log 2>/dev/null | tail -n +4 | xargs rm -f 2>/dev/null || true
-__afleet_logfile="$__afleet_logdir/session-$(date +%Y%m%d-%H%M%S).log"
-export MCLAUDE_SESSION_LOG="$__afleet_logfile"
-export AFLEET_LAUNCHED=1 AFLEET_PROJECT="$TARGET_NAME" CC_MIRROR_SPLASH=0
-
-# script -c runs through sh -c; MCLAUDE is a simple path, INITIAL_PROMPT single-quoted
-# Fallback: if script(1) is not installed (Fedora 42 splits it into util-linux-script),
-# exec mclaude directly without terminal logging.
-if command -v script &>/dev/null; then
-    if [[ -n "$INITIAL_PROMPT" ]]; then
-        script -q -f -e -c "$MCLAUDE '${INITIAL_PROMPT//\'/\'\\\'\'}'" "$__afleet_logfile"
-    else
-        script -q -f -e -c "$MCLAUDE" "$__afleet_logfile"
     fi
-    MCLAUDE_EXIT=$?
-else
-    echo "  ⚠ script(1) not found — terminal logging disabled (install util-linux-script)" >&2
-    if [[ -n "$INITIAL_PROMPT" ]]; then
-        "$MCLAUDE" "$INITIAL_PROMPT"
+
+    # ── Session terminal log ─────────────────────────────────────────────────
+    # WT historySize caps at 32767 (SHORT_MAX). script(1) captures full terminal
+    # output to a file. Last 3 logs per project, stored next to session-context.md.
+    __afleet_logdir="$TARGET_DIR/docs/terminal-logs"
+    mkdir -p "$__afleet_logdir" 2>/dev/null || true
+    # Rotate: keep last 3
+    ls -t "$__afleet_logdir"/session-*.log 2>/dev/null | tail -n +4 | xargs rm -f 2>/dev/null || true
+    __afleet_logfile="$__afleet_logdir/session-$(date +%Y%m%d-%H%M%S).log"
+    export MCLAUDE_SESSION_LOG="$__afleet_logfile"
+    export AFLEET_LAUNCHED=1 AFLEET_PROJECT="$TARGET_NAME" CC_MIRROR_SPLASH=0
+
+    # script -c runs through sh -c; MCLAUDE is a simple path, INITIAL_PROMPT single-quoted
+    # Fallback: if script(1) is not installed (Fedora 42 splits it into util-linux-script),
+    # exec mclaude directly without terminal logging.
+    if command -v script &>/dev/null; then
+        if [[ -n "$INITIAL_PROMPT" ]]; then
+            script -q -f -e -c "$MCLAUDE '${INITIAL_PROMPT//\'/\'\\\'\'}'" "$__afleet_logfile"
+        else
+            script -q -f -e -c "$MCLAUDE" "$__afleet_logfile"
+        fi
+        MCLAUDE_EXIT=$?
     else
-        "$MCLAUDE"
+        echo "  ⚠ script(1) not found — terminal logging disabled (install util-linux-script)" >&2
+        if [[ -n "$INITIAL_PROMPT" ]]; then
+            "$MCLAUDE" "$INITIAL_PROMPT"
+        else
+            "$MCLAUDE"
+        fi
+        MCLAUDE_EXIT=$?
     fi
-    MCLAUDE_EXIT=$?
+
+    # Clear pre-launch banner from primary buffer so it doesn't linger after CC exits.
+    # ONLY on clean exit — non-zero exit leaves error messages visible (CFG-370 lesson).
+    [[ -t 1 && ${MCLAUDE_EXIT:-1} -eq 0 ]] && printf '\033[2J\033[H'
+}
+
+# ── post_session_cleanup — Post-session drive reminder, exit ────────────────
+# Reads globals: MCLAUDE_EXIT
+post_session_cleanup() {
+    # ── Drive unmount reminder (WSL only) ────────────────────────────────────
+    # Claude Code can't unmount (no sudo), so remind the user to do it manually.
+    _mounted_drives=""
+    for mp in /mnt/d /mnt/wsl/data8tb; do
+        mountpoint -q "$mp" 2>/dev/null && _mounted_drives="${_mounted_drives:+$_mounted_drives, }$mp"
+    done
+    if [[ -n "$_mounted_drives" ]]; then
+        printf '\n%b  ⚠ External drives still mounted: %s%b\n' "$C_BYEL" "$_mounted_drives" "$C_RST"
+        printf '%b  Eject from Windows: T7 Shield via tray icon, 8TB via "Safely Remove Hardware"%b\n\n' "$C_DIM" "$C_RST"
+    fi
+
+    exit $MCLAUDE_EXIT
+}
+
+# ── Source guard ─────────────────────────────────────────────────────────────
+# When sourced for testing, only define functions — don't execute main logic
+if [[ "${AFLEET_SOURCE_ONLY:-0}" == "1" ]]; then
+    return 0 2>/dev/null || exit 0
 fi
 
-# Clear pre-launch banner from primary buffer so it doesn't linger after CC exits.
-# ONLY on clean exit — non-zero exit leaves error messages visible (CFG-370 lesson).
-[[ -t 1 && ${MCLAUDE_EXIT:-1} -eq 0 ]] && printf '\033[2J\033[H'
-
-
-# ── Post-session: drive unmount reminder (WSL only) ─────────────────────────
-# Claude Code can't unmount (no sudo), so remind the user to do it manually.
-_mounted_drives=""
-for mp in /mnt/d /mnt/wsl/data8tb; do
-    mountpoint -q "$mp" 2>/dev/null && _mounted_drives="${_mounted_drives:+$_mounted_drives, }$mp"
-done
-if [[ -n "$_mounted_drives" ]]; then
-    printf '\n%b  ⚠ External drives still mounted: %s%b\n' "$C_BYEL" "$_mounted_drives" "$C_RST"
-    printf '%b  Eject from Windows: T7 Shield via tray icon, 8TB via "Safely Remove Hardware"%b\n\n' "$C_DIM" "$C_RST"
-fi
-
-exit $MCLAUDE_EXIT
+# ── Main execution ──────────────────────────────────────────────────────────
+resolve_project "$@"
+pre_launch_sync
+launch_mclaude
+post_session_cleanup
