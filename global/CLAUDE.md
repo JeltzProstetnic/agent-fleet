@@ -9,7 +9,7 @@ Config repo: `~/agent-fleet/`
 
 ## Machine Identity
 
-Machine-specific knowledge is auto-loaded via `~/CLAUDE.local.md` (each machine has its own, not synced). The SessionStart hook injects `HOSTNAME:` into systemMessage — match it to the table below and state where you are in your first response using the **short name**. Do NOT read `/etc/hostname` or run `hostname` — the hook already did it.
+Machine-specific knowledge is auto-loaded via `~/CLAUDE.local.md` (each machine has its own, not synced). The SessionStart hook injects `HOSTNAME:` into `additionalContext` (invisible in terminal, delivered to the model) — match it to the table below and state where you are in your first response using the **short name**. Do NOT read `/etc/hostname` or run `hostname` — the hook already did it.
 
 <!-- Add your machines here. Example:
 | Hostname pattern | Short name | Platform | Notes |
@@ -43,15 +43,15 @@ If hostname doesn't match any pattern, state the hostname and ask. If `CLAUDE.lo
 
 0. **ALWAYS check for remote changes — BEFORE reading any files.** Run `bash ~/agent-fleet/setup/scripts/git-sync-check.sh --pull <project-dir>` (pass the project directory as an argument — the script accepts an optional path). This fetches, reports incoming changes, and fast-forward pulls if behind. If it reports changes, re-read affected files. If it fails (diverged, merge conflict), resolve before proceeding. This applies to EVERY project, EVERY session, no exceptions.
 
-0.5. **Surface ALL systemMessage items to the user.** The SessionStart hook generates intelligence at 0 LLM tokens — suppressing its output defeats the purpose. Present every injected field: `WARNING:` (drift, branches, locks), `Upstream dependency check:`, `FMS_INGEST_NEEDED:`, `Documents found in tmp/`, `ACT_PENDING:`. One structured summary, before any file reads. **When `FMS_INGEST_NEEDED:` reports pending files, load `knowledge/fms-ops.md` and file them interactively (auto-file unambiguous, ask for ambiguous; delete from drop folder after filing).**
+0.5. **Surface ALL SessionStart `additionalContext` items to the user.** The SessionStart hook delivers intelligence via `additionalContext` (invisible in terminal since CC 2.1.83+ started rendering hook `systemMessage` visually — the fleet uses `additionalContext` to keep startup output out of scrollback while still reaching the model). Generates intelligence at 0 LLM tokens — suppressing its output defeats the purpose. Present every injected field: `WARNING:` (drift, branches, locks), `Upstream dependency check:`, `FMS_INGEST_NEEDED:`, `Documents found in tmp/`, `ACT_PENDING:`. One structured summary, before any file reads. **When `FMS_INGEST_NEEDED:` reports pending files, load `knowledge/fms-ops.md` and file them interactively (auto-file unambiguous, ask for ambiguous; delete from drop folder after filing).**
 
-1. **Read cross-project inbox** — skip if redundant. If `INBOX TASKS for <project>` appears in systemMessage, the hook already extracted this project's items — skip the full `inbox.md` read. Only read `~/agent-fleet/cross-project/inbox.md` manually when: (a) the hook didn't inject inbox data, or (b) you need child project tasks (check `Parent` column in `registry.md`). Report child project tasks to the user but don't delete them — the child project session handles that.
+1. **Read cross-project inbox** — skip if redundant. If `INBOX TASKS for <project>` appears in `additionalContext`, the hook already extracted this project's items — skip the full `inbox.md` read. Only read `~/agent-fleet/cross-project/inbox.md` manually when: (a) the hook didn't inject inbox data, or (b) you need child project tasks (check `Parent` column in `registry.md`). Report child project tasks to the user but don't delete them — the child project session handles that.
 
-2. **Check `HANDOFF:` in systemMessage.** If `HANDOFF: none`, skip. If `HANDOFF: <description> | file: <path>`, read the `file:` it points to.
+2. **Check `HANDOFF:` in `additionalContext`.** If `HANDOFF: none`, skip. If `HANDOFF: <description> | file: <path>`, read the `file:` it points to.
 
 3. **Read the project's `CLAUDE.md`** (manifest) — it declares what domains to load
 
-4. **Check `SESSION_CONTEXT:` in systemMessage.** If `SESSION_CONTEXT: blank`, skip reading. If `SESSION_CONTEXT: active — <goal>`, read `session-context.md` for full state.
+4. **Check `SESSION_CONTEXT:` in `additionalContext`.** If `SESSION_CONTEXT: blank`, skip reading. If `SESSION_CONTEXT: active — <goal>`, read `session-context.md` for full state.
 
 5. **Follow the manifest's Knowledge Loading table** — load only the listed domain files
 
@@ -105,7 +105,7 @@ If hostname doesn't match any pattern, state the hostname and ask. If `CLAUDE.lo
    | Statusline editing, GPI, statusline deployment | `knowledge/statusline-ops.md` |
    | Konsole tabs, qdbus, terminal tab operations | `knowledge/konsole-tabs.md` |
    | Filing GitHub issue on agent-fleet, `issue` command | `knowledge/fleet-issue-protocol.md` |
-   | SESSION_LOCKED or SESSION_LOCKED_REMOTE in systemMessage | `knowledge/follower-mode.md` |
+   | SESSION_LOCKED or SESSION_LOCKED_REMOTE in `additionalContext` | `knowledge/follower-mode.md` |
    | Session shutdown (`cls`, `end`, exit, shutdown) | `foundation/session-shutdown.md` |
    | Hook debugging, PreToolUse/UserPromptSubmit platform behavior | `knowledge/hook-behavior.md` |
    | SteamOS deployment, symlink bugs, reprovision issues | `knowledge/steam-deck-deployment.md` |
@@ -117,9 +117,9 @@ If hostname doesn't match any pattern, state the hostname and ask. If `CLAUDE.lo
 
    All paths relative to `~/.claude/` unless absolute. Do NOT load unless triggered.
 
-7. **Check `PROJECT_KNOWLEDGE:` in systemMessage.** If `PROJECT_KNOWLEDGE: none`, skip. If listed, read the relevant files from `<project>/.claude/knowledge/` and `<project>/.claude/`.
+7. **Check `PROJECT_KNOWLEDGE:` in `additionalContext`.** If `PROJECT_KNOWLEDGE: none`, skip. If listed, read the relevant files from `<project>/.claude/knowledge/` and `<project>/.claude/`.
 
-8. **Populate session-context.md if blank.** If `SESSION_CONTEXT: blank` in systemMessage, populate the template fields before doing any other work: set `Last Updated` to current timestamp, `Machine` to the machine short name (from identity table), `Working Directory` to `$PWD`, and `Session Goal` to a brief description of the user's request.
+8. **Populate session-context.md if blank.** If `SESSION_CONTEXT: blank` in `additionalContext`, populate the template fields before doing any other work: set `Last Updated` to current timestamp, `Machine` to the machine short name (from identity table), `Working Directory` to `$PWD`, and `Session Goal` to a brief description of the user's request.
 
 10. **Startup/shutdown messages must be human-readable.** "Last session shut down correctly, starting fresh" — not "Session context is blank (freshly rotated)".
 
@@ -135,7 +135,7 @@ If hostname doesn't match any pattern, state the hostname and ask. If `CLAUDE.lo
 
 ## Upstream Dependency Policy
 
-**Daily version check is automated** by the SessionStart hook (Check 13.5). It runs `npm view` once per day (date-gated marker file) and surfaces update availability via systemMessage. No Claude action needed — just relay findings.
+**Daily version check is automated** by the SessionStart hook (Check 13.5). It runs `npm view` once per day (date-gated marker file) and surfaces update availability via `additionalContext`. No Claude action needed — just relay findings.
 
 **First-session-of-day rule:** The first session each day handles triage (inbox, updates, handoffs). This consumes significant context. After completing triage, recommend the user run `/clear` to start a fresh working session with full context available. This is a recommendation, not a hard gate — the user decides.
 
@@ -191,11 +191,16 @@ For manual investigation: read `~/.claude/reference/upstream-dependencies.md`.
 - **Context budget awareness.** The `UserPromptSubmit` hook injects `CONTEXT_BUDGET: NN% used (Xk/Yk)` every turn. Thresholds align with statusline CRI colors: <50% (green) normal. 50-60% (cyan) fine for most work. 60-70% (orange) note if starting very large new tasks. 70-80% (yellow) recommend `/clear` before complex new work. >80% (red) checkpoint and suggest multi-session or `/clear`. When `CHECKPOINT_NEEDED:` appears in systemMessage (fires once at >70%), immediately update `session-context.md` with current progress, key decisions, and recovery instructions before responding to the user. This is the last reliable chance before potential compaction.
 - **Mid-session mobile data.** When `MOBILE_DATA:` appears in systemMessage, unmerged phone sessions exist. Run mobile-collect to ingest, then check cross-project inbox for new items. Check runs every 10 minutes automatically.
 - **One vault, one owner.** The config repo's encrypted vault is the single source of truth for ALL secrets across ALL machines and projects. No other project maintains its own secrets vault. `vault-manage.sh deploy` provisions credentials to their target locations. Every credential, API key, token, and password MUST have a vault entry with a `deploy_to` target.
-- **Tracking is atomic with action.** When an action changes external state (email sent, backlog item committed to, submission filed, discovery made, person encountered), update ALL canonical tracking files as part of the same operation -- not deferred to shutdown, not batched for later. The action is not complete until tracking reflects it. This supersedes "narrative must match canonical state" as the primary defense -- that rule is kept as a verification backstop only.
+- **Tracking is atomic with action.** When an action changes external state (email sent, backlog item committed to, submission filed, discovery made, person encountered), update ALL canonical tracking files as part of the same operation -- not deferred to shutdown, not batched for later. The action is not complete until tracking reflects it. This supersedes "narrative must match canonical state" as the primary defense -- that rule is kept as a verification backstop only. If canonical files already disagree, apply the Data Integrity rule — do not silently reconcile.
 - **No duplicate status tracking.** Only `backlog.md` tracks item status (open/done). Pending files, RCA docs, and session logs MUST NOT maintain their own completion checklists for items that have backlog entries. One source of truth, one place to update.
 - **Discovery -> ingest.** When discovering information that would be useful to future sessions -- upstream capability changes, new patterns, platform behavior, tool quirks, user-relevant facts -- immediately persist it to the appropriate knowledge file. Don't just report findings; update the relevant knowledge files, machine files, domain files, or create new knowledge entries as appropriate. The finding is not "done" until persisted. This applies to: model/platform capabilities, API changes, deprecations, tool behavior discovered during work, and anything a new user or future session might ask about.
 - **Subagent research -> persist before acting.** When a research subagent returns findings, persist the research to a project knowledge file before using the results for implementation.
 - **Documentation coherence.** Knowledge files declare dependencies via `<!-- updates: path1, path2 -->` (downstream: files this file's changes affect) and `<!-- consumed-by: path1 (reason), path2 (reason) -->` (upstream: files that read/use data from this file) header comments. When editing a file, check BOTH headers and update all listed files in the same operation.
+- **Infrastructure retirement scans project docs.** When retiring a fleet-wide script, automation, or convention, run `grep -rln "<retired-name>" ~/*/CLAUDE.md ~/*/.claude/` before committing and update every hit in the same commit.
+
+## Data Integrity
+
+- **Tracking conflicts are bugs — stop and report.** When two canonical tracking files disagree on a fact, report both values to the user and stop; never edit one to match the other.
 
 ## Persona System
 
