@@ -223,9 +223,53 @@ pre_pull_all_repos() {
     done < <(parse_registry)
 }
 
+# ── Worktree helper: create an isolated git worktree for follower mode ─────
+# Updates global TARGET_DIR to the new worktree path so launch_mclaude cd's there.
+# Also sets AFLEET_WORKTREE_MODE=1 + AFLEET_WORKTREE_MAIN + AFLEET_WORKTREE_BRANCH
+# so post_session_cleanup can prompt to merge/clean up on exit.
+_create_worktree_and_retarget() {
+    local main_dir="$1"
+    local ts branch wt_root wt_path
+    ts=$(date +%Y%m%d-%H%M%S)
+    branch="afleet-wt-$ts"
+    wt_root="$HOME/.afleet-worktrees"
+    wt_path="$wt_root/${TARGET_NAME}-${ts}"
+
+    if [[ ! -d "$main_dir/.git" && ! -f "$main_dir/.git" ]]; then
+        echo "  ✖ Project is not a git repo — cannot create worktree." >&2
+        return 1
+    fi
+
+    mkdir -p "$wt_root" 2>/dev/null || {
+        echo "  ✖ Cannot create worktree root $wt_root" >&2
+        return 1
+    }
+
+    local _err
+    if ! _err=$(git -C "$main_dir" worktree add -b "$branch" "$wt_path" HEAD 2>&1); then
+        echo "  ✖ git worktree add failed:" >&2
+        echo "    $_err" >&2
+        return 1
+    fi
+
+    TARGET_DIR="$wt_path"
+    AFLEET_WORKTREE_MAIN="$main_dir"
+    AFLEET_WORKTREE_BRANCH="$branch"
+    export AFLEET_WORKTREE_MODE=1 AFLEET_WORKTREE_MAIN AFLEET_WORKTREE_BRANCH
+    echo "  → Worktree created: $wt_path" >&2
+    echo "    Branch: $branch" >&2
+    echo "    Main session's lock is untouched." >&2
+}
+
 # ── Session lock acquisition (CFG-101) ──────────────────────────────────────
 # Local lock (same-machine protection) + optional server lock (cross-machine).
 # Server lock is best-effort — fails silently if AFD unreachable or no token.
+#
+# On conflict, offers two choices only:
+#   w = create a git worktree and work there in follower mode
+#   q = quit without launching (default)
+# No steal/force-release option — that's only possible via direct mclaude/cc
+# invocation (documented escape hatch). See follower-mode.md.
 afleet_acquire_session_lock() {
     local project_dir="$1"
     local project_name="$2"
@@ -240,13 +284,25 @@ afleet_acquire_session_lock() {
 
     # Acquire local lock
     if ! acquire_lock "$project_dir" "$session_id"; then
+        echo "" >&2
         echo "  ⚠ Project locked by another session on this machine." >&2
         lock_info "$project_dir" >&2
-        printf '  Continue anyway? (y/N) '
-        read -r _ans
-        [[ "$_ans" =~ ^[yY] ]] || return 1
-        force_release "$project_dir"
-        acquire_lock "$project_dir" "$session_id" || return 1
+        echo "" >&2
+        echo "  [w] Open in isolated git worktree (follower mode)" >&2
+        echo "  [q] Quit (default)" >&2
+        printf '  Choice: '
+        local _ans=""
+        read -r _ans || _ans=""
+        case "$_ans" in
+            w|W)
+                _create_worktree_and_retarget "$project_dir" || return 1
+                return 0   # worktree is its own workspace — skip lock acquisition
+                ;;
+            *)
+                echo "  → Session not started." >&2
+                return 1
+                ;;
+        esac
     fi
 
     # Export session ID for hooks (statusline heartbeat, SessionEnd release)
@@ -446,9 +502,10 @@ pre_launch_sync() {
     type telegram_inbox_check &>/dev/null && { telegram_inbox_check || true; }
 
     # ── Acquire session lock (CFG-101) ───────────────────────────────────────
-    afleet_acquire_session_lock "$TARGET_DIR" "$TARGET_NAME" || {
-        echo "  Warning: session lock failed — launching anyway" >&2
-    }
+    # Non-zero return = user chose quit OR worktree creation failed.
+    # Either way we do NOT launch CC. This is deliberate — the old
+    # "launching anyway" fallthrough was a bug that ignored the user's choice.
+    afleet_acquire_session_lock "$TARGET_DIR" "$TARGET_NAME" || exit 0
 }
 
 # ── launch_mclaude — mclaude detection, TweakCC, banner, exec ───────────────
@@ -571,9 +628,61 @@ DONTPANIC
     [[ -t 1 && ${MCLAUDE_EXIT:-1} -eq 0 ]] && printf '\033[2J\033[H'
 }
 
-# ── post_session_cleanup — Post-session drive reminder, exit ────────────────
-# Reads globals: MCLAUDE_EXIT
+# ── post_session_cleanup — Worktree merge, drive reminder, exit ────────────
+# Reads globals: MCLAUDE_EXIT, TARGET_DIR, AFLEET_WORKTREE_MODE,
+#                AFLEET_WORKTREE_MAIN, AFLEET_WORKTREE_BRANCH
 post_session_cleanup() {
+    # ── Worktree cleanup ─────────────────────────────────────────────────────
+    # If this session ran in an afleet-managed worktree, either auto-remove
+    # (empty) or prompt to merge (has commits/changes).
+    if [[ "${AFLEET_WORKTREE_MODE:-0}" == "1" && -n "${AFLEET_WORKTREE_MAIN:-}" \
+          && -n "${AFLEET_WORKTREE_BRANCH:-}" && -d "$TARGET_DIR" ]]; then
+        local main="$AFLEET_WORKTREE_MAIN"
+        local branch="$AFLEET_WORKTREE_BRANCH"
+        local main_head wt_head dirty ahead
+        main_head=$(git -C "$main" rev-parse HEAD 2>/dev/null || echo "")
+        wt_head=$(git -C "$TARGET_DIR" rev-parse HEAD 2>/dev/null || echo "")
+        dirty=$(git -C "$TARGET_DIR" status --porcelain 2>/dev/null || echo "")
+        ahead=0
+        if [[ -n "$main_head" && -n "$wt_head" && "$main_head" != "$wt_head" ]]; then
+            ahead=$(git -C "$TARGET_DIR" rev-list --count "$main_head..$wt_head" 2>/dev/null || echo 0)
+        fi
+
+        if [[ "$ahead" -eq 0 && -z "$dirty" ]]; then
+            # Empty worktree — auto-remove silently
+            git -C "$main" worktree remove --force "$TARGET_DIR" >/dev/null 2>&1 || true
+            git -C "$main" branch -D "$branch" >/dev/null 2>&1 || true
+            echo "  → Worktree cleaned up (no changes)." >&2
+        else
+            echo "" >&2
+            echo "  Worktree has changes:" >&2
+            [[ "$ahead" -gt 0 ]] && echo "    $ahead commit(s) ahead of main session's HEAD" >&2
+            [[ -n "$dirty" ]]   && echo "    uncommitted file changes present" >&2
+            echo "    Path:   $TARGET_DIR" >&2
+            echo "    Branch: $branch" >&2
+            printf '  Fast-forward merge into main session and delete worktree? [y/N] ' >&2
+            local _ans=""
+            read -r _ans </dev/tty 2>/dev/null || read -r _ans || _ans=""
+            if [[ "$_ans" =~ ^[yY] ]]; then
+                if [[ -n "$dirty" ]]; then
+                    echo "  ✖ Uncommitted changes in worktree — commit or discard before merging." >&2
+                    echo "  → Worktree preserved at $TARGET_DIR" >&2
+                elif git -C "$main" merge --ff-only "$branch" >/dev/null 2>&1; then
+                    git -C "$main" worktree remove --force "$TARGET_DIR" >/dev/null 2>&1 || true
+                    git -C "$main" branch -D "$branch" >/dev/null 2>&1 || true
+                    echo "  → Merged fast-forward and cleaned up." >&2
+                else
+                    echo "  ✖ Fast-forward merge failed (main branch diverged)." >&2
+                    echo "  → Worktree preserved. Resolve manually:" >&2
+                    echo "    git -C $main merge $branch" >&2
+                fi
+            else
+                echo "  → Worktree preserved at $TARGET_DIR" >&2
+                echo "    Clean up later: git -C $main worktree remove $TARGET_DIR" >&2
+            fi
+        fi
+    fi
+
     # ── Drive unmount reminder (WSL only) ────────────────────────────────────
     # Claude Code can't unmount (no sudo), so remind the user to do it manually.
     _mounted_drives=""
