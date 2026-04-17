@@ -234,10 +234,12 @@ Personas are loaded from `~/.claude/foundation/personas.md` (or machine file ove
 
 **Quick commands — keyword shortcuts the user can type as their entire message:**
 
+Quick commands below are keywords executed inline — only `lrn` maps to a real skill (`~/.claude/skills/lrn/`); for `cls`, `end`, `lsd`, `afk`, `sub` use Read/Bash directly, never the Skill tool.
+
 | Keyword | What it does |
 |---------|-------------|
-| `cls` | Load `foundation/session-shutdown.md`, execute full 8-step shutdown checklist, then say "Shutdown complete. Next: /clear" **If `cls` is the first message**, skip startup — just run shutdown. |
-| `end` | Load `foundation/session-shutdown.md`, execute full 8-step shutdown checklist, then say "Shutdown complete. Next: /exit" |
+| `cls` | **Read** `foundation/session-shutdown.md` (with the Read tool, not Skill), execute full 8-step shutdown checklist, then say "Shutdown complete. Next: /clear". **If `cls` is the first message**, skip startup — just run shutdown. |
+| `end` | **Read** `foundation/session-shutdown.md` (with the Read tool, not Skill), execute full 8-step shutdown checklist, then say "Shutdown complete. Next: /exit". |
 | `lsd` | **Project dashboard.** Load `~/.claude/reference/lsd-spec.md` first, then render. Also auto-triggered by `AFLEET_DASHBOARD:` in systemMessage — in that case, read ONLY `dashboard-cache.md` (skip lsd-spec.md load), render, and accept project numbers/names as switch commands. |
 | `lrn` | **Self-audit.** `lrn` alone = full audit. `lrn` + words = apply audit principles to what follows. Load `~/.claude/skills/lrn/SKILL.md`, then execute. Note: `lrn` = reliable trigger. `learn` (full word) is context-sensitive — only triggers if clearly directed at Claude or standalone. |
 | `afk` | **AFK mode.** If AFD daemon is running, activate AFK mode (`afd afk on`). Dangerous Bash commands are queued for approval. AFK mode auto-deactivates on next user console input (via UserPromptSubmit hook). |
