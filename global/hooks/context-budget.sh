@@ -3,7 +3,7 @@
 # and GPI completion notifications.
 # Reads ~/.claude/.context-budget.json (written by statusline.sh every turn)
 # Reads ~/.claude/.gpi-completed.json (written by gpi done / statusline log detection)
-# Outputs systemMessage lines for injection
+# Outputs plain text lines for injection (UserPromptSubmit uses stdout, not JSON)
 
 source "$(dirname "${BASH_SOURCE[0]}")/lib-portable.sh" 2>/dev/null || true
 
@@ -84,10 +84,21 @@ except Exception:
 fi
 
 # LRN skill trigger detection — safety net for skill invocation
-if read -r _hook_input 2>/dev/null; then
-    _user_msg=$(echo "$_hook_input" | python3 -c "import sys,json; print(json.load(sys.stdin).get('message',''))" 2>/dev/null) || true
+# Live-issue capture trigger detection (CFG-389) — injects LIVE_ISSUE_DETECTED
+#   when user reports a real-time failure; agent loads knowledge/live-issue-capture.md.
+# Read ALL of stdin with timeout — `read` fails on input without trailing newline,
+# so use IFS + -d '' to grab everything or fall back silently.
+_hook_input=""
+if IFS= read -r -t 2 -d '' _hook_input 2>/dev/null || [[ -n "$_hook_input" ]]; then
+    _user_msg=$(printf '%s' "$_hook_input" | python3 -c "import sys,json; print(json.load(sys.stdin).get('message',''))" 2>/dev/null) || true
     if [[ "$_user_msg" =~ (^|[[:space:]])(lrn|LRN)($|[[:space:]]) ]]; then
         OUTPUT="${OUTPUT:+$OUTPUT | }LRN_TRIGGERED: Invoke the lrn skill via Skill tool. Load SKILL.md + references/known-faulty-patterns.md before responding."
+    fi
+    # Live-issue trigger phrases — present-tense failure reports
+    _lc_msg=$(printf '%s' "$_user_msg" | tr '[:upper:]' '[:lower:]')
+    _live_re='(is stuck|got stuck|is hanging|is hung|wont respond|won'"'"'t respond|isnt responding|isn'"'"'t responding|cant dismiss|can'"'"'t dismiss|cant close|can'"'"'t close|failed to load|fails to load|wont load|won'"'"'t load|just crashed|popup error|error popup)'
+    if [[ "$_lc_msg" =~ $_live_re ]]; then
+        OUTPUT="${OUTPUT:+$OUTPUT | }LIVE_ISSUE_DETECTED: user reports a real-time failure. Capture live state synchronously (ps/logs/curl/pid files — whatever applies) in this same turn, then delegate deep investigation to a subagent with captured state in the prompt. Load knowledge/live-issue-capture.md for the protocol. Do NOT defer with 'capture if it recurs'."
     fi
 fi
 
