@@ -11,13 +11,26 @@ These are YOUR features. Use them naturally ("the statusline shows..." not "your
 
 What the underlying model and Claude Code platform can do. Updated when upstream changes.
 
+### Active Opus model
+
+The fleet runs whichever Opus version `mclaude` (via `cc-mirror`) bundles at install time. The two relevant versions today:
+
+| Model | Default in CC version range | 1M context | Fast Mode (`/fast`) | Notes |
+|-------|----------------------------|-----------|--------------------|-------|
+| **Opus 4.6** | CC 2.1.76 – 2.1.110 (and any explicit pin) | Yes (native) | **Yes** — 2.5x speed at 6x cost, CC 2.1.36+ | Effort default `high` (raised from `medium` in 2.1.111). Knowledge cutoff Jan 2025. |
+| **Opus 4.7** | CC 2.1.111 onward (default since 2026-04-23) | Yes (native) | **No** — Anthropic did not carry Fast Mode forward | Effort default `xhigh` (since 2.1.117). Knowledge cutoff Jan 2026. |
+
+Run `mclaude --version` to see the installed CC version, then map via the table. To switch: `cc-mirror update mclaude --claude-version <X> --no-tweak` (e.g. `2.1.110` for Opus 4.6).
+
+### Platform capabilities
+
 | Capability | Details | Since |
 |-----------|---------|-------|
-| **Context window** | **1M tokens** (Opus 4.6 & Sonnet 4.6). GA since 2026-03-13. No config needed — requests >200K work automatically. Included in Max, Team, Enterprise at standard pricing. | CC 2.1.76, Anthropic 2026-03-13 |
+| **Context window** | **1M tokens** for Opus 4.7, Opus 4.6, Sonnet 4.6, Sonnet 4.5 — native, no beta flag. Haiku 4.5 = 200k. GA since 2026-03-13. **CC bug:** CC sometimes reports `context_window_size=200000` for 1M-capable models; statusline-command.sh overrides via `MODEL_WINDOWS` table. CC 2.1.113 fixed Opus 4.7 sessions inflating `/context` percentages and autocompacting too early. | CC 2.1.76 (1M GA), CC 2.1.113 (Opus 4.7 fix) |
 | **Media limits** | Up to 600 images or PDF pages per request (was 100) | 2026-03-13 |
-| **Effort levels** | low / medium / high. Medium is default for Opus 4.6. "ultrathink" keyword forces high effort for next turn. `max` level removed. | CC 2.1.68+ |
+| **Effort levels** | low / medium / high / xhigh. Default per model: Opus 4.6 = `high`, Opus 4.7 = `xhigh`. "ultrathink" keyword forces high effort for next turn. `max` level removed. | CC 2.1.68+ (effort), 2.1.111 (xhigh), 2.1.117 (defaults raised) |
 | **PostCompact hook** | Fires after compaction. Can checkpoint state. PreCompact abandoned (#13572 closed). | CC 2.1.76 |
-| **SessionEnd timeout** | Configurable via `CLAUDE_CODE_SESSIONEND_HOOKS_TIMEOUT_MS` env var (default 1.5s). | CC 2.1.74 |
+| **SessionEnd timeout** | Configurable via `CLAUDE_CODE_SESSIONEND_HOOKS_TIMEOUT_MS` env var (default was 1.5s, we set 10000). | CC 2.1.74 |
 | **Deferred tools** | MCP tools loaded via ToolSearch survive compaction (schema fix). | CC 2.1.76 |
 
 ## Core — Infrastructure
@@ -30,15 +43,16 @@ The foundation everything else runs on.
 | sync.sh | Bidirectional sync: repo ↔ deployed config (setup/deploy/collect/status/stamp) | `sync.sh` |
 | Vault | Single encrypted secrets store (AES-256-CBC), deploy to all targets | `secrets/vault.json.enc`, `vault-manage.sh` |
 | Registry | Project catalog with parent/child relationships, machine assignments | `registry.md` |
-| Hooks | SessionStart (config-check.sh), SessionEnd (auto-sync), PreToolUse (RTK token compression), PostToolUse (auto-lint, commit verify, tool install detect), UserPromptSubmit (context budget) | `global/hooks/` |
-| Session system | Context persistence, 3-layer history, pending file handover, rotation, crash recovery. Shutdown checklist loaded on-demand (`session-shutdown.md`). | `session-context.md`, `rotate-session.sh` |
+| Template sync | Personal cfg-agent-fleet → public agent-fleet repo with push-filter sanitization | `sync.sh deploy`, `.push-filter.conf` |
+| Hooks | SessionStart (config-check.sh, 34 checks), SessionEnd (auto-sync), PreToolUse (AFD relay), PostToolUse (auto-lint for Write/Edit), UserPromptSubmit (AFK deactivate, context budget) | `global/hooks/` |
+| Session system | Context persistence, 3-layer history, pending file handover, rotation, crash recovery. Shutdown checklist loaded on-demand (`session-shutdown.md`) to save ~1k tokens/session. | `session-context.md`, `rotate-session.sh` |
 | Cross-project inbox | One-off task passing between projects, picked up per-session | `cross-project/inbox.md` |
-| Personas | Configurable dual-persona system with semantic switching rules, Day/Night mode | `foundation/personas.md` |
-| Quick commands | cls, end, lsd, lrn, afk, sub — keyword shortcuts | `CLAUDE.md` quick commands table |
+| Personas | Bartl (default), Elsa (frustration trigger), Day/Night mode (17:00/20:00 auto-switch) | `foundation/personas.md` |
+| Quick commands | cls, end, lsd, lrn, lrnd, afk, sub — keyword shortcuts | `CLAUDE.md` quick commands table |
 | Personality Patterns | Curated dual-persona combos (Workhorse+Empath, Builder+Critic, Mentor+Peer, Strategist+Tactician, Formal+Casual). Presented during first-run setup. | `foundation/first-run-refinement.md` section 2b |
-| afleet | Project launcher — pre-pull, project detection, session safety | `setup/scripts/afleet.sh` |
+| afleet | **Mandatory** project launcher — pre-pull, project detection, session safety. Sets `AFLEET_LAUNCHED=1` + `AFLEET_PROJECT`. Direct mclaude triggers Check 27 warning. | `setup/scripts/afleet.sh` |
 | Dashboard (lsd) | Project overview with task counts, disk usage, status | `cross-project/dashboard-cache.md` |
-| Knowledge system | Domain files, machine files, conditional loading (on-demand), backlog convention | `domains/`, `machines/`, `knowledge/`, `reference/` |
+| Knowledge system | Domain files, machine files, conditional loading (on-demand: NAS, konsole tabs, shutdown checklist), backlog convention | `domains/`, `machines/`, `knowledge/`, `reference/` |
 
 ## Core Extended — Operational Tools
 
@@ -47,10 +61,22 @@ Built on top of core infrastructure. Enhance the agent's operational capabilitie
 | Feature | What it does | Key files |
 |---------|-------------|-----------|
 | Statusline: CRI | Context Rot Indicator — context window usage bar, color-coded (green→yellow→red) | `setup/config/statusline-command.sh` |
-| Statusline: GPI | Grind Progress Indicator — background process progress with log enrichment | `setup/scripts/gpi.sh` |
+| Statusline: GPI | Grind Progress Indicator — background process progress with log enrichment, parallel display | `setup/scripts/gpi.sh`, `~/.claude/.gpi-state.json` |
 | Statusline: PDI | Personality Disorder Indicator — active persona name, color-matched | `setup/config/statusline-command.sh` |
-| lrn | Self-audit protocol — rule compliance, knowledge capture, process/architecture | `knowledge/learn-protocol.md` |
+| lrn | Self-audit protocol — rule compliance, knowledge capture, process/architecture | `skills/lrn/SKILL.md` |
 | Mobile support | Separate repo for mobile Claude app session logging | `agent-fleet-mobile` |
+| VPS deployment | Terminal + chat UI at code.matthiasgruber.com | `vps/` |
+
+## Life OS Packages
+
+Domain-specific systems that serve the user's life management needs. Each is a self-contained subsystem with its own scripts, data, and conventions.
+
+| Package | Full name | What it does | Key files |
+|---------|-----------|-------------|-----------|
+| **DMS** | Document Management System | Document catalog with storage abstraction, intake protocol, validation, Dropbox sync | `dms/` — catalogs, scripts, naming convention, storage map |
+| **FMS** | File Management System | Drop folder model across machines (`~/__FMS__/`, NAS `__FMS__/`), auto-ingest scanner, category subfolders | `dms/scripts/fms-intake.sh`, `dms/scripts/dms-file.sh` |
+| **PMS** | People Management System | JSONL people registry, graph viz (Cytoscape.js), relationship tracking | `people/people-db.sh`, `people/people.jsonl` |
+| **AFD** | Agent Fleet Daemon | VPS-hosted coordination server — task endpoints, session locking, Telegram bot (bidirectional), ntfy push notifications, AFK mode, CLI + bash lib | `afd/` — server, CLI, lib, assets |
 
 ---
 
@@ -85,7 +111,7 @@ Per-machine tools are inventoried in `~/.claude/machines/<machine>.md`. Check be
 |-------|----------|
 | general-purpose | Multi-step tasks, file ops, code execution |
 | Explore | Fast codebase exploration, pattern/keyword search |
-| Plan | Architecture planning, implementation design (subagent workaround if plan mode broken) |
+| Plan | Architecture planning, implementation design (subagent workaround, CFG-16) |
 
 ### Plugin Agents (per-project only, token cost per bundle)
 
@@ -97,13 +123,17 @@ Per-machine tools are inventoried in `~/.claude/machines/<machine>.md`. Check be
 | voltagent-dev-exp | 14 | 32k | Git workflows, docs, code review |
 | voltagent-data-ai | 13 | 30k | ML, data pipelines, analytics |
 
-### Task-to-Plugin Mapping
-
-| Task type | Suggested plugin | When built-in is enough |
-|-----------|-----------------|------------------------|
-| Language-specific patterns | voltagent-lang | Simple code in familiar languages |
-| Infrastructure/deploy | voltagent-infra | Basic Docker/CI tasks |
-| Security audit | voltagent-qa-sec | Simple vulnerability checks |
-| Code review | voltagent-dev-exp | Short diffs, familiar code |
-
 **Recommendation protocol:** Per-project only. State the cost. One at a time. Night mode: defer.
+
+---
+
+## Recovery & Diagnostics
+
+| Command | What it does |
+|---------|-------------|
+| `afleet doctor` | Health check: CC binary, settings.json, MCP servers (TCP probe), hooks (syntax + exec), session locks, git state |
+| `afleet recover` | Auto-fixes: permissions, stale locks, redeploys via `sync.sh deploy` |
+| `afleet rollback N` | Resets config repo by N commits + redeploys. `--dry-run` to preview, `--yes` to skip prompt |
+| `afleet safe-mode` | Launches bare CC with no hooks/MCP/plugins (temp config dir, auto-cleaned) |
+
+**CC diagnostic technique:** When CC shows "Interrupted" or "Execution error" with no detail, use `claude --print "test" --output-format json` — this exposes the actual error (429, MAX_TIMEOUT_MS, MCP hang, etc.) that the normal UI hides. This was the breakthrough in the 2026-03-20 WSL lockout incident.
