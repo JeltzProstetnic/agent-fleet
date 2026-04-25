@@ -66,6 +66,8 @@ On first launch, the agent detects a `.setup-pending` marker and starts onboardi
 
 Every session after the first is automatic: pull latest config, load project knowledge, restore state, check for cross-project tasks.
 
+> **Which Opus model did you get?** `setup.sh` installs whatever Claude Code is current on npm, which (as of April 2026) bundles Opus 4.7 by default. To check, switch, or read the trade-offs (Fast Mode is Opus 4.6 only): see [`docs/model-version-guide.md`](docs/model-version-guide.md).
+
 ---
 
 ## The Fleet Launcher
