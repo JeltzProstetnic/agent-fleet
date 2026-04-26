@@ -603,16 +603,31 @@ DONTPANIC
     export MCLAUDE_SESSION_LOG="$__afleet_logfile"
     export AFLEET_LAUNCHED=1 AFLEET_PROJECT="$TARGET_NAME" CC_MIRROR_SPLASH=0
 
-    # script -c runs through sh -c; MCLAUDE is a simple path, INITIAL_PROMPT single-quoted
-    # Fallback: if script(1) is not installed (Fedora 42 splits it into util-linux-script),
-    # exec mclaude directly without terminal logging.
+    # Terminal logging via script(1). GNU (util-linux) and BSD (macOS) have
+    # incompatible flag sets: GNU uses -f -e -c CMD FILE, BSD uses FILE CMD ARGS.
+    # Detect flavor, branch, or fall back to no-logging if script(1) is absent
+    # (Fedora 42 splits it into util-linux-script).
     if command -v script &>/dev/null; then
-        if [[ -n "$INITIAL_PROMPT" ]]; then
-            script -q -f -e -c "$MCLAUDE '${INITIAL_PROMPT//\'/\'\\\'\'}'" "$__afleet_logfile"
+        if script --version 2>/dev/null | grep -q util-linux; then
+            # GNU util-linux: -q quiet, -f flush, -e exit-code, -c CMD FILE
+            if [[ -n "$INITIAL_PROMPT" ]]; then
+                script -q -f -e -c "$MCLAUDE '${INITIAL_PROMPT//\'/\'\\\'\'}'" "$__afleet_logfile"
+            else
+                script -q -f -e -c "$MCLAUDE" "$__afleet_logfile"
+            fi
+            MCLAUDE_EXIT=$?
         else
-            script -q -f -e -c "$MCLAUDE" "$__afleet_logfile"
+            # BSD (macOS): script [-q] FILE COMMAND [ARGS...]
+            # Does not propagate child exit code — capture via sidecar.
+            local _exit_sidecar="$__afleet_logdir/.exit-code"
+            if [[ -n "$INITIAL_PROMPT" ]]; then
+                script -q "$__afleet_logfile" bash -c "$MCLAUDE '$INITIAL_PROMPT'; echo \$? > '$_exit_sidecar'"
+            else
+                script -q "$__afleet_logfile" bash -c "$MCLAUDE; echo \$? > '$_exit_sidecar'"
+            fi
+            MCLAUDE_EXIT=$(cat "$_exit_sidecar" 2>/dev/null || echo 1)
+            rm -f "$_exit_sidecar"
         fi
-        MCLAUDE_EXIT=$?
     else
         echo "  ⚠ script(1) not found — terminal logging disabled (install util-linux-script)" >&2
         if [[ -n "$INITIAL_PROMPT" ]]; then
