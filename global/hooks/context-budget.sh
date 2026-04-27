@@ -95,9 +95,12 @@ if IFS= read -r -t 2 -d '' _hook_input 2>/dev/null || [[ -n "$_hook_input" ]]; t
         OUTPUT="${OUTPUT:+$OUTPUT | }LRN_TRIGGERED: Invoke the lrn skill via Skill tool. Load SKILL.md + references/known-faulty-patterns.md before responding."
     fi
     # Live-issue trigger phrases — present-tense failure reports
+    # `bug`, `no media`, `broke it`, `broken again` need [^a-z] word boundaries to avoid false matches in "debug", "no medians", etc.
+    # AGAIN (all-caps) checked separately on original-case message — the lowercase "again" is too common to trigger on.
     _lc_msg=$(printf '%s' "$_user_msg" | tr '[:upper:]' '[:lower:]')
-    _live_re='(is stuck|got stuck|is hanging|is hung|wont respond|won'"'"'t respond|isnt responding|isn'"'"'t responding|cant dismiss|can'"'"'t dismiss|cant close|can'"'"'t close|failed to load|fails to load|wont load|won'"'"'t load|just crashed|popup error|error popup)'
-    if [[ "$_lc_msg" =~ $_live_re ]]; then
+    _lc_msg_padded=" ${_lc_msg} "
+    _live_re='([^a-z]bug[^a-z]|[^a-z]no media[^a-z]|[^a-z]broke it[^a-z]|[^a-z]broken again[^a-z]|invisible media|keeps showing no media|is stuck|got stuck|is hanging|is hung|wont respond|won'"'"'t respond|isnt responding|isn'"'"'t responding|cant dismiss|can'"'"'t dismiss|cant close|can'"'"'t close|failed to load|fails to load|wont load|won'"'"'t load|just crashed|popup error|error popup)'
+    if [[ "$_lc_msg_padded" =~ $_live_re ]] || [[ "$_user_msg" =~ (^|[^A-Z])AGAIN([^A-Z]|$) ]]; then
         OUTPUT="${OUTPUT:+$OUTPUT | }LIVE_ISSUE_DETECTED: user reports a real-time failure. Capture live state synchronously (ps/logs/curl/pid files — whatever applies) in this same turn, then delegate deep investigation to a subagent with captured state in the prompt. Load knowledge/live-issue-capture.md for the protocol. Do NOT defer with 'capture if it recurs'."
     fi
 fi

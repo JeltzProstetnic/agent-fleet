@@ -717,6 +717,14 @@ install_cc_mirror() {
 # The statusline (context bar) works independently of TweakCC via the
 # statusLine key in settings.json. No patching needed.
 #
+# CLAUDE_CODE_VERSION pins the Claude Code version installed by cc-mirror.
+# Defaults to "latest" (whatever npm publishes as latest at install time).
+# Set to a specific version to control which Opus model you get:
+#   2.1.110 or earlier  → Opus 4.6 (includes Fast Mode)
+#   2.1.111 or later    → Opus 4.7 (default since 2026-04-23)
+# See docs/model-version-guide.md for the full version-to-model mapping.
+CLAUDE_CODE_VERSION="${CLAUDE_CODE_VERSION:-latest}"
+
 # To enable TweakCC (advanced, experimental):
 #   cc-mirror update mclaude --tweak
 # This may work on some setups but is not supported in the default install.
@@ -736,15 +744,22 @@ create_mclaude_variant() {
         return 0
     fi
 
-    log_info "Creating mclaude variant (provider: mirror, team mode, no-tweak)..."
+    log_info "Creating mclaude variant (provider: mirror, team mode, no-tweak, cc=${CLAUDE_CODE_VERSION})..."
     if [[ "${DRY_RUN}" == "false" ]]; then
         # Always use --no-tweak. TweakCC patching is incompatible with
         # cc-mirror's npm-based binary format and fails on most setups.
         # All functional features (statusline, hooks, MCP, permissions)
         # work without TweakCC. It only provides cosmetic patches.
-        if ! cc-mirror quick --provider mirror --name "${CC_MIRROR_VARIANT}" --no-tweak 2>&1; then
+        local _cc_args=(
+            quick
+            --provider mirror
+            --name "${CC_MIRROR_VARIANT}"
+            --no-tweak
+            --claude-version "${CLAUDE_CODE_VERSION}"
+        )
+        if ! cc-mirror "${_cc_args[@]}" 2>&1; then
             log_error "Failed to create mclaude variant"
-            log_error "You can try manually: cc-mirror quick --provider mirror --name ${CC_MIRROR_VARIANT} --no-tweak"
+            log_error "You can try manually: cc-mirror quick --provider mirror --name ${CC_MIRROR_VARIANT} --no-tweak --claude-version ${CLAUDE_CODE_VERSION}"
             exit 1
         fi
 
@@ -758,7 +773,7 @@ create_mclaude_variant() {
 
         log_info "mclaude launcher created at ~/.local/bin/${CC_MIRROR_VARIANT}"
     else
-        log_info "[DRY RUN] Would run: cc-mirror quick --provider mirror --name ${CC_MIRROR_VARIANT} --no-tweak"
+        log_info "[DRY RUN] Would run: cc-mirror quick --provider mirror --name ${CC_MIRROR_VARIANT} --no-tweak --claude-version ${CLAUDE_CODE_VERSION}"
         INSTALLED_STEPS+=("mclaude-variant (dry-run)")
     fi
 
