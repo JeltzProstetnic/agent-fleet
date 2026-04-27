@@ -6,7 +6,14 @@
 
 ## The short version
 
-When you run `setup.sh`, the installer pulls the latest published Claude Code from npm and uses whichever Opus version that build defaults to. As of late April 2026, that means **you get Opus 4.7**. If you want Opus 4.6 instead — for example, because you need Fast Mode or you prefer the older model's behavior — you need one extra command after install.
+When you run `setup.sh`, the installer pulls the latest published Claude Code from npm and uses whichever Opus version that build defaults to. As of late April 2026, that means **you get Opus 4.7**. If you want Opus 4.6 instead — for example, because you need Fast Mode or you prefer the older model's behavior — set `CLAUDE_CODE_VERSION` at install time:
+
+```bash
+CLAUDE_CODE_VERSION=2.1.110 bash setup.sh   # gives Opus 4.6 + Fast Mode
+bash setup.sh                                # default — whatever's current on npm (Opus 4.7 today)
+```
+
+You can also switch post-install with one command (see [Switching versions](#switching-versions)).
 
 There is no "wrong" choice. The two models target different priorities, and the fleet works correctly with either.
 
@@ -78,16 +85,18 @@ cc-mirror update mclaude --claude-version 2.1.117 --no-tweak
 
 ---
 
-## Why doesn't `setup.sh` ask?
+## Install-time version pinning
 
-Right now it doesn't, and that is a known rough edge. The installer hardcodes "latest from npm" because the fleet was originally built around a single Opus version and nobody had to choose. The dual-version situation is recent (April 2026).
+`setup.sh` honours the `CLAUDE_CODE_VERSION` environment variable. Set it before running setup to pin a specific Claude Code (and therefore Opus) version on the very first install — no post-install update step needed:
 
-Two improvements are on the table:
+```bash
+CLAUDE_CODE_VERSION=2.1.110 bash setup.sh   # Opus 4.6 + Fast Mode
+CLAUDE_CODE_VERSION=2.1.117 bash setup.sh   # Opus 4.7, pinned
+CLAUDE_CODE_VERSION=latest bash setup.sh    # explicit "latest" (default if unset)
+bash setup.sh                                # same as latest
+```
 
-1. **`CLAUDE_CODE_VERSION` env var** — `CLAUDE_CODE_VERSION=2.1.110 ./setup.sh` would pin at install time. Friendly for one-off customer choice.
-2. **`.claude-code-version` pin file** — a single-line file in the repo root, read by `setup.sh` if present. Friendly for teams that want everyone on the same version.
-
-Until one of those lands, the workflow is: install, then run the `cc-mirror update` command above if you want Opus 4.6.
+The variable is per-machine (each `setup.sh` run is independent). For team-wide pinning across multiple machines, the simplest pattern today is to commit a tiny wrapper script that invokes `CLAUDE_CODE_VERSION=<chosen> bash setup.sh`. A first-class `.claude-code-version` pin file in the repo root is being considered but is not yet implemented.
 
 ---
 
