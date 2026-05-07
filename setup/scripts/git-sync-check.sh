@@ -185,14 +185,50 @@ AHEAD=$(git rev-list "$COMPARE_REF..HEAD" --count)
 
 # Check diverged FIRST (both ahead and behind)
 if [ "$BEHIND" -gt 0 ] && [ "$AHEAD" -gt 0 ]; then
-  echo "DIVERGED: $AHEAD ahead, $BEHIND behind. Manual resolution needed."
-  echo ""
-  echo "Local commits not on remote:"
-  git log "$COMPARE_REF..HEAD" --oneline --no-decorate
-  echo ""
-  echo "Remote commits not local:"
-  git log "HEAD..$COMPARE_REF" --oneline --no-decorate
-  exit 2
+  # Auto-recover if ahead commits are only auto-sync rotations (safe to rebase)
+  LOCAL_SUBJECTS=$(git log "$COMPARE_REF..HEAD" --format='%s')
+  ALL_AUTOSYNC=true
+  while IFS= read -r subj; do
+    case "$subj" in
+      "Auto-sync: "*)  ;; # auto-sync rotation — safe to rebase
+      *)  ALL_AUTOSYNC=false; break ;;
+    esac
+  done <<< "$LOCAL_SUBJECTS"
+
+  if [ "$ALL_AUTOSYNC" = true ] && [ "$AUTO_PULL" = true ]; then
+    echo "DIVERGED: $AHEAD auto-sync commit(s) ahead, $BEHIND behind — auto-rebasing..."
+    if git rebase "$COMPARE_REF" --quiet 2>/dev/null; then
+      echo "Rebased successfully."
+      # Push the rebased auto-sync commits (force-with-lease: safe force push
+      # since rebase rewrites commit hashes; --force-with-lease refuses if remote
+      # changed since our fetch, preventing accidental overwrites)
+      _PUSH_REMOTE="${SYNC_REMOTE:-origin}"
+      _PUSH_BRANCH=$(git rev-parse --abbrev-ref HEAD)
+      git push "$_PUSH_REMOTE" "$_PUSH_BRANCH" --force-with-lease --quiet 2>/dev/null \
+        || echo "WARNING: Post-rebase push failed (will retry next session)."
+      # Rebase already incorporated all remote changes — done
+      exit 0
+    else
+      git rebase --abort 2>/dev/null || true
+      echo "WARNING: Auto-rebase failed — falling back to manual resolution."
+      echo ""
+      echo "Local commits not on remote:"
+      git log "$COMPARE_REF..HEAD" --oneline --no-decorate
+      echo ""
+      echo "Remote commits not local:"
+      git log "HEAD..$COMPARE_REF" --oneline --no-decorate
+      exit 2
+    fi
+  else
+    echo "DIVERGED: $AHEAD ahead, $BEHIND behind. Manual resolution needed."
+    echo ""
+    echo "Local commits not on remote:"
+    git log "$COMPARE_REF..HEAD" --oneline --no-decorate
+    echo ""
+    echo "Remote commits not local:"
+    git log "HEAD..$COMPARE_REF" --oneline --no-decorate
+    exit 2
+  fi
 fi
 
 if [ "$BEHIND" -gt 0 ]; then
@@ -208,16 +244,66 @@ if [ "$BEHIND" -gt 0 ]; then
     echo ""
     echo "Pulling..."
 
-    # Auto-stash dirty worktree to prevent pull failures (multi-device pattern)
+    # Recover interrupted rotation: if dirty files are only session rotation
+    # artifacts, commit them instead of stashing (prevents stash-pop conflicts).
     STASHED=false
     if ! git diff --quiet 2>/dev/null || ! git diff --cached --quiet 2>/dev/null; then
-      echo "Stashing local changes..."
-      git stash push --quiet -m "git-sync-check auto-stash" 2>/dev/null && STASHED=true
+      _DIRTY_FILES=$(git diff --name-only 2>/dev/null; git diff --cached --name-only 2>/dev/null)
+      _ALL_SESSION=true
+      while IFS= read -r _df; do
+        [ -z "$_df" ] && continue
+        case "$_df" in
+          session-context.md|session-history.md|next-session-task.md|docs/session-log.md|.post-rotation-commit) ;;
+          *) _ALL_SESSION=false; break ;;
+        esac
+      done <<< "$_DIRTY_FILES"
+
+      if [ "$_ALL_SESSION" = true ]; then
+        echo "Recovering interrupted session rotation..."
+        # Stage each file separately (git add fails atomically on multi-pathspec)
+        git add session-context.md 2>/dev/null || true
+        git add session-history.md 2>/dev/null || true
+        git add next-session-task.md 2>/dev/null || true
+        git add docs/session-log.md 2>/dev/null || true
+        git add .post-rotation-commit 2>/dev/null || true
+        if git diff --cached --quiet 2>/dev/null; then
+          # Nothing was actually staged (content unchanged) — fall back to stash
+          echo "No staged changes from rotation — stashing instead."
+          git stash push --quiet -m "git-sync-check auto-stash" 2>/dev/null && STASHED=true
+        else
+          git commit -m "Auto-sync: recovered rotation (interrupted)" --quiet 2>/dev/null || true
+          # Re-check: now we may be diverged (ahead+behind) — rebase auto-sync
+          _NOW_AHEAD=$(git rev-list "$COMPARE_REF..HEAD" --count 2>/dev/null || echo 0)
+          if [ "$_NOW_AHEAD" -gt 0 ]; then
+            if git rebase "$COMPARE_REF" --quiet 2>/dev/null; then
+              echo "Rebased recovered rotation onto remote."
+              _PUSH_REMOTE="${SYNC_REMOTE:-origin}"
+              _PUSH_BRANCH=$(git rev-parse --abbrev-ref HEAD)
+              git push "$_PUSH_REMOTE" "$_PUSH_BRANCH" --force-with-lease --quiet 2>/dev/null || true
+              # Pull already happened via rebase — skip normal pull path
+              echo "Pulled successfully (via rebase)."
+              # Update PRE_PULL_HEAD to post-rebase state for deploy-sensitive detection
+              PRE_PULL_HEAD=$(git rev-parse HEAD~"$BEHIND" 2>/dev/null || echo "$LOCAL")
+              PULL_OK=true
+            else
+              git rebase --abort 2>/dev/null || true
+              echo "WARNING: Rotation recovery rebase failed — stashing instead."
+              git reset HEAD~1 --quiet 2>/dev/null || true
+              git stash push --quiet -m "git-sync-check auto-stash" 2>/dev/null && STASHED=true
+            fi
+          fi
+        fi
+      else
+        echo "Stashing local changes..."
+        git stash push --quiet -m "git-sync-check auto-stash" 2>/dev/null && STASHED=true
+      fi
     fi
 
     # Save pre-pull HEAD for deploy-sensitive path detection (CFG-208)
     PRE_PULL_HEAD="$LOCAL"
 
+    # Skip normal pull if rotation recovery already handled it via rebase
+    if [ "${PULL_OK:-}" != true ]; then
     PULL_OK=false
     if [ -n "$SYNC_REMOTE" ]; then
       # Dual-remote: explicit merge from private remote only
@@ -235,6 +321,8 @@ if [ "$BEHIND" -gt 0 ]; then
         echo "WARNING: Fast-forward pull failed. Manual merge may be needed."
       fi
     fi
+
+    fi # end: skip normal pull if rotation recovery handled it
 
     # Restore stashed changes
     if [ "$STASHED" = true ]; then
