@@ -13,12 +13,13 @@ What the underlying model and Claude Code platform can do. Updated when upstream
 
 ### Active Opus model
 
-The fleet runs whichever Opus version `mclaude` (via `cc-mirror`) bundles at install time. The two relevant versions today:
+The fleet runs whichever Opus version `mclaude` (via `cc-mirror`) bundles at install time. The three relevant versions today:
 
 | Model | Default in CC version range | 1M context | Fast Mode (`/fast`) | Notes |
 |-------|----------------------------|-----------|--------------------|-------|
 | **Opus 4.6** | CC 2.1.76 – 2.1.110 (and any explicit pin) | Yes (native) | **Yes** — 2.5x speed at 6x cost, CC 2.1.36+ | Effort default `high` (raised from `medium` in 2.1.111). Knowledge cutoff Jan 2025. |
-| **Opus 4.7** | CC 2.1.111 onward (default since 2026-04-23) | Yes (native) | **No** — Anthropic did not carry Fast Mode forward | Effort default `xhigh` (since 2.1.117). Knowledge cutoff Jan 2026. |
+| **Opus 4.7** | CC 2.1.111 – 2.1.152 | Yes (native) | **No** — Anthropic did not carry Fast Mode forward | Effort default `xhigh` (since 2.1.117). Knowledge cutoff Jan 2026. |
+| **Opus 4.8** | CC 2.1.153+ (released 2026-05-28) | Yes (native) | **Yes** — 3x cheaper than 4.6 Fast Mode ($10/M in, $50/M out) | ~4x less hallucination. Effort controls. Dynamic parallel subagent workflows. Same base pricing as 4.6/4.7 ($5/$25). Knowledge cutoff May 2025. |
 
 Run `mclaude --version` to see the installed CC version, then map via the table. To switch: `cc-mirror update mclaude --claude-version <X> --no-tweak` (e.g. `2.1.110` for Opus 4.6).
 
@@ -28,7 +29,7 @@ Run `mclaude --version` to see the installed CC version, then map via the table.
 |-----------|---------|-------|
 | **Context window** | **1M tokens** for Opus 4.7, Opus 4.6, Sonnet 4.6, Sonnet 4.5 — native, no beta flag. Haiku 4.5 = 200k. GA since 2026-03-13. **CC bug:** CC sometimes reports `context_window_size=200000` for 1M-capable models; statusline-command.sh overrides via `MODEL_WINDOWS` table. CC 2.1.113 fixed Opus 4.7 sessions inflating `/context` percentages and autocompacting too early. | CC 2.1.76 (1M GA), CC 2.1.113 (Opus 4.7 fix) |
 | **Media limits** | Up to 600 images or PDF pages per request (was 100) | 2026-03-13 |
-| **Effort levels** | low / medium / high / xhigh. Default per model: Opus 4.6 = `high`, Opus 4.7 = `xhigh`. "ultrathink" keyword forces high effort for next turn. `max` level removed. | CC 2.1.68+ (effort), 2.1.111 (xhigh), 2.1.117 (defaults raised) |
+| **Effort levels** | low / medium / high / xhigh. Default per model: Opus 4.6 = `high`, Opus 4.7 = `xhigh`, Opus 4.8 = TBD (verify after CC update). "ultrathink" keyword forces high effort for next turn. `max` level removed. | CC 2.1.68+ (effort), 2.1.111 (xhigh), 2.1.117 (defaults raised) |
 | **PostCompact hook** | Fires after compaction. Can checkpoint state. PreCompact abandoned (#13572 closed). | CC 2.1.76 |
 | **SessionEnd timeout** | Configurable via `CLAUDE_CODE_SESSIONEND_HOOKS_TIMEOUT_MS` env var (default was 1.5s, we set 10000). | CC 2.1.74 |
 | **Deferred tools** | MCP tools loaded via ToolSearch survive compaction (schema fix). | CC 2.1.76 |
