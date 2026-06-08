@@ -217,7 +217,8 @@ configure_mcp_servers() {
       "args": [
         "--from",
         "git+https://github.com/oraios/serena",
-        "serena-mcp-server",
+        "serena",
+        "start-mcp-server",
         "--context",
         "claude-code"
       ],
