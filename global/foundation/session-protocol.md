@@ -74,11 +74,12 @@ The shutdown checklist is in `foundation/session-shutdown.md` — loaded on dema
 10. **Pending file carry-over (Layer 0b):** Check `PENDING_FILES:` in systemMessage. If `none`, skip. If listed, those `docs/pending-*.md` files exist and must be processed:
     - **Read the `Action:` line** in each file's header (see format below). If no header exists, treat as `triage`.
     - **`present`** → Read fully, include in opening response to user. These are session-start deliverables.
-    - **`act`** → Promote to backlog, create inbox items if cross-project, transition to `reference` with `Tracked-by:`.
+    - **`act`** → Promote to backlog, create inbox items if cross-project, transition to `reference` with `Tracked-by:` — unless surfaced under `STALE_PENDING:`, in which case verify-and-demote first.
     - **`triage`** → Read, promote actionable items to backlog as P0, then delete file.
     - **`await-user-decision`** → Read, present decision needed to user, note in carry-over items.
     - **`defer`** → List in session-context.md carry-over items without reading fully. No action needed.
     - **`reference`** → Skip at startup. Do not read or present. Only read when actively working on a `Tracked-by` backlog item and needing deeper context. Delete the file when ALL `Tracked-by` items are closed (`- [x]` in backlog).
+    - **`STALE_PENDING:`** → Read the cited commit or session-log line, then demote the file (→ `reference` with a real `Tracked-by:`, or delete) — never present it as actionable.
     - Files without an `Action:` line default to `triage` — read them to determine what's needed.
     - List all pending files and their outcomes in session-context.md under `## Carry-Over Items`.
     - Pending files are deleted after their items are fully resolved or promoted to backlog.
