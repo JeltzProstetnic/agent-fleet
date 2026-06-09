@@ -23,6 +23,10 @@ The fleet runs whichever Opus version `mclaude` (via `cc-mirror`) bundles at ins
 
 Run `mclaude --version` to see the installed CC version, then map via the table. To switch: `cc-mirror update mclaude --claude-version <X> --no-tweak` (e.g. `2.1.110` for Opus 4.6).
 
+### Creative-writing capability (delegation guidance)
+
+Per EQ-Bench Creative Writing v3 (Jun 2026): Opus 4.7 tops creative writing (Elo 2206); Opus 4.8 is third on creative (2031) but #1 on EQ General (2116), ahead of GPT-5.5. Sonnet 4.6 is a cheaper ~85% alternative but is **not** a creative upgrade over Opus — "delegate creative writing to Sonnet" is a downgrade, not an optimization. Implication: final creative/persuasive prose should be delegated to an **Opus** writer subagent, not Sonnet. (Source: social session 2026-06-09.)
+
 ### Platform capabilities
 
 | Capability | Details | Since |
@@ -103,6 +107,10 @@ Per-machine tools are inventoried in `~/.claude/machines/<machine>.md`. Check be
 | File opening (GUI) | Platform-dependent | Known Issues in machine file |
 
 **"Can I do X?" protocol:** Check (1) MCP tools, (2) machine file tooling table, (3) `which <tool>`. Only say "not available" after all three fail.
+
+### Match work to machine ergonomics
+
+Capability is not the only constraint — physical ergonomics matter. Default coding and typing-intensive work to chair-equipped machines (WSL, Deck 2 docked at the living-room TV, office). Avoid spinning up keyboard-intensive sessions on Steam Deck 1 unless the user is physically there with a keyboard — Deck 1 is a bedroom device (no chair, no permanent keyboard, in-bed evening/night use), best for read-only / quick-touch / observation, ambient sessions, or remote-driven work coordinated from another machine via SSH. (Source: p0rn session 2026-06-08.)
 
 ## Agent Capabilities
 
