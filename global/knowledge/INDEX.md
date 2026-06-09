@@ -18,6 +18,8 @@ Conditionally loaded files containing operational knowledge for specific tools a
 | `claude-code-permissions.md` | Permission prompts, settings.local.json issues | Override problem, fix procedure, prevention |
 | `learn-protocol.md` | — (deprecated) | Redirect to `skills/lrn/SKILL.md` |
 | `risk-analysis-protocol.md` | Risk gate blocks an edit (RISK_GATE in stderr) | Subagent prompt, clearance protocol, T1 file inventory, known failure modes |
+| `responsibility-modeling.md` | Documenting responsibility/ownership/governance, or a RACI matrix is proposed | Why RACI is rejected (7 failure modes); single-owner/DACI/STO/DARE/RAPID/Team-Topologies alternatives |
+| `glib-idle-callback-pattern.md` | GLib/GTK idle or timeout callback busy-loop, 100% CPU in a GTK app | The return-True one-shot `idle_add` pitfall and the `(callback(), False)[1]` fix |
 | `hook-behavior.md` | Hook debugging, platform-specific hook issues | UserPromptSubmit gaps, PreToolUse subagent support, urandom quirks |
 | `dev-browser-ops.md` | Using dev-browser skill or browser automation | Startup, Chromium drift fix, session persistence |
 | `age-encryption.md` | Encryption tasks involving age/pyrage | age CLI TTY limitation, pyrage alternative, passphrase handling |
