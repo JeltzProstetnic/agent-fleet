@@ -66,7 +66,7 @@ On first launch, the agent detects a `.setup-pending` marker and starts onboardi
 
 Every session after the first is automatic: pull latest config, load project knowledge, restore state, check for cross-project tasks.
 
-> **Which Opus model did you get?** `setup.sh` installs whatever Claude Code is current on npm, which (as of April 2026) bundles Opus 4.7 by default. To pin a specific Claude Code / Opus version at install time, set `CLAUDE_CODE_VERSION=2.1.110 bash setup.sh` (gives you Opus 4.6 + Fast Mode). To check, switch post-install, or read the trade-offs: see [`docs/model-version-guide.md`](docs/model-version-guide.md).
+> **Which Claude model did you get?** `setup.sh` installs whatever Claude Code is current on npm, which (as of June 2026) bundles Opus 4.8 by default (CC 2.1.153+). On CC 2.1.170+ you can also select **Fable 5** (alias `fable`), Anthropic's preview flagship — selectable, never the default. To pin a specific Claude Code / model version at install time, set `CLAUDE_CODE_VERSION=2.1.110 bash setup.sh` (gives you Opus 4.6 + Fast Mode). To check, switch post-install, or read the trade-offs: see [`docs/model-version-guide.md`](docs/model-version-guide.md).
 
 ---
 
