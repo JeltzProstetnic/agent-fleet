@@ -58,7 +58,7 @@ The foundation everything else runs on.
 | sync.sh | Bidirectional sync: repo ↔ deployed config (setup/deploy/collect/status/stamp) | `sync.sh` |
 | Vault | Single encrypted secrets store (AES-256-CBC), deploy to all targets | `secrets/vault.json.enc`, `vault-manage.sh` |
 | Registry | Project catalog with parent/child relationships, machine assignments | `registry.md` |
-| Template sync | Personal cfg-agent-fleet → public agent-fleet repo with push-filter sanitization | `sync.sh deploy`, `.push-filter.conf` |
+| Template sync | Personal config repo → public agent-fleet repo with push-filter sanitization | `sync.sh deploy`, `.push-filter.conf` |
 | Hooks | SessionStart (config-check.sh, 34 checks), SessionEnd (auto-sync), PreToolUse (AFD relay), PostToolUse (auto-lint for Write/Edit), UserPromptSubmit (AFK deactivate, context budget) | `global/hooks/` |
 | Session system | Context persistence, 3-layer history, pending file handover, rotation, crash recovery. Shutdown checklist loaded on-demand (`session-shutdown.md`) to save ~1k tokens/session. | `session-context.md`, `rotate-session.sh` |
 | Cross-project inbox | One-off task passing between projects, picked up per-session | `cross-project/inbox.md` |
@@ -80,7 +80,7 @@ Built on top of core infrastructure. Enhance the agent's operational capabilitie
 | Statusline: PDI | Personality Disorder Indicator — active persona name, color-matched | `setup/config/statusline-command.sh` |
 | lrn | Self-audit protocol — rule compliance, knowledge capture, process/architecture | `skills/lrn/SKILL.md` |
 | Mobile support | Separate repo for mobile Claude app session logging | `agent-fleet-mobile` |
-| VPS deployment | Terminal + chat UI at code.matthiasgruber.com | `vps/` |
+| VPS deployment | Terminal + chat UI served from your configured VPS domain | `vps/` |
 
 ## Life OS Packages
 
