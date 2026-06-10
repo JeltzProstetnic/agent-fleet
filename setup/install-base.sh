@@ -35,7 +35,7 @@ set -euo pipefail
 
 # Resolve script directory
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-CONFIG_REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"  # The config repo root (cfg-agent-fleet or agent-fleet clone)
+CONFIG_REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"  # The config repo root (your personal config repo or an agent-fleet clone)
 
 # Source shared utilities
 source "${SCRIPT_DIR}/lib.sh"
