@@ -354,7 +354,7 @@ cmd_safe_mode() {
     printf "  Launching with: no hooks, no MCP servers, no plugins, minimal settings\n\n"
 
     if [[ "$dry_run" == "1" ]]; then
-        printf "  ${C_YELLOW}Dry run — would create temp config and launch bare claude.${C_RESET}\n\n"
+        printf "  ${C_YELLOW}Dry run — would create temp config and launch: claude --safe-mode (bare, no hooks/MCP/plugins).${C_RESET}\n\n"
         return 0
     fi
 
@@ -406,8 +406,17 @@ EOF
         return 1
     fi
 
+    # Belt-and-suspenders: on top of the temp-config isolation above, also pass
+    # CC's native --safe-mode flag (2.1.169+) so customizations are disabled at the
+    # binary level even if config-dir isolation leaks. Probe first so an older
+    # binary that doesn't know the flag still launches.
+    local safe_flag=""
+    if $claude_bin --help 2>&1 | grep -q -- '--safe-mode'; then
+        safe_flag="--safe-mode"
+    fi
+
     # Launch with stripped config
-    CLAUDE_CONFIG_DIR="$safe_dir" $claude_bin "$@" || true
+    CLAUDE_CONFIG_DIR="$safe_dir" $claude_bin $safe_flag "$@" || true
 
     # Cleanup
     rm -rf "$safe_dir"
