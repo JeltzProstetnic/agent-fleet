@@ -2,6 +2,20 @@
 
 All notable changes to Agent Fleet are documented here. This follows [Keep a Changelog](https://keepachangelog.com/) conventions.
 
+## [1.2] — 2026-06-10
+
+**Fable 5 / Claude Code 2.1.170 support.** Documentation and installer awareness for the Opus 4.8 default and the selectable Fable 5 preview flagship. (Note: changelog entries between 0.8 and 1.2 are not yet backfilled.)
+
+### Added
+- Fable 5 awareness across docs: new "Fable 5" section + model-table row in `global/knowledge/fleet-capabilities.md` (selectable in CC 2.1.170+, alias `fable`, full id `claude-fable-5`, $10/$50 per Mtok, auto-fallback to Opus 4.8 in high-risk domains)
+- Recommended Fable 5 usage patterns documented (subagent with `model: claude-fable-5`, dedicated `--model fable` session, session-only `/model` switch) — keeps Opus 4.8 as the default
+- Opus 4.8 entries in `docs/model-version-guide.md`, README, and the `install-base.sh` version-to-model comment map (CC 2.1.153+, released 2026-05-28)
+
+### Changed
+- `docs/model-version-guide.md` reframed from "Opus 4.6 vs 4.7" to cover Opus 4.6 / 4.7 / 4.8 and Fable 5; version pin examples updated (2.1.152 = last 4.7-default, 2.1.170 = Fable-capable)
+- README "Which model did you get?" note updated: Opus 4.8 is the bundled default on recent Claude Code; Fable 5 selectable on 2.1.170+
+- Fleet validated on Claude Code 2.1.170
+
 ## [0.8] — 2026-03-26
 
 **Architecture-first release.** The repo is now the single source of truth — all config flows in one direction (repo → deployed). No more bidirectional sync. Full clean-room E2E tested on Ubuntu 24.04.

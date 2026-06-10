@@ -719,9 +719,11 @@ install_cc_mirror() {
 #
 # CLAUDE_CODE_VERSION pins the Claude Code version installed by cc-mirror.
 # Defaults to "latest" (whatever npm publishes as latest at install time).
-# Set to a specific version to control which Opus model you get:
+# Set to a specific version to control which Claude model you get:
 #   2.1.110 or earlier  → Opus 4.6 (includes Fast Mode)
-#   2.1.111 or later    → Opus 4.7 (default since 2026-04-23)
+#   2.1.111 - 2.1.152   → Opus 4.7 (default 2026-04-23 to 2026-05-28)
+#   2.1.153 or later    → Opus 4.8 (default since 2026-05-28)
+#   2.1.170 or later    → Fable 5 selectable (alias `fable`; Opus 4.8 stays the default)
 # See docs/model-version-guide.md for the full version-to-model mapping.
 CLAUDE_CODE_VERSION="${CLAUDE_CODE_VERSION:-latest}"
 

@@ -1,16 +1,17 @@
-# Choosing Your Opus Model: 4.6 vs 4.7
+# Choosing Your Claude Model: Opus 4.6 / 4.7 / 4.8 — and Fable 5
 
-**Audience:** Anyone who installed `agent-fleet` and wants to understand which Claude Opus model they got, why, and how to switch.
+**Audience:** Anyone who installed `agent-fleet` and wants to understand which Claude model they got, why, and how to switch.
 
 ---
 
 ## The short version
 
-When you run `setup.sh`, the installer pulls the latest published Claude Code from npm and uses whichever Opus version that build defaults to. As of late April 2026, that means **you get Opus 4.7**. If you want Opus 4.6 instead — for example, because you need Fast Mode or you prefer the older model's behavior — set `CLAUDE_CODE_VERSION` at install time:
+When you run `setup.sh`, the installer pulls the latest published Claude Code from npm and uses whichever model that build defaults to. As of June 2026, that means **you get Opus 4.8** (the bundled default since CC 2.1.153, released 2026-05-28). On CC 2.1.170+ you can additionally select **Fable 5**, Anthropic's preview flagship. If you want an older Opus instead — for example, because you need Opus 4.6's Fast Mode — set `CLAUDE_CODE_VERSION` at install time:
 
 ```bash
 CLAUDE_CODE_VERSION=2.1.110 bash setup.sh   # gives Opus 4.6 + Fast Mode
-bash setup.sh                                # default — whatever's current on npm (Opus 4.7 today)
+CLAUDE_CODE_VERSION=2.1.152 bash setup.sh   # gives Opus 4.7 (last 4.7-default release)
+bash setup.sh                                # default — whatever's current on npm (Opus 4.8 today)
 ```
 
 You can also switch post-install with one command (see [Switching versions](#switching-versions)).
@@ -30,7 +31,9 @@ Map the version number to the model:
 | You see | You're running |
 |---------|----------------|
 | `2.1.110` or earlier | Opus 4.6 (default at install time was 4.6) |
-| `2.1.111` or later   | Opus 4.7 (default flipped on 2026-04-23) |
+| `2.1.111` – `2.1.152` | Opus 4.7 (default flipped on 2026-04-23) |
+| `2.1.153` or later   | Opus 4.8 (default flipped on 2026-05-28) |
+| `2.1.170` or later   | Opus 4.8 by default, **Fable 5 selectable** (alias `fable`, id `claude-fable-5`) |
 
 This mapping holds for fresh installs. If you've manually pinned a version, the pin wins regardless of what npm currently publishes.
 
@@ -53,6 +56,20 @@ This mapping holds for fresh installs. If you've manually pinned a version, the 
 
 ---
 
+## Opus 4.8 and Fable 5
+
+**Opus 4.8** (released 2026-05-28) is the current Opus generation and the bundled default on CC 2.1.153+. Same base pricing as 4.6/4.7, 1M context window, and it brings Fast Mode back. For most users, "do nothing" now means Opus 4.8.
+
+**Fable 5** is Anthropic's preview flagship (announced 2026-06-09) — a tier above Opus, SOTA on most benchmarks, priced at $10/M input and $50/M output. It is **selectable, never the default**: it requires CC 2.1.170+ and an account where the model is enabled. Use the alias `fable` or the full id `claude-fable-5`. In high-risk domains it auto-falls back to Opus 4.8.
+
+Recommended ways to use Fable 5 without losing the Opus 4.8 default:
+
+1. **Subagent (best):** define an agent with `model: claude-fable-5` and invoke it on demand — no manual toggling.
+2. **Dedicated session:** launch a separate session/tab with `--model fable`.
+3. **Session-only switch:** open the `/model` picker and press `s` (session-only). Plain `/model fable` + Enter **persists** the new default — avoid unless that's intended.
+
+---
+
 ## Switching versions
 
 The mechanism is the same in both directions: re-install Claude Code at a specific version, then restart your session.
@@ -65,16 +82,17 @@ cc-mirror update mclaude --claude-version 2.1.110 --no-tweak
 
 Recommended: pin to `2.1.110` specifically (the last 4.6-default release). Older versions work but miss bug fixes — for example, the 1M context handling on Opus 4.6 itself was only stable from CC 2.1.76 onward.
 
-### Re-upgrade to Opus 4.7 (latest)
+### Upgrade to latest (Opus 4.8, Fable 5 selectable)
 
 ```bash
 cc-mirror update mclaude --claude-version latest --no-tweak
 ```
 
-Or pin to a specific 4.7-era version:
+Or pin to a specific era:
 
 ```bash
-cc-mirror update mclaude --claude-version 2.1.117 --no-tweak
+cc-mirror update mclaude --claude-version 2.1.152 --no-tweak   # last Opus 4.7-default release
+cc-mirror update mclaude --claude-version 2.1.170 --no-tweak   # Opus 4.8 default + Fable 5 selectable
 ```
 
 ### After switching
@@ -91,7 +109,8 @@ cc-mirror update mclaude --claude-version 2.1.117 --no-tweak
 
 ```bash
 CLAUDE_CODE_VERSION=2.1.110 bash setup.sh   # Opus 4.6 + Fast Mode
-CLAUDE_CODE_VERSION=2.1.117 bash setup.sh   # Opus 4.7, pinned
+CLAUDE_CODE_VERSION=2.1.152 bash setup.sh   # Opus 4.7, pinned (last 4.7-default release)
+CLAUDE_CODE_VERSION=2.1.170 bash setup.sh   # Opus 4.8 default, Fable 5 selectable
 CLAUDE_CODE_VERSION=latest bash setup.sh    # explicit "latest" (default if unset)
 bash setup.sh                                # same as latest
 ```
@@ -119,3 +138,5 @@ The variable is per-machine (each `setup.sh` run is independent). For team-wide 
 - Fast Mode is currently Opus 4.6 only — Anthropic confirmed via API docs
 - CC 2.1.111 release notes: introduced Opus 4.7 + xhigh effort, raised default effort for 4.6/Sonnet 4.6 to `high`
 - CC 2.1.113 release notes: fixed Opus 4.7 sessions computing against 200K context instead of native 1M
+- Opus 4.8 released 2026-05-28; became the CC bundled default with CC 2.1.153
+- Fable 5 announced 2026-06-09 (anthropic.com/news/claude-fable-5-mythos-5); selectable in Claude Code 2.1.170+
