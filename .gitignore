@@ -69,6 +69,9 @@ session-history.md
 # Runtime session lock (PID lock for session safety, CFG-146)
 .claude/.session-lock
 
+# Claude Code per-project permissions (user-configured, per-machine)
+.claude/settings.local.json
+
 # Runtime project state (created by first-run refinement, per-user)
 backlog.md
 registry.md
