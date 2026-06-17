@@ -13,18 +13,20 @@ What the underlying model and Claude Code platform can do. Updated when upstream
 
 ### Active Opus model
 
-The fleet runs whichever Opus version `mclaude` (via `cc-mirror`) bundles at install time. The four relevant models today (Fable 5 is selectable, never the bundled default):
+The fleet runs whichever Opus version `mclaude` (via `cc-mirror`) bundles at install time. The relevant models today (Fable 5 is **geo-blocked outside the US → unavailable to this fleet**, so Opus 4.8 is the effective ceiling here):
 
 | Model | Default in CC version range | 1M context | Fast Mode (`/fast`) | Notes |
 |-------|----------------------------|-----------|--------------------|-------|
 | **Opus 4.6** | CC 2.1.76 – 2.1.110 (and any explicit pin) | Yes (native) | **Yes** — 2.5x speed at 6x cost, CC 2.1.36+ | Effort default `high` (raised from `medium` in 2.1.111). Knowledge cutoff Jan 2025. |
 | **Opus 4.7** | CC 2.1.111 – 2.1.152 | Yes (native) | **No** — Anthropic did not carry Fast Mode forward | Effort default `xhigh` (since 2.1.117). Knowledge cutoff Jan 2026. |
 | **Opus 4.8** | CC 2.1.153+ (current default; released 2026-05-28) | Yes (native) | **Yes** — 3x cheaper than 4.6 Fast Mode ($10/M in, $50/M out) | ~4x less hallucination. Effort controls. Dynamic parallel subagent workflows. Same base pricing as 4.6/4.7 ($5/$25). Knowledge cutoff May 2025. |
-| **Fable 5** | Never the default — selectable in CC 2.1.170+ (alias `fable`, id `claude-fable-5`) | Yes (native) | No | Preview flagship (announced 2026-06-09), tier above Opus. SOTA on most benchmarks; auto-falls back to Opus 4.8 in high-risk domains. $10/M in, $50/M out. See the Fable 5 section below. |
+| **Fable 5** | ⛔ **UNAVAILABLE to this fleet** — geo-blocked outside US (id `claude-fable-5`) | — | — | **Geo-restricted to the US (Anthropic regulatory block, indefinite as of 2026-06-17) → cannot be selected on any fleet machine (any machine outside the US — this fleet included). Use Opus 4.8 for the hardest tasks + red-team checkpoints.** Preview flagship (announced 2026-06-09), tier above Opus; $10/M in, $50/M out. See the Fable 5 section below. |
 
 Run `mclaude --version` to see the installed CC version, then map via the table. To switch: `cc-mirror update mclaude --claude-version <X> --no-tweak` (e.g. `2.1.110` for Opus 4.6).
 
 ### Fable 5 (preview model, June 2026)
+
+> **⛔ UNAVAILABLE TO THIS FLEET (indefinite, confirmed by user 2026-06-17):** Anthropic geo-restricted Fable 5 to the US for regulatory reasons → it is **blocked outside the US**, so no fleet machine (any machine outside the US — this fleet included) can select it. The `fable` subagent and `--model fable` do not work here. **Use Opus 4.8 for the hardest tasks and ALL red-team / adversarial-verify checkpoints.** It is **geo-blocked, NOT discontinued** — Fable 5 remains available IN the US, so a US-located machine, or the user over a US VPN, may be able to select it under certain circumstances. Treat it as conditionally reachable (US/VPN), not gone; revisit if a US path is set up or access broadens. The description below is Fable as designed.
 
 **Claude Fable 5** — Anthropic flagship announced 2026-06-09; the safeguarded, generally-available version of internal **Mythos 5**. SOTA on most benchmarks (SWE, knowledge work, vision, scientific research), built for long-running multi-stage async tasks. In high-risk domains (cyber/bio/chem) it blocks and **auto-falls back to Opus 4.8** (<5% of sessions; toggle via `/config` → "switch models when a message is flagged"). API price **$10/M in, $50/M out**.
 
