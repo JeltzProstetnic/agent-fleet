@@ -169,9 +169,17 @@ export GIT_INDEX_FILE="$TEMP_INDEX"
 # Read current branch's tree into the temp index
 git read-tree "$BRANCH"
 
-# Remove excluded paths
+# Remove excluded paths. Mirror the glob handling below: WARN — never silently
+# swallow — when an exact path matches nothing in the index. A silent no-match is the
+# renamed-dir / stale-config signal that let a sensitive path slip into the public
+# tree undetected (Fable R4/C7, 2026-07-05). Fail-closed hard assertion on a surviving
+# excluded path is tracked separately (needs a cross-project .push-filter.conf sweep).
 for path in "${EXCLUDE_PATHS[@]}"; do
-    git rm -r --cached --quiet "$path" 2>/dev/null || true
+    if git ls-files --cached -- "$path" 2>/dev/null | grep -q .; then
+        git rm -r --cached --quiet -- "$path" 2>/dev/null || true
+    else
+        echo "WARNING: exclude '$path' matched no files in index (renamed dir or stale config?)" >&2
+    fi
 done
 
 # Remove excluded glob patterns
