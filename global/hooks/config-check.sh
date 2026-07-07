@@ -11,6 +11,9 @@ source "$(dirname "${BASH_SOURCE[0]}")/lib-portable.sh" 2>/dev/null || true
 # Config repo detection — canonical source in lib-detect-repo.sh
 source "$(dirname "${BASH_SOURCE[0]}")/lib-detect-repo.sh" 2>/dev/null || true
 
+# CC session id from hook stdin (CFG-452) — binds lock ownership to this session
+source "$(dirname "${BASH_SOURCE[0]}")/lib-hook-stdin.sh" 2>/dev/null || true
+
 # ── Shared state (used by all check modules) ──
 CONFIG_REPO="$(_detect_config_repo)"
 FAIL_MARKER="$CONFIG_REPO/.sync-failed"
@@ -24,6 +27,17 @@ CC_MIRROR_DIR="${CC_MIRROR_DIR:-$HOME/.cc-mirror/mclaude}"
 SETTINGS_FILE="$CC_MIRROR_DIR/config/settings.json"
 PROJECT_DIR="$(pwd)"
 PROJECT_ROOT="$(git -C "$CONFIG_REPO" rev-parse --show-toplevel 2>/dev/null || echo "$CONFIG_REPO")"
+
+# ── CC session id (CFG-452) ──
+# Read the session_id from this hook's stdin JSON and export it so the lock
+# check (checks/07b-platform-env.sh) can bind the lock to a unique CC session,
+# closing the F1 env-inheritance spoof. Empty on any failure → legacy behaviour.
+# TTY-guarded + 2s-bounded read (see lib-hook-stdin.sh) — cannot hang startup.
+CC_SESSION_ID=""
+if command -v read_cc_session_id >/dev/null 2>&1; then
+    CC_SESSION_ID="$(read_cc_session_id)"
+fi
+export CC_SESSION_ID
 
 # ── Resolve checks directory ──
 _HOOK_DIR="$(cd "$(dirname "$(_readlink_f "${BASH_SOURCE[0]}" 2>/dev/null || echo "${BASH_SOURCE[0]}")")" && pwd)"
