@@ -64,6 +64,20 @@ pre_deploy_checks() {
                 .hooks // {} | to_entries[] | .value[] |
                 .hooks[]? | select(.type == "command") | .command
             ' "$_settings" 2>/dev/null) || true
+        elif command -v python3 &>/dev/null; then
+            # Same traversal as the jq path. A blind grep for "command" also matches
+            # statusLine.command (legitimately not a hook) and would false-positive
+            # this check into blocking every deploy on machines without jq.
+            _hook_cmds=$(python3 -c '
+import json, sys
+with open(sys.argv[1]) as fh:
+    data = json.load(fh)
+for matchers in (data.get("hooks") or {}).values():
+    for matcher in matchers or []:
+        for hook in (matcher.get("hooks") or []):
+            if hook.get("type") == "command" and hook.get("command"):
+                print(hook["command"])
+' "$_settings" 2>/dev/null) || true
         else
             _hook_cmds=$(grep -oE '"command"[[:space:]]*:[[:space:]]*"[^"]*"' "$_settings" \
                 | sed 's/.*"\(bash [^"]*\)".*/\1/' | grep '^bash ' || true)
