@@ -17,11 +17,43 @@ if [[ -f "${_ROTATE_SCRIPT_DIR}/../lib.sh" ]]; then
     source "${_ROTATE_SCRIPT_DIR}/../lib.sh"
 fi
 
-PROJECT_DIR="${1:-.}"
+# --- Parse args (CFG-452 Phase 2) ---
+# Accept an optional --owner-verified flag anywhere in the args. The caller uses
+# it to assert it has already proven lock ownership (the leader's SessionEnd);
+# without it, rotation of a project held by a DIFFERENT live session is refused.
+_OWNER_VERIFIED=0
+_RS_POSITIONAL=()
+for _a in "$@"; do
+    case "$_a" in
+        --owner-verified) _OWNER_VERIFIED=1 ;;
+        *) _RS_POSITIONAL+=("$_a") ;;
+    esac
+done
+PROJECT_DIR="${_RS_POSITIONAL[0]:-.}"
 SESSION_FILE="$PROJECT_DIR/session-context.md"
 HISTORY_FILE="$PROJECT_DIR/session-history.md"
 LOG_DIR="$PROJECT_DIR/docs"
 LOG_FILE="$LOG_DIR/session-log.md"
+
+# --- CFG-452 Phase 2: ownership guard (never rotate another live session's project) ---
+# rotate-session.sh mutates shared session state (history, log, next-session-task);
+# a follower must never rotate the leader's project. Ownership can't be proven by
+# PID here (rotate runs as a subprocess of the SessionEnd hook, so its $$ never
+# matches the lock's recorded PID), so proof is delegated to --owner-verified.
+# Absent the flag, refuse ONLY when a FOREIGN live lock is present — ordinary solo
+# use and tests (no lock) are unaffected.
+if [[ "$_OWNER_VERIFIED" -ne 1 ]]; then
+    _RS_LOCK_LIB="${_ROTATE_SCRIPT_DIR}/session-lock.sh"
+    if [[ -f "$_RS_LOCK_LIB" && -f "$PROJECT_DIR/.claude/.session-lock" ]]; then
+        _rs_rc=0
+        ( source "$_RS_LOCK_LIB"; check_lock "$PROJECT_DIR" ) >/dev/null 2>&1 || _rs_rc=$?
+        if [[ "$_rs_rc" -eq 2 || "$_rs_rc" -eq 3 ]]; then
+            echo "rotate-session: refusing — $PROJECT_DIR is held by another live session (check_lock=$_rs_rc)." >&2
+            echo "This is a follower-safety guard. The leader's shutdown passes --owner-verified to rotate." >&2
+            exit 3
+        fi
+    fi
+fi
 
 # --- Check session-context.md exists and has content ---
 if [[ ! -f "$SESSION_FILE" ]]; then
