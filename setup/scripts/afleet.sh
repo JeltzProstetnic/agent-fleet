@@ -282,8 +282,11 @@ afleet_acquire_session_lock() {
     local session_id
     session_id=$(_generate_session_id)
 
-    # Acquire local lock
-    if ! acquire_lock "$project_dir" "$session_id"; then
+    # Acquire local lock. Pass afleet's own (non-CC) PID as the exclude so the
+    # CFG-468 live-CC scan RUNS at pre-launch (non-empty exclude) and catches an
+    # incumbent session whose lock decayed to a dead ephemeral pid — afleet is not
+    # a CC process, so excluding it is harmless.
+    if ! acquire_lock "$project_dir" "$session_id" "" "$$"; then
         echo "" >&2
         echo "  ⚠ Project locked by another session on this machine." >&2
         lock_info "$project_dir" >&2
