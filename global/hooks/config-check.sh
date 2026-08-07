@@ -2,7 +2,8 @@
 # SessionStart hook: check for config sync failures, symlink health, and inbox tasks.
 # Outputs JSON with additionalContext so Claude sees the warning in context (invisible to user).
 #
-# Check modules live in checks/ subdirectory (01-sync-state.sh through 14-audit-staleness.sh).
+# Check modules live in checks/ subdirectory and are sourced in filename order
+# (01-sync-state.sh through 20-user-needs.sh) — adding a file there registers it.
 # Each module reads/modifies the shared variables below.
 
 # Source portable wrappers (provides _readlink_f for macOS compat)

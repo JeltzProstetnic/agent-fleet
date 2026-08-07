@@ -9,9 +9,22 @@ source "$(dirname "${BASH_SOURCE[0]}")/lib-portable.sh" 2>/dev/null || true
 
 OUTPUT=""
 
-# Context budget from statusline sidecar
-SIDECAR="${CONTEXT_BUDGET_PATH:-$HOME/.claude/.context-budget.json}"
-if [[ -f "$SIDECAR" ]]; then
+# Read ALL of stdin ONCE, up front — the sidecar lookup needs session_id and
+# the trigger detection below needs message. `read` fails on input without a
+# trailing newline, so use IFS + -d '' to grab everything or fall back silently.
+_hook_input=""
+IFS= read -r -t 2 -d '' _hook_input 2>/dev/null || true
+_session_id=$(printf '%s' "$_hook_input" | python3 -c "import sys,json; print(json.load(sys.stdin).get('session_id',''))" 2>/dev/null) || true
+
+# Context budget from this session's statusline sidecar.
+# Keyed by session id (CFG-458) — a shared sidecar is last-writer-wins across
+# concurrent sessions, which silently injected another session's numbers.
+# If this session has no sidecar yet, stay silent rather than guess.
+SIDECAR="${CONTEXT_BUDGET_PATH:-}"
+if [[ -z "$SIDECAR" && -n "$_session_id" ]]; then
+    SIDECAR="${CONTEXT_BUDGET_DIR:-$HOME/.claude}/.context-budget-${_session_id}.json"
+fi
+if [[ -n "$SIDECAR" && -f "$SIDECAR" ]]; then
     read -r PCT USED_K SIZE_K 2>/dev/null <<< "$(python3 -c "
 import json, sys
 try:
@@ -86,10 +99,8 @@ fi
 # LRN skill trigger detection — safety net for skill invocation
 # Live-issue capture trigger detection (CFG-389) — injects LIVE_ISSUE_DETECTED
 #   when user reports a real-time failure; agent loads knowledge/live-issue-capture.md.
-# Read ALL of stdin with timeout — `read` fails on input without trailing newline,
-# so use IFS + -d '' to grab everything or fall back silently.
-_hook_input=""
-if IFS= read -r -t 2 -d '' _hook_input 2>/dev/null || [[ -n "$_hook_input" ]]; then
+# stdin was consumed at the top of this script — reuse the captured payload.
+if [[ -n "$_hook_input" ]]; then
     _user_msg=$(printf '%s' "$_hook_input" | python3 -c "import sys,json; print(json.load(sys.stdin).get('message',''))" 2>/dev/null) || true
     if [[ "$_user_msg" =~ (^|[[:space:]])(lrn|LRN)($|[[:space:]]) ]]; then
         OUTPUT="${OUTPUT:+$OUTPUT | }LRN_TRIGGERED: Invoke the lrn skill via Skill tool. Load SKILL.md + references/known-faulty-patterns.md before responding."
