@@ -182,12 +182,17 @@ for path in "${EXCLUDE_PATHS[@]}"; do
     fi
 done
 
-# Remove excluded glob patterns
+# Remove excluded glob patterns.
+# QUOTE the pathspec. git does its own index-based pathspec globbing (matches tracked
+# entries, recursively). Left UNQUOTED, the SHELL expands the glob against the WORKTREE
+# first — dragging in untracked build artifacts (.aux/.log) that are not in the index;
+# `git rm` is all-or-nothing across pathspecs, aborts on the untracked path, and removes
+# NOTHING while the ls-files guard still sees the tracked match and stays silent. That is
+# exactly how the full book manuscripts leaked to the public aIware mirror (root cause
+# found 2026-07-31). Quoting makes git match the index, not the disk.
 for glob in "${EXCLUDE_GLOBS[@]}"; do
-    # shellcheck disable=SC2086
-    # Verify glob matches at least one staged file before attempting removal
-    if git ls-files --cached -- $glob 2>/dev/null | grep -q .; then
-        git rm -r --cached --quiet -- $glob 2>/dev/null || true
+    if git ls-files --cached -- "$glob" 2>/dev/null | grep -q .; then
+        git rm -r --cached --quiet -- "$glob" 2>/dev/null || true
     else
         echo "WARNING: exclude_glob '$glob' matched no files in index" >&2
     fi
@@ -198,6 +203,17 @@ TREE=$(git write-tree)
 
 # Restore normal index
 unset GIT_INDEX_FILE
+
+# FAIL-CLOSED: assert that no excluded path or glob survived into the public tree.
+# git's pathspec matching against the TREE object (not the worktree) is authoritative.
+# A survivor means an exclusion silently failed — refuse to push rather than leak.
+# (Closes the "hard assertion tracked separately" gap noted above; 2026-07-31.)
+for pat in "${EXCLUDE_PATHS[@]}" "${EXCLUDE_GLOBS[@]}"; do
+    if git ls-tree -r --name-only "$TREE" -- "$pat" 2>/dev/null | grep -q .; then
+        echo "FATAL: excluded pattern '$pat' survived into the filtered public tree — refusing to push (fail-closed)." >&2
+        exit 1
+    fi
+done
 
 # Determine parent for the public commit (fetch only the ref, no merge)
 # SAFETY: We only read the remote ref — we never merge it into our working tree.
