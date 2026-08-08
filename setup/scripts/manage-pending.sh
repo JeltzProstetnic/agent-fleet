@@ -66,11 +66,16 @@ BACKLOG_FILE="$PROJECT_DIR/backlog.md"
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
 
-# Read Action: header from a pending file (first 5 lines), lowercase
+# Read Action: header from a pending file (first 5 lines), lowercase.
+# Accepts BOTH `Action: x` and `<!-- Action: x -->` (CFG-482) — every real
+# pending file uses the comment form so the header stays invisible in rendered
+# markdown, and the bare-form-only parser reported all of them as "unknown".
 get_action() {
     local file="$1"
     local action
-    action=$(head -5 "$file" | sed -n 's/^Action: *\(.*\)/\1/p' | head -1 | tr '[:upper:]' '[:lower:]')
+    action=$(head -5 "$file" | sed -e 's/<!--//' -e 's/-->//' \
+        | sed -n 's/^[[:space:]]*Action:[[:space:]]*\([^[:space:]]*\).*/\1/p' \
+        | head -1 | tr '[:upper:]' '[:lower:]')
     echo "${action:-unknown}"
 }
 

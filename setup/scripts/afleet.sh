@@ -680,7 +680,12 @@ post_session_cleanup() {
             echo "    Branch: $branch" >&2
             printf '  Fast-forward merge into main session and delete worktree? [y/N] ' >&2
             local _ans=""
-            read -r _ans </dev/tty 2>/dev/null || read -r _ans || _ans=""
+            # afleet runs under `script -c`, which consumes stdin, so the real
+            # prompt must read the terminal directly. AFLEET_PROMPT_INPUT is the
+            # test seam (CFG-474): without it the tests could only ever exercise
+            # the no-controlling-terminal fallback, so the suite passed in CI and
+            # hung forever for the human it was meant to gate.
+            read -r _ans <"${AFLEET_PROMPT_INPUT:-/dev/tty}" 2>/dev/null || read -r _ans || _ans=""
             if [[ "$_ans" =~ ^[yY] ]]; then
                 if [[ -n "$dirty" ]]; then
                     echo "  ✖ Uncommitted changes in worktree — commit or discard before merging." >&2
