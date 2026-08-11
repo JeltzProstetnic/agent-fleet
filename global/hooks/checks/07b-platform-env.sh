@@ -78,7 +78,7 @@ fi
 
 # Check 33: Email check — surface recent labeled emails at startup (optional)
 # If you have a mail check script, configure it here
-MAIL_CHECK_SCRIPT="$CONFIG_REPO/setup/scripts/bartl-mail-check.sh"
+MAIL_CHECK_SCRIPT="${MAIL_CHECK_SCRIPT:-$CONFIG_REPO/setup/scripts/mail-check.sh}"
 if [ -f "$MAIL_CHECK_SCRIPT" ]; then
     MAIL_OUTPUT=$(timeout 10 bash "$MAIL_CHECK_SCRIPT" --since 24 2>/dev/null || true)
     if [ -n "$MAIL_OUTPUT" ]; then
