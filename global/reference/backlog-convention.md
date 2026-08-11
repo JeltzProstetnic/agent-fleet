@@ -40,18 +40,15 @@ Standard prefixes:
 
 | Prefix | Project |
 |--------|---------|
-| `CFG` | cfg-agent-fleet |
-| `AIW` | aIware |
-| `SOC` | social |
+| `AFT` | agent-fleet (this repo) |
 | `INF` | infrastructure |
-| `IVO` | ivoclar |
-| `AFT` | agent-fleet |
-| `MUS` | muse |
-| `MBX` | mirror-box |
-| `CRU` | crucible |
-| `A2D` | ai2do |
+| `DOC` | docs-site |
+| `API` | api-service |
+| `WEB` | web-app |
 
-New projects: pick a 2-4 letter prefix, add to this table.
+The rows below `AFT` are illustrative — replace them with your own projects. Pick a
+2-4 letter prefix per project, keep it stable once used (IDs are never reused), and
+add it to this table.
 
 ## Keep Backlogs Lean
 

@@ -1,5 +1,5 @@
 # Check group 7b: Platform, docs & lock checks
-# Checks: 29(wsl.conf), 30(doc coherence), 33(Bartl mail), 31(session lock)
+# Checks: 29(wsl.conf), 30(doc coherence), 33(mail check), 31(session lock)
 # Shared vars used: CONFIG_REPO, WARNINGS, INBOX_MSG, PROJECT_DIR
 # Split from original 07-environment.sh; settings/tools checks remain in 07-environment.sh
 

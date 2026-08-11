@@ -19,38 +19,36 @@ fi
 if [[ -x "$AFD_CLI" ]]; then
   MESSAGES=$(timeout 3 "$AFD_CLI" messages 2>/dev/null)
   if [[ -n "$MESSAGES" ]]; then
-    HAS_ELSA=false
     LAST_PERSONA=""
     COLLECTED=""
 
+    # Persona-agnostic: the channel a message arrived on is read from the message
+    # itself, never hardcoded, so this works with whatever personas are configured
+    # in foundation/personas.md.
     while IFS= read -r line; do
       msg=$(echo "$line" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('message',''))" 2>/dev/null)
       ts=$(echo "$line" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('timestamp','')[:16])" 2>/dev/null)
       persona=$(echo "$line" | python3 -c "import sys,json; print(json.load(sys.stdin).get('persona','') or '')" 2>/dev/null)
       if [[ -n "$msg" ]]; then
-        if [[ "$persona" == "Elsa" ]]; then
-          HAS_ELSA=true
-          COLLECTED="${COLLECTED}[$ts] $msg"$'\n'
+        if [[ -n "$persona" ]]; then
+          COLLECTED="${COLLECTED}[$ts] ($persona channel) $msg"$'\n'
+          LAST_PERSONA="$persona"
         else
-          COLLECTED="${COLLECTED}[$ts] (Bartl channel) $msg"$'\n'
+          COLLECTED="${COLLECTED}[$ts] $msg"$'\n'
         fi
-        LAST_PERSONA="$persona"
       fi
     done <<< "$MESSAGES"
 
-    if [[ "$HAS_ELSA" == "true" ]]; then
+    if [[ -n "$COLLECTED" ]]; then
       echo ""
-      echo "=== Telegram from Matthias (via @ElsaXoBot) ==="
+      echo "=== Incoming Telegram messages ==="
       echo "$COLLECTED"
-      echo "ACTION: Switch to Elsa persona. Reply warmly to this message via Telegram."
-      echo "Send reply: afd notify all \"<your Elsa reply>\" --channel telegram --persona Elsa"
-      echo "After replying, switch back to previous persona."
-      echo "==="
-    elif [[ -n "$COLLECTED" ]]; then
-      echo ""
-      echo "=== Telegram from Matthias ==="
-      echo "$COLLECTED"
-      echo "Reply via: afd notify all \"your reply\" --channel telegram"
+      if [[ -n "$LAST_PERSONA" ]]; then
+        echo "ACTION: These arrived on the '$LAST_PERSONA' persona channel. Switch to that persona to reply, then switch back."
+        echo "Send reply: afd notify all \"<your reply>\" --channel telegram --persona $LAST_PERSONA"
+      else
+        echo "Reply via: afd notify all \"your reply\" --channel telegram"
+      fi
       echo "==="
     fi
   fi
