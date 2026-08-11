@@ -160,7 +160,7 @@ After processing all selections, present a final overview of available capabilit
 - **Mobile access** — lightweight repo for managing projects from your phone
 
 **Upcoming:**
-- **Muse** — AI-powered creative studio for image generation, art direction, and visual content creation
+- **Creative studio** — AI-assisted image generation, art direction, and visual content workflows
 - **Full GUI** — desktop dashboard with visual project management, progress indicators, and persona face
 
 Type `lsd` for a project dashboard anytime. Everything is documented — just ask."

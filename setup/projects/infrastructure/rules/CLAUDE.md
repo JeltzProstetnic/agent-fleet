@@ -1,6 +1,6 @@
 # Infrastructure — Network & Environment
 
-Home lab, server, and workstation infrastructure management. NUC (Fedora Server 42, Podman, Home Assistant), VPS (Ubuntu 24.04, nginx-proxy), matthiasgruber.com hosting (Hostinger FTP), workstation configs (Win11/WSL).
+Home lab, server, and workstation infrastructure management. Replace this line with your own estate — e.g. a home server (containers, home automation), a VPS (reverse proxy, TLS), any hosted domains, and your workstation configs.
 
 ## Knowledge Loading
 
@@ -33,8 +33,8 @@ Home lab, server, and workstation infrastructure management. NUC (Fedora Server 
 ## Project-Specific Knowledge
 
 - `docs/ha-inventory.md` — Home Assistant device/entity inventory
-- `docs/web-presence.md` — 3 domains, FTP deploy, Hostinger hosting
-- `docs/network.md` — Starlink CGNAT, reverse SSH tunnel
+- `docs/web-presence.md` — domains, deploy method, hosting provider
+- `docs/network.md` — ISP/NAT constraints, tunnels, remote access
 
 ## Cross-Project References
 
@@ -47,4 +47,4 @@ Home lab, server, and workstation infrastructure management. NUC (Fedora Server 
 - Document all infrastructure changes before and after
 - Never store credentials in plain text — use encrypted vaults
 - Test changes in staging/parallel before cutting over
-- Website changes go through staging first (`sites/matthiasgruber.com-staging/`)
+- Website changes go through staging first (`sites/<your-domain>-staging/`)
