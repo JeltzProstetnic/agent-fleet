@@ -34,7 +34,7 @@ case "$FILE_PATH" in
     */.local/bin/afleet)                    IS_T1=true ;;
     */.cc-mirror/*/config/settings.json)    IS_T1=true ;;
     */.mcp.json)                            IS_T1=true ;;
-    */agent-fleet/sync.sh)              IS_T1=true ;;
+    */cfg-agent-fleet/sync.sh)              IS_T1=true ;;
     */agent-fleet/sync.sh)                  IS_T1=true ;;
 esac
 
