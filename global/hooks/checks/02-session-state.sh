@@ -1,8 +1,9 @@
+#!/usr/bin/env bash
 # Check group 2: Session state — pull latest config, detect unclean shutdown
-# Checks: 4, 5
+# Checks: 2.1, 2.2
 # Shared vars used: CONFIG_REPO, WARNINGS, DEFAULT_BRANCH, PROJECT_DIR
 
-# Check 4: Pull latest config (so inbox is current), and report changed files
+# Check 2.1: Pull latest config (so inbox is current), and report changed files
 if [ -d "$CONFIG_REPO/.git" ]; then
     SYNC_REMOTE="origin"
     if [ -f "$CONFIG_REPO/.push-filter.conf" ]; then
@@ -22,7 +23,7 @@ if [ -d "$CONFIG_REPO/.git" ]; then
     fi
 fi
 
-# Check 5: Detect unclean shutdown — session-context.md has content but wasn't rotated
+# Check 2.2: Detect unclean shutdown — session-context.md has content but wasn't rotated
 if [[ -f "$PROJECT_DIR/session-context.md" && -s "$PROJECT_DIR/session-context.md" ]]; then
     PREV_GOAL=$(sed -n 's/.*\*\*Session Goal\*\*: \(.\+\)/\1/p' "$PROJECT_DIR/session-context.md" 2>/dev/null | head -1)
     if [[ -n "$PREV_GOAL" ]]; then

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Check group 9: DMS backup gap audit (daily)
-# Runs dms-stats.sh once per day, surfaces critical backup gaps in systemMessage.
+# Runs dms-stats.sh once per day, surfaces critical backup gaps in additionalContext.
 # Shared vars used: CONFIG_REPO, WARNINGS
 
 _DMS_STATS="$CONFIG_REPO/dms/scripts/dms-stats.sh"

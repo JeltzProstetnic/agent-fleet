@@ -40,5 +40,5 @@ command = sys.argv[2] if len(sys.argv) > 2 else ''
 if 'global/' in stdout or 'global/' in command:
     msg += ' | PROPAGATION: This commit touches global/ — check if template sync is needed.'
 
-print(json.dumps({'continue': True, 'systemMessage': msg}))
+print(json.dumps({'continue': True, 'additionalContext': msg}))
 " "$STDOUT" "$COMMAND"

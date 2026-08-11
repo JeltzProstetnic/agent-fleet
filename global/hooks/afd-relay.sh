@@ -15,6 +15,37 @@
 # Read stdin first (must drain pipe before any exit)
 INPUT=$(cat)
 
+# AskUserQuestion: route to Telegram when AFK (CFG-323)
+if [[ "$INPUT" == *'"tool_name":"AskUserQuestion"'* || "$INPUT" == *'"tool_name": "AskUserQuestion"'* ]]; then
+    AFK_MARKER="$HOME/.afd-afk"
+    [[ ! -f "$AFK_MARKER" ]] && exit 0
+    AFD_CLI="${HOME}/.local/bin/afd"
+    if [[ ! -x "$AFD_CLI" ]]; then
+        echo "AFK mode active but afd CLI not found — cannot route question" >&2
+        exit 2
+    fi
+    QUESTION=$(echo "$INPUT" | python3 -c "import sys,json; print(json.load(sys.stdin).get('tool_input',{}).get('question',''))" 2>/dev/null)
+    echo "AFK mode: routing question to Telegram..." >&2
+    NL=$'\n'
+    MSG="Question from Claude (AFK):${NL}${NL}${QUESTION}${NL}${NL}Reply with your answer."
+    RESULT=$("$AFD_CLI" notify all "$MSG" --type permission --priority high 2>&1)
+    NOTIF_ID=$(echo "$RESULT" | grep -oE '#[0-9]+' | sed 's/^#//')
+    if [[ -z "$NOTIF_ID" ]]; then
+        echo "Failed to route question to Telegram" >&2
+        exit 2
+    fi
+    echo "Waiting for answer (#$NOTIF_ID)..." >&2
+    ANSWER=$("$AFD_CLI" poll "$NOTIF_ID" --timeout ${AFD_AFK_TIMEOUT:-3600} 2>&1)
+    if [[ $? -ne 0 || -z "$ANSWER" ]]; then
+        echo "No answer received (timeout). Blocking." >&2
+        exit 2
+    fi
+    # Return updatedInput with the user's answer injected as the question response
+    printf '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"allow","updatedInput":{"question":"%s"}}}' \
+        "$(echo "$ANSWER" | python3 -c "import sys,json; print(json.dumps(sys.stdin.read().strip())[1:-1])" 2>/dev/null)"
+    exit 0
+fi
+
 # Non-Bash tools: exit 0 with no output (CC treats empty stdout + exit 0 as hook_success)
 if [[ "$INPUT" != *'"tool_name":"Bash"'* && "$INPUT" != *'"tool_name": "Bash"'* ]]; then
     exit 0

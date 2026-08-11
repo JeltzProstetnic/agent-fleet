@@ -48,9 +48,9 @@ esac
 # If no lint errors, exit silently
 [ -n "$LINT_OUTPUT" ] || exit 0
 
-# Output JSON with systemMessage for Claude
+# Output JSON with additionalContext for Claude
 python3 -c "
 import json, sys
 msg = f'Auto-lint ({sys.argv[1]}): {sys.argv[2]}'
-print(json.dumps({'continue': True, 'systemMessage': msg}))
+print(json.dumps({'continue': True, 'additionalContext': msg}))
 " "$BASENAME" "$LINT_OUTPUT"

@@ -40,3 +40,15 @@ _stat_mtime() {
 _stat_size() {
     stat -c %s "$1" 2>/dev/null || stat -f %z "$1" 2>/dev/null
 }
+
+# Convert path to native format for non-MSYS tools (Python, etc.).
+# On MINGW64/Cygwin, bash paths like /c/Users/... must become C:/Users/... for
+# native Windows programs. No-op on Linux/macOS. (CFG-336)
+_to_native_path() {
+    local path="$1"
+    if [[ "${OSTYPE:-}" == msys* || "${OSTYPE:-}" == cygwin* ]] && command -v cygpath &>/dev/null; then
+        cygpath -m "$path"
+    else
+        echo "$path"
+    fi
+}

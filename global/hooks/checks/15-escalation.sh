@@ -1,3 +1,4 @@
+#!/usr/bin/env bash
 # Check group 15: Escalation aggregation — summarize when warnings pile up
 # If >3 warnings exist, prepend an ESCALATION summary for visibility.
 # Shared vars used: WARNINGS

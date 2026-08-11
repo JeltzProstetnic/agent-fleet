@@ -1,12 +1,13 @@
+#!/usr/bin/env bash
 # Check group 8: Real-time propagation drift — personal vs template repo
 # Checks: 34
 # Shared vars used: CONFIG_REPO, WARNINGS
 #
-# Complements Check 13 (which surfaces PREVIOUS session's drift log from .sync-warnings.log).
+# Complements Check 4.5 (which surfaces PREVIOUS session's drift log from .sync-warnings.log).
 # This check does a real-time diff of "Must Be Identical" files from the manifest,
 # catching drift even when the previous session didn't shut down cleanly.
 
-# Check 34: Compare "Must Be Identical" manifest files between personal and template
+# Check 8.1: Compare "Must Be Identical" manifest files between personal and template
 _TEMPLATE_DIR="$HOME/agent-fleet"
 _MANIFEST="$CONFIG_REPO/template-sync-manifest.md"
 

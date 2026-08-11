@@ -1,9 +1,10 @@
+#!/usr/bin/env bash
 # Check group 7: Environment — settings & tools checks
-# Checks: 19(plugins), 32(splash), 27(afleet), 28(TweakCC)
+# Checks: 7.1, 7.2, 7.3, 7.4
 # Shared vars used: CONFIG_REPO, WARNINGS, SETTINGS_FILE
 # Split from original 07-environment.sh; platform/docs/lock checks moved to 07b-platform-env.sh
 
-# Check 19: Auto-disable global enabledPlugins (token budget protection)
+# Check 7.1: Auto-disable global enabledPlugins (token budget protection)
 if [ -f "$SETTINGS_FILE" ]; then
     if grep -q '"enabledPlugins"' "$SETTINGS_FILE" 2>/dev/null; then
         _ep_tmp="$(mktemp)"
@@ -16,7 +17,7 @@ if [ -f "$SETTINGS_FILE" ]; then
     fi
 fi
 
-# Check 32: Auto-fix CC_MIRROR_SPLASH drift
+# Check 7.2: Auto-fix CC_MIRROR_SPLASH drift
 if [ -f "$SETTINGS_FILE" ]; then
     if grep -q '"CC_MIRROR_SPLASH"' "$SETTINGS_FILE" 2>/dev/null; then
         _splash_val=$(python3 -c "import json; d=json.load(open('$SETTINGS_FILE')); print(d.get('env',{}).get('CC_MIRROR_SPLASH','0'))" 2>/dev/null || echo "0")
@@ -35,12 +36,12 @@ if 'env' in d and 'CC_MIRROR_SPLASH' in d['env']:
     fi
 fi
 
-# Check 27: afleet mandatory — warn if launched directly via mclaude
+# Check 7.3: afleet mandatory — warn if launched directly via mclaude
 if [[ -z "${AFLEET_LAUNCHED:-}" ]]; then
     WARNINGS="${WARNINGS:+$WARNINGS | }Session NOT launched via afleet. Use 'afleet' instead of 'mclaude' — afleet handles pre-pull, project detection, and session safety. Direct mclaude launch skips fleet infrastructure."
 fi
 
-# Check 28: TweakCC stale patch detection
+# Check 7.4: TweakCC stale patch detection
 CC_MIRROR_DIR="${CC_MIRROR_DIR:-$HOME/.cc-mirror/mclaude}"
 TWEAKCC_CONFIG="$CC_MIRROR_DIR/tweakcc/config.json"
 CC_PACKAGE="$CC_MIRROR_DIR/npm/node_modules/@anthropic-ai/claude-code/package.json"

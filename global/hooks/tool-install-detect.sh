@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # PostToolUse hook: detect tool installations and remind to update machine file.
 # Fires on Bash. Detects pipx/pip/npm -g/pacman -S/apt install/flatpak install.
-# Non-blocking — just a systemMessage reminder.
+# Non-blocking — just an additionalContext reminder.
 
 set -euo pipefail
 
@@ -32,5 +32,5 @@ esac
 python3 -c "
 import json, sys
 msg = f'TOOL_INSTALLED ({sys.argv[1]}): Update the machine file Installed Tooling table now. If cross-project boundary blocks the edit, create an inbox item.'
-print(json.dumps({'continue': True, 'systemMessage': msg}))
+print(json.dumps({'continue': True, 'additionalContext': msg}))
 " "$DETECTED"
