@@ -38,9 +38,11 @@ _check_files() {
     done
 }
 
-# Bash scripts: setup/scripts/*.sh, sync.sh
+# Bash scripts: setup/scripts/*.sh, sync.sh, afd/**/*.sh
 _check_files "$CONFIG_REPO/setup/scripts/*.sh" 400 600 "bash"
 _check_files "$CONFIG_REPO/sync.sh" 400 600 "bash"
+_check_files "$CONFIG_REPO/afd/*.sh" 400 600 "bash"
+_check_files "$CONFIG_REPO/afd/lib/*.sh" 400 600 "bash"
 
 # Test files: setup/tests/*.sh
 _check_files "$CONFIG_REPO/setup/tests/*.sh" 800 1500 "test"

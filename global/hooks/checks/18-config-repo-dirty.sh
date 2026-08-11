@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Check group 18: Config repo dirty state + ghost session detection
-# Detects uncommitted changes in cfg-agent-fleet at session start.
+# Detects uncommitted changes in agent-fleet at session start.
 # Also detects ghost sessions: blank session-context.md + dirty repo = previous
 # session made changes but never committed or shut down properly.
 # Shared vars used: CONFIG_REPO, WARNINGS, PROJECT_DIR
@@ -33,9 +33,24 @@ fi
 
 # Collect-uncommitted marker — written by sync.sh collect when it
 # skips hooks due to uncommitted edits in the repo.
+# Auto-delete if listed files have no uncommitted changes (stale marker).
 _collect_marker="$CONFIG_REPO/.collect-uncommitted-hooks"
 if [ -f "$_collect_marker" ]; then
     _marker_files=$(grep '^files=' "$_collect_marker" 2>/dev/null | cut -d= -f2-)
     _marker_ts=$(grep '^timestamp=' "$_collect_marker" 2>/dev/null | cut -d= -f2-)
-    WARNINGS="${WARNINGS:+$WARNINGS | }COLLECT_BLOCKED: sync.sh collect skipped hooks due to uncommitted edits (${_marker_ts:-unknown time}): ${_marker_files:-unknown files}. Commit or revert the edits, then delete $_collect_marker."
+    _marker_stale=true
+    if [ -n "$_marker_files" ]; then
+        for _mf in $(echo "$_marker_files" | tr ',' ' '); do
+            if git -C "$CONFIG_REPO" diff --name-only 2>/dev/null | grep -q "$_mf" || \
+               git -C "$CONFIG_REPO" diff --cached --name-only 2>/dev/null | grep -q "$_mf"; then
+                _marker_stale=false
+                break
+            fi
+        done
+    fi
+    if [ "$_marker_stale" = true ]; then
+        rm -f "$_collect_marker"
+    else
+        WARNINGS="${WARNINGS:+$WARNINGS | }COLLECT_BLOCKED: sync.sh collect skipped hooks due to uncommitted edits (${_marker_ts:-unknown time}): ${_marker_files:-unknown files}. Commit or revert the edits, then delete $_collect_marker."
+    fi
 fi

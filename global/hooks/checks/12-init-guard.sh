@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Check 12: Detect if project CLAUDE.md was nuked by /init
+# Check 12.1: Detect if project CLAUDE.md was nuked by /init
 # If a project has a CLAUDE.md without the agent-fleet-managed marker,
 # AND the project is in the registry, it was likely overwritten by /init.
 

@@ -1,12 +1,15 @@
+#!/usr/bin/env bash
 # Check group 11: VoltAgent plugin integrity
-# Checks: 37, 38, 39, 40
+# Checks: 11.1, 11.2, 11.3
 # Shared vars used: SETTINGS_FILE, WARNINGS
 #
 # Verifies that:
-#   37. voltagent-subagents marketplace is registered in known_marketplaces.json
-#   38. All 10 expected VoltAgent plugin bundles are in installed_plugins.json
-#   39. Global enabledPlugins is empty (token budget rule)
-#   40. Plugin cache directories exist and are non-empty for installed bundles
+#   11.1. voltagent-subagents marketplace is registered in known_marketplaces.json
+#   11.2. All 10 expected VoltAgent plugin bundles are in installed_plugins.json
+#   11.3. Plugin cache directories exist and are non-empty for installed bundles
+#
+# Note: Global enabledPlugins check removed — Check 7.1 (07-environment.sh) auto-empties
+# enabledPlugins before this file runs, making a warning-only check dead code.
 #
 # Expected state (from upstream-dependencies.md):
 #   Marketplace: voltagent-subagents
@@ -25,7 +28,7 @@ _EXPECTED_BUNDLES="voltagent-lang voltagent-infra voltagent-core-dev voltagent-q
 voltagent-data-ai voltagent-dev-exp voltagent-domains voltagent-biz \
 voltagent-meta voltagent-research"
 
-# Check 37: voltagent-subagents marketplace registered
+# Check 11.1: voltagent-subagents marketplace registered
 if [ -f "$_MARKETPLACES_FILE" ]; then
     if ! grep -q '"voltagent-subagents"' "$_MARKETPLACES_FILE" 2>/dev/null; then
         _PLUGIN_ISSUES="${_PLUGIN_ISSUES:+$_PLUGIN_ISSUES; }voltagent-subagents marketplace not registered in known_marketplaces.json (run 'mclaude marketplace add VoltAgent/awesome-claude-code-subagents' to fix)"
@@ -34,7 +37,7 @@ else
     _PLUGIN_ISSUES="${_PLUGIN_ISSUES:+$_PLUGIN_ISSUES; }voltagent-subagents marketplace not registered (known_marketplaces.json missing — reinstall required)"
 fi
 
-# Check 38: All expected plugin bundles installed
+# Check 11.2: All expected plugin bundles installed
 if [ -f "$_INSTALLED_FILE" ]; then
     _MISSING_BUNDLES=""
     for _bundle in $_EXPECTED_BUNDLES; do
@@ -49,27 +52,7 @@ else
     _PLUGIN_ISSUES="${_PLUGIN_ISSUES:+$_PLUGIN_ISSUES; }installed_plugins.json missing — VoltAgent plugin bundles may not be installed"
 fi
 
-# Check 39: Global enabledPlugins must be empty (token budget rule)
-# Only check if settings.json exists
-if [ -f "$SETTINGS_FILE" ]; then
-    # Check if enabledPlugins has any non-whitespace content between braces
-    # A non-empty object will have at least one key (a quoted string)
-    if python3 -c "
-import json, sys
-try:
-    s = json.load(open('$SETTINGS_FILE'))
-    ep = s.get('enabledPlugins', {})
-    sys.exit(0 if (isinstance(ep, dict) and len(ep) == 0) else 1)
-except Exception:
-    sys.exit(0)  # can't parse — skip check
-" 2>/dev/null; then
-        : # enabledPlugins is empty, good
-    else
-        _PLUGIN_ISSUES="${_PLUGIN_ISSUES:+$_PLUGIN_ISSUES; }CRITICAL: enabledPlugins is non-empty in global settings.json — plugin agent descriptions consume ~10k tokens per bundle, violating token budget rule. Disable all enabledPlugins globally immediately."
-    fi
-fi
-
-# Check 40: Plugin cache directories exist and are non-empty (at least one file anywhere inside)
+# Check 11.3: Plugin cache directories exist and are non-empty (at least one file anywhere inside)
 if [ -f "$_INSTALLED_FILE" ]; then
     _EMPTY_CACHE=""
     for _bundle in $_EXPECTED_BUNDLES; do

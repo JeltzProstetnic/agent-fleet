@@ -1,3 +1,4 @@
+#!/usr/bin/env bash
 set -euo pipefail
 
 INPUT=$(cat)
@@ -18,7 +19,7 @@ case "$FILE_PATH" in
     */.local/bin/afleet)                 TIER="T1" ;;
     */.cc-mirror/*/config/settings.json) TIER="T1" ;;
     */.mcp.json)                         TIER="T1" ;;
-    */cfg-agent-fleet/sync.sh)           TIER="T1" ;;
+    */agent-fleet/sync.sh)           TIER="T1" ;;
     */agent-fleet/sync.sh)               TIER="T1" ;;
     *agent-fleet/global/*)               TIER="T2" ;;
     *agent-fleet/setup/config/*)         TIER="T2" ;;
@@ -44,5 +45,5 @@ fi
 
 python3 -c "
 import json, sys
-print(json.dumps({'continue': True, 'systemMessage': sys.argv[1]}))
+print(json.dumps({'continue': True, 'additionalContext': sys.argv[1]}))
 " "$MSG"

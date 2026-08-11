@@ -1,3 +1,4 @@
+#!/usr/bin/env bash
 # Check group 10: Incomplete project setup detection
 # Warns when a project's CLAUDE.md exists but is missing key sections.
 # Shared vars used: PROJECT_DIR, WARNINGS

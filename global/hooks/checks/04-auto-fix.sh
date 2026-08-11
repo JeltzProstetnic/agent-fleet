@@ -103,6 +103,28 @@ if [ -f "$PROJECT_DIR/MEMORY.md" ] || [ -d "$PROJECT_DIR/memory" ]; then
     WARNINGS="${WARNINGS:+$WARNINGS | }[WARN] $PROJECT_DIR has $_mem_targets — fleet rules prohibit auto-memory. Delete and use proper fleet structure."
 fi
 
+# Check 4.8b: MCP config symlink health — auto-fix broken ~/.mcp.json
+# workspace-mcp and other MCP servers silently fail to register when this symlink is broken.
+# The user sees no error — Gmail/Calendar/Drive tools simply don't appear in the session.
+_MCP_LINK="$HOME/.mcp.json"
+_MCP_TARGET="$CC_MIRROR_DIR/config/.mcp.json"
+if [ -L "$_MCP_LINK" ] && [ ! -e "$_MCP_LINK" ]; then
+    # Broken symlink — auto-fix
+    if [ -f "$_MCP_TARGET" ]; then
+        rm -f "$_MCP_LINK"
+        ln -s "$_MCP_TARGET" "$_MCP_LINK" 2>/dev/null
+        if [ ! -e "$_MCP_LINK" ]; then
+            WARNINGS="${WARNINGS:+$WARNINGS | }~/.mcp.json is a broken symlink and auto-fix failed. MCP servers (Gmail, Calendar, etc.) will not work. Fix: ln -s $_MCP_TARGET $_MCP_LINK"
+        fi
+        # Silent on success (auto-fix over warn)
+    else
+        WARNINGS="${WARNINGS:+$WARNINGS | }~/.mcp.json is a broken symlink and no canonical MCP config found at $_MCP_TARGET. MCP servers will not work."
+    fi
+elif [ ! -e "$_MCP_LINK" ] && [ -f "$_MCP_TARGET" ]; then
+    # Missing entirely — create it
+    ln -s "$_MCP_TARGET" "$_MCP_LINK" 2>/dev/null || true
+fi
+
 # Check 4.8: AFD client deployed — auto-source env if available
 if [ -f "$HOME/.afd-env" ] && [ -z "${AFD_TOKEN:-}" ]; then
     . "$HOME/.afd-env" 2>/dev/null || true
