@@ -11,7 +11,12 @@ if [ -d "$CONFIG_REPO/.git" ]; then
         [ -n "$PR" ] && SYNC_REMOTE="$PR"
     fi
     OLD_HEAD=$(git -C "$CONFIG_REPO" rev-parse HEAD 2>/dev/null || true)
-    if ! git -C "$CONFIG_REPO" pull --ff-only "$SYNC_REMOTE" "$DEFAULT_BRANCH" 2>/dev/null; then
+    # CFG-503: BOTH streams must be silenced. `git pull` writes "Already up to
+    # date." to STDOUT, and this hook's stdout is a JSON contract — any stray
+    # byte makes CC discard the entire additionalContext payload, so every
+    # SessionStart check goes dark with no error anywhere. Never `2>/dev/null`
+    # alone on a command run inside a hook that prints JSON.
+    if ! git -C "$CONFIG_REPO" pull --ff-only "$SYNC_REMOTE" "$DEFAULT_BRANCH" >/dev/null 2>&1; then
         WARNINGS="${WARNINGS:+$WARNINGS | }Config repo could not fast-forward — branches may have diverged"
     fi
     NEW_HEAD=$(git -C "$CONFIG_REPO" rev-parse HEAD 2>/dev/null || true)
