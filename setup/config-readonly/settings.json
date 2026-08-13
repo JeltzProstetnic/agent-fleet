@@ -1,0 +1,12 @@
+{
+  "_comment": "READ-ONLY profile (CFG-506). The deny list is the ACTUAL guarantee — an abliterated 7B has no refusal behaviour, so restriction must be enforced by the harness, not requested in a prompt. Bash is denied ENTIRELY and deliberately: `echo x > f`, `python3 -c \"open(...,'w')\"` and a hundred other spellings make any Bash allowlist leaky. Read/Grep/Glob cover reading and searching, which is the whole job. Do not add Bash back to make something convenient.",
+  "permissions": {
+    "deny": ["Write", "Edit", "NotebookEdit", "Bash", "Agent", "Artifact", "TaskCreate", "TaskUpdate"]
+  },
+  "statusLine": {
+    "type": "command",
+    "command": "bash ~/.claude/statusline-command.sh"
+  },
+  "includeCoAuthoredBy": false,
+  "enabledPlugins": {}
+}

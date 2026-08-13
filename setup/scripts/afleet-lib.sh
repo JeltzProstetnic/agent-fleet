@@ -356,8 +356,13 @@ _render_footer() {
             printf '\n  %b+ %d paused/dormant (afleet --pick --all)%b\n' "$C_DIM" "$hidden" "$C_RST"
         fi
     fi
-    printf '\n  %b[#/a]%b select  %b[q]%b quit  %b[Enter]%b cwd project  %b[a]%b show all\n' \
-        "$C_BOLD" "$C_RST" "$C_BOLD" "$C_RST" "$C_BOLD" "$C_RST" "$C_BOLD" "$C_RST"
+    printf '\n  %b[#/a]%b select  %b[q]%b quit  %b[Enter]%b cwd project  %b[a]%b show all  %b[@]%b model\n' \
+        "$C_BOLD" "$C_RST" "$C_BOLD" "$C_RST" "$C_BOLD" "$C_RST" "$C_BOLD" "$C_RST" "$C_BOLD" "$C_RST"
+    # Only ever shown once a local model has been chosen — a cloud session says nothing,
+    # so the line's presence is itself the signal that this is NOT a normal Opus session.
+    if [[ -n "${MODEL_ARG:-}" ]]; then
+        printf '  %bmodel: LOCAL %s%b\n' "$C_BYEL" "$MODEL_ARG" "$C_RST"
+    fi
 }
 
 # ── Render picker (coordinator) ─────────────────────────────────────────────

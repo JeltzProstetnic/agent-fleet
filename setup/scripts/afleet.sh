@@ -99,6 +99,17 @@ run_picker() {
         [[ "$sel" == "q" || "$sel" == "Q" ]] && exit 0
         [[ "$sel" == "a" || "$sel" == "A" ]] && { show_all=1; continue; }
 
+        # '@' opens the model submenu, then returns here so the project can still be
+        # picked. It is deliberately NOT a letter: nested child rows are labelled
+        # a..z, so every letter is a potential project label. 'm' was tried first and
+        # was already taken by pdp, which made the advertised shortcut open a project
+        # instead — the guard that yielded to the real row was correct and therefore
+        # the shortcut never fired at all. '@' can never be a generated label.
+        if [[ "$sel" == "@" ]]; then
+            run_model_picker || true
+            continue
+        fi
+
         # Empty input — use CWD project
         if [[ -z "$sel" ]]; then
             return 0
@@ -114,6 +125,61 @@ run_picker() {
 
         TARGET_NAME="${result%%|*}"
         TARGET_DIR="${result#*|}"
+        return 0
+    done
+}
+
+# ── Model picker (CFG-510) ───────────────────────────────────────────────────
+# Sets MODEL_ARG: an alias for a local model, or empty for cloud Opus.
+# The menu module is sourced HERE, not at boot — a fault in it must cost the user
+# a submenu, not their launcher. Same bash -n guard as every other source site.
+run_model_picker() {
+    local menu="$_AFLEET_DIR/afleet-model-menu.sh"
+    if [[ ! -f "$menu" ]] || ! bash -n "$menu" 2>/dev/null; then
+        echo "  ⚠ Model menu unavailable (afleet-model-menu.sh missing or broken)." >&2
+        echo "    Use: af <project> <alias>   — aliases in setup/config/local-models.conf" >&2
+        sleep 2
+        return 1
+    fi
+    # shellcheck disable=SC1090
+    source "$menu" 2>/dev/null || return 1
+
+    # Optional: gives the menu real on-disk detection instead of "(size unknown)".
+    if [[ -f "$_AFLEET_DIR/afleet-local-model.sh" ]] && bash -n "$_AFLEET_DIR/afleet-local-model.sh" 2>/dev/null; then
+        # shellcheck disable=SC1090
+        source "$_AFLEET_DIR/afleet-local-model.sh" 2>/dev/null || true
+    fi
+
+    local rows
+    rows=$(build_model_rows) || return 1
+
+    while true; do
+        printf '\033[2J\033[H'
+        if [[ -t 1 ]]; then
+            printf '\033[38;5;220m    ▄▀█ █▀▀\033[0m   \033[38;5;245mModel\033[0m\n'
+            printf '\033[38;5;220m    █▀█ █▀\033[0m    \033[38;5;240m━━━━━━━━━━━━\033[0m\n'
+            printf '\n'
+        fi
+        echo "$rows" | render_model_menu
+        printf '\n  ▸ '
+
+        local sel
+        read -r sel || sel=""
+
+        [[ "$sel" == "q" || "$sel" == "Q" ]] && exit 0
+        # Empty input and 0 both mean cloud Opus — the default, and the safe answer.
+        if [[ -z "$sel" || "$sel" == "0" ]]; then
+            MODEL_ARG=""
+            return 0
+        fi
+
+        local pick
+        pick=$(echo "$rows" | resolve_model_selection "$sel") || {
+            printf '  %bInvalid selection: %s%b\n' "$C_RED" "$sel" "$C_RST"
+            sleep 1
+            continue
+        }
+        MODEL_ARG="$pick"
         return 0
     done
 }
@@ -343,6 +409,8 @@ resolve_project() {
     MODE="launch"
     PICKER_ALL=0
     MODEL_ARG=""
+    SHOW_MODEL_PICKER=false
+    MCP_MODE="none"        # none | minimal | all  (CFG-506; default none by design)
 
     while [[ $# -gt 0 ]]; do
         case "$1" in
@@ -352,7 +420,11 @@ resolve_project() {
                 echo "  afleet              Auto-detect project from CWD, or show project picker"
                 echo "  afleet <project>    Open specific project by name or prefix (from registry.md)"
                 echo "  afleet <proj> <model>  Run against a LOCAL model via LM Studio (e.g. af cfg gemma4)"
+                echo "  afleet --models     Pick the model from a menu (cloud Opus or a local alias)"
                 echo "  afleet --model <alias> Same, explicit form. Aliases: setup/config/local-models.conf"
+                echo "     (local mode loads NO MCP servers by default)"
+                echo "     -mcp                Load ALL MCP servers (usually too big for a local context)"
+                echo "     mcp-                Load the minimal set only"
                 echo "  afleet --list       Show available projects (non-interactive)"
                 echo "  afleet --pick       Show interactive project picker"
                 echo "  afleet --dash       Alias for --pick (backwards compat)"
@@ -368,6 +440,8 @@ resolve_project() {
             --list|-l) MODE="list"; shift ;;
             --pick|-p|--dash|-d) SHOW_PICKER=true; shift ;;
             --all) PICKER_ALL=1; shift ;;
+            # Model submenu. Exact-literal patterns, so `-m` never swallows `-mcp`.
+            --models|-m) SHOW_MODEL_PICKER=true; shift ;;
             --cwd) [[ $# -ge 2 ]] || { echo "Error: --cwd requires an argument" >&2; exit 1; }; CWD_OVERRIDE="$2"; shift 2 ;;
             # Recovery subcommands — delegate to afleet-recover.sh
             doctor|recover|rollback|safe-mode|safemode)
@@ -377,6 +451,11 @@ resolve_project() {
                     echo "Recovery module not yet installed." >&2; exit 1
                 fi ;;
             --model) [[ $# -ge 2 ]] || { echo "Error: --model requires an argument" >&2; exit 1; }; MODEL_ARG="$2"; shift 2 ;;
+            # MCP selection for local-model mode. DEFAULT IS NONE — the lean profile exists
+            # because 13 servers' tool definitions do not fit a local context window.
+            # Must be matched BEFORE the `-*` and `*` catch-alls below or they swallow these.
+            -mcp)  MCP_MODE="all";     shift ;;
+            mcp-)  MCP_MODE="minimal"; shift ;;
             -*) echo "Unknown option: $1" >&2; exit 1 ;;
             # First bare positional = project, second = local-model alias (CFG-506).
             # `af cfg-agent-fleet gemma4`. A lone token that is not a project but IS a known
@@ -408,6 +487,16 @@ resolve_project() {
 
     # ── Binary preflight ─────────────────────────────────────────────────────
     afleet_check_binaries || _fallback_launch "missing critical binaries"
+
+    # ── Model submenu (--models/-m) ──────────────────────────────────────────
+    # FIRST, before project resolution and the project picker (MG 2026-08-13).
+    # It used to run last, which meant `af -m` from a non-project cwd showed the
+    # PROJECT picker and looked identical to a plain `af` — reported as "-m does
+    # nothing". The model is the thing the flag asked for, so it is asked first.
+    # A failure here leaves MODEL_ARG untouched — i.e. cloud Opus, the safe default.
+    if [[ "${SHOW_MODEL_PICKER:-false}" == "true" ]]; then
+        run_model_picker || true
+    fi
 
     # ── Project resolution ───────────────────────────────────────────────────
     TARGET_DIR=""
@@ -566,12 +655,60 @@ launch_mclaude() {
         # Refresh the lean profile from the repo at launch — idempotent, always current, and
         # avoids pointing CLAUDE_CONFIG_DIR at the git repo itself (CC writes session state
         # into that dir and would pollute the working tree).
-        local _lean="${CC_MIRROR_DIR:-$HOME/.cc-mirror/mclaude}/config-local"
-        local _leansrc="$CONFIG_REPO/setup/config-local"
+        # Profile → config dir. The conf's 6th column picks which one (CFG-506).
+        local _pdir
+        case "${AFLEET_LOCAL_PROFILE:-lean}" in
+            readonly) _pdir="config-readonly" ;;
+            fleet)    _pdir="config-fleet" ;;
+            *)        _pdir="config-local" ;;
+        esac
+        local _lean="${CC_MIRROR_DIR:-$HOME/.cc-mirror/mclaude}/$_pdir"
+        local _leansrc="$CONFIG_REPO/setup/$_pdir"
         [[ -d "$_leansrc" ]] || { echo "  Error: lean profile source missing: $_leansrc" >&2; exit 1; }
         mkdir -p "$_lean" || { echo "  Error: cannot create $_lean" >&2; exit 1; }
         cp -f "$_leansrc/CLAUDE.md" "$_leansrc/settings.json" "$_leansrc/.mcp.json" "$_lean/" 2>/dev/null \
             || { echo "  Error: could not refresh lean profile into $_lean" >&2; exit 1; }
+
+        # ── MCP selection (CFG-506) ──────────────────────────────────────────
+        # none (default) = the zero-server .mcp.json just copied in.
+        # mcp-  = minimal set.   -mcp = everything the cloud profile has.
+        # Default is none because 13 servers' tool definitions do not fit a local window.
+        # The readonly profile ignores the MCP flags entirely: several fleet servers can
+        # write (gmail send, twitter post, github create), which is exactly what it must
+        # never reach. A flag must not be able to widen a safety profile.
+        local _srcmcp="${CC_MIRROR_DIR:-$HOME/.cc-mirror/mclaude}/config/.mcp.json"
+        [[ "${AFLEET_LOCAL_PROFILE:-lean}" == "readonly" ]] && MCP_MODE="none"
+        case "${MCP_MODE:-none}" in
+            all)
+                if [[ -f "$_srcmcp" ]]; then
+                    cp -f "$_srcmcp" "$_lean/.mcp.json" && \
+                    echo "  MCP: ALL ($(python3 -c "import json;print(len(json.load(open('$_lean/.mcp.json')).get('mcpServers',{})))" 2>/dev/null || echo '?') servers) — tool definitions may not fit this context"
+                else echo "  ! MCP: source .mcp.json not found, staying with none" >&2; fi ;;
+            minimal)
+                if [[ -f "$_srcmcp" ]]; then
+                    python3 - "$_srcmcp" "$_lean/.mcp.json" "${ALM_MCP_MINIMAL:-serena context7}" <<'PYMCP'
+import json, sys
+src, dst, keep = sys.argv[1], sys.argv[2], sys.argv[3].split()
+d = json.load(open(src)); srv = d.get('mcpServers', {})
+out = {k: v for k, v in srv.items() if k in keep}
+json.dump({'_comment': 'minimal MCP set for local-model mode (mcp-)', 'mcpServers': out},
+          open(dst, 'w'), indent=2)
+print('  MCP: minimal — %s' % (', '.join(sorted(out)) or 'none matched'))
+PYMCP
+                else echo "  ! MCP: source .mcp.json not found, staying with none" >&2; fi ;;
+            *) echo "  MCP: none (default)" ;;
+        esac
+        # ── The profile's MCP set must be AUTHORITATIVE ──────────────────────
+        # CLAUDE_CONFIG_DIR does NOT scope MCP discovery. Hit live 2026-08-13: the
+        # readonly profile declared zero servers and the session got twelve — CC
+        # walked up from the project dir to ~/.mcp.json, and the project's own
+        # .claude/settings.local.json carried enableAllProjectMcpServers, approving
+        # them all. LM Studio built a ~4,880-rule GBNF from the tool schemas and
+        # llama.cpp refused it, so every turn of that session returned a 400.
+        # --strict-mcp-config makes --mcp-config the only source CC will consider,
+        # which is what keeps `none` meaning none. Verified present in CC 2.1.220.
+        # The two flags belong together: strict alone would mean NO servers ever and
+        # would silently break the -mcp / mcp- flags instead of honouring them.
         local _shim; _shim=$(mktemp "${TMPDIR:-/tmp}/afleet-local-XXXXXX.sh")
         cat > "$_shim" <<SHIM
 #!/usr/bin/env bash
@@ -580,7 +717,9 @@ export ANTHROPIC_BASE_URL="${ANTHROPIC_BASE_URL:-}"
 export ANTHROPIC_AUTH_TOKEN="${ANTHROPIC_AUTH_TOKEN:-}"
 export CLAUDE_CODE_ATTRIBUTION_HEADER=0
 export AFLEET_LOCAL_MODEL="${AFLEET_LOCAL_MODEL:-}"
-exec "$_cc_entry" --model "${AFLEET_LOCAL_MODEL:-}" "\$@"
+export AFLEET_LOCAL_CTX="${AFLEET_LOCAL_CTX:-}"
+exec "$_cc_entry" --model "${AFLEET_LOCAL_MODEL:-}" \\
+     --mcp-config "$_lean/.mcp.json" --strict-mcp-config "\$@"
 SHIM
         chmod +x "$_shim"
         MCLAUDE="$_shim"

@@ -46,6 +46,30 @@ alm_resolve() {
     return 0
 }
 
+# On-disk size of the resolved model's largest .gguf, in MiB. 0 if it cannot be found —
+# callers must treat 0 as "unknown" and skip the check rather than blocking the load.
+alm_model_size_mib() {
+    # An lms key may carry a quant suffix: `name@q4_k_m`. Honour it — several quants of the
+    # same model sit side by side, and matching the base name alone picks the largest (the
+    # Q8), over-stating VRAM need and refusing loads that would fit. Observed 2026-08-13.
+    local base="${ALM_KEY%%@*}" quant=""
+    [[ "$ALM_KEY" == *@* ]] && quant="${ALM_KEY##*@}"
+    local roots=("$HOME/.lmstudio/models") r f best=0 sz
+    for r in /mnt/c/Users/*/.lmstudio/models; do [[ -d "$r" ]] && roots+=("$r"); done
+    for r in "${roots[@]}"; do
+        [[ -d "$r" ]] || continue
+        while IFS= read -r f; do
+            [[ -n "$quant" ]] && ! grep -qiF -- "$quant" <<<"$(basename "$f")" && continue
+            sz=$(stat -c %s "$f" 2>/dev/null) || continue
+            [[ "$sz" -gt "$best" ]] && best="$sz"
+            # -L: a models dir is often a symlink to another disk; without it, find returns
+            # nothing and the preflight silently degrades to "size unknown".
+        done < <(find -L "$r" -maxdepth 4 -iname '*.gguf' ! -iname 'mmproj*' 2>/dev/null | grep -iF -- "$base" 2>/dev/null)
+        [[ "$best" -gt 0 ]] && break
+    done
+    printf '%s' $(( best / 1048576 ))
+}
+
 # Locate the lms binary. On WSL this is the Windows exe under the Windows user profile.
 alm_find_lms() {
     [[ -n "${AFLEET_LMS_BIN:-}" && -x "$AFLEET_LMS_BIN" ]] && { printf '%s' "$AFLEET_LMS_BIN"; return 0; }
@@ -91,6 +115,33 @@ alm_prepare() {
 
     echo "  local model: $alias → $ALM_KEY (ctx $ALM_CTX, gpu $ALM_GPU, profile $ALM_PROFILE)"
 
+    # ── VRAM preflight ───────────────────────────────────────────────────────
+    # Measured 2026-08-13: with ~8 GB of the 4090 already held by other work, LM Studio
+    # loaded an 18.69 GB model "successfully" and then crawled — it had silently spilled
+    # into shared system memory over PCIe. The load reports success; only the speed tells
+    # you. Refuse up front instead, in plain language.
+    if command -v nvidia-smi >/dev/null 2>&1; then
+        local free_mib weights_mib
+        free_mib=$(nvidia-smi --query-gpu=memory.free --format=csv,noheader,nounits 2>/dev/null | head -1)
+        weights_mib=$(alm_model_size_mib)
+        if [[ "$free_mib" =~ ^[0-9]+$ && "$weights_mib" =~ ^[0-9]+$ && "$weights_mib" -gt 0 ]]; then
+            # Weights plus a floor for KV cache and compute buffers.
+            local need=$(( weights_mib + 1200 ))
+            echo "  vram: ${free_mib} MiB free, model needs ~${need} MiB (weights ${weights_mib} + buffers)"
+            if [[ "$free_mib" -lt "$need" ]]; then
+                echo "" >&2
+                echo "  NOT ENOUGH FREE VRAM — refusing to load." >&2
+                echo "  Free ${free_mib} MiB, need ~${need} MiB. LM Studio would appear to load and then" >&2
+                echo "  crawl, because it spills to system RAM over PCIe rather than failing." >&2
+                echo "" >&2
+                echo "  Options: free the GPU (see 'nvidia-smi'), pick a smaller alias," >&2
+                echo "  or set AFLEET_VRAM_OVERRIDE=1 to load anyway and accept the slowdown." >&2
+                [[ "${AFLEET_VRAM_OVERRIDE:-0}" == "1" ]] || return 1
+                echo "  AFLEET_VRAM_OVERRIDE=1 set — loading anyway." >&2
+            fi
+        fi
+    fi
+
     if ! _alm_lms "$lms" server status 2>/dev/null | grep -qi "running"; then
         echo "  starting LM Studio server on :$ALM_PORT ..."
         _alm_lms "$lms" server start --port "$ALM_PORT" >/dev/null 2>&1 || {
@@ -101,7 +152,10 @@ alm_prepare() {
         echo "  model already loaded"
     else
         echo "  loading model (this can take a minute on first load) ..."
-        _alm_lms "$lms" load "$ALM_KEY" --gpu "$ALM_GPU" -c "$ALM_CTX" \
+        # --parallel 1: LM Studio defaults to 4 concurrent prediction slots. Claude Code is a
+        # single session, and every extra slot costs KV cache for throughput we never use.
+        # Observed 2026-08-13: gemma4 loaded with PARALLEL 4 by default.
+        _alm_lms "$lms" load "$ALM_KEY" --gpu "$ALM_GPU" -c "$ALM_CTX" --parallel 1 \
                  --ttl "$ALM_TTL" --identifier "$alias" -y >/dev/null 2>&1 || {
             echo "  model load failed — check: lms load $ALM_KEY --gpu $ALM_GPU -c $ALM_CTX" >&2
             return 1; }
@@ -123,5 +177,10 @@ alm_prepare() {
     export AFLEET_LOCAL_MODEL="$alias"
     export AFLEET_LOCAL_MODEL_KEY="$ALM_KEY"
     export AFLEET_LOCAL_PROFILE="$ALM_PROFILE"
+    # The statusline cannot infer a local window: CC reports the alias as the model
+    # name and no context_window_size, so statusline-command.sh would fall back to
+    # 1,000,000 and render a nearly-full 16k session as 2% used. The pinned number
+    # is right here in the conf — pass it through rather than let it be guessed.
+    export AFLEET_LOCAL_CTX="$ALM_CTX"
     return 0
 }

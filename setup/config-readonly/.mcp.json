@@ -1,0 +1,4 @@
+{
+  "_comment": "READ-ONLY profile: zero MCP servers. Several fleet servers can WRITE (gmail send, twitter post, github create) — exactly the 'public communication' this profile must never touch. The -mcp / mcp- flags do not apply here.",
+  "mcpServers": {}
+}
