@@ -709,6 +709,17 @@ PYMCP
         # which is what keeps `none` meaning none. Verified present in CC 2.1.220.
         # The two flags belong together: strict alone would mean NO servers ever and
         # would silently break the -mcp / mcp- flags instead of honouring them.
+        #
+        # ── --disallowedTools Workflow ───────────────────────────────────────
+        # llama.cpp builds ONE GBNF grammar from every tool schema in the request.
+        # Workflow's `script` field carries maxLength 524288, which emits
+        # `tool-Workflow-schema-script ::= "\"" char{0,524288} "\""` and trips the
+        # parser's guard: "number of repetitions exceeds sane defaults". The whole
+        # grammar is then rejected, so the model refuses EVERY turn with a 400 and
+        # Claude Code retries ten times — which is what the 2026-08-13 `ask` session
+        # actually died of. It is a BUILT-IN tool, so it fires with zero MCP servers
+        # and on any model served through llama.cpp. Verified 2026-08-14: identical
+        # request, Workflow disallowed, grammar parses and the session answers.
         local _shim; _shim=$(mktemp "${TMPDIR:-/tmp}/afleet-local-XXXXXX.sh")
         cat > "$_shim" <<SHIM
 #!/usr/bin/env bash
@@ -719,7 +730,8 @@ export CLAUDE_CODE_ATTRIBUTION_HEADER=0
 export AFLEET_LOCAL_MODEL="${AFLEET_LOCAL_MODEL:-}"
 export AFLEET_LOCAL_CTX="${AFLEET_LOCAL_CTX:-}"
 exec "$_cc_entry" --model "${AFLEET_LOCAL_MODEL:-}" \\
-     --mcp-config "$_lean/.mcp.json" --strict-mcp-config "\$@"
+     --mcp-config "$_lean/.mcp.json" --strict-mcp-config \\
+     --disallowedTools Workflow "\$@"
 SHIM
         chmod +x "$_shim"
         MCLAUDE="$_shim"

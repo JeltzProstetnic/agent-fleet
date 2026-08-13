@@ -170,6 +170,29 @@ grep -q -- '--mcp-config' <<<"$SHIMBLK" && grep -q -- '--strict-mcp-config' <<<"
   && ok "both MCP flags are in the generated shim, not merely in the file" \
   || bad "both MCP flags are in the generated shim, not merely in the file" "$SHIMBLK"
 
+# --- the Workflow tool breaks llama.cpp's grammar parser (2026-08-14) -------
+# THIS, not MCP, is what killed the reported session. llama.cpp builds a GBNF from
+# the tool schemas, and Workflow's `script` field carries maxLength 524288, which
+# emits `char{0,524288}` and trips "number of repetitions exceeds sane defaults".
+# It is a BUILT-IN tool, so it fires with zero MCP servers and on every model.
+# Measured: with Workflow disallowed the same request parses and answers.
+grep -q -- '--disallowedTools' "$AFLEET" \
+  && ok "local shim disallows the tool that breaks GBNF" \
+  || bad "local shim disallows the tool that breaks GBNF"
+grep -q -- 'disallowedTools Workflow' "$AFLEET" \
+  && ok "the disallowed tool is Workflow specifically" \
+  || bad "the disallowed tool is Workflow specifically"
+
+# --- a context pin below the tool-definition floor cannot start a session ----
+# Measured 2026-08-14: system prompt + built-in tool schemas + a three-word user
+# turn = 37,035 tokens, with zero MCP servers. A model pinned under that gets
+# "request exceeds the available context size" on turn one, having already spent
+# a minute loading. Refuse up front and say why, like the VRAM preflight does.
+grep -q 'ALM_MIN_CTX' "$DRIVER" \
+  && ok "driver enforces a minimum usable context" || bad "driver enforces a minimum usable context"
+grep -q '37035\|37,035' "$CONF" \
+  && ok "conf records the measured floor, not a guess" || bad "conf records the measured floor, not a guess"
+
 # --- context readout (CRI) must exist in local mode -------------------------
 # A local window is 16k-256k, not 1M, so knowing what is left matters MORE here
 # than on cloud Opus. Both profiles shipped without a statusLine at all.
