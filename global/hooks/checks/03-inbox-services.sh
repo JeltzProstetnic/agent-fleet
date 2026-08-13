@@ -18,13 +18,37 @@ fi
 INBOX="$CONFIG_REPO/cross-project/inbox.md"
 if [ -f "$INBOX" ]; then
     PROJECT_NAME=$(basename "$(pwd)")
-    TASKS=$(grep "\- \[ \].*\*\*$PROJECT_NAME\*\*" "$INBOX" 2>/dev/null || true)
+    # The tag match is case-INSENSITIVE and tolerates padding inside the `**...**`.
+    # It used to be exact — 30 items whose tag differed only in casing were invisible to
+    # their project for a month, neither delivered nor reported undelivered.
+    TASKS=$(grep -i "\- \[ \].*\*\*[[:space:]]*$PROJECT_NAME[[:space:]]*\*\*" "$INBOX" 2>/dev/null || true)
     if [ -n "$TASKS" ]; then
         INBOX_MSG="INBOX TASKS for $PROJECT_NAME: $TASKS"
     fi
+    # Report a COUNT only — never instruct the model to read the whole inbox. This file
+    # grows without bound, and a full read costs tens of thousands of tokens every session.
+    # Items for this project are already injected above; other projects' items are not needed.
     TOTAL=$(grep -c '\- \[ \]' "$INBOX" 2>/dev/null || echo "0")
-    if [ "$TOTAL" -gt 0 ]; then
-        INBOX_MSG="${INBOX_MSG:+$INBOX_MSG | }Cross-project inbox has $TOTAL pending task(s). Read $CONFIG_REPO/cross-project/inbox.md"
+    PROJECT_COUNT=$(echo "$TASKS" | grep -c '\- \[ \]' 2>/dev/null || echo "0")
+    [ -z "$TASKS" ] && PROJECT_COUNT=0
+    OTHER_COUNT=$((TOTAL - PROJECT_COUNT))
+    if [ "$OTHER_COUNT" -gt 0 ]; then
+        INBOX_MSG="${INBOX_MSG:+$INBOX_MSG | }Cross-project inbox: $OTHER_COUNT task(s) for other projects (total: $TOTAL)"
+    fi
+
+    # Bound the inbox. Reporting a count only means unbounded growth emits the same signal
+    # at 3 items as at 300 — so add thresholds. A raw count is not a signal.
+    # NOTE: stdout here is a JSON contract — warnings go to $WARNINGS, never echo.
+    _inbox_tok=$(( $(wc -c < "$INBOX" 2>/dev/null || echo 0) / 4 ))
+    if [ "$_inbox_tok" -gt "${INBOX_TOKEN_CEILING:-20000}" ]; then
+        WARNINGS="${WARNINGS:+$WARNINGS | }INBOX_OVERSIZE: cross-project/inbox.md is ~${_inbox_tok} tokens (ceiling ${INBOX_TOKEN_CEILING:-20000}) across $TOTAL open item(s) — promote them into project backlogs and delete them."
+    fi
+    _inbox_old=$(awk -v cutoff="$(date -d '30 days ago' +%Y-%m-%d 2>/dev/null || echo 0000-00-00)" \
+        'match($0, /20[0-9][0-9]-[0-9][0-9]-[0-9][0-9]/) {
+            d = substr($0, RSTART, RLENGTH); if (d < cutoff) n++
+         } END { print n+0 }' "$INBOX" 2>/dev/null || echo 0)
+    if [ "$_inbox_old" -gt 0 ]; then
+        WARNINGS="${WARNINGS:+$WARNINGS | }INBOX_STALE: $_inbox_old inbox line(s) carry a date older than 30 days — an inbox item that survives a month was never a handoff, it is untracked work. Promote to a backlog and delete."
     fi
 fi
 
