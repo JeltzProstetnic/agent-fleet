@@ -1,0 +1,4 @@
+{
+  "_comment": "Lean profile: NO MCP servers by design (CFG-506). The cloud profile carries 13; their tool definitions alone would exhaust a 32k local context before the first user turn. Add one only after measuring what it costs.",
+  "mcpServers": {}
+}

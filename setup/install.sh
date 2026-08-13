@@ -379,6 +379,22 @@ else
 fi
 log_info "Deployed: afleet → ~/.local/bin/"
 
+# `af` is the standard fleet shortcut, not a personal alias (CFG-507). Install it for
+# everyone — but never clobber an unrelated `af` that is already on PATH.
+_af_target="${HOME}/.local/bin/af"
+_af_existing="$(command -v af 2>/dev/null || true)"
+if [[ -e "$_af_target" || -L "$_af_target" ]] || [[ -z "$_af_existing" ]]; then
+    if [[ "${OSTYPE}" == msys* || "${OSTYPE}" == cygwin* ]]; then
+        cp -f "${CONFIG_REPO_ROOT}/setup/scripts/afleet.sh" "$_af_target"
+    else
+        ln -sf "afleet" "$_af_target"
+    fi
+    log_info "Deployed: af → afleet (standard fleet shortcut)"
+else
+    log_warn "Skipped 'af' shortcut: an unrelated 'af' already exists at ${_af_existing}"
+    log_warn "  Use 'afleet' instead, or remove that binary and re-run setup."
+fi
+
 # ============================================================================
 # FINAL SUMMARY
 # ============================================================================
