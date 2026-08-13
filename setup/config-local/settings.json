@@ -1,0 +1,5 @@
+{
+  "_comment": "Lean profile for af <project> <model> local-model mode (CFG-506). NO hooks by design: the fleet SessionStart chain costs more context than a local model has. Do not add hooks here without re-measuring the startup token cost.",
+  "includeCoAuthoredBy": false,
+  "enabledPlugins": {}
+}

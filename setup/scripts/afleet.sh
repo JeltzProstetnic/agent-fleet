@@ -342,6 +342,7 @@ resolve_project() {
     PROJECT_ARG=""
     MODE="launch"
     PICKER_ALL=0
+    MODEL_ARG=""
 
     while [[ $# -gt 0 ]]; do
         case "$1" in
@@ -350,6 +351,8 @@ resolve_project() {
                 echo ""
                 echo "  afleet              Auto-detect project from CWD, or show project picker"
                 echo "  afleet <project>    Open specific project by name or prefix (from registry.md)"
+                echo "  afleet <proj> <model>  Run against a LOCAL model via LM Studio (e.g. af cfg gemma4)"
+                echo "  afleet --model <alias> Same, explicit form. Aliases: setup/config/local-models.conf"
                 echo "  afleet --list       Show available projects (non-interactive)"
                 echo "  afleet --pick       Show interactive project picker"
                 echo "  afleet --dash       Alias for --pick (backwards compat)"
@@ -373,10 +376,23 @@ resolve_project() {
                 else
                     echo "Recovery module not yet installed." >&2; exit 1
                 fi ;;
+            --model) [[ $# -ge 2 ]] || { echo "Error: --model requires an argument" >&2; exit 1; }; MODEL_ARG="$2"; shift 2 ;;
             -*) echo "Unknown option: $1" >&2; exit 1 ;;
-            *)  PROJECT_ARG="$1"; shift ;;
+            # First bare positional = project, second = local-model alias (CFG-506).
+            # `af cfg-agent-fleet gemma4`. A lone token that is not a project but IS a known
+            # alias is treated as the model, with the project resolved from cwd/picker.
+            *)  if [[ -z "$PROJECT_ARG" ]]; then PROJECT_ARG="$1"; else MODEL_ARG="$1"; fi; shift ;;
         esac
     done
+
+    # Lone-token disambiguation: `af gemma4` with no project.
+    if [[ -n "$PROJECT_ARG" && -z "$MODEL_ARG" ]] && ! parse_registry 2>/dev/null | cut -d'|' -f1 | grep -qx "$PROJECT_ARG"; then
+        if [[ -f "$CONFIG_REPO/setup/config/local-models.conf" ]] \
+           && grep -vE '^\s*(#|$)' "$CONFIG_REPO/setup/config/local-models.conf" \
+              | awk -F'|' '{gsub(/ /,"",$1); print $1}' | grep -qx "$PROJECT_ARG"; then
+            MODEL_ARG="$PROJECT_ARG"; PROJECT_ARG=""
+        fi
+    fi
 
     # ── List mode ────────────────────────────────────────────────────────────
     if [[ "$MODE" == "list" ]]; then
@@ -532,6 +548,45 @@ launch_mclaude() {
         exit 1
     fi
 
+    # ── Local model launcher (CFG-506) ───────────────────────────────────────
+    # `mclaude` HARDCODES `export CLAUDE_CONFIG_DIR=…/config` on line 3 and is regenerated
+    # by `cc-mirror update`, so patching it is not an option. Local mode therefore execs the
+    # CC entrypoint directly via a generated shim, which also keeps every downstream
+    # invocation below ($MCLAUDE under script(1)) unchanged.
+    if [[ -n "${AFLEET_LOCAL_MODEL:-}" ]]; then
+        local _cc_entry="" _c
+        for _c in "${CC_MIRROR_DIR:-$HOME/.cc-mirror/mclaude}/npm/node_modules/@anthropic-ai/claude-code/bin/claude" \
+                  "${CC_MIRROR_DIR:-$HOME/.cc-mirror/mclaude}/npm/node_modules/@anthropic-ai/claude-code/bin/claude.exe" \
+                  "$(command -v claude 2>/dev/null || true)"; do
+            [[ -n "$_c" && -x "$_c" ]] && _cc_entry="$_c" && break
+        done
+        if [[ -z "$_cc_entry" ]]; then
+            echo "  Error: Claude Code entrypoint not found for local mode." >&2; exit 1
+        fi
+        # Refresh the lean profile from the repo at launch — idempotent, always current, and
+        # avoids pointing CLAUDE_CONFIG_DIR at the git repo itself (CC writes session state
+        # into that dir and would pollute the working tree).
+        local _lean="${CC_MIRROR_DIR:-$HOME/.cc-mirror/mclaude}/config-local"
+        local _leansrc="$CONFIG_REPO/setup/config-local"
+        [[ -d "$_leansrc" ]] || { echo "  Error: lean profile source missing: $_leansrc" >&2; exit 1; }
+        mkdir -p "$_lean" || { echo "  Error: cannot create $_lean" >&2; exit 1; }
+        cp -f "$_leansrc/CLAUDE.md" "$_leansrc/settings.json" "$_leansrc/.mcp.json" "$_lean/" 2>/dev/null \
+            || { echo "  Error: could not refresh lean profile into $_lean" >&2; exit 1; }
+        local _shim; _shim=$(mktemp "${TMPDIR:-/tmp}/afleet-local-XXXXXX.sh")
+        cat > "$_shim" <<SHIM
+#!/usr/bin/env bash
+export CLAUDE_CONFIG_DIR="$_lean"
+export ANTHROPIC_BASE_URL="${ANTHROPIC_BASE_URL:-}"
+export ANTHROPIC_AUTH_TOKEN="${ANTHROPIC_AUTH_TOKEN:-}"
+export CLAUDE_CODE_ATTRIBUTION_HEADER=0
+export AFLEET_LOCAL_MODEL="${AFLEET_LOCAL_MODEL:-}"
+exec "$_cc_entry" --model "${AFLEET_LOCAL_MODEL:-}" "\$@"
+SHIM
+        chmod +x "$_shim"
+        MCLAUDE="$_shim"
+        AFLEET_LOCAL_SHIM="$_shim"
+    fi
+
     # ── TweakCC config repair ────────────────────────────────────────────────
     # CC updates reset tweakcc config.json to defaults. Re-apply our settings
     # so the CC built-in logo stays hidden and the AF banner is the only splash.
@@ -566,6 +621,11 @@ if (changed) { fs.writeFileSync(f, JSON.stringify(c, null, 2) + '\n'); }
         printf '\033[38;5;220m    █▀█ █▀\033[0m    \033[38;5;240m━━━━━━━━━━━━\033[0m\n'
         if [[ -n "$__cc_ver" ]]; then
             printf '              \033[38;5;243mClaude Code v%s\033[0m\n' "$__cc_ver"
+        fi
+        # A local session must be unmistakable — never let it be confused with a cloud one.
+        if [[ -n "${AFLEET_LOCAL_MODEL:-}" ]]; then
+            printf '              \033[38;5;208mLOCAL %s\033[0m \033[38;5;240m· %s · lean profile\033[0m\n' \
+                   "$AFLEET_LOCAL_MODEL" "${AFLEET_LOCAL_MODEL_KEY:-?}"
         fi
         printf '\n'
 
@@ -640,6 +700,9 @@ DONTPANIC
         fi
         MCLAUDE_EXIT=$?
     fi
+
+    # Remove the generated local-model shim (contains no secrets, but leave no litter).
+    [[ -n "${AFLEET_LOCAL_SHIM:-}" ]] && rm -f "$AFLEET_LOCAL_SHIM"
 
     # Clear pre-launch banner from primary buffer so it doesn't linger after CC exits.
     # ONLY on clean exit — non-zero exit leaves error messages visible (CFG-370 lesson).
@@ -729,5 +792,20 @@ fi
 # ── Main execution ──────────────────────────────────────────────────────────
 resolve_project "$@"
 pre_launch_sync
+
+# ── Local model mode (CFG-506) ──────────────────────────────────────────────
+# A failure here ABORTS. Never fall back to the cloud model: silently spending Opus
+# tokens when the user explicitly asked for a local model is the exact surprise this
+# feature exists to prevent.
+if [[ -n "${MODEL_ARG:-}" ]]; then
+    if [[ -f "$_AFLEET_DIR/afleet-local-model.sh" ]] && bash -n "$_AFLEET_DIR/afleet-local-model.sh" 2>/dev/null; then
+        # shellcheck disable=SC1090
+        source "$_AFLEET_DIR/afleet-local-model.sh"
+        alm_prepare "$MODEL_ARG" || { echo "  Local model setup failed — aborting (no cloud fallback)." >&2; exit 1; }
+    else
+        echo "  afleet-local-model.sh missing or broken — cannot run local model mode." >&2; exit 1
+    fi
+fi
+
 launch_mclaude
 post_session_cleanup
