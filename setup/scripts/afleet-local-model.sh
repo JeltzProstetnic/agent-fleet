@@ -15,6 +15,10 @@
 
 ALM_CONF="${ALM_CONF:-$HOME/.claude/local-models.conf}"
 ALM_PORT="${ALM_PORT:-1234}"
+# Floor for a usable session. Measured 2026-08-14: 37,035 tokens of system prompt +
+# built-in tool schemas with ZERO MCP servers. 40960 leaves a little headroom for a
+# first user turn; it is not a safety margin for real work, only for starting at all.
+ALM_MIN_CTX="${ALM_MIN_CTX:-40960}"
 ALM_BASE="http://localhost:${ALM_PORT}"
 
 _alm_conf_file() {
@@ -114,6 +118,25 @@ alm_prepare() {
     }
 
     echo "  local model: $alias → $ALM_KEY (ctx $ALM_CTX, gpu $ALM_GPU, profile $ALM_PROFILE)"
+
+    # ── Minimum usable context ───────────────────────────────────────────────
+    # Claude Code sends its system prompt and every built-in tool schema before the
+    # user's first word. Measured 2026-08-14 against the readonly profile — zero MCP
+    # servers, Workflow disallowed, a three-word prompt: 37,035 tokens. A model pinned
+    # below that answers "request exceeds the available context size" on turn one,
+    # after a full minute spent loading it. Refuse before the load, not after.
+    if [[ "$ALM_CTX" =~ ^[0-9]+$ && "$ALM_CTX" -lt "$ALM_MIN_CTX" ]]; then
+        echo "" >&2
+        echo "  CONTEXT TOO SMALL — refusing to load '$alias'." >&2
+        echo "  Pinned at $ALM_CTX; Claude Code's system prompt and tool definitions" >&2
+        echo "  alone measured 37,035 tokens, so the first turn cannot fit." >&2
+        echo "" >&2
+        echo "  Options: pick an alias with a larger pin, raise this one in" >&2
+        echo "  local-models.conf if the GPU has the VRAM for it (CFG-509 measures" >&2
+        echo "  the real curve), or set AFLEET_MIN_CTX_OVERRIDE=1 to try anyway." >&2
+        [[ "${AFLEET_MIN_CTX_OVERRIDE:-0}" == "1" ]] || return 1
+        echo "  AFLEET_MIN_CTX_OVERRIDE=1 set — loading anyway." >&2
+    fi
 
     # ── VRAM preflight ───────────────────────────────────────────────────────
     # Measured 2026-08-13: with ~8 GB of the 4090 already held by other work, LM Studio
