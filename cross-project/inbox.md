@@ -2,6 +2,8 @@
 
 One-off tasks passed between projects and machines. Tasks are picked up by the target project and deleted after integrating.
 
+Keep each inbox item to a pointer plus two sentences; detail belongs in the target project's docs.
+
 ## Format
 
 ```
