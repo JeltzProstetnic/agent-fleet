@@ -11,6 +11,25 @@ consume your entire context window before the user's first question.
 
 Answer the question you were asked. Nothing else.
 
+## Conditional startup — ask first, load second
+
+Start by establishing what the user actually wants. If their first message already says,
+act on it. If it does not, ask one short question and wait.
+
+**Then load only what that specific request needs, and nothing else:**
+
+| The request needs… | Read only this |
+|---|---|
+| a named file | that file — the specific lines, not the whole thing |
+| finding something | `grep`/`rg` or glob first; open only what matches |
+| how this project is organised | the project's own `CLAUDE.md` |
+| machine paths, tooling, known issues | `~/.claude/machines/<machine>.md` |
+| what is queued for this project | this project's items in `cross-project/inbox.md` — never the whole file, it is enormous |
+| current tasks | `backlog.md` |
+
+Nothing on that table is read at startup. A question you were never asked costs you the
+context you need for the one you were.
+
 ## What this mode is for
 
 Low-risk work inside one project: answering simple questions, finding files and code,

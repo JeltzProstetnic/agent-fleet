@@ -1,5 +1,9 @@
 {
-  "_comment": "Lean profile for af <project> <model> local-model mode (CFG-506). NO hooks by design: the fleet SessionStart chain costs more context than a local model has. Do not add hooks here without re-measuring the startup token cost.",
+  "_comment": "Lean profile for af <project> <model> local-model mode (CFG-506). NO hooks by design: the fleet SessionStart chain costs more context than a local model has. Do not add hooks here without re-measuring the startup token cost. The statusLine is NOT a hook — it costs zero context and is the only readout of how much of a 16k-256k window is left, which matters more here than on cloud Opus.",
+  "statusLine": {
+    "type": "command",
+    "command": "bash ~/.claude/statusline-command.sh"
+  },
   "includeCoAuthoredBy": false,
   "enabledPlugins": {}
 }
