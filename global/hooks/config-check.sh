@@ -104,12 +104,17 @@ if [ -n "$SYSTEM_MSG" ]; then
     # Payload goes in on STDIN, never as argv. The python3 branch is guarded by its own exit
     # status so a runtime failure falls through to node — `command -v` alone only proves the
     # binary exists, which is how the argv failure stayed invisible.
+    # CFG-530: the payload MUST be nested under hookSpecificOutput with an explicit
+    # hookEventName. A TOP-LEVEL {"additionalContext": …} is accepted, logged as
+    # hook_success, and then SILENTLY DISCARDED — measured against the real binary,
+    # not inferred, and contrary to the published docs which present both forms as
+    # valid. See setup/tests/test-hook-output-format.sh for the three-variant probe.
     if ! { command -v python3 >/dev/null 2>&1 &&
            printf '%s' "$SYSTEM_MSG" | python3 -c \
-             "import json,sys; print(json.dumps({'additionalContext': sys.stdin.read()}))"; }; then
+             "import json,sys; print(json.dumps({'hookSpecificOutput': {'hookEventName': 'SessionStart', 'additionalContext': sys.stdin.read()}}))"; }; then
         if command -v node >/dev/null 2>&1; then
             printf '%s' "$SYSTEM_MSG" | node -e \
-              "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>console.log(JSON.stringify({additionalContext:s})))"
+              "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>console.log(JSON.stringify({hookSpecificOutput:{hookEventName:'SessionStart',additionalContext:s}})))"
         fi
     fi
 fi
