@@ -6,7 +6,7 @@
 #   gpi.sh start  <id> <label> [--group <g>] [--seq <n/m>] [--eta <secs>]
 #   gpi.sh update <id> [--pct <0-100>] [--detail <str>] [--eta <secs>]
 #   gpi.sh done   <id>
-#   gpi.sh clear  [--group <g>]
+#   gpi.sh clear  [--group <g>] [--all]
 #   gpi.sh status
 #
 # State file: GPI_STATE env var or ~/.claude/.gpi-state.json
@@ -37,6 +37,26 @@ cleanup_completed() {
             .ops = (.ops | to_entries | map(select(
                 (.value.completed_at // null) == null or
                 ($now - .value.completed_at) <= 60
+            )) | from_entries)
+        ' "$STATE_FILE")
+        echo "$tmp" > "$STATE_FILE"
+    ) 9>"$LOCK_FILE"
+}
+
+# Remove orphaned ops older than 24 hours (no completed_at, stale started)
+# Safety net for entries that survive crashes or missed SessionEnd hooks.
+cleanup_stale() {
+    ensure_state
+    local now stale_threshold
+    now=$(date +%s)
+    stale_threshold=86400  # 24 hours
+    (
+        flock 9
+        local tmp
+        tmp=$(jq --argjson now "$now" --argjson threshold "$stale_threshold" '
+            .ops = (.ops | to_entries | map(select(
+                (.value.completed_at // null) != null or
+                ($now - .value.started) <= $threshold
             )) | from_entries)
         ' "$STATE_FILE")
         echo "$tmp" > "$STATE_FILE"
@@ -144,22 +164,23 @@ cmd_update() {
 cmd_done() {
     local id="$1"
     ensure_state
-    # Get label before deleting (for notification)
+    # Get label for notification
     local label
     label=$(jq -r ".ops[\"$id\"].label // \"$id\"" "$STATE_FILE")
     local now
     now=$(date +%s)
-    # Delete the op entry and update timestamp
-    locked_update "del(.ops[\"$id\"]) | .updated = $now"
+    # Mark as completed (auto-cleanup will remove it after 60s)
+    locked_update ".ops[\"$id\"].completed_at = $now | .updated = $now"
     # Write notification sidecar for session awareness
     write_notification "$id" "$label"
 }
 
 cmd_clear() {
-    local group=""
+    local group="" all=false
     while [[ $# -gt 0 ]]; do
         case "$1" in
             --group) group="$2"; shift 2 ;;
+            --all) all=true; shift ;;
             *) shift ;;
         esac
     done
@@ -169,8 +190,11 @@ cmd_clear() {
 
     if [[ -n "$group" ]]; then
         locked_update ".ops = (.ops | to_entries | map(select(.value.group != \"$group\")) | from_entries) | .updated = $now"
-    else
+    elif [[ "$all" == true ]]; then
         locked_update ".ops = {} | .updated = $now"
+    else
+        # Default: remove only completed entries (those with completed_at set)
+        locked_update ".ops = (.ops | to_entries | map(select((.value.completed_at // null) == null)) | from_entries) | .updated = $now"
     fi
 }
 
@@ -188,8 +212,9 @@ cmd_status() {
 
 # ── Main dispatch ────────────────────────────────────────────────────────────
 
-# Auto-cleanup completed ops older than 60s on every invocation
+# Auto-cleanup on every invocation
 cleanup_completed 2>/dev/null || true
+cleanup_stale 2>/dev/null || true
 
 case "${1:-}" in
     start)  shift; cmd_start "$@" ;;

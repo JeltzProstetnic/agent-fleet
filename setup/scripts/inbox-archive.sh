@@ -9,6 +9,12 @@
 
 set -euo pipefail
 
+# Source lib.sh for _sed_i() if available
+_ARCHIVE_SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+if [[ -f "${_ARCHIVE_SCRIPT_DIR}/../lib.sh" ]]; then
+    source "${_ARCHIVE_SCRIPT_DIR}/../lib.sh"
+fi
+
 INBOX="${1:?Usage: inbox-archive.sh <inbox-path> <archive-path>}"
 ARCHIVE="${2:?Usage: inbox-archive.sh <inbox-path> <archive-path>}"
 
@@ -108,6 +114,6 @@ fi
 } > "$INBOX"
 
 # Remove trailing blank lines
-sed -i -e :a -e '/^\n*$/{$d;N;ba' -e '}' "$INBOX"
+_sed_i -e :a -e '/^\n*$/{$d;N;ba' -e '}' "$INBOX"
 
 echo "Archived $completed_count completed item(s) from $(basename "$INBOX")"

@@ -237,18 +237,8 @@ OUTBOX
 
 # ── DEPLOY MODE ──────────────────────────────────────────────────────────────
 
-cmd_deploy() {
-    log_info "Deploying mobile repo to $TARGET"
-
-    # Create directory structure
-    mkdir -p "$TARGET/context/project-summaries"
-    mkdir -p "$TARGET/inbox"
-
-    # Marker file
-    echo "mobile-repo" > "$TARGET/.mobile-repo"
-
-    # ── Copy context files ───────────────────────────────────────────────
-
+# Copy foundation files, registry, dashboard cache, cross-project files
+_deploy_context_files() {
     # Foundation files
     for f in user-profile.md personas.md; do
         local src="$CONFIG_REPO/global/foundation/$f"
@@ -286,9 +276,10 @@ cmd_deploy() {
         stamp_file "$TARGET/context/infrastructure-strategy.md"
         log_info "Copied: infrastructure-strategy.md"
     fi
+}
 
-    # ── Generate machine index ───────────────────────────────────────────
-
+# Generate machine index from machine files
+_deploy_machine_index() {
     local machine_index="$TARGET/context/machine-index.md"
     echo "# Machine Index" > "$machine_index"
     echo "" >> "$machine_index"
@@ -306,42 +297,57 @@ cmd_deploy() {
     fi
     stamp_file "$machine_index"
     log_info "Generated: machine-index.md"
+}
 
-    # ── Generate project summaries ───────────────────────────────────────
+# Parse registry and generate per-project summaries from backlog/session-context
+_deploy_project_summaries() {
+    [[ -f "$CONFIG_REPO/registry.md" ]] || return 0
 
-    # Parse registry for project paths
-    if [[ -f "$CONFIG_REPO/registry.md" ]]; then
-        while IFS='|' read -r _ name _ _ path _; do
-            name=$(echo "$name" | xargs)
-            path=$(echo "$path" | xargs | tr -d '`')
-            [[ -z "$name" || "$name" == "Project" || "$name" == "---"* ]] && continue
-            [[ -z "$path" ]] && continue
+    while IFS='|' read -r _ name _ _ path _; do
+        name=$(echo "$name" | xargs)
+        path=$(echo "$path" | xargs | tr -d '`')
+        [[ -z "$name" || "$name" == "Project" || "$name" == "---"* ]] && continue
+        [[ -z "$path" ]] && continue
 
-            # Expand ~ to user home
-            path="${path/#\~/$USER_HOME}"
-            [[ -d "$path" ]] || continue
+        # Expand ~ to user home
+        path="${path/#\~/$USER_HOME}"
+        [[ -d "$path" ]] || continue
 
-            local summary="$TARGET/context/project-summaries/$name.md"
-            echo "# $name" > "$summary"
+        local summary="$TARGET/context/project-summaries/$name.md"
+        echo "# $name" > "$summary"
+        echo "" >> "$summary"
+
+        # Session context (head 30 lines)
+        if [[ -f "$path/session-context.md" ]]; then
+            echo "## Session Context" >> "$summary"
+            head -30 "$path/session-context.md" >> "$summary"
             echo "" >> "$summary"
+        fi
 
-            # Session context (head 30 lines)
-            if [[ -f "$path/session-context.md" ]]; then
-                echo "## Session Context" >> "$summary"
-                head -30 "$path/session-context.md" >> "$summary"
-                echo "" >> "$summary"
-            fi
+        # Backlog (head 40 lines)
+        if [[ -f "$path/backlog.md" ]]; then
+            echo "## Backlog (top)" >> "$summary"
+            head -40 "$path/backlog.md" >> "$summary"
+            echo "" >> "$summary"
+        fi
 
-            # Backlog (head 40 lines)
-            if [[ -f "$path/backlog.md" ]]; then
-                echo "## Backlog (top)" >> "$summary"
-                head -40 "$path/backlog.md" >> "$summary"
-                echo "" >> "$summary"
-            fi
+        log_info "Summary: $name"
+    done < <(grep -E '^\|[^-]' "$CONFIG_REPO/registry.md" | grep -v 'Project.*Priority')
+}
 
-            log_info "Summary: $name"
-        done < <(grep -E '^\|[^-]' "$CONFIG_REPO/registry.md" | grep -v 'Project.*Priority')
-    fi
+cmd_deploy() {
+    log_info "Deploying mobile repo to $TARGET"
+
+    # Create directory structure
+    mkdir -p "$TARGET/context/project-summaries"
+    mkdir -p "$TARGET/inbox"
+
+    # Marker file
+    echo "mobile-repo" > "$TARGET/.mobile-repo"
+
+    _deploy_context_files
+    _deploy_machine_index
+    _deploy_project_summaries
 
     # ── Outbox (create only if missing) ──────────────────────────────────
 
@@ -393,6 +399,9 @@ OUTBOX
 ## Recovery Instructions
 SC
 
+    # Write deploy marker — staleness check compares source mtimes against this
+    touch "$TARGET/.deployed-at"
+
     log_info "Mobile repo deployed to $TARGET"
 }
 
@@ -422,8 +431,10 @@ cmd_check_staleness() {
         [[ -f "$src" ]] || continue
         [[ -f "$tgt" ]] || { stale_count=$((stale_count + 1)); continue; }
 
-        # Compare modification times: if source is newer than target, it's stale
-        if [[ "$src" -nt "$tgt" ]]; then
+        # Compare source mtime against deploy marker (not target file — content differs
+        # due to snapshot header injection, so diff always reports different)
+        local marker="$TARGET/.deployed-at"
+        if [[ ! -f "$marker" ]] || [[ "$src" -nt "$marker" ]]; then
             local base
             base=$(basename "$src")
             log_warn "$base: mobile repo is stale (source newer than snapshot)"
