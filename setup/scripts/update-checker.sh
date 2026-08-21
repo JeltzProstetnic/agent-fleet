@@ -27,7 +27,7 @@ if [[ -f "$UPDATE_MARKER" ]] && [[ "${CC_MIRROR_FORCE_UPDATE:-0}" != "1" ]]; the
 fi
 
 # Get installed version
-NPM_DIR="$HOME/.cc-mirror/mclaude/npm"
+NPM_DIR="${CC_MIRROR_DIR:-$HOME/.cc-mirror/mclaude}/npm"
 INSTALLED=""
 if [[ -f "$NPM_DIR/node_modules/@anthropic-ai/claude-code/package.json" ]]; then
   INSTALLED=$(node -e "console.log(require('$NPM_DIR/node_modules/@anthropic-ai/claude-code/package.json').version)" 2>/dev/null || echo "unknown")

@@ -21,8 +21,7 @@ set -euo pipefail
 if [[ -n "${PLUGIN_INV_CONFIG_DIR:-}" ]]; then
     CONFIG_DIR="$PLUGIN_INV_CONFIG_DIR"
 else
-    # Check for cc-mirror variant first, fall back to standard .claude directory
-    CC_MIRROR_VARIANT="${CC_MIRROR_VARIANT:-mclaude}"
+    CC_MIRROR_VARIANT="mclaude"
     if [[ -d "${HOME}/.cc-mirror/${CC_MIRROR_VARIANT}/config" ]]; then
         CONFIG_DIR="${HOME}/.cc-mirror/${CC_MIRROR_VARIANT}/config"
     else

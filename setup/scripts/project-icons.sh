@@ -105,17 +105,19 @@ PYEOF
 # Outputs lines: PRIORITY|PATH|PROJECT_NAME
 parse_registry() {
     # Skip header lines, extract Priority, Path, and Project columns
+    # Registry columns: | Project | Priority | Parent | Path | ...
+    #                     $2        $3         $4       $5
     awk -F'|' '
         /^\| [a-zA-Z]/ && !/^\| Project/ && !/^\| Machine/ {
             gsub(/^[ \t]+|[ \t]+$/, "", $2)  # project name
             gsub(/^[ \t]+|[ \t]+$/, "", $3)  # priority
-            gsub(/^[ \t]+|[ \t]+$/, "", $4)  # path
-            if ($3 ~ /^P[1-5]$/ && $4 ~ /^`~/) {
+            gsub(/^[ \t]+|[ \t]+$/, "", $5)  # path (column 5, after Parent)
+            if ($3 ~ /^P[1-5]$/ && $5 ~ /^`~/) {
                 # Strip backticks from path
-                gsub(/`/, "", $4)
+                gsub(/`/, "", $5)
                 # Expand ~ to HOME
-                sub(/^~/, ENVIRON["HOME"], $4)
-                print $3 "|" $4 "|" $2
+                sub(/^~/, ENVIRON["HOME"], $5)
+                print $3 "|" $5 "|" $2
             }
         }
     ' "$REGISTRY"
@@ -133,51 +135,18 @@ parse_registry() {
 #
 # The hub folder itself gets a desktop.ini for a nice icon.
 
-apply_windows() {
-    if [ ! -d /mnt/c/ ]; then
-        echo "ERROR: /mnt/c/ not found — not a WSL environment."
-        exit 1
-    fi
-
-    # Find Windows username
-    WIN_USER=$(powershell.exe -NoProfile -Command '[Environment]::UserName' 2>/dev/null | tr -d '\r' || echo "")
-    if [ -z "$WIN_USER" ]; then
-        echo "ERROR: Could not determine Windows username."
-        exit 1
-    fi
-
-    WIN_HUB_WIN="${WIN_HUB_PARENT}\\${WIN_USER}\\${WIN_HUB_NAME}"
-    WIN_HUB_LINUX="/mnt/c/Users/${WIN_USER}/${WIN_HUB_NAME}"
-    WIN_ICONS_WIN="${WIN_HUB_WIN}\\icons"
-    WIN_ICONS_LINUX="${WIN_HUB_LINUX}/icons"
-
-    echo "Windows hub: ${WIN_HUB_WIN}"
-    echo "Linux path:  ${WIN_HUB_LINUX}"
-    echo ""
-
-    # Create hub + icons dir on NTFS
-    mkdir -p "$WIN_ICONS_LINUX"
-
-    # Copy .ico files to NTFS
-    for ico in "$ICON_DIR"/*.ico; do
-        [ -f "$ico" ] || continue
-        cp "$ico" "$WIN_ICONS_LINUX/"
-        echo "  Copied $(basename "$ico") to NTFS icons dir"
-    done
-
-    # Create shortcuts for each project
-    echo ""
-    echo "Creating shortcuts..."
-
-    # Build a PowerShell script that creates all shortcuts in one call
-    # (avoids the stdin-consumption bug where powershell.exe eats the pipe)
-    local ps_script="${WIN_HUB_LINUX}/_create-shortcuts.ps1"
+# Build a PowerShell script that creates all shortcuts in one call
+# (avoids the stdin-consumption bug where powershell.exe eats the pipe)
+# Sets: count (number of shortcuts added)
+# Uses: WIN_HUB_WIN, WIN_ICONS_WIN (from caller)
+_generate_shortcut_script() {
+    local ps_script="$1"
+    count=0
 
     cat > "$ps_script" << 'PSHEADER'
 $ws = New-Object -ComObject WScript.Shell
 PSHEADER
 
-    local count=0
     while IFS='|' read -r priority path name; do
         if [ ! -d "$path" ]; then
             echo "  SKIP $name ($path not found)"
@@ -208,18 +177,20 @@ PSENTRY
         echo "  ${priority} ${name} -> ${wsl_win_path}"
         count=$((count + 1))
     done < <(parse_registry)
+}
 
-    if [ "$count" -gt 0 ]; then
-        # Execute the batch PowerShell script
-        local ps_win_path
-        ps_win_path=$(wslpath -w "$ps_script")
-        powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$ps_win_path" 2>/dev/null
-        echo ""
-        echo "  Created $count shortcuts."
-    fi
+# Create hub dirs, copy .ico files to NTFS, write desktop.ini
+# Uses: WIN_HUB_WIN, WIN_HUB_LINUX, WIN_ICONS_LINUX (from caller)
+_setup_hub_folder() {
+    # Create hub + icons dir on NTFS
+    mkdir -p "$WIN_ICONS_LINUX"
 
-    # Clean up the temporary script
-    rm -f "$ps_script"
+    # Copy .ico files to NTFS
+    for ico in "$ICON_DIR"/*.ico; do
+        [ -f "$ico" ] || continue
+        cp "$ico" "$WIN_ICONS_LINUX/"
+        echo "  Copied $(basename "$ico") to NTFS icons dir"
+    done
 
     # Create desktop.ini for the hub folder itself (use a generic folder icon)
     cat > "${WIN_HUB_LINUX}/desktop.ini" << 'INI'
@@ -230,6 +201,49 @@ INI
 
     attrib.exe +s +h "${WIN_HUB_WIN}\\desktop.ini" 2>/dev/null || true
     attrib.exe +s "${WIN_HUB_WIN}" 2>/dev/null || true
+}
+
+apply_windows() {
+    if [ ! -d /mnt/c/ ]; then
+        echo "ERROR: /mnt/c/ not found — not a WSL environment."
+        exit 1
+    fi
+
+    # Find Windows username
+    WIN_USER=$(powershell.exe -NoProfile -Command '[Environment]::UserName' 2>/dev/null | tr -d '\r' || echo "")
+    if [ -z "$WIN_USER" ]; then
+        echo "ERROR: Could not determine Windows username."
+        exit 1
+    fi
+
+    WIN_HUB_WIN="${WIN_HUB_PARENT}\\${WIN_USER}\\${WIN_HUB_NAME}"
+    WIN_HUB_LINUX="/mnt/c/Users/${WIN_USER}/${WIN_HUB_NAME}"
+    WIN_ICONS_WIN="${WIN_HUB_WIN}\\icons"
+    WIN_ICONS_LINUX="${WIN_HUB_LINUX}/icons"
+
+    echo "Windows hub: ${WIN_HUB_WIN}"
+    echo "Linux path:  ${WIN_HUB_LINUX}"
+    echo ""
+
+    _setup_hub_folder
+
+    echo ""
+    echo "Creating shortcuts..."
+
+    local ps_script="${WIN_HUB_LINUX}/_create-shortcuts.ps1"
+    local count
+    _generate_shortcut_script "$ps_script"
+
+    if [ "$count" -gt 0 ]; then
+        local ps_win_path
+        ps_win_path=$(wslpath -w "$ps_script")
+        powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$ps_win_path" 2>/dev/null
+        echo ""
+        echo "  Created $count shortcuts."
+    fi
+
+    # Clean up the temporary script
+    rm -f "$ps_script"
 
     echo ""
     echo "Done. Hub created at: ${WIN_HUB_WIN}"

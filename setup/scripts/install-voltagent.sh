@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# install-voltagent.sh — Install VoltAgent marketplace and plugin bundles
+# install-voltagent.sh — Install VoltAgent marketplace and plugin bundles (CFG-137a)
 # ====================================================================================
 # Automates the VoltAgent marketplace installation previously done manually.
 # Clones the awesome-claude-code-subagents repo, installs all 10 plugin bundles
@@ -140,6 +140,13 @@ print_header "Step 2: Discover Plugins"
 
 MARKETPLACE_JSON="${MARKETPLACE_DIR}/.claude-plugin/marketplace.json"
 
+# Convert paths for native Python on Windows/MSYS (CFG-336)
+_PY_MARKETPLACE_JSON=$(_to_native_path "${MARKETPLACE_JSON}" 2>/dev/null || echo "${MARKETPLACE_JSON}")
+_PY_KNOWN_MARKETPLACES=$(_to_native_path "${KNOWN_MARKETPLACES}" 2>/dev/null || echo "${KNOWN_MARKETPLACES}")
+_PY_INSTALLED_PLUGINS=$(_to_native_path "${INSTALLED_PLUGINS}" 2>/dev/null || echo "${INSTALLED_PLUGINS}")
+_PY_MARKETPLACE_DIR=$(_to_native_path "${MARKETPLACE_DIR}" 2>/dev/null || echo "${MARKETPLACE_DIR}")
+_PY_CACHE_DIR=$(_to_native_path "${CACHE_DIR}" 2>/dev/null || echo "${CACHE_DIR}")
+
 if [[ "${DRY_RUN}" == "true" ]]; then
     echo "  [DRY RUN] Would read plugin list from ${MARKETPLACE_JSON}"
     echo "  [DRY RUN] Would install all plugins to ${CACHE_DIR}/<plugin-name>/1.0.0"
@@ -159,7 +166,7 @@ fi
 PLUGIN_LIST=$(python3 -c "
 import json, sys
 try:
-    data = json.load(open('${MARKETPLACE_JSON}'))
+    data = json.load(open('${_PY_MARKETPLACE_JSON}'))
     for p in data.get('plugins', []):
         name = p.get('name', '')
         source = p.get('source', '')
@@ -232,8 +239,8 @@ NOW=$(python3 -c "from datetime import datetime, timezone; print(datetime.now(ti
 python3 - <<PYEOF
 import json, os
 
-path = '${KNOWN_MARKETPLACES}'
-marketplace_dir = '${MARKETPLACE_DIR}'
+path = '${_PY_KNOWN_MARKETPLACES}'
+marketplace_dir = '${_PY_MARKETPLACE_DIR}'
 now = '${NOW}'
 
 # Load existing or start fresh
@@ -273,8 +280,8 @@ mkdir -p "$(dirname "${INSTALLED_PLUGINS}")"
 python3 - <<PYEOF
 import json, os
 
-path = '${INSTALLED_PLUGINS}'
-cache_base = '${CACHE_DIR}'
+path = '${_PY_INSTALLED_PLUGINS}'
+cache_base = '${_PY_CACHE_DIR}'
 plugin_list_raw = """${PLUGIN_LIST}"""
 now = '${NOW}'
 
