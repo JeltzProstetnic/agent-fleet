@@ -333,9 +333,33 @@ _create_worktree_and_retarget() {
 #
 # On conflict, offers two choices only:
 #   w = create a git worktree and work there in follower mode
-#   q = quit without launching (default)
+#   q = quit without launching
 # No steal/force-release option — that's only possible via direct mclaude/cc
 # invocation (documented escape hatch). See follower-mode.md.
+#
+# The wording is load-bearing, not decoration (CFG-533). The prompt used to offer
+# "[w] Open in isolated git worktree (follower mode)" against "[q] Quit (default)".
+# A colleague new to Claude Code met it, could not tell what either option would
+# do to his work, pressed Enter, got "Session not started.", and reported the
+# multi-session feature as broken. Everything here — plain-language description,
+# Enter meaning the option that loses nothing, j/y accepted, '?' answered, unknown
+# input named rather than silently treated as quit — exists to stop that happening
+# to the next person. Keep it comprehensible to someone who does not know the word
+# worktree; the term stays in the text so the experienced still find it.
+_afleet_explain_private_copy() {
+    cat >&2 <<'EXPLAIN'
+
+  You can still work here, on your own private copy of the project
+  (a git worktree). Your files stay separate, the other session is
+  not disturbed, and when you finish, afleet offers to merge your
+  work back.
+
+  [w] Work on a private copy   (or just press Enter)
+  [q] Stop, do not start a session
+  [?] Explain this again
+EXPLAIN
+}
+
 afleet_acquire_session_lock() {
     local project_dir="$1"
     local project_name="$2"
@@ -354,24 +378,40 @@ afleet_acquire_session_lock() {
     # a CC process, so excluding it is harmless.
     if ! acquire_lock "$project_dir" "$session_id" "" "$$"; then
         echo "" >&2
-        echo "  ⚠ Project locked by another session on this machine." >&2
+        echo "  ⚠ Another Claude Code session is already working in this project." >&2
         lock_info "$project_dir" >&2
-        echo "" >&2
-        echo "  [w] Open in isolated git worktree (follower mode)" >&2
-        echo "  [q] Quit (default)" >&2
-        printf '  Choice: '
-        local _ans=""
-        read -r _ans || _ans=""
-        case "$_ans" in
-            w|W)
-                _create_worktree_and_retarget "$project_dir" || return 1
-                return 0   # worktree is its own workspace — skip lock acquisition
-                ;;
-            *)
-                echo "  → Session not started." >&2
+        _afleet_explain_private_copy
+        local _ans="" _tries=0
+        while [ "$_tries" -lt 3 ]; do
+            _tries=$((_tries + 1))
+            printf '  Your choice [w]: ' >&2
+            # Read the terminal directly; stdin may be a pipe. AFLEET_PROMPT_INPUT
+            # is the test seam. Both failing means nobody can answer.
+            if ! read -r _ans <"${AFLEET_PROMPT_INPUT:-/dev/tty}" 2>/dev/null && ! read -r _ans; then
+                echo "" >&2
+                echo "  → Nobody can answer this (no interactive terminal). Session not started." >&2
                 return 1
-                ;;
-        esac
+            fi
+            case "$_ans" in
+                ''|w|W|j|J|y|Y)
+                    _create_worktree_and_retarget "$project_dir" || return 1
+                    return 0   # worktree is its own workspace — skip lock acquisition
+                    ;;
+                q|Q|n|N)
+                    echo "  → Session not started." >&2
+                    return 1
+                    ;;
+                '?')
+                    _afleet_explain_private_copy
+                    ;;
+                *)
+                    echo "  '$_ans' is not one of the options." >&2
+                    _afleet_explain_private_copy
+                    ;;
+            esac
+        done
+        echo "  → No valid choice given. Session not started." >&2
+        return 1
     fi
 
     # Export session ID for hooks (statusline heartbeat, SessionEnd release)
