@@ -45,10 +45,37 @@ _HOOK_DIR="$(cd "$(dirname "$(_readlink_f "${BASH_SOURCE[0]}" 2>/dev/null || ech
 _CHECKS_DIR="${CONFIG_CHECK_DIR:-${_HOOK_DIR}/checks}"
 
 # ── First-run mode: suppress non-critical checks when .setup-pending exists ──
+# First-run mode suppresses 21 of 23 checks, and NOTHING used to remove the
+# marker — deleting it existed only as prose in first-run-refinement.md, so a
+# machine stayed suppressed from install onwards and "everything was skipped"
+# looked exactly like "nothing to report" (agent-fleet GH#6 defect 2; the same
+# silent-empty signature as CFG-503 / CFG-527 / CFG-530).
+#
+# The marker now has a definite lifetime of exactly ONE session: the first
+# startup arms a `.seen` sibling and runs suppressed, so first-run refinement
+# gets its full session; the next startup finds the sibling and clears both.
+# The asymmetry justifies erring toward clearing — one session too early costs
+# a re-run of refinement, never clearing costs every check, forever.
 FIRST_RUN_MODE=0
-if [ -f "$PROJECT_ROOT/.setup-pending" ] || [ -f "$CONFIG_REPO/.setup-pending" ]; then
-    FIRST_RUN_MODE=1
-    INBOX_MSG="${INBOX_MSG:+$INBOX_MSG | }[INFO] First-run mode — skipping non-essential checks (.setup-pending detected)"
+_SETUP_MARKER=""
+if [ -f "$PROJECT_ROOT/.setup-pending" ]; then
+    _SETUP_MARKER="$PROJECT_ROOT/.setup-pending"
+elif [ -f "$CONFIG_REPO/.setup-pending" ]; then
+    _SETUP_MARKER="$CONFIG_REPO/.setup-pending"
+fi
+
+if [ -n "$_SETUP_MARKER" ]; then
+    if [ -f "$_SETUP_MARKER.seen" ]; then
+        rm -f "$_SETUP_MARKER" "$_SETUP_MARKER.seen" 2>/dev/null || true
+        INBOX_MSG="${INBOX_MSG:+$INBOX_MSG | }[INFO] First-run mode complete — .setup-pending cleared, all checks re-armed."
+    else
+        FIRST_RUN_MODE=1
+        : > "$_SETUP_MARKER.seen" 2>/dev/null || true
+        INBOX_MSG="${INBOX_MSG:+$INBOX_MSG | }[INFO] First-run mode — skipping non-essential checks (.setup-pending detected). This is the ONLY suppressed session; the marker clears at the next startup."
+    fi
+else
+    # Marker removed by hand — do not leave the sibling behind to confuse the next run.
+    rm -f "$PROJECT_ROOT/.setup-pending.seen" "$CONFIG_REPO/.setup-pending.seen" 2>/dev/null || true
 fi
 
 # ── Source and execute check modules (alphabetical order) ──
