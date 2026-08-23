@@ -134,21 +134,47 @@ _cc_is_nested() {
 # rc 0 ⇒ a live CC process (other than exclude_pid) has cwd == project_dir.
 # FAIL OPEN (rc 1, "no competitor") when exclude_pid is empty (cannot tell self
 # from other) or process enumeration is unavailable — never self-block.
+# Enumerate every live pid, one per line. Separate from the scan below so tests
+# can replace the whole process world deterministically. rc 1 ⇒ enumeration is
+# unavailable, and the caller FAILS OPEN.
+_enumerate_pids() {
+    if [[ -d /proc ]]; then
+        for d in /proc/[0-9]*; do printf '%s\n' "${d#/proc/}"; done 2>/dev/null
+    elif command -v ps >/dev/null 2>&1; then
+        ps -eo pid= 2>/dev/null
+    else
+        return 1
+    fi
+}
+
+# rc 0 iff $1 is $2 itself or lies anywhere below $2 in the process tree.
+# The walk is bounded (40 hops, same as the ownership helpers) so a corrupt or
+# racing ppid readout can never hang the mutex; an unresolved walk simply
+# answers "not a descendant", which keeps the guard on its safe side.
+_pid_is_descendant_of() {
+    local pid="$1" ancestor="$2" guard=0
+    [[ -n "$pid" && -n "$ancestor" ]] || return 1
+    while [[ -n "$pid" && "$pid" != "0" && "$pid" != "1" && $guard -lt 40 ]]; do
+        [[ "$pid" == "$ancestor" ]] && return 0
+        pid="$(_ppid_of "$pid")"
+        guard=$((guard + 1))
+    done
+    return 1
+}
+
 _project_has_live_cc() {
     local project_dir="$1" exclude_pid="$2"
     [[ -n "$exclude_pid" ]] || return 1
     local target
     target="$(realpath "$project_dir" 2>/dev/null)" || target="$project_dir"
     local pids p cwd
-    if [[ -d /proc ]]; then
-        pids=$(for d in /proc/[0-9]*; do printf '%s\n' "${d#/proc/}"; done 2>/dev/null)
-    elif command -v ps >/dev/null 2>&1; then
-        pids=$(ps -eo pid= 2>/dev/null)
-    else
-        return 1
-    fi
+    pids="$(_enumerate_pids)" || return 1
     for p in $pids; do
-        [[ "$p" == "$exclude_pid" ]] && continue
+        # Exclude self AND self's whole descendant tree (CFG-468). Excluding only
+        # the exact pid made the guard self-tripping: rotation runs through a Bash
+        # tool call, CC spawns a child for it, and that child is a CC process cwd'd
+        # in the project — indistinguishable from a rival unless parentage is checked.
+        _pid_is_descendant_of "$p" "$exclude_pid" && continue
         _pid_is_cc "$p" || continue
         cwd="$(_pid_cwd "$p")" || continue
         [[ "$cwd" == "$target" ]] && return 0
@@ -573,6 +599,29 @@ check_lock() {
         if [[ "$_LOCK_PID" == "$$" || ( -n "$self_pid" && "$_LOCK_PID" == "$self_pid" ) ]]; then
             return 1
         fi
+        # CFG-536: on the primary `af`/afleet launch path the lock records the
+        # LAUNCHER shell, never the claude.exe pid, so the comparison above can
+        # never match and a leader read its own live lock as foreign. Fall back
+        # to the ownership signals the library already computes.
+        #
+        # Gate them all on "not a nested CC" first: a nested CC INHERITS the
+        # leader's CC_SESSION_ID / AFLEET_SESSION_ID, so an ungated id comparison
+        # would hand it ownership and reopen the CFG-454 F1 spoof.
+        if ! _cc_is_nested; then
+            local _my_cc="${CC_SESSION_ID:-${CLAUDE_SESSION_ID:-}}"
+            # ccSessionId is the reliable ownership signal; the pid is not.
+            if [[ -n "$_LOCK_CC_SESSION" && -n "$_my_cc" && "$_LOCK_CC_SESSION" == "$_my_cc" ]]; then
+                return 1
+            fi
+            if [[ -n "$_LOCK_SESSION" && -n "${AFLEET_SESSION_ID:-}" && "$_LOCK_SESSION" == "${AFLEET_SESSION_ID}" ]]; then
+                return 1
+            fi
+            # Ancestry: the lock pid is a live ancestor of our CC with no other CC
+            # in between ⇒ we are the session that shell launched.
+            if _cc_owns_lock_pid "$_LOCK_PID"; then
+                return 1
+            fi
+        fi
         # Another live session on this machine
         return 2
     fi
@@ -700,6 +749,39 @@ _role_file_path() {
     printf '%s/.claude/.session-role.%s' "$project_dir" "$id"
 }
 
+# Default lifetime of a role marker, in days. A session that has not written its
+# marker for this long is gone; 7 is deliberately generous, since the only cost
+# of keeping one too long is one stale file and the cost of dropping a live
+# session's marker is a misread role at shutdown.
+: "${_ROLE_MAX_AGE_DAYS:=7}"
+
+gc_roles() {
+    # CFG-468 Defect E — nothing ever removed role markers, so they accumulated
+    # for months (12 in the live repo on 2026-08-23, oldest Jul 7). Collect the
+    # expired ones, and NEVER the caller's own marker whatever its age.
+    #
+    # Deliberately narrow: only `.claude/.session-role.*` under the given project
+    # dir, only past the age threshold, and always rc 0 so a cleanup failure can
+    # never break a session start.
+    local project_dir="$1" max_age="${2:-$_ROLE_MAX_AGE_DAYS}"
+    local keep_cc="${3:-}" keep_afleet="${4:-}"
+    local rdir="$project_dir/.claude"
+    [[ -d "$rdir" ]] || return 0
+    [[ "$max_age" =~ ^[0-9]+$ ]] || return 0
+
+    local keep=""
+    keep="$(_role_file_path "$project_dir" "$keep_cc" "$keep_afleet" 2>/dev/null)" || keep=""
+
+    local f
+    while IFS= read -r f; do
+        [[ -n "$f" ]] || continue
+        [[ "$f" == "$keep" ]] && continue
+        rm -f -- "$f" 2>/dev/null || true
+    done < <(find "$rdir" -maxdepth 1 -type f -name '.session-role.*' \
+                  -mtime "+$max_age" 2>/dev/null)
+    return 0
+}
+
 write_role() {
     # Persist this session's role (leader|follower). Returns 1 (no write) on an
     # invalid role or when no stable identity is available.
@@ -709,6 +791,10 @@ write_role() {
     rf="$(_role_file_path "$project_dir" "$cc_sid" "$afleet_sid")" || return 1
     mkdir -p "$(dirname "$rf")" 2>/dev/null || true
     printf '%s\n' "$role" > "$rf" 2>/dev/null || return 1
+    # Opportunistic GC on the way in: this runs at every SessionStart via 07b, so
+    # the cleanup needs no new call site and no hook edit. A cleanup that has to
+    # be invoked deliberately is the state this fixes.
+    gc_roles "$project_dir" "" "$cc_sid" "$afleet_sid" || true
     return 0
 }
 
