@@ -27,3 +27,27 @@ four short pointers; the content lives here, tracked and synced.
 
 - [ ] [P2] **AFT-61: `03-inbox-services.sh` needs a manual Category-3 sanitisation pass for the new CFG-134 child-inbox check.** **`global/hooks/checks/03-inbox-services.sh` gained a new Check 3.2c (`CFG-134`) that cfg cannot auto-copy to you**, because the manifest classes this file **Cat-3 / flag-only** — its existing `CFG-483` comments name a private project incident twice and the tag-form examples name three more private projects, so `template-push` flags it and never copies. That classification is correct and should stay; this item is the manual pass it implies.
 
+
+---
+
+## Added later the same day — AFT-62
+
+- [ ] [P1] **AFT-62: Category-3 review of the corrected cross-project boundary rule.** cfg-agent-fleet
+  changed the rule on 2026-08-24 after MG pointed out — not for the first time — that the documents
+  asserted the opposite of his actual rule. `global/CLAUDE.md` and `global/reference/cross-project-rules.md`
+  both said "no exceptions", and the latter named specific system projects as using the inbox "like
+  everyone else". Both are Category-3 here, so they did NOT auto-propagate and this template still
+  carries the old, wrong text.
+
+  **The corrected rule, MG-approved, scope verbatim:** *the fleet's system projects may write directly
+  to any project whose session is not active; every other project routes through the inbox.* Adapt the
+  project names to whatever this template's deployment calls them — the personal repo names four.
+
+  **Do not weaken the safety half.** Writing into a project that IS running remains forbidden, and the
+  idle check is a **race**: a project went idle → live *during* a write to it on the day this was
+  written. Re-check immediately before each write.
+
+  Also pending Cat-3 review from the same day: `global/foundation/session-shutdown.md` (new step 8 —
+  shutdown messages route open questions to a pending file and end at the announcement),
+  `global/knowledge/fleet-capabilities.md` (Workflow fan-out rate limit) and
+  `global/reference/mcp-catalog.md`.
