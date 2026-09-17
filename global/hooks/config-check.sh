@@ -20,6 +20,11 @@ CONFIG_REPO="$(_detect_config_repo)"
 FAIL_MARKER="$CONFIG_REPO/.sync-failed"
 WARNINGS=""
 INBOX_MSG=""
+# Identity fields a session cannot start without (HOSTNAME/TIME/PERSONA/
+# SESSION_CONTEXT/HANDOFF/PENDING_FILES, written by checks/06a-session-state.sh).
+# Kept in a DEDICATED variable so the payload can lead with them — see the
+# assembly comment below for why ordering is load-bearing.
+IDENTITY_MSG=""
 
 DEFAULT_BRANCH=$(git -C "$CONFIG_REPO" symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's|refs/remotes/origin/||')
 [ -z "$DEFAULT_BRANCH" ] && DEFAULT_BRANCH="main"
@@ -95,36 +100,56 @@ if [ -d "$_CHECKS_DIR" ]; then
 fi
 
 # ── Output JSON ──
+# Assembly order is LOAD-BEARING (2026-09-17 spill incident): Claude Code saves
+# hook output over ~50K chars to a file and injects only a short HEAD preview
+# (changelog 2.1.89; an unverified report — upstream #94358 — puts the threshold
+# for additionalContext at 10K with a 2K preview). Whatever the exact number, the
+# preview keeps the HEAD, so the identity block leads: a session that loses
+# warnings can still read the spilled file, but a session that does not know what
+# machine it is on cannot start correctly. Identity first, warnings and inbox after.
 SYSTEM_MSG=""
+if [ -n "$IDENTITY_MSG" ]; then
+    SYSTEM_MSG="$(printf '%s' "$IDENTITY_MSG" | tr '\n' ' ')"
+elif ! printf '%s' "$INBOX_MSG" | grep -q "HOSTNAME:"; then
+    # 06a always emits HOSTNAME (with an "unknown" fallback), so identity being
+    # absent from BOTH channels means 06a failed to run or a version skew between
+    # config-check.sh and checks/ ate its output. Say so loudly — a silently
+    # missing identity block is this file's signature failure (CFG-503/527/530).
+    SYSTEM_MSG="IDENTITY_MISSING: the session-state check (checks/06a-session-state.sh) emitted no identity fields — module failure or config-check.sh/checks version skew. Determine machine identity manually (CLAUDE.md identity table + ~/.claude/machines/) and report this to the user."
+fi
 if [ -n "$WARNINGS" ]; then
     if [ "$FIRST_RUN_MODE" -eq 1 ]; then
-        SYSTEM_MSG="$(printf '%s' "$WARNINGS" | tr '\n' ' ')"
+        SYSTEM_MSG="${SYSTEM_MSG:+$SYSTEM_MSG | }$(printf '%s' "$WARNINGS" | tr '\n' ' ')"
     else
-        SYSTEM_MSG="WARNING: $(printf '%s' "$WARNINGS" | tr '\n' ' ') Tell the user about this issue immediately before doing any other work."
+        SYSTEM_MSG="${SYSTEM_MSG:+$SYSTEM_MSG | }WARNING: $(printf '%s' "$WARNINGS" | tr '\n' ' ') Tell the user about this issue immediately before doing any other work."
     fi
 fi
 if [ -n "$INBOX_MSG" ]; then
     SYSTEM_MSG="${SYSTEM_MSG:+$SYSTEM_MSG | }$(printf '%s' "$INBOX_MSG" | tr '\n' ' ')"
 fi
 
-# ── Cap the payload (CFG-527) ──
-# Two independent reasons, and both matter:
+# ── Cap the payload (CFG-527, tightened after the 2026-09-17 spill) ──
+# Three independent reasons, and all matter:
 #  1. A single argv entry is capped at MAX_ARG_STRLEN = 32 pages = 131,072 bytes (NOT ARG_MAX,
 #     which is ~2 MB and is not what bites). Passing the payload as argv past that returns E2BIG,
 #     the encoder never runs, stdout is empty — and this script still exits 0. Silent, unlogged.
 #     The encoder below now reads stdin, so that limit no longer applies; the cap is defence in depth.
 #  2. Even when it fits, a 176 KB additionalContext is ~45k tokens injected into every session of
 #     the affected project. Uncapped, fixing (1) alone trades a silent failure for a context bomb.
-# Truncation keeps BOTH ends: warnings accumulate at the front, and the identity block
-# (HOSTNAME / PERSONA / SESSION_CONTEXT / HANDOFF / PENDING_FILES, from 06a onward) at the back.
-# A head-only truncation would drop exactly the fields a session cannot start without.
-_MAX_CTX="${CONFIG_CHECK_MAX_CONTEXT:-60000}"
+#  3. Claude Code SPILLS hook output over 50,000 chars to a file, injecting only a head preview
+#     (changelog 2.1.89) — the previous 60,000 default sat ABOVE that, so our truncation never
+#     fired and the spill did, delivering ~2K of a 60K payload. The cap must keep the hook's raw
+#     JSON stdout (payload + envelope + escape expansion, what CC actually measures) under 50,000:
+#     45,000 leaves ~10% for the envelope and escaping. Overridable via CONFIG_CHECK_MAX_CONTEXT.
+# Truncation drops the MIDDLE: the identity block leads (see assembly above) so the kept head
+# carries it, and the kept tail preserves the later checks' fields (PROJECT_KNOWLEDGE, services).
+_MAX_CTX="${CONFIG_CHECK_MAX_CONTEXT:-45000}"
 if [ -n "$SYSTEM_MSG" ] && [ "${#SYSTEM_MSG}" -gt "$_MAX_CTX" ]; then
     _total=${#SYSTEM_MSG}
     _head=$(( _MAX_CTX * 6 / 10 ))
     _tail=$(( _MAX_CTX * 4 / 10 ))
     _dropped=$(( _total - _head - _tail ))
-    SYSTEM_MSG="${SYSTEM_MSG:0:$_head} … [TRUNCATED: $_dropped of $_total chars dropped — the payload is oversized, usually because cross-project/inbox.md holds too many items for this project; see CFG-515 and CFG-527] … ${SYSTEM_MSG: -$_tail}"
+    SYSTEM_MSG="${SYSTEM_MSG:0:$_head} … [TRUNCATED: $_dropped of $_total chars dropped — payload exceeded $_MAX_CTX chars (CONFIG_CHECK_MAX_CONTEXT). Claude Code spills hook output over ~50K chars to a disk file with only a head preview injected, so the cap must stay below that; if startup context ever arrives as a file path + preview, that spill is what happened. Usual cause: cross-project/inbox.md holds too many items for this project; see CFG-515 and CFG-527] … ${SYSTEM_MSG: -$_tail}"
 fi
 
 if [ -n "$SYSTEM_MSG" ]; then

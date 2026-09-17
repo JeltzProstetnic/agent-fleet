@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
-# Test runner — discovers and runs all test-*.sh files in the tests/ directory
-# Usage: bash tests/run.sh [pattern]
+# Test runner — discovers and runs all test-*.sh files in the setup/tests/ directory
+# Usage: bash setup/tests/run.sh [pattern] [--e2e]
 #   pattern: optional glob to filter test files (e.g., "rotate" matches test-rotate*.sh)
+#   --e2e:   include E2E tests (test-e2e-*.sh) — these spawn real Claude Code sessions
+#            and consume API credits. Excluded by default. Use only in VM/controlled environments.
 
 set -euo pipefail
 
@@ -19,21 +21,32 @@ else
     RED='' GREEN='' YELLOW='' BOLD='' RESET=''
 fi
 
-PATTERN="${1:-}"
+PATTERN=""
+INCLUDE_E2E=false
+for arg in "$@"; do
+    case "$arg" in
+        --e2e) INCLUDE_E2E=true ;;
+        *) PATTERN="$arg" ;;
+    esac
+done
 TOTAL_SUITES=0
 PASSED_SUITES=0
 FAILED_SUITES=0
 FAILED_NAMES=()
 
-printf "${BOLD}agent-fleet test runner${RESET}\n"
+printf "${BOLD}cfg-agent-fleet test runner${RESET}\n"
 printf "Repo: %s\n\n" "$REPO_ROOT"
 
 # Discover test files
 test_files=()
 for f in "$SCRIPT_DIR"/test-*.sh; do
     [[ -f "$f" ]] || continue
+    basename_f="$(basename "$f")"
+    # Skip E2E tests unless --e2e flag is passed (they spawn real Claude sessions)
+    if [[ "$INCLUDE_E2E" == "false" ]] && [[ "$basename_f" == test-e2e-* ]]; then
+        continue
+    fi
     if [[ -n "$PATTERN" ]]; then
-        basename_f="$(basename "$f")"
         [[ "$basename_f" == *"$PATTERN"* ]] || continue
     fi
     test_files+=("$f")
@@ -52,7 +65,12 @@ for test_file in "${test_files[@]}"; do
     suite_name="$(basename "$test_file" .sh)"
     ((TOTAL_SUITES++)) || true
 
-    if bash "$test_file"; then
+    # Run in subshell to prevent env var leakage (test exports contaminated parent session).
+    # stdin is /dev/null (CFG-474): a suite that inherits the caller's terminal and reads it
+    # blocks forever, and only when a human runs the gate — every TTY-less runner sees EOF and
+    # passes. That asymmetry cost this gate two separate indefinite hangs. Tests that need input
+    # still pipe it into the specific command they are exercising.
+    if (exec bash "$test_file" </dev/null); then
         ((PASSED_SUITES++)) || true
     else
         ((FAILED_SUITES++)) || true
