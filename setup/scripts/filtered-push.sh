@@ -188,7 +188,7 @@ done
 # first — dragging in untracked build artifacts (.aux/.log) that are not in the index;
 # `git rm` is all-or-nothing across pathspecs, aborts on the untracked path, and removes
 # NOTHING while the ls-files guard still sees the tracked match and stays silent. That is
-# exactly how the full book manuscripts leaked to the public aIware mirror (root cause
+# exactly how a full set of book manuscripts leaked to a public mirror (root cause
 # found 2026-07-31). Quoting makes git match the index, not the disk.
 for glob in "${EXCLUDE_GLOBS[@]}"; do
     if git ls-files --cached -- "$glob" 2>/dev/null | grep -q .; then

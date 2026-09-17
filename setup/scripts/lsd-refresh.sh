@@ -18,7 +18,7 @@ fi
 # ⛔ This script used to overwrite the cache wholesale. The shutdown checklist tells every
 #    project to keep its own row's state snapshot current, and that prose lives ONLY in the
 #    working tree until someone commits the cache — so a refresh silently destroyed it, and
-#    a project with no active session never noticed. (crucible, 2026-08-25.)
+#    a project with no active session never noticed. (Observed 2026-08-25.)
 # ⇒ Rule: a cell longer than PROSE_MIN characters is human prose and is NEVER overwritten by a
 #    generated value. Short generated tokens (dates, counts) still refresh normally.
 PROSE_MIN=40

@@ -96,7 +96,7 @@ _reason_for() {
 #
 #   1. `cmd.exe /c start` BLOCKS the calling Bash tool call — WSL's Win32 interop waits
 #      on the entire detached process tree. Start-Process detaches properly and the
-#      launched process survives the tool-call boundary (measured p0rn 2026-08-27:
+#      launched process survives the tool-call boundary (measured 2026-08-27:
 #      a CC-launched overlay lived 17 minutes past the call and rendered on screen).
 #   2. A `\\wsl.localhost\...` UNC path spawns zombie PowerShells — the 2026-03-10
 #      lockout, 9 PowerShell + 3 cmd zombies froze the Windows session. So anything

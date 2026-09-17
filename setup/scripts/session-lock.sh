@@ -40,7 +40,17 @@ _is_pid_alive() {
 # _CC_SELF_PID (this session's own CC pid to exclude). Empty exclude ⇒ FAIL OPEN
 # (report no competitor) so a legitimate solo session is NEVER self-blocked.
 
-: "${_CC_PROC_RE:=claude-code/(bin/|cli)}"
+# GH#7 / CFG-590: the first alternative alone assumed the npm layout, so on any
+# install invoked as a bare binary NOTHING here fired — _pid_is_cc said no to the
+# real running session, _cc_self_pid came back empty, _project_has_live_cc
+# short-circuited on its own empty-exclude guard, and check_lock reported every
+# project free. A mutex that always grants, silently. The second alternative
+# anchors on a path-segment boundary and requires the command name to END at
+# `claude`, so `mclaude` (the launcher wrapping the real process), `~/.claude/…`
+# paths and a stray `claude` in an argument are all still correctly rejected —
+# verified against every process running on a live fleet machine, 0 false
+# positives in 258. Regression guard: setup/tests/test-session-lock-matcher.sh.
+: "${_CC_PROC_RE:=claude-code/(bin/|cli)|(^|/)claude([[:space:]]|$)}"
 
 _pid_cmdline() {
     local pid="$1"
