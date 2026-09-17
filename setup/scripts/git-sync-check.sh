@@ -174,7 +174,97 @@ if [ -z "$REMOTE" ]; then
   exit 0
 fi
 
+# ── Rotation-artifact recovery (agent-fleet issue #8) ───────────────────────
+# Commits session-rotation artifacts left behind by an interrupted shutdown.
+# Called ONLY from the up-to-date and ahead-only exit paths below — the behind
+# and diverged paths are deliberately untouched: the behind path has its own
+# in-pull recovery with a rebase/stash fallback, and running this before the
+# ahead/behind read would turn a behind repo into a diverged one, suppressing
+# the incoming-changes report and the CFG-208 auto-deploy check.
+#
+# Guards, all of which must hold:
+#   - --pull mode only: report-only invocations never write.
+#   - session-context.md exists and its Session Goal is EMPTY — the exact
+#     state rotate-session.sh leaves behind. Mid-session the goal is populated
+#     (startup protocol step 8), so in-flight session state is never committed.
+#   - no unmerged paths: 'git add' on a conflicted file would mark it resolved
+#     with the conflict markers still inside, and this function must never
+#     "resolve" the stash-pop conflicts the behind path can leave.
+#   - every TRACKED dirty path is a rotation artifact. Untracked files neither
+#     block recovery (checks/18 ignores them, and a config repo routinely
+#     carries scratch files) nor get staged — only paths from git diff are
+#     added, and an untracked file never appears there. That also keeps an
+#     untracked .post-rotation-commit marker untracked: committing it would
+#     manufacture tracked dirt when the marker is later removed.
+#
+# Every git call is pinned to $REPO_ROOT: git diff prints repo-root-relative
+# paths while a bare 'git add' resolves cwd-relative, so from a subdirectory
+# the two disagree — that mismatch could stage an unrelated same-named
+# untracked file, or silently stage nothing at all.
+# Returns 0 only if a recovery commit was actually created.
+_recover_rotation_artifacts() {
+  [ "$AUTO_PULL" = true ] || return 1
+  [ -f "$REPO_ROOT/session-context.md" ] || return 1
+
+  local _goal
+  _goal=$(sed -n 's/.*\*\*Session Goal\*\*: \(.\+\)/\1/p' "$REPO_ROOT/session-context.md" 2>/dev/null | head -1)
+  [ -z "$_goal" ] || return 1
+
+  [ -z "$(git -C "$REPO_ROOT" ls-files -u 2>/dev/null)" ] || return 1
+
+  local _dirty _df
+  _dirty=$( { git -C "$REPO_ROOT" diff --name-only; git -C "$REPO_ROOT" diff --cached --name-only; } 2>/dev/null | sort -u )
+  [ -n "$_dirty" ] || return 1
+
+  # Validate every path BEFORE staging anything
+  while IFS= read -r _df; do
+    [ -z "$_df" ] && continue
+    case "$_df" in
+      session-context.md|session-history.md|next-session-task.md|docs/session-log.md|.post-rotation-commit) ;;
+      *) return 1 ;;
+    esac
+  done <<< "$_dirty"
+
+  # Stage one path at a time — git add fails atomically on multi-pathspec
+  while IFS= read -r _df; do
+    [ -z "$_df" ] && continue
+    git -C "$REPO_ROOT" add -- "$_df" 2>/dev/null || true
+  done <<< "$_dirty"
+
+  if git -C "$REPO_ROOT" diff --cached --quiet 2>/dev/null; then
+    return 1  # nothing actually staged (content unchanged) — leave the tree alone
+  fi
+
+  echo "Recovering interrupted session rotation..."
+  if git -C "$REPO_ROOT" commit -m "Auto-sync: recovered rotation (interrupted)" --quiet 2>/dev/null; then
+    echo "Recovered rotation artifacts (committed)."
+    return 0
+  fi
+
+  # Commit failed (e.g. no git identity) — unstage what we staged so nothing
+  # is left half-done, and say so instead of claiming success. The artifacts
+  # stay dirty, so CONFIG_REPO_DIRTY still surfaces them to the user.
+  while IFS= read -r _df; do
+    [ -z "$_df" ] && continue
+    git -C "$REPO_ROOT" reset --quiet -- "$_df" 2>/dev/null || true
+  done <<< "$_dirty"
+  echo "WARNING: Rotation recovery commit failed — artifacts left uncommitted."
+  return 1
+}
+
 if [ "$LOCAL" = "$REMOTE" ]; then
+  if _recover_rotation_artifacts; then
+    # Fast-forward push: local and remote were identical a moment ago, so the
+    # recovery commit is the only delta. Leaving it unpushed would let another
+    # machine's push turn the next startup into a diverged one; push now while
+    # the window is provably clean. Failure is non-fatal — the diverged
+    # auto-sync rebase path picks the commit up next session.
+    if git -C "$REPO_ROOT" push "${SYNC_REMOTE:-origin}" "$BRANCH" --quiet 2>/dev/null; then
+      echo "Recovery commit pushed."
+    else
+      echo "WARNING: Recovery commit push failed — will sync next session."
+    fi
+  fi
   echo "Up to date."
   exit 0
 fi
@@ -399,6 +489,12 @@ if [[ -f "$REPO_ROOT/.agent-fleet-version" ]]; then
 fi
 
 if [ "$AHEAD" -gt 0 ]; then
+  # Ahead-only repos need rotation recovery too (issue #8), but NO push: the
+  # branch already carries unpushed commits this script deliberately leaves
+  # alone ("No action needed"), and a push here would ship them as a side effect.
+  if _recover_rotation_artifacts; then
+    AHEAD=$(git rev-list "$COMPARE_REF..HEAD" --count 2>/dev/null || echo "$AHEAD")
+  fi
   echo "Ahead of remote by $AHEAD commit(s) (unpushed). No action needed."
   exit 0
 fi
