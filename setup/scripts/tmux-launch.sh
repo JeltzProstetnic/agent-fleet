@@ -28,7 +28,9 @@ fi
 COMMAND="$1"
 
 # Kill existing session with same name
-tmux kill-session -t "$SESSION" 2>/dev/null || true
+# `-t=` forces EXACT match. Plain `-t` falls back to PREFIX match, so launching
+# "job" while "job2" runs would kill "job2" (measured WSL 2026-09-17). CFG-616 family.
+tmux kill-session -t="$SESSION" 2>/dev/null || true
 
 # Pre-create log file with header (before tmux starts)
 precreate_log() {
@@ -71,7 +73,9 @@ launch_session "$SESSION" "$COMMAND" "$LOG_PATH"
 verify_session() {
     local session="$1" log_path="$2"
     sleep 1
-    if ! tmux has-session -t "$session" 2>/dev/null; then
+    # `-t=` (exact): with plain `-t`, a prefix-sharing sibling session would answer
+    # for ours and mask the death we are checking for.
+    if ! tmux has-session -t="$session" 2>/dev/null; then
         local msg="ERROR: tmux session '$session' died immediately"
         [[ -n "$log_path" ]] && msg="$msg. Check $log_path"
         echo "$msg" >&2

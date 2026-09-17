@@ -194,6 +194,37 @@ MOCKEOF
 }
 run_test "GPI registration called on launch" test_gpi_called
 
+# ── Session-name prefix matching (CFG-616 family) ───────────────────────────
+# tmux resolves `-t name` by exact match, then PREFIX match. Measured on WSL
+# 2026-09-17: with a live session `zztest2`, `tmux kill-session -t zztest`
+# returns 0 and kills `zztest2`, while `-t=zztest` correctly fails. So a launch
+# whose session name is a PREFIX of a running job's name silently killed that
+# running job, and the death check could pass on a stranger's session.
+
+test_prefix_sibling_survives_and_death_still_detected() {
+    local sib="zzpfxsib2" own="zzpfxsib"
+    tmux kill-session -t="$sib" 2>/dev/null || true
+    tmux kill-session -t="$own" 2>/dev/null || true
+    tmux new-session -d -s "$sib" "sleep 30"
+    sleep 0.5
+
+    local out rc=0
+    out=$(bash "$TMUX_LAUNCH" "$own" "prefix probe" "exit 1" 2>&1) || rc=$?
+
+    local sib_alive=1
+    tmux has-session -t="$sib" 2>/dev/null || sib_alive=0
+
+    tmux kill-session -t="$own" 2>/dev/null || true
+    tmux kill-session -t="$sib" 2>/dev/null || true
+
+    # The launcher must not touch a session that merely shares its prefix.
+    assert_eq "1" "$sib_alive" "prefix-sharing sibling session must survive the launch" || return 1
+    # And with the sibling still alive, an immediately dead session must still be caught.
+    assert_neq "0" "$rc" "immediate death must be detected even with a prefix-sharing sibling alive" || return 1
+    assert_contains "$out" "died immediately" "death message must still be reported" || return 1
+}
+run_test "prefix-named sibling is neither killed nor mistaken for our session" test_prefix_sibling_survives_and_death_still_detected
+
 # ── Summary ─────────────────────────────────────────────────────────────────
 
 suite_summary
