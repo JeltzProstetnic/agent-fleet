@@ -70,7 +70,19 @@ for test_file in "${test_files[@]}"; do
     # blocks forever, and only when a human runs the gate — every TTY-less runner sees EOF and
     # passes. That asymmetry cost this gate two separate indefinite hangs. Tests that need input
     # still pipe it into the specific command they are exercising.
-    if (exec bash "$test_file" </dev/null); then
+    #
+    # setsid (CFG-670) is the other half, and the third instance of that same asymmetry.
+    # Closing stdin does NOT stop a `read -r x </dev/tty` — opening /dev/tty reaches the
+    # CONTROLLING TERMINAL directly and ignores stdin entirely. afleet.sh prompts exactly that
+    # way, by design, because its real caller is a human at a terminal. So the gate hung again
+    # on 2026-09-21, this time launched through tmux-launch.sh, which CLAUDE.md MANDATES for
+    # background commands: an empty log and a live tmux session, indistinguishable from a
+    # long-running suite. A Claude Code Bash call has no controlling terminal, so the same
+    # suite passed 166/166 and could not see the hang.
+    # setsid puts each suite in a new session with NO controlling terminal, so opening
+    # /dev/tty fails and the code takes its EOF path — the behaviour every runner already had,
+    # now including the ones that own a terminal. --wait propagates the child's exit status.
+    if (exec setsid --wait bash "$test_file" </dev/null); then
         ((PASSED_SUITES++)) || true
     else
         ((FAILED_SUITES++)) || true
