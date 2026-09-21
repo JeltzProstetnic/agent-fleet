@@ -45,7 +45,10 @@ test_log_precreated() {
     # Log should exist immediately (created before tmux, not by tmux)
     assert_file_exists "$logfile" "log should be pre-created before tmux starts" || return 1
     assert_file_contains "$logfile" "Session:" "log header should contain session name" || return 1
-    assert_file_contains "$logfile" "Command:" "log header should contain command" || return 1
+    # The command itself lives in the .meta sidecar (CFG-659), not here — the
+    # header must only POINT at it, so no command text can collide with a
+    # sentinel the job later writes into this same log.
+    assert_file_contains "$logfile" "Command logged to:" "log header should point at the meta sidecar" || return 1
     kill_session "$session"
 }
 run_test "log file pre-created with header" test_log_precreated
@@ -58,6 +61,36 @@ test_log_dir_created() {
     kill_session "$session"
 }
 run_test "missing log directory created automatically" test_log_dir_created
+
+# CFG-659: the header used to echo the command verbatim into the same log the
+# command writes its completion sentinel to, so `grep -c 'RSYNC DONE'` matched
+# the line ANNOUNCING the sentinel and returned 1 from the first second — a
+# completion check that reports success while the job is still running.
+# Measured on a life-session Audio mirror: grep said done at 516 of 1162 files.
+test_sentinel_not_in_header() {
+    local session="tl-sentinel-$$"
+    local logfile="$TEST_TMPDIR/sentinel.log"
+    bash "$TMUX_LAUNCH" "$session" "test" --log "$logfile" \
+        "sleep 5; echo 'RSYNC DONE' >> $logfile" 2>/dev/null
+    # At launch the job has not finished, so the sentinel must not be present.
+    local n
+    # `grep -c` already prints 0 on no-match and THEN exits 1 — a `|| echo 0`
+    # here appends a second zero and the assert compares against "0\n0".
+    n=$(grep -c 'RSYNC DONE' "$logfile" 2>/dev/null || true)
+    kill_session "$session"
+    assert_eq "0" "$n" "log must not contain the sentinel before the job emits it"
+}
+run_test "completion sentinel in the command does not appear in the log header" test_sentinel_not_in_header
+
+test_command_recorded_in_meta() {
+    local session="tl-meta-$$"
+    local logfile="$TEST_TMPDIR/meta.log"
+    bash "$TMUX_LAUNCH" "$session" "test" --log "$logfile" "sleep 5" 2>/dev/null
+    assert_file_exists "$logfile.meta" "command should be recorded in a .meta sidecar" || return 1
+    assert_file_contains "$logfile.meta" "sleep 5" "meta should carry the command" || return 1
+    kill_session "$session"
+}
+run_test "launch command is recorded in a .meta sidecar, not the log" test_command_recorded_in_meta
 
 # ── Session Verification ────────────────────────────────────────────────────
 

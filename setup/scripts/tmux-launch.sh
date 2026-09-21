@@ -33,17 +33,31 @@ COMMAND="$1"
 tmux kill-session -t="$SESSION" 2>/dev/null || true
 
 # Pre-create log file with header (before tmux starts)
+#
+# CFG-659: the command text MUST NOT go into the log. Callers are told to append
+# a completion sentinel to this same log (`echo 'RSYNC DONE' >> $log`), so a
+# header echoing the command verbatim put the sentinel in the log at launch —
+# `grep -c 'RSYNC DONE'` then returned 1 from the first second and reported a
+# still-running job as complete. The sentinel matched the line that ANNOUNCED
+# the sentinel. Same defect class as the CFG-597 pgrep self-match and the
+# CFG-616 `tmux -t` prefix match: a check that matches its own invocation.
+# The command goes to a `<log>.meta` sidecar; the log only points at it.
 precreate_log() {
     local log="$1" session="$2" cmd="$3"
     mkdir -p "$(dirname "$log")"
     {
         echo "=== tmux-launch ==="
         echo "Session: $session"
-        echo "Command: $cmd"
         echo "Started: $(date -Iseconds)"
+        echo "Command logged to: ${log}.meta"
         echo "==================="
         echo ""
     } > "$log"
+    {
+        echo "session: $session"
+        echo "started: $(date -Iseconds)"
+        echo "command: $cmd"
+    } > "${log}.meta"
 }
 
 if [[ -n "$LOG_PATH" ]]; then
