@@ -90,7 +90,7 @@ run_test "blocks a secret written as prose, matched by fingerprint" test_blocks_
 # ── 2. Shape-based secrets still blocked ──────────────────────────────────────
 test_blocks_shaped_token() {
     local repo; repo="$(_mkrepo)"
-    _stage "$repo" "docs/notes.md" "export GH=ghp_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    _stage "$repo" "docs/notes.md" "export GH=ghp_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"  # pragma: allowlist secret
     local rc=0; _run_guard "$repo" "git commit -m notes" 2>/dev/null || rc=$?
     assert_eq "2" "$rc" "a shaped credential token must BLOCK"
 }
@@ -192,7 +192,7 @@ test_allowlist_marker_does_not_exempt_neighbours() {
     _stage "$repo" "docs/notes.md" \
         "documented: ghp_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb  # pragma: allowlist secret"
     _stage "$repo" "docs/notes.md" \
-        "real leak: ghp_cccccccccccccccccccccccccccccccccccc"
+        "real leak: ghp_cccccccccccccccccccccccccccccccccccc"  # pragma: allowlist secret
     local rc=0; _run_guard "$repo" "git commit -m notes" 2>/dev/null || rc=$?
     assert_eq "2" "$rc" "an unmarked line in the same file must still BLOCK"
 }
