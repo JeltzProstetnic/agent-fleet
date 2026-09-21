@@ -27,11 +27,21 @@ GUARD="$REPO_ROOT/global/hooks/secret-commit-guard.sh"
 suite_header "secret-commit-guard.sh"
 
 # Run the guard against a repo with a synthetic PreToolUse payload.
+# CFG-667: the fleet now EXPORTS CC_SECRET_FINGERPRINTS/CC_SECRET_SALT from
+# settings.json, so they are present in any real session's environment and would
+# silently override every fixture below — the guard would consult the fleet's
+# real fingerprints instead of the throwaway ones each test writes, and three
+# cases went red the moment the export landed. Point them at the repo under test
+# by default so the suite controls its own inputs; a case that wants the ambient
+# or absent behaviour sets them explicitly. See knowledge/test-isolation-guards.md.
 _run_guard() {  # usage: _run_guard <repo> <command> [salt_dir]; returns rc
     local repo="$1" cmd="$2" rc=0
     printf '{"tool_name":"Bash","tool_input":{"command":%s}}' \
         "$(python3 -c 'import json,sys;print(json.dumps(sys.argv[1]))' "$cmd")" \
-        | (cd "$repo" && bash "$GUARD") 2>"$TEST_TMPDIR/guard.err" || rc=$?
+        | (cd "$repo" \
+           && export CC_SECRET_FINGERPRINTS="${CC_SECRET_FINGERPRINTS_OVERRIDE:-$repo/secrets/.secret-fingerprints}" \
+           && export CC_SECRET_SALT="${CC_SECRET_SALT_OVERRIDE:-$repo/secrets/.fingerprint-salt}" \
+           && bash "$GUARD") 2>"$TEST_TMPDIR/guard.err" || rc=$?
     cat "$TEST_TMPDIR/guard.err" >&2
     return "$rc"
 }
@@ -87,6 +97,46 @@ test_blocks_prose_secret_via_fingerprint() {
 }
 run_test "blocks a secret written as prose, matched by fingerprint" test_blocks_prose_secret_via_fingerprint
 
+# ── 1b. The SAME failure in any repo but cfg-agent-fleet ──────────────────────
+# CFG-667. FP_FILE is "$ROOT/secrets/.secret-fingerprints" — repo-relative. Only
+# cfg-agent-fleet has that file, so in the other 14 fleet repos the guard
+# silently degrades to shape-only, which is the half that provably cannot match
+# prose. Three of the four historical leaks were prose, and one of them was in
+# a customer-facing project. The env override exists in the code and was set
+# nowhere, so the detector that matters was inert exactly where it was needed.
+test_env_override_arms_a_repo_without_its_own_fingerprints() {
+    local repo fpdir
+    repo="$(_mkrepo)"
+    # A separate repo supplies the fingerprints — as cfg-agent-fleet does for the fleet.
+    fpdir="$(_mkrepo)"
+    _mkfingerprints "$fpdir" "correct-horse-battery-staple"
+    # The repo under test has NO fingerprints of its own. This is the real case.
+    [ -e "$repo/secrets/.secret-fingerprints" ] && return 1
+    _stage "$repo" "docs/pending-next-session.md" \
+        "Console login is jeltz, the password is correct-horse-battery-staple."
+    local rc=0
+    CC_SECRET_FINGERPRINTS_OVERRIDE="$fpdir/secrets/.secret-fingerprints" \
+    CC_SECRET_SALT_OVERRIDE="$fpdir/secrets/.fingerprint-salt" \
+        _run_guard "$repo" "git commit -m handover" 2>/dev/null || rc=$?
+    assert_eq "2" "$rc" "a repo without its own fingerprints must still value-match via CC_SECRET_FINGERPRINTS"
+}
+run_test "env override arms value-matching in a repo with no fingerprints of its own" test_env_override_arms_a_repo_without_its_own_fingerprints
+
+# The deployment half: the override must actually be SET, or the code path above
+# is dead everywhere. Asserts the shipped settings template arms it.
+test_settings_template_arms_the_override() {
+    local out
+    out=$(python3 - "$REPO_ROOT/setup/config/settings.json" <<'PYEOF'
+import json,sys
+env=json.load(open(sys.argv[1])).get("env",{})
+print(env.get("CC_SECRET_FINGERPRINTS",""), env.get("CC_SECRET_SALT",""))
+PYEOF
+)
+    assert_contains "$out" ".secret-fingerprints" "settings template must export CC_SECRET_FINGERPRINTS" || return 1
+    assert_contains "$out" ".fingerprint-salt" "settings template must export CC_SECRET_SALT"
+}
+run_test "settings template arms the fingerprint override fleet-wide" test_settings_template_arms_the_override
+
 # ── 2. Shape-based secrets still blocked ──────────────────────────────────────
 test_blocks_shaped_token() {
     local repo; repo="$(_mkrepo)"
@@ -105,7 +155,9 @@ test_fires_on_plain_commit_with_c_flag() {
     # invoked from elsewhere, targeting the repo with -C — the common fleet form
     printf '{"tool_name":"Bash","tool_input":{"command":%s}}' \
         "$(python3 -c 'import json,sys;print(json.dumps(sys.argv[1]))' "git -C $repo commit -m log")" \
-        | bash "$GUARD" 2>/dev/null || rc=$?
+        | CC_SECRET_FINGERPRINTS="$repo/secrets/.secret-fingerprints" \
+          CC_SECRET_SALT="$repo/secrets/.fingerprint-salt" \
+          bash "$GUARD" 2>/dev/null || rc=$?
     assert_eq "2" "$rc" "guard must resolve the repo from 'git -C <dir> commit'"
 }
 run_test "fires on 'git -C <dir> commit', not just the cwd repo" test_fires_on_plain_commit_with_c_flag
