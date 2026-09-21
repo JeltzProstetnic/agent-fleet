@@ -179,6 +179,24 @@
             "command": "bash ~/.claude/hooks/safe-run.sh unc-path-guard.sh"
           }
         ]
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash ~/.claude/hooks/safe-run.sh git-sweep-guard.sh"
+          }
+        ]
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash ~/.claude/hooks/safe-run.sh secret-commit-guard.sh"
+          }
+        ]
       }
     ],
     "PostToolUse": [
