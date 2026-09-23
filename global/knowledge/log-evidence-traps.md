@@ -134,3 +134,25 @@ session before the job's log did**, and were briefly assessed as a possible exte
 
 ⇒ **Attribute a mid-session change in tools, skills or settings to your own in-flight work before
 treating it as external.** Check what you launched and what it touches; the log is the slower signal.
+
+## `kill -0` / `os.kill(pid, 0)` SUCCEEDS on a zombie — it is the wrong liveness probe for a child you spawned
+
+**Measured on WSL 2026-09-22.** An un-reaped terminated child is a **zombie**, and signal 0
+succeeds on a zombie, so the probe reports the process **alive after you killed it**. This produced a
+false `FAIL` in a verification script and would have been read as *"the fix does not work"* — the
+classic shape of this file: a check that cannot distinguish the state you care about from the state
+you are trying to rule out.
+
+⇒ **Reap with `proc.wait()` instead.** And if what you actually care about is a **GUI window or a
+grandchild**, check that separately — *"the wrapper exited"* and *"the window closed"* are different
+questions, and the answer to one is not evidence for the other.
+
+**Companion fact from the same measurement, because it is what put the zombie there.**
+`subprocess.Popen` **without** `start_new_session=True` leaves the child in the **parent's** process
+group — measured `parent pid 4146408 pgid 4146408 / child pid 4146409 pgid 4146408`, versus
+`start_new_session=True` giving `pid 4146410 pgid 4146410`. ⛔ **Consequence:** any cleanup helper
+written as `os.killpg(os.getpgid(child_pid), SIG)` against such a child **signals your own process
+group and kills the caller.** This shipped to production in a fleet project and was one pause-edge
+away from taking down the Deck overlay; fixed as `PRN-1577` with two defences — **own session on
+spawn**, plus **refusing to `killpg` when `getpgid(pid) == getpgid(0)`** and falling back to the pid
+alone.

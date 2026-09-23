@@ -7,9 +7,11 @@
 #      passed on). A target below the installed version is refused — DOWNGRADE, both
 #      numbers printed — unless --allow-downgrade. --dry-run shows the same verdict.
 #   2. Phase 1 backs up npm/ (or native/), the launcher and variant.json.
-#   3. The install runs via npm (npm layout) or, with --via cc-mirror (native-layout
-#      machines), via a PINNED cc-mirror through npx: never a bare `cc-mirror` from PATH,
-#      never the literal "latest".
+#   3. The install runs via npm (npm layout); via --via binary (native layout: the ELF
+#      from the npm tarball is verified, then swapped in — needs no node on the target,
+#      which is why BOTH Decks can only be updated this way: measured 2026-09-23,
+#      `bash -lc 'command -v node'` is EMPTY on deck and deck2); or via --via cc-mirror,
+#      a PINNED cc-mirror through npx. Never a bare `cc-mirror` from PATH, never "latest".
 #   4. variant.json claudeOrig is rewritten to the installed version. Left at its
 #      creation-time value, any cc-mirror re-provision reinstalls THAT version — measured
 #      2026-09-23: claudeOrig=2.1.1 (unchanged since 2026-02-09) turned 2.1.274 into 2.1.1.
@@ -49,12 +51,17 @@ SKIP_NPM=false
 ALLOW_DOWNGRADE=false
 ACCEPT_UNREQUESTED=false
 VIA="auto"
+BINARY_SRC=""
 
 usage() {
-    printf "Usage: %s [--version <x.y.z|latest>] [--via npm|cc-mirror] [--allow-downgrade]\n" "$(basename "$0")"
+    printf "Usage: %s [--version <x.y.z|latest>] [--via npm|binary|cc-mirror]\n" "$(basename "$0")"
+    printf "       %*s [--binary <path>] [--allow-downgrade]\n" "${#0}" ""
     printf "       %*s [--accept-unrequested] [--dry-run] [--skip-npm]\n" "${#0}" ""
     printf "       Run OUTSIDE of a running CC session (after /exit).\n"
-    printf "       --via cc-mirror   native-layout machines (no npm/ tree): runs\n"
+    printf "       --via binary      native-layout machines: install <path> as native/claude.\n"
+    printf "                         Verified against --version BEFORE the swap; needs no node\n"
+    printf "                         on this machine. Implied when --binary is given.\n"
+    printf "       --via cc-mirror   native-layout machines WITH node/npx: runs\n"
     printf "                         npx -y cc-mirror@%s update %s --claude-version <x.y.z> --no-tweak\n" "$CC_MIRROR_PIN" "$VARIANT_NAME"
     printf "       --allow-downgrade  install a target BELOW the current version (refused otherwise)\n"
     printf "       --accept-unrequested  keep skills/teamModeEnabled the installer changed (rolled back otherwise)\n"
@@ -65,6 +72,7 @@ while [[ $# -gt 0 ]]; do
     case "$1" in
         --version) TARGET_VERSION="$2"; shift 2 ;;
         --via) VIA="$2"; shift 2 ;;
+        --binary) BINARY_SRC="$2"; shift 2 ;;
         --variant) VARIANT_NAME="$2"; shift 2 ;;
         --allow-downgrade) ALLOW_DOWNGRADE=true; shift ;;
         --accept-unrequested) ACCEPT_UNREQUESTED=true; shift ;;
@@ -74,7 +82,19 @@ while [[ $# -gt 0 ]]; do
         *) printf "Unknown option: %s\n" "$1"; usage ;;
     esac
 done
-case "$VIA" in auto|npm|cc-mirror) ;; *) printf "ERROR: --via must be npm or cc-mirror\n"; exit 1 ;; esac
+case "$VIA" in auto|npm|binary|cc-mirror) ;; *) printf "ERROR: --via must be npm, binary or cc-mirror\n"; exit 1 ;; esac
+# --binary implies the binary road: a node-less machine must never fall through to npx.
+[[ -n "$BINARY_SRC" && "$VIA" == "auto" ]] && VIA="binary"
+if [[ "$VIA" == "binary" ]]; then
+    if [[ -z "$BINARY_SRC" ]]; then
+        printf "ERROR: --via binary needs --binary <path> — the source binary to install.\n"
+        exit 1
+    fi
+    if [[ ! -f "$BINARY_SRC" ]]; then
+        printf "ERROR: --binary %s does not exist.\n" "$BINARY_SRC"
+        exit 1
+    fi
+fi
 
 # Phase 0: Refuse if inside CC
 if [[ -n "${CLAUDE_CONFIG_DIR:-}" ]]; then
@@ -128,6 +148,25 @@ if [[ ! "$TARGET_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
 fi
 printf "Target version:  %s (via %s)\n" "$TARGET_VERSION" "$VIA"
 
+# The binary road, validated BEFORE Phase 1. Handover 2026-09-23 step 4: the source must
+# print the intended version or we abort — a swap-then-check leaves a node-less Deck dead
+# with no way to run the thing that would tell you so.
+if [[ "$VIA" == "binary" ]]; then
+    if [[ "$LAYOUT" != "native" ]]; then
+        printf "ERROR: --via binary is for native-layout installs; this one is %s layout.\n" "$LAYOUT"
+        exit 1
+    fi
+    chmod +x "$BINARY_SRC" 2>/dev/null || true
+    SRC_VERSION=$(_probe "$BINARY_SRC")
+    printf "Source binary:   %s → reports %s\n" "$BINARY_SRC" "${SRC_VERSION:-<nothing>}"
+    if [[ "$SRC_VERSION" != "$TARGET_VERSION" ]]; then
+        printf "ERROR: the source binary reports '%s', not the requested %s — REFUSING to swap.\n" \
+            "${SRC_VERSION:-<nothing>}" "$TARGET_VERSION"
+        printf "       Nothing was touched; the installed binary is still %s.\n" "$CURRENT_VERSION"
+        exit 1
+    fi
+fi
+
 # Downgrade guard — refuse a lower target; --allow-downgrade is the only way through
 if _ver_lt "$TARGET_VERSION" "$CURRENT_VERSION"; then
     if $ALLOW_DOWNGRADE; then
@@ -173,7 +212,9 @@ detect_entry_point
 # Dry-run exit
 if $DRY_RUN; then
     printf "\n[dry-run] Would update %s → %s via %s\n" "$CURRENT_VERSION" "$TARGET_VERSION" "$VIA"
-    if [[ "$VIA" == "cc-mirror" ]]; then
+    if [[ "$VIA" == "binary" ]]; then
+        printf "[dry-run] Installer:     cp %s → %s (verified %s, atomic mv)\n" "$BINARY_SRC" "$NATIVE_DIR/claude" "$SRC_VERSION"
+    elif [[ "$VIA" == "cc-mirror" ]]; then
         printf "[dry-run] Installer:     npx -y cc-mirror@%s update %s --claude-version %s --no-tweak\n" "$CC_MIRROR_PIN" "$VARIANT_NAME" "$TARGET_VERSION"
     else
         printf "[dry-run] npm install in: %s\n" "$NPM_DIR"
@@ -185,9 +226,41 @@ if $DRY_RUN; then
     exit 0
 fi
 
+# wire_update_checker — insert UPDATE_CHECKER_BLOCK before the exec line, once, only when
+# a fleet repo carrying update-checker.sh exists under $HOME (a line pointing nowhere is
+# a dead line, and a sandboxed test HOME has no repo). Measured 2026-09-23: the live
+# launcher had ZERO references to it and its marker read 2026-02-09 — it had never run.
+wire_update_checker() {
+    local _n
+    # Match the FLEET block, not the bare filename. MEASURED on deck2 2026-09-23: a
+    # cc-mirror-generated line calling ~/.cc-mirror/mclaude/scripts/update-checker.sh
+    # satisfied a bare-filename guard, so the fleet checker was never wired there and the
+    # machine drifted 142 releases while looking correctly configured. CONFIG_REPO appears
+    # only in our own block.
+    if grep -q 'CONFIG_REPO.*update-checker\.sh' "$LAUNCHER"; then
+        printf "  update-checker already wired into the launcher\n"; return 0
+    fi
+    if grep -q 'update-checker\.sh' "$LAUNCHER"; then
+        printf "  NOTE: the launcher references a FOREIGN update-checker; wiring the fleet one alongside it\n"
+    fi
+    if [[ ! -f "$HOME/cfg-agent-fleet/setup/scripts/update-checker.sh" && ! -f "$HOME/agent-fleet/setup/scripts/update-checker.sh" ]]; then
+        printf "  update-checker NOT wired: no fleet repo with setup/scripts/update-checker.sh under %s\n" "$HOME"; return 0
+    fi
+    _n=$(grep -n -E '^[[:space:]]*exec ' "$LAUNCHER" | tail -1 | cut -d: -f1)
+    if [[ -z "$_n" ]]; then printf "  update-checker NOT wired: no exec line in the launcher\n"; return 0; fi
+    { head -n $((_n - 1)) "$LAUNCHER"; printf '%s\n' "$UPDATE_CHECKER_BLOCK"; tail -n +"$_n" "$LAUNCHER"; } > "${LAUNCHER}.tmp"
+    mv "${LAUNCHER}.tmp" "$LAUNCHER"
+    chmod +x "$LAUNCHER"
+    printf "  update-checker wired into the launcher (before the exec line)\n"
+}
+
 # Already up to date — still verify, so "up to date" can never mean "up to date and dead"
 if [[ "$CURRENT_VERSION" == "$TARGET_VERSION" ]]; then
     printf "\nAlready up to date at %s.\n" "$CURRENT_VERSION"
+    # "up to date" must also mean "correctly wired". MEASURED on deck2 2026-09-23: it sat
+    # at the right version with the fleet update-checker absent, so nothing would ever have
+    # told anyone it had started drifting again.
+    wire_update_checker
     _rc=0; run_invariants --write-snapshot || _rc=$?
     if [[ "$_rc" -eq 1 ]]; then
         printf "Already up to date, but the install FAILS its invariants (above) — not exit 0.\n"
@@ -244,6 +317,14 @@ fi
 # Phase 2: install — npm in place, or the pinned cc-mirror through npx. Never bare cc-mirror.
 if $SKIP_NPM; then
     printf "Phase 2: install (SKIPPED — --skip-npm)\n"
+elif [[ "$VIA" == "binary" ]]; then
+    printf "Phase 2: installing verified binary → %s\n" "$NATIVE_DIR/claude"
+    mkdir -p "$NATIVE_DIR"
+    cp "$BINARY_SRC" "$NATIVE_DIR/claude.new" \
+        || { printf "  copy into %s failed\n" "$NATIVE_DIR"; rollback; exit 1; }
+    chmod +x "$NATIVE_DIR/claude.new"
+    mv -f "$NATIVE_DIR/claude.new" "$NATIVE_DIR/claude" \
+        || { printf "  atomic swap failed\n"; rollback; exit 1; }
 elif [[ "$VIA" == "cc-mirror" ]]; then
     printf "Phase 2: npx -y cc-mirror@%s update %s --claude-version %s --no-tweak\n" "$CC_MIRROR_PIN" "$VARIANT_NAME" "$TARGET_VERSION"
     npx -y "cc-mirror@${CC_MIRROR_PIN}" update "$VARIANT_NAME" --claude-version "$TARGET_VERSION" --no-tweak \
@@ -292,23 +373,6 @@ printf '%s\n' "$NEW_EXEC_LINE" >> "${LAUNCHER}.tmp"
 mv "${LAUNCHER}.tmp" "$LAUNCHER"
 chmod +x "$LAUNCHER"
 
-# wire_update_checker — insert UPDATE_CHECKER_BLOCK before the exec line, once, only when
-# a fleet repo carrying update-checker.sh exists under $HOME (a line pointing nowhere is
-# a dead line, and a sandboxed test HOME has no repo). Measured 2026-09-23: the live
-# launcher had ZERO references to it and its marker read 2026-02-09 — it had never run.
-wire_update_checker() {
-    local _n
-    if grep -q 'update-checker.sh' "$LAUNCHER"; then printf "  update-checker already wired into the launcher\n"; return 0; fi
-    if [[ ! -f "$HOME/cfg-agent-fleet/setup/scripts/update-checker.sh" && ! -f "$HOME/agent-fleet/setup/scripts/update-checker.sh" ]]; then
-        printf "  update-checker NOT wired: no fleet repo with setup/scripts/update-checker.sh under %s\n" "$HOME"; return 0
-    fi
-    _n=$(grep -n -E '^[[:space:]]*exec ' "$LAUNCHER" | tail -1 | cut -d: -f1)
-    if [[ -z "$_n" ]]; then printf "  update-checker NOT wired: no exec line in the launcher\n"; return 0; fi
-    { head -n $((_n - 1)) "$LAUNCHER"; printf '%s\n' "$UPDATE_CHECKER_BLOCK"; tail -n +"$_n" "$LAUNCHER"; } > "${LAUNCHER}.tmp"
-    mv "${LAUNCHER}.tmp" "$LAUNCHER"
-    chmod +x "$LAUNCHER"
-    printf "  update-checker wired into the launcher (before the exec line)\n"
-}
 wire_update_checker
 
 # Phase 6: Update variant.json — binaryPath, npmVersion (npm layout), updatedAt, and the
