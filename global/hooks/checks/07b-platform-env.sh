@@ -1,9 +1,10 @@
+#!/usr/bin/env bash
 # Check group 7b: Platform, docs & lock checks
-# Checks: 29(wsl.conf), 30(doc coherence), 33(mail check), 31(session lock)
+# Checks: 7b.1, 7b.2, 7b.3, 7b.4
 # Shared vars used: CONFIG_REPO, WARNINGS, INBOX_MSG, PROJECT_DIR
 # Split from original 07-environment.sh; settings/tools checks remain in 07-environment.sh
 
-# Check 29: wsl.conf duplicate section validation
+# Check 7b.1: wsl.conf duplicate section validation
 _is_wsl=0
 if [ "${_FORCE_WSL:-}" = "1" ]; then
     _is_wsl=1
@@ -52,10 +53,12 @@ for sec, keys in sections.items():
     fi
 fi
 
-# Check 30: Doc coherence header validation
+# Check 7b.2: Doc coherence header validation
 _doc_coherence_files=(
     "global/CLAUDE.md"
     "global/reference/mcp-catalog.md"
+    "global/reference/mcp-servers.md"
+    "global/reference/mcp-troubleshooting.md"
     "cross-project/infrastructure-strategy.md"
     "registry.md"
 )
@@ -76,57 +79,70 @@ if [ ${#_doc_missing[@]} -gt 0 ]; then
     WARNINGS="${WARNINGS:+$WARNINGS | }doc coherence: $_doc_count file(s) missing <!-- updates: --> header: $_doc_list"
 fi
 
-# Check 33: Email check — surface recent labeled emails at startup (optional)
-# If you have a mail check script, configure it here
-MAIL_CHECK_SCRIPT="${MAIL_CHECK_SCRIPT:-$CONFIG_REPO/setup/scripts/mail-check.sh}"
-if [ -f "$MAIL_CHECK_SCRIPT" ]; then
+# Check 7b.3: Email check — surface recent labeled emails at startup (optional)
+# Data-driven (CFG-676): the first setup/scripts/*mail-check.sh is used, MAIL_CHECK_SCRIPT
+# overrides; the tag comes from the name (`acme-mail-check.sh` → ACME_MAIL:, `mail-check.sh`
+# → MAIL:), MAIL_CHECK_TAG overrides. Script takes `--since <hours>`, prints one JSON object per line.
+MAIL_CHECK_SCRIPT="${MAIL_CHECK_SCRIPT:-$(ls "$CONFIG_REPO"/setup/scripts/*mail-check.sh 2>/dev/null | head -1)}"
+if [ -n "$MAIL_CHECK_SCRIPT" ] && [ -f "$MAIL_CHECK_SCRIPT" ]; then
+    _mcs_tag="$(basename "$MAIL_CHECK_SCRIPT" .sh)"; _mcs_tag="${_mcs_tag%mail-check}"; _mcs_tag="${_mcs_tag%-}"
+    if [ -n "$_mcs_tag" ]; then _mcs_tag="$(printf '%s' "$_mcs_tag" | tr 'a-z.-' 'A-Z__')_MAIL"; else _mcs_tag="MAIL"; fi
+    MAIL_CHECK_TAG="${MAIL_CHECK_TAG:-$_mcs_tag}"
     MAIL_OUTPUT=$(timeout 10 bash "$MAIL_CHECK_SCRIPT" --since 24 2>/dev/null || true)
     if [ -n "$MAIL_OUTPUT" ]; then
         MAIL_SUBJECTS=$(echo "$MAIL_OUTPUT" | python3 -c "
 import json,sys
-msgs=[]
-for line in sys.stdin:
-    line=line.strip()
-    if not line: continue
-    try:
-        d=json.loads(line)
-        msgs.append(d.get('subject','?'))
-    except: pass
-if msgs: print(f'MAIL: {len(msgs)} message(s) in last 24h: ' + '; '.join(msgs))
-" 2>/dev/null || true)
+def s(l):
+    try: return json.loads(l).get('subject','?')
+    except Exception: return None
+m=[x for x in map(s,sys.stdin) if x is not None]
+if m: print(f'{sys.argv[1]}: {len(m)} message(s) in last 24h: ' + '; '.join(m))
+" "$MAIL_CHECK_TAG" 2>/dev/null || true)
         if [ -n "$MAIL_SUBJECTS" ]; then
             INBOX_MSG="${INBOX_MSG:+$INBOX_MSG | }$MAIL_SUBJECTS"
         fi
     fi
 fi
 
-# Check 31: Session lock — detect if another session holds this project
+# Check 7b.4: Session lock — detect if another session holds this project
 _SESSION_LOCK_LIB="$CONFIG_REPO/setup/scripts/session-lock.sh"
 if [ -f "$_SESSION_LOCK_LIB" ]; then
     source "$_SESSION_LOCK_LIB"
     check_lock "$PWD" 2>/dev/null
     _lock_rc=$?
-
-    if [[ $_lock_rc -eq 2 ]] && [[ -n "${AFLEET_SESSION_ID:-}" ]]; then
-        _read_lock "$PWD/.claude/.session-lock" 2>/dev/null
-        if [[ "$_LOCK_SESSION" == "$AFLEET_SESSION_ID" ]]; then
-            _lock_rc=1
-        fi
-    fi
+    # check_lock's verdict is final. It already recognises the afleet leader by
+    # AFLEET_SESSION_ID (CFG-536) — gated on "not a nested CC", because a nested
+    # CC INHERITS that id. An ungated re-comparison here (2026-03 → 2026-09)
+    # flipped rc 2 → 1 for exactly that nested CC, marked it `leader`, and its
+    # SessionEnd then rotated the leader's live session-context.md (CFG-666).
 
     case $_lock_rc in
         2)
             _read_lock "$PWD/.claude/.session-lock" 2>/dev/null
             WARNINGS="${WARNINGS:+$WARNINGS | }SESSION_LOCKED: Project locked by PID $_LOCK_PID (session $_LOCK_SESSION) on this machine. FOLLOWER — load knowledge/follower-mode.md and follow it."
+            # CFG-452 Phase 2: another live session holds this project → follower.
+            # Persist the role so SessionEnd skips shared-state mutation.
+            write_role "$PWD" follower "${CC_SESSION_ID:-}" "${AFLEET_SESSION_ID:-}" 2>/dev/null || true
             ;;
         3)
             _read_lock "$PWD/.claude/.session-lock" 2>/dev/null
             WARNINGS="${WARNINGS:+$WARNINGS | }SESSION_LOCKED_REMOTE: Project locked by $_LOCK_MACHINE (session $_LOCK_SESSION). FOLLOWER — load knowledge/follower-mode.md and follow it."
+            # CFG-452 Phase 2: locked by another machine → follower (remote).
+            write_role "$PWD" follower "${CC_SESSION_ID:-}" "${AFLEET_SESSION_ID:-}" 2>/dev/null || true
             ;;
         0)
             acquire_lock "$PWD" "${AFLEET_SESSION_ID:-}" 2>/dev/null
+            # CFG-452: bind the lock to this CC session id (immune to an
+            # inherited AFLEET_SESSION_ID). No-op if CC_SESSION_ID is empty.
+            stamp_cc_session "$PWD" "${CC_SESSION_ID:-}" 2>/dev/null || true
+            # CFG-452 Phase 2: this session acquired the lock → leader.
+            write_role "$PWD" leader "${CC_SESSION_ID:-}" "${AFLEET_SESSION_ID:-}" 2>/dev/null || true
             ;;
         1)
+            # CFG-452: own lock (afleet re-detect) — bind it to this CC session too.
+            stamp_cc_session "$PWD" "${CC_SESSION_ID:-}" 2>/dev/null || true
+            # CFG-452 Phase 2: this session already owns the lock → leader.
+            write_role "$PWD" leader "${CC_SESSION_ID:-}" "${AFLEET_SESSION_ID:-}" 2>/dev/null || true
             ;;
     esac
 fi

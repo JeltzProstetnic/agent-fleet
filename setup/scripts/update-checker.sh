@@ -88,13 +88,25 @@ if [[ -z "$LATEST" ]]; then
   exit 0
 fi
 
+# The remedy is the fleet's own wrapper on BOTH layouts — never a raw `cc-mirror` verb and
+# never a bare npm install. Measured 2026-09-23: the documented `cc-mirror update …` resolved
+# to a stale cc-mirror on PATH that ignored --claude-version, re-provisioned from the
+# creation-time pin (2.1.274 → 2.1.1), rewrote the launcher to a missing cli.js, exit 0.
+# cc-update.sh resolves the target first, refuses downgrades, backs up, verifies the result
+# against cc-install-invariants.sh and rolls back on failure. A bare `npm update` leaves
+# variant.json and the launcher stale, which is the other half of the same failure.
+_REPO="${CONFIG_REPO:-$HOME/cfg-agent-fleet}"
+if [[ ! -f "$_REPO/setup/scripts/cc-update.sh" && -f "$HOME/agent-fleet/setup/scripts/cc-update.sh" ]]; then
+  _REPO="$HOME/agent-fleet"
+fi
 if [[ "$INSTALLED" != "$LATEST" ]]; then
   echo -e "${YELLOW}Claude Code update available: ${INSTALLED} → ${LATEST}${NC}"
   if [[ -f "$NPM_PKG" ]]; then
-    echo -e "${BLUE}  Update: cd ~/.cc-mirror/mclaude/npm && npm update${NC}"
+    echo -e "${BLUE}  Update (after /exit, from a plain shell): bash ${_REPO}/setup/scripts/cc-update.sh --version ${LATEST}${NC}"
   else
-    echo -e "${BLUE}  Update (native install): cc-mirror update mclaude --claude-version latest --no-tweak  (npx -y cc-mirror … if not on PATH)${NC}"
+    echo -e "${BLUE}  Update (native install, after /exit): bash ${_REPO}/setup/scripts/cc-update.sh --via cc-mirror --version ${LATEST}${NC}"
   fi
+  echo -e "${BLUE}  Read the changelog first. Never a cc-mirror verb or a bare npm install by hand — both leave variant.json and the launcher stale.${NC}"
 else
   echo -e "${GREEN}Claude Code ${INSTALLED} (latest)${NC}"
 fi

@@ -320,9 +320,14 @@ NODEOF
     local output
     output=$(HOME="$TEST_TMPDIR" CC_MIRROR_DIR="$TEST_TMPDIR/cc-mirror" CC_MIRROR_FORCE_UPDATE=1 \
         PATH="$mock_npm:$TEST_TMPDIR/nodebin:$PATH" bash "$SCRIPT" 2>&1) || true
-    assert_contains "$output" "npm update" "update message should include update command"
+    echo "    measured remedy: [$(printf '%s\n' "$output" | grep -m1 'Update' | sed 's/\x1b\[[0-9;]*m//g' | cut -c1-140)]"
+    # Retargeted 2026-09-23: this test used to demand a bare `npm update`, which leaves
+    # variant.json and the launcher stale — the second half of the failure that day. The
+    # remedy must be the fleet wrapper (spec: test-runbook-cc-update.sh).
+    assert_contains "$output" "cc-update.sh" "update message must name the fleet wrapper cc-update.sh" || return 1
+    assert_not_contains "$output" "npm update" "update message must not recommend a bare npm update"
 }
-run_test "update message includes npm update command" test_update_message_has_instructions
+run_test "update message names cc-update.sh, not a bare npm update" test_update_message_has_instructions
 
 # ── Marker directory auto-created ───────────────────────────────────────────
 
@@ -415,17 +420,24 @@ test_native_up_to_date() {
 }
 run_test "BUG: native layout: confirms latest when versions match" test_native_up_to_date
 
-test_native_update_instruction_is_cc_mirror() {
+test_native_update_instruction_is_wrapper() {
     local mirror mock_npm output
     mirror=$(create_native_fixture "2.1.207")
     mock_npm=$(create_mock_npm "2.1.240")
     output=$(HOME="$TEST_TMPDIR" CC_MIRROR_DIR="$mirror" CC_MIRROR_FORCE_UPDATE=1 \
         PATH="$mock_npm:$PATH" bash "$SCRIPT" 2>&1) || true
     echo "    measured output: [$output]"
-    assert_contains "$output" "cc-mirror update mclaude" "native layout must give the cc-mirror update command" || return 1
+    # Retargeted 2026-09-23: this test used to demand the raw `cc-mirror update mclaude`
+    # verb — the exact command that reset a live install from 2.1.274 to 2.1.1 with exit 0
+    # when a stale cc-mirror answered on PATH. The remedy is the fleet wrapper's pinned
+    # road (`cc-update.sh --via cc-mirror`), never the raw verb, and never `npm update`
+    # (there is no npm/ dir on a native install).
+    assert_contains "$output" "cc-update.sh" "native layout must name the fleet wrapper" || return 1
+    assert_contains "$output" "--via cc-mirror" "native layout must select the wrapper's pinned cc-mirror road" || return 1
+    assert_not_contains "$output" "cc-mirror update" "the raw cc-mirror verb must not be printed" || return 1
     assert_not_contains "$output" "npm update" "'npm update' is wrong on a native install (there is no npm/ dir)"
 }
-run_test "native layout: update instruction is the cc-mirror command, not npm update" test_native_update_instruction_is_cc_mirror
+run_test "native layout: update instruction is cc-update.sh --via cc-mirror, never the raw verb or npm update" test_native_update_instruction_is_wrapper
 
 test_no_install_found_is_loud() {
     # Nothing at all under the mirror dir: no npm/, no native/, no variant.json.

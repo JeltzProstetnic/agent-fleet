@@ -98,3 +98,39 @@ stripped-index mapping if you need the tested version.
 Before trusting a check: **what would this command print if it had looked at nothing?** If that output
 is indistinguishable from success, the check is not evidence. Make it report what it examined, so
 "inspected nothing" is visibly distinct from "found nothing".
+
+## A value's presence AFTER an incident is not evidence the incident caused it
+
+**Measured 2026-09-23 (WSL), and I got this wrong in a report to MG before catching it.**
+
+After `cc-mirror update` wrecked the install, `variant.json` read `teamModeEnabled: true` and two
+unfamiliar skills were on disk. I reported *"it silently enabled team mode — nobody asked for this."*
+
+**Wrong.** Four backups sat in the same directory:
+
+```
+variant.json-backup-2.1.111  teamModeEnabled= True   (2026-02-09)
+variant.json-backup-2.1.168  teamModeEnabled= True   (2026-06-08)
+variant.json-backup-2.1.170  teamModeEnabled= True   (2026-06-10)
+variant.json-backup-2.1.220  teamModeEnabled= True   (2026-08-02)
+```
+
+Team mode had been **ours since February**, and `CLAUDE_CODE_TEAM_MODE=1` was in the fleet's own
+settings template. The tool re-asserted a flag we set and forgot. The consequence of the error was
+not cosmetic: acting on it, I set the flag to `false` — **a policy change made while believing it was
+a restore.**
+
+⇒ **Before attributing a changed value to an incident, read the same value in the nearest
+pre-incident backup and quote both.** The post-incident state alone cannot distinguish *"the incident
+set this"* from *"the incident re-asserted what was already there"*, and those call for opposite
+repairs. Backups, `git log -S`, and the file's own siblings are usually one command away — the error
+is not missing data, it is not looking.
+
+## A background job you launched can change your own session's tools mid-turn
+
+Same incident, separate lesson. The update ran detached via `tmux-launch.sh`. Its side effects —
+a new skill listing, a `MANDATORY` skill description, a changed tool roster — **arrived in the
+session before the job's log did**, and were briefly assessed as a possible external injection.
+
+⇒ **Attribute a mid-session change in tools, skills or settings to your own in-flight work before
+treating it as external.** Check what you launched and what it touches; the log is the slower signal.
