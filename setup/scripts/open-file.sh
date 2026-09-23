@@ -117,6 +117,28 @@ _win_stage() {
     printf '%s' "$stage/$base"
 }
 
+# Build the PowerShell -Command string for a Windows launch.
+#
+# Factored out so it can be ASSERTED WITHOUT LAUNCHING ANYTHING: the defect this exists to
+# prevent (CFG-681) was found because two calls put 16 Chrome tabs on MG's desktop, so a
+# test that launches is the one thing a test here must never do.
+#
+# The bug: `-ArgumentList '$win'` hands PowerShell ONE string, which it passes through as
+# the raw command line — Chrome then re-splits it on spaces and opens every token as a URL.
+# "200 Software Project Assignment — AI First PDP.pdf" is 8 tokens, hence 8 tabs per call.
+# Embedded double quotes make Windows' command-line parser see exactly one argument.
+#
+# The no-exe form is NOT affected and must stay as it is: there the path is the -FilePath
+# positional as a single-quoted PowerShell string, which already handles spaces.
+_win_launch_cmd() {  # <exe|""> <windows-path>
+    local _exe="$1" _win="$2"
+    if [ -n "$_exe" ]; then
+        printf "Start-Process '%s' -ArgumentList '\"%s\"'" "$_exe" "$_win"
+    else
+        printf "Start-Process '%s'" "$_win"
+    fi
+}
+
 _launch_wsl() {
     local app="$1" path="$2" staged win
 
@@ -133,13 +155,16 @@ _launch_wsl() {
     esac
 
     if [ -n "$exe" ]; then
-        env -C /mnt/c powershell.exe -NoProfile -Command \
-            "Start-Process '$exe' -ArgumentList '$win'" >/dev/null 2>&1 \
-        || env -C /mnt/c powershell.exe -NoProfile -Command \
-            "Start-Process '$win'" >/dev/null 2>&1
+        env -C /mnt/c powershell.exe -NoProfile -Command "$(_win_launch_cmd "$exe" "$win")" >/dev/null 2>&1 \
+        || env -C /mnt/c powershell.exe -NoProfile -Command "$(_win_launch_cmd "" "$win")" >/dev/null 2>&1
     else
-        env -C /mnt/c powershell.exe -NoProfile -Command "Start-Process '$win'" >/dev/null 2>&1
+        env -C /mnt/c powershell.exe -NoProfile -Command "$(_win_launch_cmd "" "$win")" >/dev/null 2>&1
     fi
+    # Report it. MEASURED 2026-09-23: this path printed NOTHING on success, so a session
+    # that piped the call through `tail -3`, saw nothing and could not tell whether it had
+    # fired simply ran it again — 8 junk tabs became 16 on MG's desktop. A launch that
+    # reports itself cannot be repeated by a caller that is guessing.
+    printf 'open-file: launched %s -> %s\n' "${exe:-<default app>}" "$path"
 }
 
 # ── Main ────────────────────────────────────────────────────────────────────

@@ -214,6 +214,52 @@ else
 fi
 
 echo
+# ══════════════════════════════════════════════════════════════════════════════
+# CFG-681: one Chrome tab per SPACE in the filename
+# ══════════════════════════════════════════════════════════════════════════════
+# Measured 2026-09-23: two calls on "200 Software Project Assignment — AI First PDP.pdf"
+# opened 16 junk tabs on MG's desktop. `-ArgumentList '$win'` hands PowerShell ONE string
+# which it passes as the raw command line, so Chrome re-splits it on spaces and treats
+# each of the 8 tokens as a URL.
+#
+# Asserted against the CONSTRUCTED PowerShell command, never by launching anything —
+# launching is precisely what put 16 tabs on his screen, and a test must not do that to him.
+
+echo ""
+echo "=== open-file.sh: the Windows launch command (CFG-681) ==="
+
+if ! grep -q '^_win_launch_cmd()' "$HELPER"; then
+    fail "CFG-681: command construction is not factored into _win_launch_cmd (untestable without launching)"
+else
+    # shellcheck disable=SC1090
+    _cmd=$(bash -c 'source <(sed -n "/^_win_launch_cmd()/,/^}/p" "$0"); _win_launch_cmd chrome.exe "C:\\temp\\cc-open\\200 Software Project Assignment.pdf"' "$HELPER")
+    echo "  constructed: $_cmd"
+
+    if printf '%s' "$_cmd" | grep -q -- "-ArgumentList '\"C:\\\\temp\\\\cc-open\\\\200 Software Project Assignment.pdf\"'"; then
+        pass "CFG-681: a path with spaces is passed as ONE double-quoted argument"
+    else
+        fail "CFG-681: a path with spaces is passed as ONE double-quoted argument"
+    fi
+
+    # The two fallback branches were already correct — the path is the single-quoted
+    # -FilePath positional, which handles spaces. Guard against 'fixing' them too.
+    _fb=$(bash -c 'source <(sed -n "/^_win_launch_cmd()/,/^}/p" "$0"); _win_launch_cmd "" "C:\\temp\\a b.pdf"' "$HELPER")
+    echo "  fallback:    $_fb"
+    if [ "$_fb" = "Start-Process 'C:\\temp\\a b.pdf'" ]; then
+        pass "CFG-681: the no-exe fallback stays a single-quoted -FilePath positional"
+    else
+        fail "CFG-681: the no-exe fallback stays a single-quoted -FilePath positional"
+    fi
+fi
+
+# Second half of the same incident: the WSL launch path printed NOTHING on success, so the
+# calling session could not tell whether it had fired, ran it again, and 8 tabs became 16.
+if grep -qE '^[[:space:]]*(echo|printf).*launched' "$HELPER"; then
+    pass "CFG-681: the launch path reports what it launched"
+else
+    fail "CFG-681: the launch path reports what it launched (silent success invites a second run)"
+fi
+
 echo "── Summary ──"
 echo "  Total:   $((PASSED + FAILED))"
 echo "  Passed:  $PASSED"

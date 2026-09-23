@@ -105,4 +105,13 @@ if ! verify_session "$SESSION" "$LOG_PATH"; then
     exit 1
 fi
 
+# Record the launch so a later kill can PROVE ownership (CFG-694). A tmux pane is a child
+# of the TMUX SERVER, not of the session that asked for it, so this is the only place the
+# ownership is still known. Best-effort: a failure here must never fail a launch.
+_registry="${CONFIG_REPO:-$HOME/cfg-agent-fleet}/setup/scripts/launch-registry.sh"
+if [[ -f "$_registry" ]]; then
+    _pane_pid=$(tmux list-panes -t="$SESSION" -F '#{pane_pid}' 2>/dev/null | head -1)
+    [[ -n "$_pane_pid" ]] && bash "$_registry" add "$_pane_pid" "tmux:$SESSION" "$COMMAND" 2>/dev/null || true
+fi
+
 echo "tmux '$SESSION' launched (GPI registered)"
