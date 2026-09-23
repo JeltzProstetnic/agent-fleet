@@ -27,7 +27,17 @@ fi
 # --- Run the hook, capturing stdout and stderr separately ---
 # PreToolUse hooks use exit 2 + stderr to block tool calls.
 # We must preserve that signal while still catching crashes.
-_sr_tmp=$(mktemp /tmp/safe-run-stderr.XXXXXX)
+# Capture file goes to $TMPDIR first: Claude Code's Bash sandbox mounts /tmp
+# READ-ONLY and points TMPDIR at a writable scratchpad, and a hard-coded /tmp
+# made EVERY hook report HOOK FAILED on a healthy machine. ${TMPDIR:-/tmp} (the
+# colon form) also covers TMPDIR set-but-EMPTY, which CC < 2.1.278 exports
+# outside the sandbox — the colon-less ${TMPDIR-/tmp} would expand to "" and
+# mktemp would try "/safe-run-stderr.XXXXXX". If neither location is writable,
+# say so instead of blaming the hook (the hook did not run in that case before
+# either — the empty redirect target just reported it as a hook crash).
+_sr_tmp=$(mktemp "${TMPDIR:-/tmp}/safe-run-stderr.XXXXXX" 2>/dev/null) \
+  || _sr_tmp=$(mktemp /tmp/safe-run-stderr.XXXXXX 2>/dev/null) \
+  || { echo "⚠ HOOK SKIPPED: $HOOK_NAME — no writable temp dir for stderr capture (TMPDIR='${TMPDIR:-}', /tmp)"; exit 0; }
 _stdout=""
 _stderr=""
 _stdout=$(bash "$HOOK_PATH" "$@" 2>"$_sr_tmp") || {

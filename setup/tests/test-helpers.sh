@@ -30,15 +30,71 @@ fi
 # ── Test Lifecycle ───────────────────────────────────────────────────────────
 
 # Call before each test to set up a fresh temp directory
+# HOME is sandboxed to TEST_TMPDIR to prevent tests from writing to real HOME.
+# Scripts under test that resolve ~ or $HOME will target the sandbox.
+#
+# Live-system protection: critical files in REAL_HOME are fingerprinted before
+# each test. teardown_test verifies they weren't modified. If a test escapes
+# the sandbox and touches live config, it FAILS with a clear error.
+_PROTECTED_FILES=(.mcp.json .claude/settings.json .cc-mirror/mclaude/config/settings.json .cc-mirror/mclaude/config/.mcp.json .gitconfig .git-credentials)
+
+_snapshot_protected() {
+    _PROTECTED_SNAPSHOT=""
+    for _pf in "${_PROTECTED_FILES[@]}"; do
+        local _full="$REAL_HOME/$_pf"
+        if [ -L "$_full" ]; then
+            _PROTECTED_SNAPSHOT="${_PROTECTED_SNAPSHOT}${_pf}:L:$(readlink "$_full")"$'\n'
+        elif [ -f "$_full" ]; then
+            _PROTECTED_SNAPSHOT="${_PROTECTED_SNAPSHOT}${_pf}:F:$(stat -c '%Y%s' "$_full" 2>/dev/null || stat -f '%m%z' "$_full" 2>/dev/null)"$'\n'
+        else
+            _PROTECTED_SNAPSHOT="${_PROTECTED_SNAPSHOT}${_pf}:N:"$'\n'
+        fi
+    done
+}
+
+_verify_protected() {
+    local _current=""
+    for _pf in "${_PROTECTED_FILES[@]}"; do
+        local _full="$REAL_HOME/$_pf"
+        if [ -L "$_full" ]; then
+            _current="${_current}${_pf}:L:$(readlink "$_full")"$'\n'
+        elif [ -f "$_full" ]; then
+            _current="${_current}${_pf}:F:$(stat -c '%Y%s' "$_full" 2>/dev/null || stat -f '%m%z' "$_full" 2>/dev/null)"$'\n'
+        else
+            _current="${_current}${_pf}:N:"$'\n'
+        fi
+    done
+    if [ "$_current" != "$_PROTECTED_SNAPSHOT" ]; then
+        printf "${RED}  SANDBOX BREACH${RESET} Test '%s' modified live system files!\n" "$CURRENT_TEST" >&2
+        diff <(echo "$_PROTECTED_SNAPSHOT") <(echo "$_current") >&2 || true
+        return 1
+    fi
+}
+
 setup_test() {
     local test_name="$1"
     CURRENT_TEST="$test_name"
     TEST_TMPDIR="$(mktemp -d "${TMPDIR:-/tmp}/cfgtest.XXXXXX")"
+    ORIGINAL_HOME="$HOME"
+    export REAL_HOME="$HOME"
+    # Snapshot protected files BEFORE sandboxing
+    _snapshot_protected
+    export HOME="$TEST_TMPDIR"
+    # Git identity via env vars (no files written — keeps sandbox empty)
+    export GIT_AUTHOR_NAME="cfgtest" GIT_AUTHOR_EMAIL="test@cfgtest"
+    export GIT_COMMITTER_NAME="cfgtest" GIT_COMMITTER_EMAIL="test@cfgtest"
     ((TESTS_RUN++)) || true
 }
 
-# Call after each test (or use trap). Cleans up temp dir.
+# Call after each test (or use trap). Cleans up temp dir and restores HOME.
 teardown_test() {
+    if [[ -n "${ORIGINAL_HOME:-}" ]]; then
+        export HOME="$ORIGINAL_HOME"
+    fi
+    # Verify no live system files were modified by the test
+    if [[ -n "${_PROTECTED_SNAPSHOT:-}" ]]; then
+        _verify_protected || printf "${RED}  WARNING: Live system file modified by test!${RESET}\n" >&2
+    fi
     if [[ -n "$TEST_TMPDIR" ]] && [[ -d "$TEST_TMPDIR" ]]; then
         rm -rf "$TEST_TMPDIR"
     fi
@@ -46,7 +102,14 @@ teardown_test() {
     CURRENT_TEST=""
 }
 
-# Run a test function with automatic setup/teardown
+# Run a test function with automatic setup/teardown.
+#
+# GOTCHA (test-author beware): the test is invoked below as `if "$test_func"`. Bash
+# DISABLES `set -e` for the entire body of a function called in a condition context —
+# so a failing `assert_*` in the MIDDLE of a test does NOT abort it; only the LAST
+# command's exit status decides pass/fail. Any assertion that is not the final statement
+# MUST be written `assert_... || return 1` (or `... || { echo FAIL; return 1; }`), or it
+# is DEAD and the test can silently pass while broken. (Verified CFG-459 session 2026-07-20.)
 run_test() {
     local test_name="$1"
     local test_func="$2"
@@ -252,7 +315,7 @@ assert_grep_count() {
     local expected="$3"
     local msg="${4:-expected $expected matches of '$pattern' in '$path'}"
     local actual
-    actual=$(grep -c "$pattern" "$path" 2>/dev/null || echo "0")
+    actual=$(grep -c "$pattern" "$path" 2>/dev/null) || actual=0
     if [[ "$actual" -ne "$expected" ]]; then
         printf "${RED}    ASSERT_GREP_COUNT failed: %s (got %d)${RESET}\n" "$msg" "$actual" >&2
         return 1
@@ -265,7 +328,7 @@ assert_grep_count() {
 create_bare_repo() {
     local path="$1"
     mkdir -p "$path"
-    git init --bare "$path" >/dev/null 2>&1
+    git init --bare -b main "$path" >/dev/null 2>&1
 }
 
 # Create a git repo with initial commit
@@ -274,7 +337,7 @@ create_git_repo() {
     mkdir -p "$path"
     (
         cd "$path"
-        git init >/dev/null 2>&1
+        git init -b main >/dev/null 2>&1
         git config user.email "test@test.com"
         git config user.name "Test"
         echo "init" > README.md

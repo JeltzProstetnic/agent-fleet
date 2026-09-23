@@ -107,6 +107,17 @@ test_session_context_reset() {
 }
 run_test "session-context.md is reset to blank template after rotation" test_session_context_reset
 
+test_handover_template_unconditional() {
+    create_session_context "$TEST_TMPDIR" "Do stuff" "box1"
+    bash "$ROTATE_SCRIPT" "$TEST_TMPDIR" >/dev/null 2>&1
+
+    # The handover is mandatory at shutdown — the reset template must not tell the
+    # next session it is optional, or the template contradicts session-shutdown.md step 8.
+    assert_file_not_contains "$TEST_TMPDIR/session-context.md" "if the next session should continue"
+    assert_file_contains "$TEST_TMPDIR/session-context.md" "MANDATORY"
+}
+run_test "handover template states the handover is mandatory, not conditional" test_handover_template_unconditional
+
 test_machine_in_entry() {
     create_session_context "$TEST_TMPDIR" "Test machine" "steam-deck-42"
     bash "$ROTATE_SCRIPT" "$TEST_TMPDIR" >/dev/null 2>&1
@@ -184,7 +195,7 @@ test_history_rolling_window() {
 
     # History should have exactly 3 entries (sessions 5, 4, 3)
     local entry_count
-    entry_count=$(grep -c '^### ' "$TEST_TMPDIR/session-history.md" || echo "0")
+    entry_count=$(grep -c '^### ' "$TEST_TMPDIR/session-history.md") || entry_count=0
     assert_eq "3" "$entry_count" "history should have exactly 3 entries"
 
     # Should contain sessions 5, 4, 3 (newest first)
@@ -211,7 +222,7 @@ test_log_never_prunes() {
 
     # Log should have all 5 entries
     local entry_count
-    entry_count=$(grep -c '^### ' "$TEST_TMPDIR/docs/session-log.md" || echo "0")
+    entry_count=$(grep -c '^### ' "$TEST_TMPDIR/docs/session-log.md") || entry_count=0
     assert_eq "5" "$entry_count" "log should have all 5 entries"
 
     # All sessions should be in log
@@ -742,6 +753,87 @@ EOF
     assert_not_contains "$out" "Multiple pending" "single pending file should not trigger warning"
 }
 run_test "no warning when only one pending file exists" test_no_warning_single_pending_file
+
+# ── Post-rotation commit marker ──────────────────────────────────────────────
+
+test_post_rotation_marker_written() {
+    # Need a git repo for the marker
+    git -C "$TEST_TMPDIR" init -q
+    git -C "$TEST_TMPDIR" config user.email "test@test"
+    git -C "$TEST_TMPDIR" config user.name "test"
+    create_session_context "$TEST_TMPDIR" "Marker test" "box"
+    mkdir -p "$TEST_TMPDIR/docs"
+    git -C "$TEST_TMPDIR" add -A && git -C "$TEST_TMPDIR" commit -qm "init"
+
+    bash "$ROTATE_SCRIPT" "$TEST_TMPDIR" >/dev/null 2>&1
+
+    assert_file_exists "$TEST_TMPDIR/.post-rotation-commit"
+    local marker_content
+    marker_content=$(cat "$TEST_TMPDIR/.post-rotation-commit")
+    local marker_hash="${marker_content%% *}"
+    local marker_ts="${marker_content##* }"
+    local head_hash
+    head_hash=$(git -C "$TEST_TMPDIR" rev-parse HEAD)
+    assert_eq "$head_hash" "$marker_hash"
+    # Timestamp should be a recent unix timestamp (within last 60s)
+    local now
+    now=$(date +%s)
+    local age=$(( now - marker_ts ))
+    local ts_valid="no"
+    [[ "$age" -ge 0 && "$age" -lt 60 ]] && ts_valid="yes"
+    assert_eq "yes" "$ts_valid" "marker timestamp should be recent"
+}
+run_test "rotation writes .post-rotation-commit with HEAD hash" test_post_rotation_marker_written
+
+test_post_rotation_marker_not_written_without_git() {
+    # Non-git directory — marker should not be written
+    create_session_context "$TEST_TMPDIR" "No git test" "box"
+    mkdir -p "$TEST_TMPDIR/docs"
+    bash "$ROTATE_SCRIPT" "$TEST_TMPDIR" >/dev/null 2>&1
+
+    assert_file_not_exists "$TEST_TMPDIR/.post-rotation-commit"
+}
+run_test "no marker written when directory is not a git repo" test_post_rotation_marker_not_written_without_git
+
+# ── Conflict marker cleaning ─────────────────────────────────────────────────
+
+test_conflict_markers_cleaned_from_session_log() {
+    git -C "$TEST_TMPDIR" init -q
+    git -C "$TEST_TMPDIR" config user.email "test@test"
+    git -C "$TEST_TMPDIR" config user.name "test"
+    mkdir -p "$TEST_TMPDIR/docs"
+
+    # Pre-populate session-log with a conflict marker
+    cat > "$TEST_TMPDIR/docs/session-log.md" <<'LOGEOF'
+# Session Log
+
+Full session history. Newest first. Never pruned.
+
+<<<<<<< Updated upstream
+
+### 2026-03-26T20:00Z — WSL
+**Goal:** Previous session
+**Completed:**
+- Did stuff
+**Key Decisions:** None
+**Pending at shutdown:** None
+LOGEOF
+
+    create_session_context "$TEST_TMPDIR" "Conflict clean test" "box"
+    git -C "$TEST_TMPDIR" add -A && git -C "$TEST_TMPDIR" commit -qm "init"
+
+    local out
+    out=$(bash "$ROTATE_SCRIPT" "$TEST_TMPDIR" 2>&1)
+
+    # Should warn about conflict markers
+    assert_contains "$out" "conflict"
+    # The resulting file should have no conflict markers
+    assert_file_not_contains "$TEST_TMPDIR/docs/session-log.md" "<<<<<<<"
+    # But should still have both entries
+    assert_file_contains "$TEST_TMPDIR/docs/session-log.md" "Conflict clean test"
+    assert_file_contains "$TEST_TMPDIR/docs/session-log.md" "Previous session"
+}
+run_test "conflict markers cleaned from session-log before writing" test_conflict_markers_cleaned_from_session_log
 
 # ── Summary ──────────────────────────────────────────────────────────────────
 

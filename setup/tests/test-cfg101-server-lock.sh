@@ -128,13 +128,12 @@ test_afd_lock_acquire_fails_on_409() {
     local rc=$?
 
     restore_env
-    assert_eq "1" "$rc" "afd_lock_acquire should fail with 409"
+    assert_eq "2" "$rc" "afd_lock_acquire should return 2 on 409 conflict"
 }
 run_test "afd_lock_acquire fails on 409 conflict" test_afd_lock_acquire_fails_on_409
 
 test_afd_lock_acquire_requires_token() {
     export AFD_TOKEN=""
-    export AFD_URL="http://localhost:9999"
     source "$AFD_LIB"
     unset AFD_TOKEN
 
@@ -390,7 +389,6 @@ run_test "heartbeat sends PATCH with heartbeat payload" test_heartbeat_sends_pat
 
 test_heartbeat_silent_on_no_token() {
     export AFD_TOKEN=""
-    export AFD_URL="http://localhost:9999"
     source "$AFD_LIB"
     unset AFD_TOKEN
 
@@ -413,10 +411,10 @@ test_heartbeat_silent_on_unreachable() {
 }
 run_test "heartbeat silent on AFD unreachable" test_heartbeat_silent_on_unreachable
 
-# ── afleet.sh / hook existence tests ──────────────────────────────────────────
+# ── afleet.sh / hook existence tests (TDD: expected to FAIL before implementation) ──
 
 test_afleet_function_exists() {
-    grep -q 'afleet_acquire_session_lock()' "$AFLEET_SCRIPT" 2>/dev/null
+    grep -q 'afleet_acquire_session_lock\(\)' "$AFLEET_SCRIPT" 2>/dev/null
     local rc=$?
     assert_eq "0" "$rc" "afleet_acquire_session_lock() should exist in afleet.sh"
 }
@@ -496,6 +494,6 @@ HBMOCK
     restore_env
     return $ret
 }
-run_test "full lock lifecycle: acquire -> heartbeat -> release" test_full_lock_lifecycle
+run_test "full lock lifecycle: acquire → heartbeat → release" test_full_lock_lifecycle
 
 suite_summary

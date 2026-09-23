@@ -26,14 +26,49 @@ if [[ -f "$UPDATE_MARKER" ]] && [[ "${CC_MIRROR_FORCE_UPDATE:-0}" != "1" ]]; the
   fi
 fi
 
-# Get installed version
-NPM_DIR="${CC_MIRROR_DIR:-$HOME/.cc-mirror/mclaude}/npm"
-INSTALLED=""
-if [[ -f "$NPM_DIR/node_modules/@anthropic-ai/claude-code/package.json" ]]; then
-  INSTALLED=$(node -e "console.log(require('$NPM_DIR/node_modules/@anthropic-ai/claude-code/package.json').version)" 2>/dev/null || echo "unknown")
-fi
+# Get installed version — BOTH cc-mirror layouts
+# ------------------------------------------------
+#   npm:    <variant>/npm/node_modules/@anthropic-ai/claude-code/package.json
+#   native: <variant>/native/claude — a bare binary, NO npm/ directory at all
+# On a native install variant.json holds the REQUESTED spec (nativeVersion is
+# usually the literal "latest"; cc-mirror 2.1.0 writes the resolved version only
+# into claudeOrig as "native:X.Y.Z"), so the binary is the ground truth:
+# `claude --version` prints "X.Y.Z (Claude Code)" in ~10 ms (measured WSL
+# 2026-09-23), bounded by `timeout 5` here. Order: package.json → binary → any
+# x.y.z in variant.json. Anything else is UNKNOWN and said OUT LOUD: the old
+# npm-only read fell through silently on native installs and one fleet machine
+# sat 33 releases behind without a single notice.
+MIRROR_DIR="${CC_MIRROR_DIR:-$HOME/.cc-mirror/mclaude}"
+NPM_PKG="$MIRROR_DIR/npm/node_modules/@anthropic-ai/claude-code/package.json"
 
-if [[ -z "$INSTALLED" || "$INSTALLED" == "unknown" ]]; then
+_semver() { grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1 || true; }
+_json_field() { grep -o "\"$2\": *\"[^\"]*\"" "$1" 2>/dev/null | head -1 | sed 's/.*: *"\([^"]*\)".*/\1/' || true; }
+# `|| true` matters: under `set -euo pipefail` a hanging or crashing binary would
+# otherwise abort this script through the `&& INSTALLED=$(...)` assignment below.
+_probe_binary() {
+  [[ -n "$1" && -x "$1" ]] || return 0
+  if command -v timeout &>/dev/null; then
+    timeout 5 "$1" --version 2>/dev/null </dev/null | _semver || true
+  else
+    "$1" --version 2>/dev/null </dev/null | _semver || true
+  fi
+}
+
+INSTALLED=""
+[[ -f "$NPM_PKG" ]] && INSTALLED=$(_json_field "$NPM_PKG" version | _semver)
+# One binary, probed once: variant.json's binaryPath when it is still executable
+# (it goes stale when an npm tree is removed by an npm→native migration), else
+# the native-layout default. On a real native install both are the same file.
+_bin=$(_json_field "$MIRROR_DIR/variant.json" binaryPath); [[ -x "$_bin" ]] || _bin="$MIRROR_DIR/native/claude"
+[[ -z "$INSTALLED" ]] && INSTALLED=$(_probe_binary "$_bin")
+for _key in nativeVersion claudeOrig npmVersion; do
+  [[ -z "$INSTALLED" ]] && INSTALLED=$(_json_field "$MIRROR_DIR/variant.json" "$_key" | _semver)
+done
+
+if [[ -z "$INSTALLED" ]]; then
+  echo -e "${YELLOW}Claude Code installed version UNKNOWN under ${MIRROR_DIR} — no npm package.json, no runnable native/claude, no x.y.z in variant.json. The update check is BLIND on this machine; probe by hand: ${MIRROR_DIR}/native/claude --version${NC}"
+  mkdir -p "$(dirname "$UPDATE_MARKER")"
+  date +%s > "$UPDATE_MARKER"
   exit 0
 fi
 
@@ -55,7 +90,11 @@ fi
 
 if [[ "$INSTALLED" != "$LATEST" ]]; then
   echo -e "${YELLOW}Claude Code update available: ${INSTALLED} → ${LATEST}${NC}"
-  echo -e "${BLUE}  Update: cd ~/.cc-mirror/mclaude/npm && npm update${NC}"
+  if [[ -f "$NPM_PKG" ]]; then
+    echo -e "${BLUE}  Update: cd ~/.cc-mirror/mclaude/npm && npm update${NC}"
+  else
+    echo -e "${BLUE}  Update (native install): cc-mirror update mclaude --claude-version latest --no-tweak  (npx -y cc-mirror … if not on PATH)${NC}"
+  fi
 else
   echo -e "${GREEN}Claude Code ${INSTALLED} (latest)${NC}"
 fi

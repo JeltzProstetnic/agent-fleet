@@ -298,10 +298,16 @@ test_collect_marker_detection() {
     create_mock_config_repo "$config_repo"
     create_mock_plugin_files "$mock_home"
 
+    # Create tracked hook files, then make them dirty
+    mkdir -p "$config_repo/global/hooks"
+    echo "# original" > "$config_repo/global/hooks/afd-relay.sh"
+    (cd "$config_repo" && git add -A && git commit -m "add hook" >/dev/null 2>&1)
+    echo "# modified" > "$config_repo/global/hooks/afd-relay.sh"
+
     # Create the marker file that sync.sh collect would write
     cat > "$config_repo/.collect-uncommitted-hooks" << 'EOF'
 timestamp=2026-03-19T15:30:00Z
-files=afd-relay.sh afk-deactivate.sh config-auto-sync.sh
+files=afd-relay.sh
 EOF
 
     local patched
@@ -313,5 +319,83 @@ EOF
     assert_contains "$output" "afd-relay.sh" "should list blocked files from marker"
 }
 run_test "collect-uncommitted marker: surfaces COLLECT_BLOCKED warning" test_collect_marker_detection
+
+# ── Test 11: Stale collect marker auto-deleted when files are clean ──
+
+test_collect_marker_auto_deleted_when_clean() {
+    local config_repo="$TEST_TMPDIR/config-repo"
+    local mock_home="$TEST_TMPDIR/home"
+    local project_dir="$TEST_TMPDIR/project"
+    mkdir -p "$mock_home/.claude" "$project_dir"
+
+    create_mock_config_repo "$config_repo"
+    create_mock_plugin_files "$mock_home"
+
+    # Create hook files and commit them (they are CLEAN)
+    mkdir -p "$config_repo/global/hooks"
+    echo "# hook a" > "$config_repo/global/hooks/afd-relay.sh"
+    echo "# hook b" > "$config_repo/global/hooks/config-auto-sync.sh"
+    (cd "$config_repo" && git add -A && git commit -m "add hooks" >/dev/null 2>&1)
+
+    # Create a stale collect marker referencing files that are now clean
+    cat > "$config_repo/.collect-uncommitted-hooks" << 'EOF'
+timestamp=2026-03-19T15:30:00Z
+files=afd-relay.sh,config-auto-sync.sh
+EOF
+
+    local patched
+    patched=$(create_patched_script "$config_repo" "$mock_home" "$project_dir")
+    local output
+    output=$(run_hook "$patched")
+
+    # Marker should be auto-deleted (files are clean)
+    if [ -f "$config_repo/.collect-uncommitted-hooks" ]; then
+        echo "FAIL: stale marker should be auto-deleted when listed files have no uncommitted changes" >&2
+        return 1
+    fi
+    # No COLLECT_BLOCKED warning should appear
+    if [[ "$output" == *"COLLECT_BLOCKED"* ]]; then
+        echo "FAIL: should NOT warn about collect-blocked when marker is stale" >&2
+        return 1
+    fi
+}
+run_test "stale collect marker: auto-deleted when listed files have no uncommitted changes" test_collect_marker_auto_deleted_when_clean
+
+# ── Test 12: Collect marker kept when files still have uncommitted changes ──
+
+test_collect_marker_kept_when_dirty() {
+    local config_repo="$TEST_TMPDIR/config-repo"
+    local mock_home="$TEST_TMPDIR/home"
+    local project_dir="$TEST_TMPDIR/project"
+    mkdir -p "$mock_home/.claude" "$project_dir"
+
+    create_mock_config_repo "$config_repo"
+    create_mock_plugin_files "$mock_home"
+
+    # Create hook files, commit, then modify (DIRTY)
+    mkdir -p "$config_repo/global/hooks"
+    echo "# original" > "$config_repo/global/hooks/afd-relay.sh"
+    (cd "$config_repo" && git add -A && git commit -m "add hook" >/dev/null 2>&1)
+    echo "# modified" > "$config_repo/global/hooks/afd-relay.sh"
+
+    # Create collect marker
+    cat > "$config_repo/.collect-uncommitted-hooks" << 'EOF'
+timestamp=2026-03-19T15:30:00Z
+files=afd-relay.sh
+EOF
+
+    local patched
+    patched=$(create_patched_script "$config_repo" "$mock_home" "$project_dir")
+    local output
+    output=$(run_hook "$patched")
+
+    # Marker should still exist (files are dirty)
+    if [ ! -f "$config_repo/.collect-uncommitted-hooks" ]; then
+        echo "FAIL: marker should NOT be deleted when files still have uncommitted changes" >&2
+        return 1
+    fi
+    assert_contains "$output" "COLLECT_BLOCKED" "should still warn about collect-blocked"
+}
+run_test "collect marker: kept when listed files still have uncommitted changes" test_collect_marker_kept_when_dirty
 
 suite_summary

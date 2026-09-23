@@ -66,7 +66,7 @@ fi
 EOF
     local output
     output=$(run_lint_hook "Write" "$tmpfile")
-    assert_contains "$output" "systemMessage" "should output JSON with systemMessage"
+    assert_contains "$output" "additionalContext" "should output JSON with additionalContext"
     assert_contains "$output" "bad.sh" "should mention the filename"
 }
 run_test "bash: syntax error detected" test_bash_syntax_error
@@ -81,7 +81,7 @@ fi
 EOF
     local output
     output=$(run_lint_hook "Edit" "$tmpfile")
-    assert_contains "$output" "systemMessage" "should work for Edit tool too"
+    assert_contains "$output" "additionalContext" "should work for Edit tool too"
 }
 run_test "bash: Edit tool also triggers lint" test_bash_edit_tool
 
@@ -107,7 +107,7 @@ def hello(
 EOF
     local output
     output=$(run_lint_hook "Write" "$tmpfile")
-    assert_contains "$output" "systemMessage" "should output JSON with systemMessage"
+    assert_contains "$output" "additionalContext" "should output JSON with additionalContext"
     assert_contains "$output" "bad.py" "should mention the filename"
 }
 run_test "python: syntax error detected" test_python_syntax_error
@@ -128,7 +128,7 @@ test_json_syntax_error() {
     echo '{"key": "value" "missing": "comma"}' > "$tmpfile"
     local output
     output=$(run_lint_hook "Write" "$tmpfile")
-    assert_contains "$output" "systemMessage" "should output JSON with systemMessage"
+    assert_contains "$output" "additionalContext" "should output JSON with additionalContext"
     assert_contains "$output" "bad.json" "should mention the filename"
 }
 run_test "json: invalid JSON detected" test_json_syntax_error

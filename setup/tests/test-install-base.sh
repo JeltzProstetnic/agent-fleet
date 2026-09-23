@@ -30,12 +30,16 @@ log_success() { echo "[OK] $*"; }
 file_contains() { grep -q "$2" "$1" 2>/dev/null; }
 run_cmd()     { "$@"; }
 backup_file() { :; }
-detect_shell_rc()      { echo "${HOME}/.bashrc"; }
-detect_shell_rc_name() { echo ".bashrc"; }
 
 DRY_RUN="${DRY_RUN:-false}"
 INSTALLED_STEPS=()
 SKIPPED_STEPS=()
+
+# Stub shell rc detection to use .bashrc (test always uses bash)
+detect_shell_rc() { echo "$HOME/.bashrc"; }
+detect_shell_rc_name() { echo ".bashrc"; }
+# Portable sed -i (from lib-portable.sh)
+_sed_i() { sed -i "$@"; }
 HARNESS
 
     # Extract the function from install-base.sh and append

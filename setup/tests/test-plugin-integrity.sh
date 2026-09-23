@@ -12,12 +12,12 @@ CHECK_SCRIPT="$REPO_ROOT/global/hooks/checks/11-plugin-integrity.sh"
 
 suite_header "11-plugin-integrity.sh (VoltAgent plugin integrity)"
 
-# -- Helpers -------------------------------------------------------------------
+# ── Helpers ───────────────────────────────────────────────────────────────────
 
 # Run the check in a subshell with controlled shared variables.
 # Args:
-#   $1 -- CC_MIRROR_DIR (pointing at our mock)
-#   $2 -- settings.json path (optional override; defaults to $1/config/settings.json)
+#   $1 — CC_MIRROR_DIR (pointing at our mock)
+#   $2 — settings.json path (optional override; defaults to $1/config/settings.json)
 # Outputs the WARNINGS and INBOX_MSG produced by the check, separated by "|||"
 run_check() {
     local cc_mirror_dir="$1"
@@ -131,9 +131,9 @@ EOF
     done
 }
 
-# -- Tests ---------------------------------------------------------------------
+# ── Tests ─────────────────────────────────────────────────────────────────────
 
-# Test 1: Happy path -- no warnings when everything is correct
+# Test 1: Happy path — no warnings when everything is correct
 test_all_good_no_warnings() {
     local base="$TEST_TMPDIR/cc-mirror"
     create_full_mock_env "$base"
@@ -147,7 +147,7 @@ test_all_good_no_warnings() {
 }
 run_test "happy path: no warnings when all plugins installed and enabledPlugins empty" test_all_good_no_warnings
 
-# Test 2: Missing known_marketplaces.json -- warn that marketplace is not registered
+# Test 2: Missing known_marketplaces.json — warn that marketplace is not registered
 test_marketplace_file_missing() {
     local base="$TEST_TMPDIR/cc-mirror"
     create_full_mock_env "$base"
@@ -190,7 +190,7 @@ EOF
 }
 run_test "marketplace not registered: warns when voltagent-subagents absent from known_marketplaces.json" test_marketplace_not_registered
 
-# Test 4: Missing installed_plugins.json -- warn about missing plugins
+# Test 4: Missing installed_plugins.json — warn about missing plugins
 test_installed_plugins_file_missing() {
     local base="$TEST_TMPDIR/cc-mirror"
     create_full_mock_env "$base"
@@ -257,7 +257,8 @@ EOF
 }
 run_test "plugin bundle missing: warns when voltagent-research missing from installed_plugins.json" test_one_plugin_bundle_missing
 
-# Test 6: enabledPlugins is non-empty -- token budget violation
+# Test 6: enabledPlugins is non-empty — no longer checked by this module
+# (Check 7.1 in 07-environment.sh auto-empties enabledPlugins before 11 runs)
 test_enabled_plugins_non_empty() {
     local base="$TEST_TMPDIR/cc-mirror"
     create_full_mock_env "$base"
@@ -278,13 +279,13 @@ EOF
     local warnings
     warnings=$(get_warnings "$result")
 
-    assert_contains "$warnings" "PLUGIN" "should contain PLUGIN warning"
-    assert_contains "$warnings" "enabledPlugins" "should mention enabledPlugins"
-    assert_contains "$warnings" "token" "should mention token budget"
+    # enabledPlugins check moved to 04-auto-fix.sh / 07-environment.sh
+    # This module only checks plugin file integrity, not settings
+    assert_not_contains "$warnings" "PLUGIN" "plugin integrity should not fire on enabledPlugins"
 }
-run_test "enabledPlugins non-empty: warns about token budget violation" test_enabled_plugins_non_empty
+run_test "enabledPlugins non-empty: not checked by this module (moved to auto-fix)" test_enabled_plugins_non_empty
 
-# Test 7: settings.json missing -- should not crash (SETTINGS_FILE might not exist)
+# Test 7: settings.json missing — should not crash (SETTINGS_FILE might not exist)
 test_settings_file_missing() {
     local base="$TEST_TMPDIR/cc-mirror"
     create_full_mock_env "$base"
@@ -294,9 +295,13 @@ test_settings_file_missing() {
     local result
     result=$(run_check "$base")
 
+    # Should not produce an error about enabledPlugins if file is absent
+    # (we can't check the file if it doesn't exist)
     local warnings
     warnings=$(get_warnings "$result")
 
+    # Warning may or may not fire about other checks, but should not crash
+    # The check must complete without a fatal error (subshell exit 0)
     assert_not_contains "$warnings" "enabledPlugins" "should not warn about enabledPlugins when settings.json missing"
 }
 run_test "settings.json missing: no crash, no enabledPlugins warning" test_settings_file_missing
@@ -345,26 +350,29 @@ test_multiple_failures_consolidated() {
     local base="$TEST_TMPDIR/cc-mirror"
     create_full_mock_env "$base"
 
-    # Both marketplace missing AND enabledPlugins non-empty
+    # Marketplace missing AND one plugin bundle removed from installed list
     rm "$base/config/plugins/known_marketplaces.json"
-    cat > "$base/config/settings.json" <<'EOF'
-{
-  "enabledPlugins": { "voltagent-lang@voltagent-subagents": true },
-  "spinnerTipsEnabled": false
-}
-EOF
+    # Remove voltagent-research from installed_plugins.json
+    python3 -c "
+import json
+with open('$base/config/plugins/installed_plugins.json') as f:
+    d = json.load(f)
+del d['plugins']['voltagent-research@voltagent-subagents']
+with open('$base/config/plugins/installed_plugins.json', 'w') as f:
+    json.dump(d, f)
+"
 
     local result
     result=$(run_check "$base")
     local warnings
     warnings=$(get_warnings "$result")
 
-    # Should have combined issues mentioned
+    # Should have combined issues in a single PLUGIN_INTEGRITY warning
     assert_contains "$warnings" "PLUGIN" "should contain PLUGIN warning"
     assert_contains "$warnings" "voltagent-subagents" "should mention marketplace issue"
-    assert_contains "$warnings" "enabledPlugins" "should mention enabledPlugins issue"
+    assert_contains "$warnings" "voltagent-research" "should mention missing bundle"
 }
 run_test "multiple failures: consolidated warning message" test_multiple_failures_consolidated
 
-# -- Summary -------------------------------------------------------------------
+# ── Summary ───────────────────────────────────────────────────────────────────
 suite_summary

@@ -341,6 +341,23 @@ test_action_header_case_insensitive() {
 }
 run_test "edge: action header case insensitive" test_action_header_case_insensitive
 
+# CFG-482: the fleet writes the header as an HTML comment so it stays invisible
+# in rendered markdown. get_action() only matched the bare form, so every real
+# file reported "unknown".
+test_action_header_comment_form() {
+    local project_dir="$TEST_TMPDIR/project"
+    mkdir -p "$project_dir/docs"
+
+    printf "<!-- Action: defer -->\n# Test\n\nContent.\n" > "$project_dir/docs/pending-comment.md"
+
+    local output
+    output=$(bash "$SCRIPT" report --project-dir "$project_dir" 2>&1)
+
+    assert_contains "$output" "defer" "comment-form Action header must be parsed" || return 1
+    assert_not_contains "$output" "unknown" "comment-form file must not report unknown action" || return 1
+}
+run_test "edge: comment-form <!-- Action: x --> header (CFG-482)" test_action_header_comment_form
+
 test_backward_compat_wrapper() {
     # manage-pending.sh report should produce output similar to clean-pending-files.sh --list
     local project_dir="$TEST_TMPDIR/project"
@@ -356,6 +373,218 @@ test_backward_compat_wrapper() {
     assert_contains "$output" "pending file" "should show summary with count"
 }
 run_test "backward compat: report includes summary" test_backward_compat_wrapper
+
+# ── stale-check ──────────────────────────────────────────────────────────────
+
+# Create a docs/session-log.md with arbitrary content lines
+create_session_log() {
+    local project_dir="$1"
+    shift
+    mkdir -p "$project_dir/docs"
+    {
+        echo "# Session Log"
+        echo ""
+        for line in "$@"; do
+            echo "$line"
+        done
+    } > "$project_dir/docs/session-log.md"
+}
+
+# Create a Tracked-by pending file (Action + Tracked-by header)
+create_tracked_pending() {
+    local dir="$1"        # docs/ directory
+    local name="$2"       # filename
+    local action="$3"     # action header
+    local tracked="$4"    # Tracked-by line value
+    mkdir -p "$dir"
+    printf "# %s\nAction: %s\nTracked-by: %s\n\nContent.\n" \
+        "$name" "$action" "$tracked" > "$dir/$name"
+}
+
+# Init a throwaway git repo in the project dir for commit-evidence tests
+init_project_git() {
+    local project_dir="$1"
+    mkdir -p "$project_dir"
+    (
+        cd "$project_dir"
+        git init -b main >/dev/null 2>&1
+        git config user.email "test@test.com"
+        git config user.name "Test"
+        echo "init" > .gitkeep
+        git add .gitkeep
+        git commit -m "Initial commit" >/dev/null 2>&1
+    )
+}
+
+# Add a commit with an explicit message (subject + optional body) to a repo
+add_named_commit() {
+    local project_dir="$1"
+    local subject="$2"
+    local body="${3:-}"
+    local filename="commit-file-$RANDOM-$RANDOM.txt"
+    (
+        cd "$project_dir"
+        echo "change" > "$filename"
+        git add "$filename"
+        if [[ -n "$body" ]]; then
+            git commit -m "$subject" -m "$body" >/dev/null 2>&1
+        else
+            git commit -m "$subject" >/dev/null 2>&1
+        fi
+    )
+}
+
+# (1) all Tracked-by PRNs are [x] in backlog → flagged STALE
+test_stale_all_prns_closed() {
+    local project_dir="$TEST_TMPDIR/project"
+    mkdir -p "$project_dir/docs"
+
+    create_tracked_pending "$project_dir/docs" "pending-feature-x.md" "act" "CFG-418"
+    create_backlog "$project_dir" \
+        "- [x] [P1] \`CFG-418\` **Feature X**: shipped"
+
+    local output
+    output=$(bash "$SCRIPT" --stale-check --project-dir "$project_dir" 2>&1)
+
+    assert_contains "$output" "STALE: pending-feature-x.md" "should flag file with all PRNs closed" || return 1
+    assert_contains "$output" "all PRNs closed" "reason should be all PRNs closed"
+}
+run_test "stale-check: all Tracked-by PRNs [x] → STALE" test_stale_all_prns_closed
+
+# (2) no-PRN placeholder + session-log shows shipped → flagged STALE (trigger bug)
+test_stale_no_prn_session_log_shipped() {
+    local project_dir="$TEST_TMPDIR/project"
+    mkdir -p "$project_dir/docs"
+
+    create_tracked_pending "$project_dir/docs" "pending-rca-stage5-variety-20260607.md" "act" \
+        "(file PRN-NNNN per fix when user assigns priorities)"
+    create_session_log "$project_dir" \
+        "## Session 99 — 2026-06-08" \
+        "- S5 gradual variety decay RCA — shuffled-bag fix shipped (commit 0114ac9, 129 tests green)"
+
+    local output
+    output=$(bash "$SCRIPT" --stale-check --project-dir "$project_dir" 2>&1)
+
+    assert_contains "$output" "STALE: pending-rca-stage5-variety-20260607.md" \
+        "should flag no-PRN file whose work shipped per session-log" || return 1
+    assert_contains "$output" "session-log/git shows shipped" "reason should cite shipped evidence"
+}
+run_test "stale-check: no-PRN + session-log shipped → STALE (trigger bug)" test_stale_no_prn_session_log_shipped
+
+# (3) no-PRN + a feat/fix commit cites the filename → flagged STALE
+test_stale_no_prn_feat_commit_cites_file() {
+    local project_dir="$TEST_TMPDIR/project"
+    init_project_git "$project_dir"
+    mkdir -p "$project_dir/docs"
+
+    create_tracked_pending "$project_dir/docs" "pending-shuffled-bag-fix.md" "present" \
+        "(this file IS the plan)"
+    add_named_commit "$project_dir" \
+        "fix(goonvid): shuffled-bag clip selection" \
+        "Full RCA: docs/pending-shuffled-bag-fix.md"
+
+    local output
+    output=$(bash "$SCRIPT" --stale-check --project-dir "$project_dir" 2>&1)
+
+    assert_contains "$output" "STALE: pending-shuffled-bag-fix.md" \
+        "should flag no-PRN file cited in a fix commit" || return 1
+    assert_contains "$output" "session-log/git shows shipped" "reason should cite shipped evidence"
+}
+run_test "stale-check: no-PRN + feat/fix commit cites filename → STALE" test_stale_no_prn_feat_commit_cites_file
+
+# (4) TRUE NEGATIVE: act + open [ ] PRN + no shipped line → NOT flagged
+test_stale_true_negative_open_prn() {
+    local project_dir="$TEST_TMPDIR/project"
+    init_project_git "$project_dir"
+    mkdir -p "$project_dir/docs"
+
+    create_tracked_pending "$project_dir/docs" "pending-normal-mode-config.md" "act" "PRN-1266"
+    create_backlog "$project_dir" \
+        "- [ ] [P2] \`PRN-1266\` **Normal mode config**: still open"
+    create_session_log "$project_dir" \
+        "## Session 100 — 2026-06-09" \
+        "- Worked on unrelated things"
+
+    local output
+    output=$(bash "$SCRIPT" --stale-check --project-dir "$project_dir" 2>&1)
+
+    assert_not_contains "$output" "STALE: pending-normal-mode-config.md" \
+        "genuinely-open file must NOT be flagged stale"
+}
+run_test "stale-check: open [ ] PRN + no shipped → NOT flagged (true negative)" test_stale_true_negative_open_prn
+
+# (5) reference/defer file with closed PRN → NOT flagged (only act/present reconcile)
+test_stale_skips_non_act_present() {
+    local project_dir="$TEST_TMPDIR/project"
+    mkdir -p "$project_dir/docs"
+
+    create_tracked_pending "$project_dir/docs" "pending-ref-done.md" "reference" "CFG-500"
+    create_tracked_pending "$project_dir/docs" "pending-defer-done.md" "defer" "CFG-501"
+    create_backlog "$project_dir" \
+        "- [x] [P1] \`CFG-500\` **Ref done**: closed" \
+        "- [x] [P1] \`CFG-501\` **Defer done**: closed"
+
+    local output
+    output=$(bash "$SCRIPT" --stale-check --project-dir "$project_dir" 2>&1)
+
+    assert_not_contains "$output" "STALE: pending-ref-done.md" "reference files are not reconciled" || return 1
+    assert_not_contains "$output" "STALE: pending-defer-done.md" "defer files are not reconciled"
+}
+run_test "stale-check: reference/defer files not reconciled" test_stale_skips_non_act_present
+
+# (6) no git/backlog/session-log present → exit 0, not flagged
+test_stale_no_evidence_sources_clean() {
+    local project_dir="$TEST_TMPDIR/project"
+    mkdir -p "$project_dir/docs"
+
+    create_tracked_pending "$project_dir/docs" "pending-lonely.md" "act" "CFG-600"
+    # No backlog.md, no session-log.md, no .git
+
+    local rc=0
+    local output
+    output=$(bash "$SCRIPT" --stale-check --project-dir "$project_dir" 2>&1) || rc=$?
+
+    assert_eq "0" "$rc" "stale-check must always exit 0 (fail-safe)" || return 1
+    assert_not_contains "$output" "STALE: pending-lonely.md" \
+        "no evidence sources → file treated CLEAN"
+}
+run_test "stale-check: no git/backlog/session-log → exit 0, not flagged" test_stale_no_evidence_sources_clean
+
+# (7) literal PRN-NNNN placeholder not counted as a real PRN
+test_stale_placeholder_prn_not_counted() {
+    local project_dir="$TEST_TMPDIR/project"
+    mkdir -p "$project_dir/docs"
+
+    # Tracked-by is the literal placeholder PRN-NNNN; backlog has a [x] PRN-NNNN
+    # line (which must NOT count, since PRN-NNNN is a placeholder, not a real PRN).
+    create_tracked_pending "$project_dir/docs" "pending-placeholder.md" "act" "PRN-NNNN"
+    create_backlog "$project_dir" \
+        "- [x] [P1] \`PRN-NNNN\` **Placeholder**: bogus"
+    # No session-log, no git → only Signal 1 could match, and it must not.
+
+    local output
+    output=$(bash "$SCRIPT" --stale-check --project-dir "$project_dir" 2>&1)
+
+    assert_not_contains "$output" "STALE: pending-placeholder.md" \
+        "literal PRN-NNNN placeholder is not a real PRN → not flagged via Signal 1"
+}
+run_test "stale-check: literal PRN-NNNN placeholder not counted" test_stale_placeholder_prn_not_counted
+
+# clean files emit nothing at all
+test_stale_clean_emits_nothing() {
+    local project_dir="$TEST_TMPDIR/project"
+    mkdir -p "$project_dir/docs"
+
+    create_tracked_pending "$project_dir/docs" "pending-open.md" "act" "CFG-700"
+    create_backlog "$project_dir" \
+        "- [ ] [P1] \`CFG-700\` **Open**: still going"
+
+    local output
+    output=$(bash "$SCRIPT" --stale-check --project-dir "$project_dir" 2>&1)
+
+    assert_not_contains "$output" "STALE:" "clean files emit no STALE line"
+}
+run_test "stale-check: clean files emit nothing" test_stale_clean_emits_nothing
 
 # ── summary ──────────────────────────────────────────────────────────────────
 suite_summary

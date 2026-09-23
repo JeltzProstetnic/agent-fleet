@@ -1,17 +1,12 @@
 #!/usr/bin/env bash
-# Shared helpers for config-check test suites
-# Provides: create_mock_config_repo, create_mock_plugin_files,
-#           create_patched_script, run_hook
-#
-# Requires: test-helpers.sh sourced first (for REPO_ROOT, TEST_TMPDIR)
-# Optional: HOOK_SCRIPT can be set before sourcing; defaults to config-check.sh
+# Shared helpers for config-check.sh test files
+# Source this in each test-check-*.sh file AFTER test-helpers.sh
+# Provides: create_git_repo_main, create_tracked_repo_main, create_mock_config_repo,
+#           create_mock_plugin_files, create_patched_script, run_hook
 
-# Guard against double-sourcing
-[[ -n "${_TEST_CHECK_HELPERS_LOADED:-}" ]] && return 0
-_TEST_CHECK_HELPERS_LOADED=1
+HOOK_SCRIPT="$REPO_ROOT/global/hooks/config-check.sh"
 
-# Default hook script path — callers can override before sourcing
-: "${HOOK_SCRIPT:=$REPO_ROOT/global/hooks/config-check.sh}"
+# ── Helpers ──────────────────────────────────────────────────────────────────
 
 # Create a git repo on branch "main" regardless of global git config
 create_git_repo_main() {
@@ -48,7 +43,7 @@ create_tracked_repo_main() {
 create_mock_config_repo() {
     local dir="$1"
     mkdir -p "$dir/setup/scripts"
-    touch "$dir/sync.sh"
+    echo "mobile-collect placeholder" > "$dir/sync.sh"
     # Copy clean-permissions.sh so Check 10 can find it
     if [ -f "$REPO_ROOT/setup/scripts/clean-permissions.sh" ]; then
         cp "$REPO_ROOT/setup/scripts/clean-permissions.sh" "$dir/setup/scripts/"
@@ -65,11 +60,11 @@ create_mock_plugin_files() {
     local plugins_dir="$mock_home/.cc-mirror/mclaude/config/plugins"
     mkdir -p "$plugins_dir"
 
-    # known_marketplaces.json must contain "voltagent-subagents"
+    # Check 37: known_marketplaces.json must contain "voltagent-subagents"
     echo '{"voltagent-subagents": {"url": "https://example.com"}}' \
         > "$plugins_dir/known_marketplaces.json"
 
-    # installed_plugins.json must list all 10 expected bundles
+    # Check 38: installed_plugins.json must list all 10 expected bundles
     cat > "$plugins_dir/installed_plugins.json" << 'EOF'
 {
   "bundles": [
@@ -87,7 +82,7 @@ create_mock_plugin_files() {
 }
 EOF
 
-    # each bundle needs a cache dir with at least one file
+    # Check 40: each bundle needs a cache dir with at least one file
     local cache_base="$plugins_dir/cache/voltagent-subagents"
     for bundle in voltagent-lang voltagent-infra voltagent-core-dev voltagent-qa-sec \
                   voltagent-data-ai voltagent-dev-exp voltagent-domains voltagent-biz \
@@ -115,14 +110,9 @@ create_patched_script() {
 #!/usr/bin/env bash
 # Patched config-check.sh for testing
 
-# Override HOME
+# Override HOME and derived paths to isolate from real environment
 export HOME="$mock_home"
-
-# Reset CC_MIRROR_DIR so it falls back to \$HOME-based default in the hook
-unset CC_MIRROR_DIR
-
-# Point CONFIG_CHECK_DIR to the real checks/ modules (BASH_SOURCE breaks under eval)
-export CONFIG_CHECK_DIR="$REPO_ROOT/global/hooks/checks"
+export CC_MIRROR_DIR="$mock_home/.cc-mirror/mclaude"
 
 # cd into project dir so \$(pwd) returns what we want
 cd "$project_dir"
@@ -139,6 +129,9 @@ cd "$project_dir"
 _detect_config_repo() {
     echo "$config_repo"
 }
+
+# Point check modules to the repo's checks directory
+export CONFIG_CHECK_DIR="$REPO_ROOT/global/hooks/checks"
 
 # Read the original script, remove the _detect_config_repo function body
 # (lines 6-17 approximately), and eval the rest
@@ -159,4 +152,24 @@ run_hook() {
     local patched="$1"
     shift
     bash "$patched" "$@" 2>/dev/null
+}
+
+# Pull the injected context out of a SessionStart hook payload.
+# CFG-530: the payload lives at hookSpecificOutput.additionalContext, because a
+# TOP-LEVEL additionalContext is silently discarded by Claude Code. Every test
+# that reached into d['additionalContext'] by hand was coupled to the broken
+# shape; go through this helper instead so the next envelope change is one edit.
+# Prints the empty string when the hook emitted nothing at all.
+extract_additional_context() {
+    printf '%s' "$1" | python3 -c "
+import json, sys
+raw = sys.stdin.read().strip()
+if not raw:
+    sys.exit()
+try:
+    d = json.loads(raw)
+except Exception:
+    sys.exit()
+print((d.get('hookSpecificOutput') or {}).get('additionalContext', ''))
+" 2>/dev/null
 }

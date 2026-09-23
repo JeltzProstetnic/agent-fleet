@@ -8,6 +8,15 @@
 
 set -euo pipefail
 
+# Safety guard: E2E tests modify real files. Refuse to run outside a VM.
+if [[ -f "$HOME/cfg-agent-fleet/.git/HEAD" && "${1:-}" != "--force" ]]; then
+    echo "ERROR: E2E test detected cfg-agent-fleet (personal config repo)." >&2
+    echo "E2E tests are destructive — they modify ~/agent-fleet/, ~/.claude/, and personas." >&2
+    echo "Run only on a VM via: vm-exec.sh afleet-e2e --script $0" >&2
+    echo "Override with: $0 --force" >&2
+    exit 1
+fi
+
 PASS=0
 FAIL=0
 ERRORS=""

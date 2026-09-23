@@ -87,7 +87,23 @@ done
 echo ""
 echo "T6: All source commands are guarded"
 # Find source lines that don't have || or if/then guards
-unguarded=$(grep -n '^\s*source\s' "$AFLEET" 2>/dev/null | grep -v '||' | grep -v '_fallback_launch' || true)
+# A source command is guarded if: it has || on the same line, references _fallback_launch,
+# or is inside an if-block (check 3 lines above for 'if [' guard)
+unguarded=""
+while IFS=: read -r lineno line; do
+    [[ -z "$lineno" ]] && continue
+    # Skip lines with inline guards
+    if echo "$line" | grep -qE '\|\||_fallback_launch'; then
+        continue
+    fi
+    # Check if guarded by an if-block within 3 lines above
+    start=$((lineno - 3)); [[ $start -lt 1 ]] && start=1
+    context=$(sed -n "${start},${lineno}p" "$AFLEET")
+    if echo "$context" | grep -qE 'if \['; then
+        continue
+    fi
+    unguarded="${unguarded:+$unguarded\n}$lineno:    $line"
+done < <(grep -n '^\s*source\s' "$AFLEET" 2>/dev/null || true)
 if [[ -z "$unguarded" ]]; then
     pass "all source commands have error guards"
 else

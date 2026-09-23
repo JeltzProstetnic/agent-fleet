@@ -222,6 +222,68 @@ test_path_prefix_takes_precedence_over_nvm() {
 }
 run_test "--path-prefix takes precedence over NVM auto-detection" test_path_prefix_takes_precedence_over_nvm
 
+# ── CFG-306: NVM takes priority over system Node ──────────────────────────
+
+test_nvm_preferred_over_system_node() {
+    # When system Node exists (e.g. /usr/bin/node from NodeSource) AND NVM is
+    # installed, ensure_tool_paths must prepend NVM's node to PATH so that
+    # npm install -g uses NVM's prefix, not the system prefix (which requires root).
+    local fake_nvm="$TEST_TMPDIR/.nvm"
+    local nvm_bin="$fake_nvm/versions/node/v22.0.0/bin"
+    mkdir -p "$nvm_bin"
+    echo '#!/bin/sh' > "$nvm_bin/node"
+    echo 'echo "nvm-node"' >> "$nvm_bin/node"
+    chmod +x "$nvm_bin/node"
+
+    # Fake system node
+    local sys_bin="$TEST_TMPDIR/usr-bin"
+    mkdir -p "$sys_bin"
+    echo '#!/bin/sh' > "$sys_bin/node"
+    echo 'echo "system-node"' >> "$sys_bin/node"
+    chmod +x "$sys_bin/node"
+
+    (
+        export PATH="$sys_bin:/usr/local/bin:/bin"
+        export HOME="$TEST_TMPDIR"
+        unset NVM_DIR
+
+        source "$REPO_ROOT/setup/lib.sh"
+        ensure_tool_paths
+
+        local node_path
+        node_path="$(command -v node)"
+        # NVM node should come first in PATH, even though system node was already there
+        assert_contains "$node_path" ".nvm/versions/node"
+    )
+}
+run_test "NVM node takes priority over system node (CFG-306)" test_nvm_preferred_over_system_node
+
+test_system_node_ok_when_no_nvm_versions() {
+    # When system Node exists but NVM has no installed versions,
+    # ensure_tool_paths should accept the system node as-is.
+    local fake_nvm="$TEST_TMPDIR/.nvm"
+    mkdir -p "$fake_nvm"  # NVM dir exists but no versions
+
+    local sys_bin="$TEST_TMPDIR/usr-bin"
+    mkdir -p "$sys_bin"
+    echo '#!/bin/sh' > "$sys_bin/node"
+    chmod +x "$sys_bin/node"
+
+    (
+        export PATH="$sys_bin:/usr/local/bin:/bin"
+        export HOME="$TEST_TMPDIR"
+        unset NVM_DIR
+
+        source "$REPO_ROOT/setup/lib.sh"
+        ensure_tool_paths
+
+        local node_path
+        node_path="$(command -v node)"
+        assert_contains "$node_path" "usr-bin"
+    )
+}
+run_test "System node accepted when NVM has no versions" test_system_node_ok_when_no_nvm_versions
+
 # ── Edge cases ──────────────────────────────────────────────────────────────
 
 test_no_nvm_no_node_logs_warning() {

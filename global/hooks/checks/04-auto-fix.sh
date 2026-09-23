@@ -76,11 +76,27 @@ if [ "$_dep_run" -eq 1 ]; then
     DEP_RESULTS=""
     if command -v npm >/dev/null 2>&1; then
         CC_LATEST=$(timeout 5 npm view @anthropic-ai/claude-code version 2>/dev/null || echo "?")
+        # Both cc-mirror layouts: npm keeps package.json under npm/; a NATIVE install has only
+        # native/claude, whose --version is the ground truth (~10 ms). variant.json holds the
+        # REQUESTED spec (often "latest"), so only an x.y.z there counts. UNKNOWN is reported,
+        # never skipped — the old npm-only glob matched nothing on native and stayed silent.
+        _cc_ver() { grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1 || true; }
+        _cc_field() { grep -o "\"$2\": *\"[^\"]*\"" "$1" 2>/dev/null | head -1 | sed 's/.*: *"\([^"]*\)".*/\1/' || true; }
         CC_INSTALLED=""
-        for pj in "$HOME"/.cc-mirror/*/npm/node_modules/@anthropic-ai/claude-code/package.json; do
-            [ -f "$pj" ] && CC_INSTALLED=$(python3 -c "import json; print(json.load(open('$pj'))['version'])" 2>/dev/null) && break
+        for _cc_dir in "${CC_MIRROR_DIR:-$HOME/.cc-mirror/mclaude}" "$HOME"/.cc-mirror/*/; do
+            _cc_dir="${_cc_dir%/}"; [ -d "$_cc_dir" ] || continue
+            _cc_pj="$_cc_dir/npm/node_modules/@anthropic-ai/claude-code/package.json"
+            [ -f "$_cc_pj" ] && CC_INSTALLED=$(_cc_field "$_cc_pj" version | _cc_ver)
+            _cc_bin=$(_cc_field "$_cc_dir/variant.json" binaryPath); [ -x "$_cc_bin" ] || _cc_bin="$_cc_dir/native/claude"
+            [ -z "$CC_INSTALLED" ] && [ -x "$_cc_bin" ] && CC_INSTALLED=$(timeout 5 "$_cc_bin" --version 2>/dev/null </dev/null | _cc_ver)
+            for _cc_key in nativeVersion claudeOrig npmVersion; do
+                [ -z "$CC_INSTALLED" ] && CC_INSTALLED=$(_cc_field "$_cc_dir/variant.json" "$_cc_key" | _cc_ver)
+            done
+            [ -n "$CC_INSTALLED" ] && break
         done
-        if [ -n "$CC_INSTALLED" ] && [ -n "$CC_LATEST" ] && [ "$CC_LATEST" != "?" ] && [ "$CC_INSTALLED" != "$CC_LATEST" ]; then
+        if [ -z "$CC_INSTALLED" ]; then
+            DEP_RESULTS="Claude Code installed version UNKNOWN — no npm package.json, no runnable native/claude and no x.y.z in variant.json under ${CC_MIRROR_DIR:-$HOME/.cc-mirror/mclaude} or $HOME/.cc-mirror/*/. The daily update check is BLIND on this machine until this is fixed; probe by hand: <variant>/native/claude --version"
+        elif [ -n "$CC_LATEST" ] && [ "$CC_LATEST" != "?" ] && [ "$CC_INSTALLED" != "$CC_LATEST" ]; then
             DEP_RESULTS="Claude Code update available: $CC_INSTALLED → $CC_LATEST (read changelog before updating)"
         fi
     fi

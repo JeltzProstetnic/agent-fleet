@@ -5,9 +5,9 @@ source "$(dirname "$0")/test-helpers.sh"
 GPI_SCRIPT="$REPO_ROOT/setup/scripts/gpi.sh"
 STATUSLINE_SCRIPT="$REPO_ROOT/setup/config/statusline-command.sh"
 
-# Helper: run gpi.sh with test state file
+# Helper: run gpi.sh with test state file and notification sidecar
 gpi() {
-    GPI_STATE="$TEST_TMPDIR/gpi-state.json" "$GPI_SCRIPT" "$@"
+    GPI_STATE="$TEST_TMPDIR/gpi-state.json" GPI_COMPLETED="$TEST_TMPDIR/gpi-completed.json" "$GPI_SCRIPT" "$@"
 }
 
 # Helper: read a field from the test state file via jq
@@ -18,9 +18,11 @@ gpi_field() {
 # Helper: render statusline with test GPI state, return output
 render_statusline() {
     local gpi_path="$TEST_TMPDIR/gpi-state.json"
+    local completed_path="$TEST_TMPDIR/gpi-completed.json"
     local statusline_tmp="$TEST_TMPDIR/statusline-test.sh"
-    # Patch the statusline to use our test GPI path
-    sed "s|os.path.expanduser('~/.claude/.gpi-state.json')|'$gpi_path'|g" \
+    # Patch the statusline to use our test GPI path and completed sidecar path
+    sed -e "s|os.path.expanduser('~/.claude/.gpi-state.json')|'$gpi_path'|g" \
+        -e "s|os.path.expanduser('~/.claude/.gpi-completed.json')|'$completed_path'|g" \
         "$STATUSLINE_SCRIPT" > "$statusline_tmp"
     chmod +x "$statusline_tmp"
     echo '{"model":{"display_name":"Opus"},"context_window":{"used_percentage":50,"context_window_size":200000,"current_usage":{"input_tokens":100000}},"cost":{"total_cost_usd":1.5},"workspace":{"project_dir":"/home/test/project"}}' \
@@ -116,34 +118,69 @@ test_update_eta() {
 }
 run_test "update eta" test_update_eta
 
-test_done_removes_entry() {
+test_done_sets_completed_at() {
     gpi start op1 "copy"
     gpi start op2 "sync"
     gpi done op1
-    assert_eq "null" "$(gpi_field '.ops["op1"]')" "op1 should be removed"
-    assert_neq "null" "$(gpi_field '.ops["op2"]')" "op2 should remain"
+    local completed_at
+    completed_at=$(gpi_field '.ops["op1"].completed_at')
+    assert_neq "null" "$completed_at" "op1 should have completed_at set" || return 1
+    assert_neq "null" "$(gpi_field '.ops["op2"]')" "op2 should remain" || return 1
+    assert_eq "null" "$(gpi_field '.ops["op2"].completed_at // "null"')" "op2 should not be completed"
 }
-run_test "done removes entry" test_done_removes_entry
+run_test "done sets completed_at" test_done_sets_completed_at
 
-test_done_last_entry_leaves_empty() {
+test_done_preserves_label() {
     gpi start op1 "copy"
     gpi done op1
-    assert_file_exists "$TEST_TMPDIR/gpi-state.json"
-    local count
-    count=$(gpi_field '.ops | length')
-    assert_eq "0" "$count"
+    local label
+    label=$(gpi_field '.ops["op1"].label')
+    assert_eq "copy" "$label" "label should be preserved after done"
 }
-run_test "done last entry leaves empty ops" test_done_last_entry_leaves_empty
+run_test "done preserves label" test_done_preserves_label
+
+test_done_writes_notification_sidecar() {
+    gpi start op1 "copy"
+    gpi done op1
+    assert_file_exists "$TEST_TMPDIR/gpi-completed.json" "notification sidecar should exist"
+    local notif_label
+    notif_label=$(jq -r '.[0].label' "$TEST_TMPDIR/gpi-completed.json")
+    assert_eq "copy" "$notif_label" "sidecar should contain label"
+}
+run_test "done writes notification sidecar" test_done_writes_notification_sidecar
+
+test_cleanup_removes_old_completed() {
+    gpi start op1 "copy"
+    gpi done op1
+    # Backdate completed_at to 120 seconds ago
+    local old_ts=$(($(date +%s) - 120))
+    local tmp
+    tmp=$(jq --argjson ts "$old_ts" '.ops["op1"].completed_at = $ts' "$TEST_TMPDIR/gpi-state.json")
+    echo "$tmp" > "$TEST_TMPDIR/gpi-state.json"
+    # Any gpi command should trigger cleanup
+    gpi status >/dev/null
+    assert_eq "null" "$(gpi_field '.ops["op1"] // "null"')" "old completed op should be cleaned up"
+}
+run_test "cleanup removes old completed ops" test_cleanup_removes_old_completed
+
+test_cleanup_keeps_recent_completed() {
+    gpi start op1 "copy"
+    gpi done op1
+    # completed_at is just now, should survive cleanup
+    gpi status >/dev/null
+    assert_neq "null" "$(gpi_field '.ops["op1"]')" "recently completed op should survive cleanup"
+}
+run_test "cleanup keeps recent completed ops" test_cleanup_keeps_recent_completed
 
 test_clear_removes_all() {
     gpi start op1 "copy"
     gpi start op2 "sync"
-    gpi clear
+    gpi clear --all
     local count
     count=$(gpi_field '.ops | length')
     assert_eq "0" "$count"
 }
-run_test "clear removes all" test_clear_removes_all
+run_test "clear --all removes all" test_clear_removes_all
 
 test_clear_group_selective() {
     gpi start op1 "copy" --group backup
@@ -237,24 +274,37 @@ test_render_parallel() {
     gpi update op2 --pct 80
     local output
     output=$(render_statusline)
-    # Should show count and the longest-expected (op1, eta 300)
-    assert_contains "$output" "rsync"
-    assert_contains "$output" "45%"
-    # The parallel count indicator
-    assert_contains "$output" "2"
+    # Should show only the highest-pct op (compile 80%) with +1 suffix
+    assert_contains "$output" "compile" || return 1
+    assert_contains "$output" "80%" || return 1
+    assert_contains "$output" "+1" || return 1
 }
-run_test "parallel ops show count + longest" test_render_parallel
+run_test "parallel ops show highest pct + count" test_render_parallel
 
-test_render_empty_ops() {
+test_render_completed_op_briefly() {
     gpi start op1 "copy"
     gpi done op1
     local output
     output=$(render_statusline)
-    # Empty ops dict — no GPI indicator
-    # Just verify there's no "copy" in output
-    assert_not_contains "$output" "copy"
+    # Recently completed op should show with DONE indicator
+    assert_contains "$output" "copy" "recently completed op should still render"
+    assert_contains "$output" "DONE" "completed op should show DONE"
 }
-run_test "empty ops = no GPI indicator" test_render_empty_ops
+run_test "completed op renders briefly with DONE" test_render_completed_op_briefly
+
+test_render_completed_op_hidden_after_60s() {
+    gpi start op1 "copy"
+    gpi done op1
+    # Backdate completed_at to 90 seconds ago
+    local old_ts=$(($(date +%s) - 90))
+    local tmp
+    tmp=$(jq --argjson ts "$old_ts" '.ops["op1"].completed_at = $ts' "$TEST_TMPDIR/gpi-state.json")
+    echo "$tmp" > "$TEST_TMPDIR/gpi-state.json"
+    local output
+    output=$(render_statusline)
+    assert_not_contains "$output" "copy" "completed op >60s should be hidden"
+}
+run_test "completed op hidden after 60s" test_render_completed_op_hidden_after_60s
 
 test_render_stale_state() {
     gpi start op1 "copy"
@@ -295,5 +345,190 @@ test_render_malformed_json() {
     assert_not_contains "$output" "[?] ..." "should not show error indicator"
 }
 run_test "malformed JSON handled gracefully" test_render_malformed_json
+
+# ── Log Enrichment Tests (ir-chk, raw bytes, dedup, staleness) ──────────────
+
+suite_header "GPI Log Enrichment Tests"
+
+test_log_irchk_progress() {
+    local logfile="$TEST_TMPDIR/rsync.log"
+    # Real rsync output — completed file with ir-chk
+    printf '         32,768   0%%  167.54kB/s    0:00:42        7,087,616 100%%   19.71MB/s    0:00:00 (xfr#1352, ir-chk=1009/2448)\n' > "$logfile"
+    gpi start rsync-test "backup" --log "$logfile"
+    local output
+    output=$(render_statusline)
+    # ir-chk=1009/2448 → (2448-1009)/2448*100 = 58%
+    assert_contains "$output" "58%" "should show overall progress from ir-chk"
+}
+run_test "ir-chk parsed for overall progress" test_log_irchk_progress
+
+test_log_no_raw_bytes() {
+    local logfile="$TEST_TMPDIR/rsync.log"
+    printf '         32,768   0%%  167.54kB/s    0:00:42        7,087,616 100%%   19.71MB/s    0:00:00 (xfr#1352, ir-chk=1009/2448)\n' > "$logfile"
+    gpi start rsync-test "backup" --log "$logfile"
+    local output
+    output=$(render_statusline)
+    assert_not_contains "$output" "32,768" "raw bytes should NOT be in display" || return 1
+    assert_not_contains "$output" "7,087,616" "final bytes should NOT be in display" || return 1
+}
+run_test "raw bytes stripped from display" test_log_no_raw_bytes
+
+test_log_no_pct_duplication() {
+    local logfile="$TEST_TMPDIR/rsync.log"
+    printf '         32,768   0%%  167.54kB/s    0:00:42        7,087,616 100%%   19.71MB/s    0:00:00 (xfr#1352, ir-chk=1009/2448)\n' > "$logfile"
+    gpi start rsync-test "backup" --log "$logfile"
+    local output
+    output=$(render_statusline)
+    # Strip ANSI codes for counting
+    local clean
+    clean=$(echo "$output" | sed 's/\x1b\[[0-9;]*m//g')
+    # Count % occurrences — should be exactly 2: context bar (50%) + GPI (58%)
+    local pct_count
+    pct_count=$(echo "$clean" | grep -oP '\d+%' | wc -l)
+    if [[ "$pct_count" -gt 2 ]]; then
+        printf "    percentage appears %d times — duplication detected\n    clean output: %s\n" "$pct_count" "$clean" >&2
+        return 1
+    fi
+}
+run_test "percentage not duplicated in display" test_log_no_pct_duplication
+
+test_log_active_prevents_staleness() {
+    local logfile="$TEST_TMPDIR/rsync.log"
+    printf '         32,768   0%%   60.72kB/s    0:10:44\n' > "$logfile"
+    gpi start rsync-test "backup" --log "$logfile"
+    # Set updated to 700 seconds ago (normally "very stale" = hidden)
+    local old_ts=$(($(date +%s) - 700))
+    local tmp
+    tmp=$(jq --argjson ts "$old_ts" '.updated = $ts' "$TEST_TMPDIR/gpi-state.json")
+    echo "$tmp" > "$TEST_TMPDIR/gpi-state.json"
+    # Touch the log file to make it recent
+    touch "$logfile"
+    local output
+    output=$(render_statusline)
+    assert_contains "$output" "backup" "active log file should prevent staleness dismissal"
+}
+run_test "active log file prevents staleness" test_log_active_prevents_staleness
+
+test_log_speed_shown() {
+    local logfile="$TEST_TMPDIR/rsync.log"
+    printf '         32,768   0%%  167.54kB/s    0:00:42        7,087,616 100%%   19.71MB/s    0:00:00 (xfr#1352, ir-chk=1009/2448)\n' > "$logfile"
+    gpi start rsync-test "backup" --log "$logfile"
+    local output
+    output=$(render_statusline)
+    assert_contains "$output" "MB/s" "should show speed in display"
+}
+run_test "speed shown in display" test_log_speed_shown
+
+test_log_inprogress_no_bytes() {
+    # In-progress file: no ir-chk, just initial transfer stats
+    local logfile="$TEST_TMPDIR/rsync.log"
+    printf '         32,768   0%%   60.72kB/s    0:10:44\n' > "$logfile"
+    gpi start rsync-test "backup" --log "$logfile"
+    local output
+    output=$(render_statusline)
+    assert_contains "$output" "kB/s" "should show speed" || return 1
+    assert_not_contains "$output" "32,768" "raw bytes should NOT be in display" || return 1
+}
+run_test "in-progress line shows speed only" test_log_inprogress_no_bytes
+
+test_log_done_marker() {
+    local logfile="$TEST_TMPDIR/rsync.log"
+    printf 'some data\nRSYNC COMPLETE\n' > "$logfile"
+    gpi start rsync-test "backup" --log "$logfile"
+    local output
+    output=$(render_statusline)
+    assert_contains "$output" "DONE" "RSYNC COMPLETE should show DONE"
+}
+run_test "RSYNC COMPLETE shows DONE" test_log_done_marker
+
+test_log_done_sets_completed_at_in_state() {
+    local logfile="$TEST_TMPDIR/rsync.log"
+    printf 'some data\nRSYNC COMPLETE\n' > "$logfile"
+    gpi start rsync-test "backup" --log "$logfile"
+    render_statusline >/dev/null
+    # Renderer should have written completed_at to state
+    local completed_at
+    completed_at=$(gpi_field '.ops["rsync-test"].completed_at // "null"')
+    assert_neq "null" "$completed_at" "renderer should set completed_at when log shows completion"
+}
+run_test "log completion sets completed_at in state" test_log_done_sets_completed_at_in_state
+
+test_log_done_writes_notification() {
+    local logfile="$TEST_TMPDIR/rsync.log"
+    printf 'some data\nRSYNC COMPLETE\n' > "$logfile"
+    gpi start rsync-test "backup" --log "$logfile"
+    render_statusline >/dev/null
+    # Renderer should have written notification sidecar
+    local notif_file="$TEST_TMPDIR/gpi-completed.json"
+    # Need to patch sidecar path too — will add to render_statusline helper
+    assert_file_exists "$TEST_TMPDIR/gpi-completed.json" "notification sidecar should exist after log completion"
+}
+run_test "log completion writes notification sidecar" test_log_done_writes_notification
+
+# ── Stale Entry Cleanup Tests (CFG-363) ─────────────────────────────────────
+
+suite_header "GPI Stale Entry Cleanup Tests (CFG-363)"
+
+test_cleanup_stale_removes_old_orphans() {
+    gpi start orphan1 "stale-op"
+    # Backdate started to 25 hours ago, no completed_at
+    local old_ts=$(($(date +%s) - 90000))
+    local tmp
+    tmp=$(jq --argjson ts "$old_ts" '.ops["orphan1"].started = $ts' "$TEST_TMPDIR/gpi-state.json")
+    echo "$tmp" > "$TEST_TMPDIR/gpi-state.json"
+    # Any gpi command triggers cleanup
+    gpi status >/dev/null
+    assert_eq "null" "$(gpi_field '.ops["orphan1"] // "null"')" "orphan >24h should be removed"
+}
+run_test "cleanup_stale removes entries >24h with no completed_at" test_cleanup_stale_removes_old_orphans
+
+test_cleanup_stale_keeps_young_entries() {
+    gpi start fresh1 "recent-op"
+    # started is just now — should survive
+    gpi status >/dev/null
+    assert_neq "null" "$(gpi_field '.ops["fresh1"]')" "recent entry should survive cleanup"
+}
+run_test "cleanup_stale keeps entries <24h" test_cleanup_stale_keeps_young_entries
+
+test_cleanup_stale_keeps_completed() {
+    gpi start completed1 "done-op"
+    gpi done completed1
+    # Backdate started to 25 hours ago but has completed_at
+    local old_ts=$(($(date +%s) - 90000))
+    local tmp
+    tmp=$(jq --argjson ts "$old_ts" '.ops["completed1"].started = $ts' "$TEST_TMPDIR/gpi-state.json")
+    echo "$tmp" > "$TEST_TMPDIR/gpi-state.json"
+    gpi status >/dev/null
+    # cleanup_completed handles these (by completed_at age), not cleanup_stale
+    # Since completed_at is recent, it should survive
+    assert_neq "null" "$(gpi_field '.ops["completed1"]')" "completed entry should be handled by cleanup_completed, not stale"
+}
+run_test "cleanup_stale ignores entries with completed_at" test_cleanup_stale_keeps_completed
+
+test_cleanup_stale_mixed_entries() {
+    gpi start stale1 "old-orphan"
+    gpi start fresh1 "new-op"
+    # Backdate only stale1
+    local old_ts=$(($(date +%s) - 90000))
+    local tmp
+    tmp=$(jq --argjson ts "$old_ts" '.ops["stale1"].started = $ts' "$TEST_TMPDIR/gpi-state.json")
+    echo "$tmp" > "$TEST_TMPDIR/gpi-state.json"
+    gpi status >/dev/null
+    assert_eq "null" "$(gpi_field '.ops["stale1"] // "null"')" "stale entry should be removed" || return 1
+    assert_neq "null" "$(gpi_field '.ops["fresh1"]')" "fresh entry should survive"
+}
+run_test "cleanup_stale removes stale entries while keeping fresh" test_cleanup_stale_mixed_entries
+
+# ── SessionEnd GPI Cleanup Integration Test (CFG-363) ───────────────────────
+
+suite_header "GPI SessionEnd Integration Tests (CFG-363)"
+
+test_sessionend_has_gpi_cleanup() {
+    local hook_file="$REPO_ROOT/global/hooks/config-auto-sync.sh"
+    assert_file_exists "$hook_file"
+    assert_contains "$(cat "$hook_file")" "gpi" "SessionEnd hook must reference gpi cleanup"
+    assert_contains "$(cat "$hook_file")" "clear" "SessionEnd hook must call gpi clear"
+}
+run_test "SessionEnd hook contains GPI cleanup" test_sessionend_has_gpi_cleanup
 
 suite_summary
