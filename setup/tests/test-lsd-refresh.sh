@@ -252,4 +252,48 @@ test_type_indicators() {
 }
 run_test "type indicators (p) and (d) rendered" test_type_indicators
 
+test_human_prose_survives_a_refresh() {
+    # ⛔ Regression: the refresh used to overwrite the cache wholesale, destroying the
+    #    state-snapshot prose that the shutdown checklist tells every project to maintain.
+    #    A project with no active session never noticed. (First seen 2026-08-25.)
+    create_registry "$TEST_TMPDIR"
+    mkdir -p "$TEST_TMPDIR/alpha" "$TEST_TMPDIR/beta" "$TEST_TMPDIR/gamma" "$TEST_TMPDIR/delta"
+
+    HOME="$TEST_TMPDIR" bash -c '
+        export REGISTRY="'"$TEST_TMPDIR"'/registry.md"
+        export CACHE="'"$TEST_TMPDIR"'/cache.md"
+        sed "s|^REGISTRY=.*|REGISTRY=\"\$REGISTRY\"|; s|^CACHE=.*|CACHE=\"\$CACHE\"|" \
+            '"$REPO_ROOT"'/setup/scripts/lsd-refresh.sh | bash
+    ' 2>/dev/null
+
+    # A session writes prose into its own row, and a hand-written task count.
+    local prose="Direction changed: the two arms are limited by different things, and this is prose."
+    local line cells
+    : > "$TEST_TMPDIR/cache.new"
+    while IFS= read -r line; do
+        if [[ "$line" == "| alpha "* ]]; then
+            IFS='|' read -r -a cells <<< "$line"
+            cells[6]=" 111 open / 26 done "
+            cells[9]=" $prose "
+            line=$(IFS='|'; printf '%s' "${cells[*]}")
+        fi
+        printf '%s\n' "$line" >> "$TEST_TMPDIR/cache.new"
+    done < "$TEST_TMPDIR/cache.md"
+    mv "$TEST_TMPDIR/cache.new" "$TEST_TMPDIR/cache.md"
+
+    HOME="$TEST_TMPDIR" bash -c '
+        export REGISTRY="'"$TEST_TMPDIR"'/registry.md"
+        export CACHE="'"$TEST_TMPDIR"'/cache.md"
+        sed "s|^REGISTRY=.*|REGISTRY=\"\$REGISTRY\"|; s|^CACHE=.*|CACHE=\"\$CACHE\"|" \
+            '"$REPO_ROOT"'/setup/scripts/lsd-refresh.sh | bash
+    ' 2>/dev/null
+
+    local alpha_row
+    alpha_row=$(grep "^| alpha" "$TEST_TMPDIR/cache.md")
+    assert_contains "$alpha_row" "$prose" "prose snapshot must survive a refresh"
+    assert_contains "$alpha_row" "111 open / 26 done" "hand-written count must survive a refresh"
+    assert_file_exists "$TEST_TMPDIR/cache.md.bak"
+}
+run_test "human prose and hand-written counts survive a refresh" test_human_prose_survives_a_refresh
+
 suite_summary

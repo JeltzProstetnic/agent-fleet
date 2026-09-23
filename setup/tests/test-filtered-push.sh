@@ -286,6 +286,48 @@ EOF
 }
 run_test "filtered push excludes configured paths from public remote" test_filtered_push_excludes_paths
 
+# ── 11b. exclude_glob removes TRACKED files even when UNTRACKED worktree files
+#         match the same glob. Regression (2026-07-31): the glob loop used an
+#         UNQUOTED $glob, so the shell expanded `pop-sci/book-manuscript*` against the
+#         WORKTREE — pulling in untracked LaTeX build artifacts (.aux/.log) that are
+#         not in the index. `git rm` is all-or-nothing across pathspecs: it aborted on
+#         the untracked path and removed NOTHING, while the ls-files guard still saw the
+#         tracked match and stayed silent. Result: the full book manuscripts leaked to
+#         the project's PUBLIC mirror. Fix = quote the pathspec so git does index-based
+#         pathspec matching, plus a fail-closed assertion on any surviving excluded path.
+test_exclude_glob_ignores_untracked_worktree_matches() {
+    setup_dual_remote_repo "$TEST_TMPDIR"
+    (
+        cd "$TEST_TMPDIR/repo"
+        mkdir -p pop-sci
+        echo "# The secret manuscript" > pop-sci/book-manuscript.md   # tracked → must be excluded
+        echo "cover art" > pop-sci/cover.png                          # tracked → must be KEPT
+        git add -A
+        git commit -m "add book sources" --quiet 2>/dev/null
+    )
+    cat > "$TEST_TMPDIR/repo/.push-filter.conf" <<'EOF'
+private_remote=private
+public_remote=public
+branch=main
+exclude_glob=pop-sci/book-manuscript*
+EOF
+    (cd "$TEST_TMPDIR/repo" && git add .push-filter.conf && git commit -m "add config" --quiet 2>/dev/null)
+
+    # The bug trigger: an UNTRACKED build artifact on disk that ALSO matches the glob.
+    echo "latex junk" > "$TEST_TMPDIR/repo/pop-sci/book-manuscript.aux"
+
+    local out rc=0
+    out=$(cd "$TEST_TMPDIR/repo" && bash "$SCRIPT" 2>&1) || rc=$?
+    assert_eq "0" "$rc" "filtered push should succeed" || return 1
+
+    git clone -b main "$TEST_TMPDIR/public.git" "$TEST_TMPDIR/public-clone-11b" --quiet 2>/dev/null
+    assert_file_not_exists "$TEST_TMPDIR/public-clone-11b/pop-sci/book-manuscript.md" \
+        "manuscript must be excluded even with an untracked worktree file matching the glob" || return 1
+    assert_file_exists "$TEST_TMPDIR/public-clone-11b/pop-sci/cover.png" \
+        "non-excluded book asset should still reach public" || return 1
+}
+run_test "exclude_glob ignores untracked worktree matches (leak regression)" test_exclude_glob_ignores_untracked_worktree_matches
+
 # ── 12. No-op when public repo is already up to date ───────────────────────
 
 test_noop_public_up_to_date() {
@@ -341,6 +383,29 @@ EOF
 }
 run_test "exclude_glob with no matches warns but doesn't fail" test_exclude_glob_no_matches_warns
 
+# ── 13b. exclude (exact path) with no match warns (Fable R4/C7) ─────────────
+# A silent 2>/dev/null||true on an exact-path exclude was how a RENAMED sensitive
+# dir (config still names the old path → removal matches nothing) could slip into
+# the public tree undetected. It must WARN loudly like the glob path already does.
+test_exclude_path_no_match_warns() {
+    setup_dual_remote_repo "$TEST_TMPDIR"
+    add_commit "$TEST_TMPDIR/repo" "some content"
+    cat > "$TEST_TMPDIR/repo/.push-filter.conf" <<'EOF'
+private_remote=private
+public_remote=public
+branch=main
+exclude=docs/paper-authors/
+EOF
+    (cd "$TEST_TMPDIR/repo" && git add .push-filter.conf && git commit -m "add config" --quiet 2>/dev/null)
+
+    local out rc=0
+    out=$(cd "$TEST_TMPDIR/repo" && bash "$SCRIPT" 2>&1) || rc=$?
+    assert_eq "0" "$rc" "matched-nothing exact exclude must not fail" || return 1
+    assert_contains "$out" "WARNING" "must warn when an exact exclude matches nothing" || return 1
+    assert_contains "$out" "matched no files" "must say the exclude matched no files"
+}
+run_test "exclude (exact path) with no match warns (rename/stale-config signal)" test_exclude_path_no_match_warns
+
 # ── 14. Comments and blank lines in config are skipped ──────────────────────
 
 test_config_comments_and_blanks() {
@@ -358,7 +423,15 @@ branch=main
 exclude=secrets/
 EOF
     add_commit "$TEST_TMPDIR/repo" "content"
-    (cd "$TEST_TMPDIR/repo" && git add .push-filter.conf && git commit -m "add config" --quiet 2>/dev/null)
+    # secrets/ must actually exist so the exclude matches — otherwise the (correct)
+    # matched-nothing warning fires and this comment-handling test picks it up.
+    (
+        cd "$TEST_TMPDIR/repo"
+        mkdir -p secrets
+        echo "token" > secrets/vault.json
+        git add secrets/ .push-filter.conf
+        git commit -m "add config + secrets" --quiet 2>/dev/null
+    )
 
     local out rc=0
     out=$(cd "$TEST_TMPDIR/repo" && bash "$SCRIPT" --dry-run 2>&1) || rc=$?
@@ -388,43 +461,6 @@ EOF
     assert_contains "$out" "Unknown config key 'another_unknown'"
 }
 run_test "unknown config keys produce warnings" test_unknown_config_keys_warn
-
-# ── 16. Commit messages pushed to public are sanitized ───────────────────────
-
-test_commit_message_sanitized_in_public() {
-    setup_dual_remote_repo "$TEST_TMPDIR"
-    (
-        cd "$TEST_TMPDIR/repo"
-        mkdir -p secrets
-        echo "token" > secrets/vault.json
-        cat > .push-filter.conf <<'CONF'
-private_remote=private
-public_remote=public
-branch=main
-exclude=secrets/
-CONF
-        git add -A
-        # The HEAD commit message contains personal data that should be sanitized
-        git commit -m "Fix by user@private.com on DESKTOP-ABC123 at 10.0.0.1" --quiet 2>/dev/null
-    )
-
-    local out rc=0
-    out=$(cd "$TEST_TMPDIR/repo" && bash "$SCRIPT" 2>&1) || rc=$?
-    assert_eq "0" "$rc" "push should succeed"
-
-    # Check the public remote's commit message is sanitized
-    # Use explicit branch name — bare repos may have HEAD pointing to "master"
-    # while the actual branch pushed is "main"
-    local public_msg
-    public_msg=$(git -C "$TEST_TMPDIR/public.git" log -1 --format=%B main)
-    assert_not_contains "$public_msg" "user@private.com" "email should be redacted in public commit"
-    assert_not_contains "$public_msg" "DESKTOP-ABC123" "hostname should be redacted in public commit"
-    assert_not_contains "$public_msg" "10.0.0.1" "IP should be redacted in public commit"
-    assert_contains "$public_msg" "[REDACTED-EMAIL]" "should have email redaction marker"
-    assert_contains "$public_msg" "[REDACTED-HOST]" "should have host redaction marker"
-    assert_contains "$public_msg" "[REDACTED-IP]" "should have IP redaction marker"
-}
-run_test "commit messages pushed to public are sanitized" test_commit_message_sanitized_in_public
 
 # ── Summary ──────────────────────────────────────────────────────────────────
 

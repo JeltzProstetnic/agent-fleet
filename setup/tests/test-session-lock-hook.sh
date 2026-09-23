@@ -64,13 +64,13 @@ run_test "stale lock (same machine, dead PID): auto-clear + warn" test_stale_loc
 
 test_remote_lock() {
     mkdir -p "$TEST_TMPDIR/project/.claude"
-    create_lock_file "$TEST_TMPDIR/project/.claude/.session-lock" "steamdeck-remote" "12345" "deck"
+    create_lock_file "$TEST_TMPDIR/project/.claude/.session-lock" "testhost-remote" "12345" "remoteuser"
 
     local out
     out=$(run_check "$TEST_TMPDIR/project")
     assert_contains "$out" "SESSION_LOCKED_REMOTE" "should report remote lock"
-    assert_contains "$out" "steamdeck-remote" "should include remote machine name"
-    assert_contains "$out" "deck" "should include remote user"
+    assert_contains "$out" "testhost-remote" "should include remote machine name"
+    assert_contains "$out" "remoteuser" "should include remote user"
     # Lock file should NOT be deleted (can't verify PID on remote)
     assert_file_exists "$TEST_TMPDIR/project/.claude/.session-lock" "remote lock should not be deleted"
 }

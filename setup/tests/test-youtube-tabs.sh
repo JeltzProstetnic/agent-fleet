@@ -119,7 +119,7 @@ test_save_merges_machines() {
     {
       "url": "https://www.youtube.com/watch?v=deck001",
       "title": "Deck Video",
-      "machine": "steamdeck",
+      "machine": "other-host",
       "saved_at": "2026-03-04T10:00:00Z"
     }
   ]
@@ -196,7 +196,7 @@ test_list_shows_tabs() {
     {
       "url": "https://www.youtube.com/watch?v=def456",
       "title": "Beta Video",
-      "machine": "steamdeck",
+      "machine": "other-host",
       "saved_at": "2026-03-04T19:00:00Z"
     }
   ]
@@ -229,7 +229,7 @@ test_list_filters() {
     {
       "url": "https://www.youtube.com/watch?v=def456",
       "title": "Time Crystal Physics",
-      "machine": "steamdeck",
+      "machine": "other-host",
       "saved_at": "2026-03-04T19:00:00Z"
     }
   ]
