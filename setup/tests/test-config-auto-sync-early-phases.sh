@@ -716,10 +716,15 @@ test_phase08_cat3_new_file_generates_inbox() {
     patched=$(create_patched_hook "$config_repo" "$project_dir" "$mock_home")
     run_hook "$patched" || true
 
-    assert_file_contains "$config_repo/cross-project/inbox.md" "Cat-3 review" \
-        "new Cat-3 file should generate an inbox task"
-    assert_file_contains "$config_repo/cross-project/inbox.md" "global/CLAUDE.md" \
+    local af="$config_repo/cross-project/inbox/agent-fleet.md"
+    assert_file_contains "$af" "Cat-3 review" \
+        "new Cat-3 file should generate an inbox task in the per-project file (CFG-542)"
+    assert_file_contains "$af" "global/CLAUDE.md" \
         "inbox task should name the specific file"
+    assert_file_contains "$af" "**agent-fleet** [work]" \
+        "the item must carry its type tag (CFG-541)"
+    assert_not_contains "$(cat "$config_repo/cross-project/inbox.md")" "Cat-3 review" \
+        "nothing may be appended to the legacy inbox.md any more"
     assert_file_contains "$config_repo/.cat3-known" "global/CLAUDE.md" \
         ".cat3-known should now include the new file"
 }
@@ -743,10 +748,36 @@ test_phase08_cat3_known_file_no_duplicate() {
     patched=$(create_patched_hook "$config_repo" "$project_dir" "$mock_home")
     run_hook "$patched" || true
 
-    assert_not_contains "$(cat "$config_repo/cross-project/inbox.md")" "Cat-3 review" \
+    assert_not_contains "$(cat "$config_repo/cross-project/inbox.md" "$config_repo/cross-project/inbox/agent-fleet.md" 2>/dev/null)" "Cat-3 review" \
         "already-known Cat-3 files should NOT generate duplicate inbox tasks"
 }
 run_test "Phase 0.8: known Cat-3 files do not generate duplicate inbox tasks (CFG-395)" test_phase08_cat3_known_file_no_duplicate
+
+# .cat3-known was append-only: a file that was reclassified (or re-converged) stayed "known"
+# forever, so when it drifted again no review item was ever raised. Prune to what is flagged now.
+test_phase08_cat3_known_is_pruned_to_current_flags() {
+    local config_repo="$TEST_TMPDIR/config-repo"
+    local project_dir="$TEST_TMPDIR/project"
+    local mock_home="$TEST_TMPDIR/home"
+    mkdir -p "$project_dir" "$mock_home" "$config_repo/cross-project"
+    echo "# inbox" > "$config_repo/cross-project/inbox.md"
+
+    create_mock_config_repo "$config_repo"
+    create_tracked_repo_main "$config_repo" "$TEST_TMPDIR/remote.git"
+    printf 'global/CLAUDE.md\nsync.sh\nsetup/scripts/gone.sh\n' > "$config_repo/.cat3-known"
+    _phase08_cat3_scaffold "$config_repo" "$mock_home" "global/CLAUDE.md sync.sh"
+    (cd "$config_repo" && git add -A && git commit -m "stubs" >/dev/null 2>&1 && git push origin main >/dev/null 2>&1)
+
+    local patched
+    patched=$(create_patched_hook "$config_repo" "$project_dir" "$mock_home")
+    run_hook "$patched" || true
+
+    assert_not_contains "$(cat "$config_repo/.cat3-known")" "setup/scripts/gone.sh" \
+        "a file no longer flagged must leave .cat3-known" || return 1
+    assert_file_contains "$config_repo/.cat3-known" "sync.sh" \
+        "still-flagged files stay known"
+}
+run_test "Phase 0.8: .cat3-known is pruned to the files flagged now" test_phase08_cat3_known_is_pruned_to_current_flags
 
 # ── Phase 0.85: Pending-File Demote Detection (loop closure) ────────────────
 

@@ -56,7 +56,7 @@ done
 [ "$_wsl_notepad_ok" -eq 1 ] && pass "WSL: txt, md and log route to Notepad"
 
 # ── VS Code is retired, fleet-wide ─────────────────────────────────────────
-# MG 2026-09-10: "yes, no more vs code", reaffirming the 2026-08-25 fleet-wide ruling.
+# Owner decision 2026-09-10 ("no more vs code"), reaffirming the 2026-08-25 fleet-wide ruling.
 # This asserts the retirement itself, so a future edit that reintroduces a `code` row
 # goes red instead of quietly restoring a tool he has now removed twice.
 if ! grep -vE '^[[:space:]]*#' "$HELPER" | grep -qE "\bcode\b"; then

@@ -124,7 +124,7 @@ else bad "--models is matched before the -* catch-all" "models=$MODL dash=$DASHL
 grep -q 'run_model_picker' "$AFLEET" && ok "afleet wires up the model picker" \
   || bad "afleet wires up the model picker"
 
-# --- `af -m` runs the model menu FIRST (MG 2026-08-13) ----------------------
+# --- `af -m` runs the model menu FIRST (owner decision 2026-08-13) ----------------------
 # From a non-project cwd the project picker used to run first, which made `af -m`
 # indistinguishable from a plain `af` — the reported "does nothing" symptom.
 MPICK=$(grep -n 'SHOW_MODEL_PICKER:-false' "$AFLEET" | head -1 | cut -d: -f1)
@@ -138,7 +138,7 @@ if [ -n "$MPICK" ] && [ -n "$PRES" ] && [ "$MPICK" -lt "$PRES" ]; then
   ok "-m opens the model menu before project resolution"
 else bad "-m opens the model menu before project resolution" "model=$MPICK resolve=$PRES"; fi
 
-# --- picker shortcut is '@', not a letter (MG 2026-08-13) -------------------
+# --- picker shortcut is '@', not a letter (owner decision 2026-08-13) -------------------
 # Child rows are labelled a..z, so ANY letter can collide with a real project. On
 # this fleet 'm' was pdp, so the advertised shortcut opened a project instead. '@'
 # cannot be a label, so no collision guard is needed and none must be relied on.

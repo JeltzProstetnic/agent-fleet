@@ -45,7 +45,7 @@ _detect_machine() {
 #   txt/md/log + source/config text    -> Notepad
 #   everything else                    -> print the path
 #
-# VS Code is RETIRED here. MG 2026-09-10: "yes, no more vs code", reaffirming his
+# VS Code is RETIRED here. owner decision 2026-09-10 ("no more vs code"), reaffirming the
 # fleet-wide 2026-08-25 ruling ("no more vs code, notepad preferred") over the
 # narrower table approved earlier the same day. Do not reintroduce a `code` row.
 #

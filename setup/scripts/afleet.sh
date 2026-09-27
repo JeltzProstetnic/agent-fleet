@@ -529,7 +529,7 @@ resolve_project() {
     afleet_check_binaries || _fallback_launch "missing critical binaries"
 
     # ── Model submenu (--models/-m) ──────────────────────────────────────────
-    # FIRST, before project resolution and the project picker (MG 2026-08-13).
+    # FIRST, before project resolution and the project picker (owner decision 2026-08-13).
     # It used to run last, which meant `af -m` from a non-project cwd showed the
     # PROJECT picker and looked identical to a plain `af` — reported as "-m does
     # nothing". The model is the thing the flag asked for, so it is asked first.

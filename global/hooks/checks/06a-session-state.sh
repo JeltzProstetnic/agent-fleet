@@ -1,13 +1,21 @@
 #!/usr/bin/env bash
 # Check group 6a: Session state — hostname, persona, session context, handoff, pending files, dashboard, tmux
 # Checks: 6a.1, 6a.2, 6a.3, 6a.4, 6a.5, 6a.6, 6a.7
-# Shared vars used: CONFIG_REPO, WARNINGS, INBOX_MSG, PROJECT_DIR
+# Shared vars used: CONFIG_REPO, WARNINGS, INBOX_MSG, IDENTITY_MSG, PROJECT_DIR
+#
+# IDENTITY_MSG vs INBOX_MSG (2026-09-17 spill incident): Claude Code writes hook
+# output over ~50K chars to a file and injects only a HEAD preview, so the fields
+# a session cannot start without (HOSTNAME/TIME/PERSONA/SESSION_CONTEXT/HANDOFF/
+# PENDING_FILES) go into IDENTITY_MSG, which config-check.sh places FIRST in the
+# payload. Everything recoverable-by-reading-the-spilled-file stays in INBOX_MSG.
+# Do NOT reorder by parsing the assembled string — items legitimately contain " | "
+# (the HANDOFF line does), which is why this is a separate variable, not a sort.
 
 # Check 6a.1: Inject hostname + time for machine identity and day/night mode
 HOSTNAME_VAL=$(cat /etc/hostname 2>/dev/null || hostname 2>/dev/null || echo "unknown")
 CURRENT_TIME=$(date +%H:%M)
 DAY_OF_WEEK=$(date +%u)
-INBOX_MSG="${INBOX_MSG:+$INBOX_MSG | }HOSTNAME: $HOSTNAME_VAL | TIME: $CURRENT_TIME DOW: $DAY_OF_WEEK"
+IDENTITY_MSG="${IDENTITY_MSG:+$IDENTITY_MSG | }HOSTNAME: $HOSTNAME_VAL | TIME: $CURRENT_TIME DOW: $DAY_OF_WEEK"
 
 # Check 6a.2: Persona injection — read active persona, inject into additionalContext
 ACTIVE_PERSONA_FILE="$HOME/.claude/.active-persona"
@@ -16,19 +24,19 @@ if [ -f "$ACTIVE_PERSONA_FILE" ]; then
     _raw_persona=$(head -1 "$ACTIVE_PERSONA_FILE" 2>/dev/null | xargs)
     [ -n "$_raw_persona" ] && PERSONA_NAME="$_raw_persona"
 fi
-INBOX_MSG="${INBOX_MSG:+$INBOX_MSG | }PERSONA: $PERSONA_NAME"
+IDENTITY_MSG="${IDENTITY_MSG:+$IDENTITY_MSG | }PERSONA: $PERSONA_NAME"
 
 # Check 6a.3: Session-context blank detection — detect blank/active session goal
 if [[ -f "$PROJECT_DIR/session-context.md" ]]; then
     _sc_goal=$(sed -n 's/.*\*\*Session Goal\*\*: \(.\+\)/\1/p' "$PROJECT_DIR/session-context.md" 2>/dev/null | head -1)
     if [[ -n "$_sc_goal" ]]; then
         _sc_goal="${_sc_goal:0:150}"
-        INBOX_MSG="${INBOX_MSG:+$INBOX_MSG | }SESSION_CONTEXT: active — $_sc_goal"
+        IDENTITY_MSG="${IDENTITY_MSG:+$IDENTITY_MSG | }SESSION_CONTEXT: active — $_sc_goal"
     else
-        INBOX_MSG="${INBOX_MSG:+$INBOX_MSG | }SESSION_CONTEXT: blank"
+        IDENTITY_MSG="${IDENTITY_MSG:+$IDENTITY_MSG | }SESSION_CONTEXT: blank"
     fi
 else
-    INBOX_MSG="${INBOX_MSG:+$INBOX_MSG | }SESSION_CONTEXT: blank"
+    IDENTITY_MSG="${IDENTITY_MSG:+$IDENTITY_MSG | }SESSION_CONTEXT: blank"
 fi
 
 # Check 6a.4: Handoff detection — read next-session-task.md, inject HANDOFF
@@ -39,12 +47,12 @@ if [[ -f "$HANDOFF_FILE" ]]; then
         _ho_desc=$(grep '^description:' "$HANDOFF_FILE" 2>/dev/null | head -1 | sed 's/^description: *//')
         _ho_file=$(grep '^file:' "$HANDOFF_FILE" 2>/dev/null | head -1 | sed 's/^file: *//')
         _ho_desc="${_ho_desc:0:200}"
-        INBOX_MSG="${INBOX_MSG:+$INBOX_MSG | }HANDOFF: $_ho_desc | file: $_ho_file"
+        IDENTITY_MSG="${IDENTITY_MSG:+$IDENTITY_MSG | }HANDOFF: $_ho_desc | file: $_ho_file"
     else
-        INBOX_MSG="${INBOX_MSG:+$INBOX_MSG | }HANDOFF: none"
+        IDENTITY_MSG="${IDENTITY_MSG:+$IDENTITY_MSG | }HANDOFF: none"
     fi
 else
-    INBOX_MSG="${INBOX_MSG:+$INBOX_MSG | }HANDOFF: none"
+    IDENTITY_MSG="${IDENTITY_MSG:+$IDENTITY_MSG | }HANDOFF: none"
 fi
 
 # Check 6a.5: Pending files list — list all pending-*.md files in project docs/
@@ -97,9 +105,9 @@ if [ -n "$_stale_files" ]; then
     WARNINGS="${WARNINGS:+$WARNINGS | }STALE_PENDING: These pending files look already-shipped (completion evidence found): $_stale_files — verify the cited commit/session-log line, then demote (act/present → reference with a real Tracked-by, or delete). Do NOT present them as live work without verifying."
 fi
 if [ -n "$_pending_list" ]; then
-    INBOX_MSG="${INBOX_MSG:+$INBOX_MSG | }PENDING_FILES: $_pending_list"
+    IDENTITY_MSG="${IDENTITY_MSG:+$IDENTITY_MSG | }PENDING_FILES: $_pending_list"
 else
-    INBOX_MSG="${INBOX_MSG:+$INBOX_MSG | }PENDING_FILES: none"
+    IDENTITY_MSG="${IDENTITY_MSG:+$IDENTITY_MSG | }PENDING_FILES: none"
 fi
 
 # Check 6a.6: AFLEET_DASHBOARD marker — afleet.sh sets this to trigger dashboard on next session

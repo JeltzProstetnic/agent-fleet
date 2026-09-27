@@ -103,17 +103,23 @@ fi
 
 # ── Config repo detection ─────────────────────────────────────────────────────
 if [[ -z "$CONFIG_REPO" ]]; then
-    for d in "$HOME/cfg-agent-fleet" "$HOME/agent-fleet"; do
-        [[ -f "$d/registry.md" && -f "$d/.config-repo" ]] && CONFIG_REPO="$d" && break
+    _LIB_DETECT=""
+    for _p in "$HOME/.claude/hooks/lib-detect-repo.sh" "$(dirname "${BASH_SOURCE[0]}")/../../global/hooks/lib-detect-repo.sh"; do
+        [[ -f "$_p" ]] && _LIB_DETECT="$_p" && break
     done
+    if [[ -n "$_LIB_DETECT" ]]; then
+        source "$_LIB_DETECT"
+        # PERSONAL_CONFIG_REPO: the user's personal config repo (cfg-agent-fleet), not the template
+        CONFIG_REPO="$(_detect_config_repo)"
+    else
+        # Fallback: inline detection if shared lib not found
+        for d in "$HOME/cfg-agent-fleet" "$HOME/agent-fleet"; do
+            [[ -f "$d/registry.md" ]] && CONFIG_REPO="$d" && break
+        done
+    fi
 fi
 if [[ -z "$CONFIG_REPO" ]]; then
-    for d in "$HOME/cfg-agent-fleet" "$HOME/agent-fleet"; do
-        [[ -f "$d/registry.md" && ! -f "$d/.template-repo" ]] && CONFIG_REPO="$d" && break
-    done
-fi
-if [[ -z "$CONFIG_REPO" ]]; then
-    echo "Error: config repo not found (tried ~/cfg-agent-fleet, ~/agent-fleet)" >&2
+    echo "ERROR: Cannot find config repo (cfg-agent-fleet or agent-fleet)" >&2
     exit 1
 fi
 
