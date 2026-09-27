@@ -3,6 +3,10 @@
 # Provides: task registration, date-gating, scope matching, resolution, execution
 # Sourced by check 19 (global/hooks/checks/19-scheduled-tasks.sh)
 
+# ── Include guard ─────────────────────────────────────────────────────────────
+[[ -n "${_SCHED_LIB_LOADED:-}" ]] && return 0
+_SCHED_LIB_LOADED=1
+
 # ── State ─────────────────────────────────────────────────────────────────────
 
 # Parallel arrays for registered tasks (bash 3.2+ compatible — no associative arrays)
@@ -15,10 +19,13 @@ _SCHED_CMDS=()
 _SCHED_MACHINES=()
 _SCHED_PROJECTS=()
 
-# Overridable config
-SCHED_MARKER_DIR="${SCHED_MARKER_DIR:-/tmp}"
+# Overridable config — use XDG cache for persistent markers
+SCHED_MARKER_DIR="${SCHED_MARKER_DIR:-${XDG_CACHE_HOME:-$HOME/.cache}/agent-fleet}"
 SCHED_MACHINE="${SCHED_MACHINE:-}"
 SCHED_PROJECT="${SCHED_PROJECT:-}"
+
+# Marker file name (single file for all tasks)
+_SCHED_MARKER_FILE=".sched-markers"
 
 # Valid values
 _SCHED_VALID_INTERVALS="every-session daily weekly monthly"
@@ -120,27 +127,42 @@ _sched_date_key() {
     esac
 }
 
-_sched_marker_path() {
-    local id="$1" interval="$2"
-    local key
-    key=$(_sched_date_key "$interval")
-    echo "${SCHED_MARKER_DIR}/.sched-${id}-${key}"
+_sched_marker_file() {
+    echo "${SCHED_MARKER_DIR}/${_SCHED_MARKER_FILE}"
+}
+
+_sched_ensure_marker_dir() {
+    [[ -d "$SCHED_MARKER_DIR" ]] || mkdir -p "$SCHED_MARKER_DIR" 2>/dev/null || true
 }
 
 sched_is_due() {
     local id="$1" interval="$2"
     [[ "$interval" == "every-session" ]] && return 0
-    local marker
-    marker=$(_sched_marker_path "$id" "$interval")
-    [[ ! -f "$marker" ]]
+    local key mfile
+    key=$(_sched_date_key "$interval")
+    mfile=$(_sched_marker_file)
+    [[ ! -f "$mfile" ]] && return 0
+    # Check if this task has a current marker
+    grep -q "^${id}=${key}$" "$mfile" 2>/dev/null && return 1
+    return 0
 }
 
 sched_mark_done() {
     local id="$1" interval="$2"
     [[ "$interval" == "every-session" ]] && return 0
-    local marker
-    marker=$(_sched_marker_path "$id" "$interval")
-    touch "$marker"
+    local key mfile
+    key=$(_sched_date_key "$interval")
+    mfile=$(_sched_marker_file)
+    _sched_ensure_marker_dir
+    if [[ -f "$mfile" ]]; then
+        # Remove old entry for this task, then append new one
+        local tmp="${mfile}.tmp"
+        grep -v "^${id}=" "$mfile" > "$tmp" 2>/dev/null || true
+        echo "${id}=${key}" >> "$tmp"
+        mv "$tmp" "$mfile"
+    else
+        echo "${id}=${key}" > "$mfile"
+    fi
 }
 
 # ── Scope Matching ────────────────────────────────────────────────────────────
@@ -153,7 +175,8 @@ sched_matches_scope() {
             [[ -n "$task_machine" && "$SCHED_MACHINE" == "$task_machine" ]]
             ;;
         per-project)
-            [[ -n "$task_project" && "$SCHED_PROJECT" == "$task_project" ]]
+            [[ -z "$SCHED_PROJECT" ]] && return 1
+            [[ "$task_project" == "*" || "$SCHED_PROJECT" == "$task_project" ]]
             ;;
         per-machine-project)
             [[ "$SCHED_MACHINE" == "$task_machine" && "$SCHED_PROJECT" == "$task_project" ]]
@@ -229,6 +252,7 @@ sched_get_warnings() {
         for i in "${!_SCHED_IDS[@]}"; do
             if [[ "${_SCHED_IDS[$i]}" == "$id" ]]; then
                 echo "[PROMPTED] ${id}: ${_SCHED_DESCS[$i]}"
+                sched_mark_done "$id" "${_SCHED_INTERVALS[$i]}"
                 break
             fi
         done
@@ -246,6 +270,7 @@ sched_get_reminders() {
         for i in "${!_SCHED_IDS[@]}"; do
             if [[ "${_SCHED_IDS[$i]}" == "$id" ]]; then
                 echo "[REMINDER] ${id}: ${_SCHED_DESCS[$i]}"
+                sched_mark_done "$id" "${_SCHED_INTERVALS[$i]}"
                 break
             fi
         done
