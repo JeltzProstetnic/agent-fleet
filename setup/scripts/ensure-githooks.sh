@@ -21,14 +21,17 @@
 # session, rather than documented as a setup step someone must remember.
 #
 # Deliberately conservative: it only ever arms a repo that ACTUALLY ships
-# `.githooks/pre-push`, and it never overwrites a hooksPath somebody set on purpose.
+# `.githooks/pre-push` or `.githooks/pre-commit` (the project template's commit-size
+# guard, CFG-490), and it never overwrites a hooksPath somebody set on purpose.
 
 set -uo pipefail
 
 _ensure_one() {
     local repo="$1"
     [[ -d "$repo/.git" ]] || return 0                 # not a git repo — nothing to do
-    [[ -f "$repo/.githooks/pre-push" ]] || return 0    # ships no guard — leave alone
+    # Ships no guard — leave alone. pre-commit counts too: the project template's
+    # commit-size guard (CFG-490) is a pre-commit-only .githooks/.
+    [[ -f "$repo/.githooks/pre-push" || -f "$repo/.githooks/pre-commit" ]] || return 0
 
     local current
     current="$(git -C "$repo" config --get core.hooksPath 2>/dev/null || true)"
@@ -43,7 +46,7 @@ _ensure_one() {
     fi
 
     git -C "$repo" config core.hooksPath .githooks || return 1
-    echo "ensure-githooks: armed pre-push guard in $repo"
+    echo "ensure-githooks: armed .githooks guard(s) in $repo"
 }
 
 main() {

@@ -613,6 +613,43 @@ STUB
 }
 run_test "Phase 4: preserves non-mobile drift warnings" test_phase4_preserves_non_mobile_drift_warnings
 
+# CFG-431 (a), mobile side: the real `sync.sh check` also prints the staleness
+# summary "N file(s) stale. Run 'sync.sh mobile-deploy' to refresh." and the
+# overall "N issue(s) found" line. The refresh fixes what they count, but the
+# strip removed only the per-file lines and deleted a log only when it was
+# blank — so the summaries kept the log alive and the next session still
+# opened with "propagation drift detected" for drift that no longer existed.
+test_phase4_removes_a_log_left_with_only_summaries() {
+    local config_repo="$TEST_TMPDIR/config-repo" project_dir="$TEST_TMPDIR/project"
+    local mock_home="$TEST_TMPDIR/home" mobile_repo="$TEST_TMPDIR/home/agent-fleet-mobile"
+    mkdir -p "$mock_home" "$project_dir"
+    create_mock_config_repo "$config_repo"
+    create_tracked_repo_main "$config_repo" "$TEST_TMPDIR/remote.git"
+    cat > "$config_repo/sync.sh" << 'STUB'
+#!/usr/bin/env bash
+case "${1:-}" in
+    deploy)  echo "mock-deploy: ok" ;;
+    check)
+        echo "[INFO] Checking mobile repo staleness..."
+        echo "[WARN] dashboard-cache.md: mobile repo is stale (source newer than snapshot)"
+        echo "[WARN] 1 file(s) stale. Run 'sync.sh mobile-deploy' to refresh."
+        echo "[WARN] 1 issue(s) found across propagation chains"
+        ;;
+    *)       echo "mock-sync: $*" ;;
+esac
+exit 0
+STUB
+    chmod +x "$config_repo/sync.sh"
+    (cd "$config_repo" && git add -A && git commit -m "add stubs" >/dev/null 2>&1 && git push origin main >/dev/null 2>&1)
+    create_tracked_repo_main "$mobile_repo" "$TEST_TMPDIR/mobile-remote.git"
+    mkdir -p "$mobile_repo/context"
+    local patched; patched=$(create_patched_hook "$config_repo" "$project_dir" "$mock_home")
+    run_hook "$patched" || true
+    assert_file_not_exists "$config_repo/.sync-warnings.log" \
+        "a log left with only the staleness and issue summaries is removed after the refresh"
+}
+run_test "Phase 4: a drift log left with only summary lines is removed (CFG-431)" test_phase4_removes_a_log_left_with_only_summaries
+
 # ── Phase 5: deployment-local shim (CFG-676) ─────────────────────────────────
 # The hook carries nothing deployment-specific. Whatever ONE fleet needs at
 # shutdown (this repo: the VPS follower-blob credential refresh) lives in
@@ -688,6 +725,234 @@ test_phase5_failing_shim_does_not_block_shutdown() {
     assert_file_contains "$TEST_TMPDIR/err" "Shutdown complete." "shutdown still ran to completion"
 }
 run_test "Phase 5: a failing shim never blocks shutdown" test_phase5_failing_shim_does_not_block_shutdown
+
+# ── CFG-634: the tail runs even when Phase 3 has nothing to commit ───────────
+# Every Phase 4/5 test above seeds uncommitted session files first, so Phase 3
+# always had something to stage and the tail was always reached. That is the
+# one case a well-behaved session never produces: session-shutdown.md commits
+# and pushes explicitly, hands the hook a clean tree, and the hook took the
+# "nothing to commit" early exit — `sync_success` is `exit 0` — before the
+# mobile refresh (Phase 4) and the deployment-local shim (Phase 5). Measured:
+# every mobile snapshot commit ever made landed 1-3 s after a cfg Auto-sync
+# commit and never otherwise; the VPS token expired on the last such day.
+# These fixtures deliberately do NOT call create_session_files.
+
+# A mobile-deploy stub that always leaves something new under context/, so a
+# Phase 4 that runs is visible as a commit on the mobile remote.
+_stage_mobile_deploy_stub() {   # <config_repo>
+    cat > "$1/setup/scripts/mobile-deploy.sh" << 'STUB'
+#!/usr/bin/env bash
+target=""
+while [ $# -gt 0 ]; do case "$1" in --target) target="$2"; shift 2 ;; *) shift ;; esac; done
+[ -n "$target" ] || exit 0
+mkdir -p "$target/context"
+date +%s%N > "$target/context/snapshot.md"
+STUB
+    chmod +x "$1/setup/scripts/mobile-deploy.sh"
+}
+
+_prep_clean_tree_repo() {   # <config_repo> <remote>  — everything committed AND pushed
+    create_mock_config_repo "$1"
+    _stage_mobile_deploy_stub "$1"
+    create_tracked_repo_main "$1" "$2"
+    (cd "$1" && git add -A && git commit -m "add stubs" >/dev/null 2>&1 && git push origin main >/dev/null 2>&1)
+}
+
+test_phase4_runs_when_nothing_to_commit() {
+    local config_repo="$TEST_TMPDIR/config-repo" project_dir="$TEST_TMPDIR/project"
+    local mock_home="$TEST_TMPDIR/home" mobile_repo="$TEST_TMPDIR/home/agent-fleet-mobile"
+    mkdir -p "$project_dir" "$mock_home"
+    _prep_clean_tree_repo "$config_repo" "$TEST_TMPDIR/remote.git"
+    create_tracked_repo_main "$mobile_repo" "$TEST_TMPDIR/mobile-remote.git"
+    local before; before=$(git -C "$TEST_TMPDIR/mobile-remote.git" rev-parse main)
+    local patched; patched=$(create_patched_hook "$config_repo" "$project_dir" "$mock_home")
+    run_hook "$patched" || true
+    local cfg_commits; cfg_commits=$(git -C "$config_repo" log origin/main..HEAD --oneline | wc -l | tr -d ' ')
+    assert_eq "0" "$cfg_commits" "precondition: Phase 3 had nothing to commit (measured $cfg_commits new cfg commit(s))" || return 1
+    local after; after=$(git -C "$TEST_TMPDIR/mobile-remote.git" rev-parse main)
+    assert_neq "$before" "$after" "the mobile remote advanced although Phase 3 committed nothing (before $before, after $after)" || return 1
+    local subject; subject=$(git -C "$TEST_TMPDIR/mobile-remote.git" log -1 --format=%s main)
+    assert_contains "$subject" "mobile context snapshots" "the pushed commit is the Phase 4 snapshot commit (subject: '$subject')"
+}
+run_test "CFG-634: Phase 4 pushes the mobile snapshot when Phase 3 had nothing to commit" test_phase4_runs_when_nothing_to_commit
+
+test_phase5_runs_when_nothing_to_commit() {
+    local config_repo="$TEST_TMPDIR/config-repo" project_dir="$TEST_TMPDIR/project"
+    local mock_home="$TEST_TMPDIR/home" log="$TEST_TMPDIR/shim.log" rc=0
+    mkdir -p "$project_dir" "$mock_home"
+    _prep_clean_tree_repo "$config_repo" "$TEST_TMPDIR/remote.git"
+    _stage_recording_shim "$config_repo" "$log"
+    local patched; patched=$(create_patched_hook "$config_repo" "$project_dir" "$mock_home")
+    RUN_HOOK_VERBOSE=1 run_hook "$patched" >/dev/null 2>"$TEST_TMPDIR/err" || rc=$?
+    assert_eq "0" "$rc" "hook exits 0 (measured rc: $rc)" || return 1
+    assert_file_exists "$log" "the shim ran although Phase 3 committed nothing" || return 1
+    local runs; runs=$(grep -c '^CONFIG_REPO=' "$log" || true)
+    assert_eq "1" "$runs" "the shim ran exactly once (measured: $runs)" || return 1
+    assert_file_contains "$TEST_TMPDIR/err" "Shutdown complete." "shutdown still ran to completion" || return 1
+    assert_file_not_exists "$config_repo/.sync-failed" "no failure marker on the clean-tree path"
+}
+run_test "CFG-634: Phase 5 runs the shim when Phase 3 had nothing to commit" test_phase5_runs_when_nothing_to_commit
+
+test_phase4_and_5_run_when_config_repo_held_by_other() {
+    # The other early exit on the same line: the config repo is held by a
+    # DIFFERENT live session (CFG-665), so nothing is staged or committed —
+    # but the mobile refresh and the local shim touch no cfg working file and
+    # must still run. rotate-session.sh's exit 3 is how the hook learns the
+    # repo is held when check_lock is unavailable (the harness mock lib).
+    local config_repo="$TEST_TMPDIR/config-repo" project_dir="$TEST_TMPDIR/project"
+    local mock_home="$TEST_TMPDIR/home" mobile_repo="$TEST_TMPDIR/home/agent-fleet-mobile"
+    local log="$TEST_TMPDIR/shim.log"
+    mkdir -p "$project_dir" "$mock_home"
+    _prep_clean_tree_repo "$config_repo" "$TEST_TMPDIR/remote.git"
+    printf '#!/usr/bin/env bash\nexit 3\n' > "$config_repo/setup/scripts/rotate-session.sh"
+    echo "live cfg session's context" > "$config_repo/session-context.md"
+    echo "live cfg session's edit" >> "$config_repo/backlog.md"
+    (cd "$config_repo" && git add -A && git commit -m "cfg state" >/dev/null 2>&1 && git push origin main >/dev/null 2>&1)
+    echo "in-progress, must not be swept" >> "$config_repo/backlog.md"
+    _stage_recording_shim "$config_repo" "$log"
+    create_tracked_repo_main "$mobile_repo" "$TEST_TMPDIR/mobile-remote.git"
+    local before; before=$(git -C "$TEST_TMPDIR/mobile-remote.git" rev-parse main)
+    local commits_before; commits_before=$(git -C "$config_repo" rev-list --count HEAD)
+    local patched; patched=$(create_patched_hook "$config_repo" "$project_dir" "$mock_home")
+    run_hook "$patched" || true
+    local commits_after; commits_after=$(git -C "$config_repo" rev-list --count HEAD)
+    assert_eq "$commits_before" "$commits_after" "held repo: no cfg commit (measured $commits_before -> $commits_after)" || return 1
+    local after; after=$(git -C "$TEST_TMPDIR/mobile-remote.git" rev-parse main)
+    assert_neq "$before" "$after" "held repo: the mobile snapshot was still pushed" || return 1
+    assert_file_exists "$log" "held repo: the shim still ran"
+}
+run_test "CFG-634: held config repo skips the commit but Phases 4 and 5 still run" test_phase4_and_5_run_when_config_repo_held_by_other
+
+# ── CFG-634: a failed cfg commit or push records the failure and runs the tail ─
+# sync_fail is `exit 0`, and it was still how Phase 3 reported a refused push:
+# the mobile refresh and the deployment-local shim were skipped on every
+# shutdown whose cfg push failed. A non-fast-forward because another machine
+# pushed cfg first repeats on every later shutdown, so the tail would stay dead
+# exactly as long as the push did. Neither Phase 4 nor Phase 5 depends on the
+# cfg push; the failure is recorded (.sync-failed survives to the final exit)
+# and the hook carries on.
+
+# Another clone pushes to the cfg remote, so this machine's next push is a
+# non-fast-forward.
+_advance_cfg_remote_elsewhere() {   # <remote>
+    git clone -q "$1" "$TEST_TMPDIR/other-machine" \
+        && (cd "$TEST_TMPDIR/other-machine" && git config user.email o@o.o && git config user.name o \
+            && echo other > other.md && git add other.md && git commit -qm "other machine" && git push -q origin main)
+}
+
+test_tail_runs_when_push_of_unpushed_commits_is_rejected() {
+    local config_repo="$TEST_TMPDIR/config-repo" project_dir="$TEST_TMPDIR/project"
+    local mock_home="$TEST_TMPDIR/home" mobile_repo="$TEST_TMPDIR/home/agent-fleet-mobile"
+    local log="$TEST_TMPDIR/shim.log" rc=0
+    mkdir -p "$project_dir" "$mock_home"
+    _prep_clean_tree_repo "$config_repo" "$TEST_TMPDIR/remote.git"
+    _stage_recording_shim "$config_repo" "$log"
+    (cd "$config_repo" && git add -A && git commit -qm "shim" && git push -q origin main)
+    _advance_cfg_remote_elsewhere "$TEST_TMPDIR/remote.git"
+    (cd "$config_repo" && echo mine > mine.md && git add mine.md && git commit -qm "session's own commit, not yet pushed")
+    create_tracked_repo_main "$mobile_repo" "$TEST_TMPDIR/mobile-remote.git"
+    local before; before=$(git -C "$TEST_TMPDIR/mobile-remote.git" rev-parse main)
+    local patched; patched=$(create_patched_hook "$config_repo" "$project_dir" "$mock_home")
+    RUN_HOOK_VERBOSE=1 run_hook "$patched" >/dev/null 2>"$TEST_TMPDIR/err" || rc=$?
+    assert_eq "0" "$rc" "hook exits 0 (measured rc: $rc)" || return 1
+    assert_file_contains "$config_repo/.sync-failed" "stage=push" "precondition: the cfg push was refused and recorded" || return 1
+    assert_file_contains "$config_repo/.sync-failed" "rejected" "the marker carries git's reason, not only 'push failed'" || return 1
+    local after; after=$(git -C "$TEST_TMPDIR/mobile-remote.git" rev-parse main)
+    assert_neq "$before" "$after" "Phase 4 still pushed the mobile snapshot" || return 1
+    assert_file_exists "$log" "Phase 5 still ran the shim" || return 1
+    assert_file_contains "$TEST_TMPDIR/err" "Shutdown complete." "shutdown ran to completion"
+}
+run_test "CFG-634: a rejected push of unpushed commits is recorded and Phases 4 and 5 still run" test_tail_runs_when_push_of_unpushed_commits_is_rejected
+
+test_tail_runs_when_push_after_commit_is_rejected() {
+    local config_repo="$TEST_TMPDIR/config-repo" project_dir="$TEST_TMPDIR/project"
+    local mock_home="$TEST_TMPDIR/home" mobile_repo="$TEST_TMPDIR/home/agent-fleet-mobile"
+    local log="$TEST_TMPDIR/shim.log"
+    mkdir -p "$project_dir" "$mock_home"
+    _prep_clean_tree_repo "$config_repo" "$TEST_TMPDIR/remote.git"
+    _stage_recording_shim "$config_repo" "$log"
+    (cd "$config_repo" && git add -A && git commit -qm "shim" && git push -q origin main)
+    _advance_cfg_remote_elsewhere "$TEST_TMPDIR/remote.git"
+    echo "dirty" >> "$config_repo/backlog.md"
+    create_tracked_repo_main "$mobile_repo" "$TEST_TMPDIR/mobile-remote.git"
+    local before; before=$(git -C "$TEST_TMPDIR/mobile-remote.git" rev-parse main)
+    local patched; patched=$(create_patched_hook "$config_repo" "$project_dir" "$mock_home")
+    run_hook "$patched" || true
+    local subject; subject=$(git -C "$config_repo" log -1 --format=%s)
+    assert_contains "$subject" "Auto-sync:" "precondition: Phase 3 committed" || return 1
+    assert_file_contains "$config_repo/.sync-failed" "stage=push" "the refused push is recorded and the marker survives the final exit" || return 1
+    local after; after=$(git -C "$TEST_TMPDIR/mobile-remote.git" rev-parse main)
+    assert_neq "$before" "$after" "Phase 4 still pushed the mobile snapshot" || return 1
+    assert_file_exists "$log" "Phase 5 still ran the shim"
+}
+run_test "CFG-634: a rejected push after the Auto-sync commit is recorded and Phases 4 and 5 still run" test_tail_runs_when_push_after_commit_is_rejected
+
+test_tail_runs_when_commit_fails() {
+    local config_repo="$TEST_TMPDIR/config-repo" project_dir="$TEST_TMPDIR/project"
+    local mock_home="$TEST_TMPDIR/home" log="$TEST_TMPDIR/shim.log"
+    mkdir -p "$project_dir" "$mock_home"
+    _prep_clean_tree_repo "$config_repo" "$TEST_TMPDIR/remote.git"
+    _stage_recording_shim "$config_repo" "$log"
+    (cd "$config_repo" && git add -A && git commit -qm "shim" && git push -q origin main)
+    local remote_before; remote_before=$(git -C "$TEST_TMPDIR/remote.git" rev-parse main)
+    printf '#!/bin/sh\nexit 1\n' > "$config_repo/.git/hooks/pre-commit"; chmod +x "$config_repo/.git/hooks/pre-commit"
+    echo "dirty" >> "$config_repo/backlog.md"
+    local patched; patched=$(create_patched_hook "$config_repo" "$project_dir" "$mock_home")
+    run_hook "$patched" || true
+    assert_file_contains "$config_repo/.sync-failed" "stage=commit" "the refused commit is recorded" || return 1
+    assert_eq "$remote_before" "$(git -C "$TEST_TMPDIR/remote.git" rev-parse main)" "nothing is pushed after a failed commit" || return 1
+    assert_file_exists "$log" "Phase 5 still ran the shim"
+}
+run_test "CFG-634: a failed Auto-sync commit is recorded, nothing is pushed, and Phase 5 still runs" test_tail_runs_when_commit_fails
+
+# ── CFG-634 x CFG-626: the mobile snapshot leaves only by declared policy ─────
+# Since CFG-634, Phase 4 runs on every leader shutdown; before it, a clean-tree
+# shutdown never reached it. The snapshot carries excerpts of EVERY registry
+# project's session-context and backlog plus the registry, dashboard and inbox,
+# and the leak gate only catches credential values — so a project whose content
+# may not go to an external host went out on every shutdown. Until a deployment
+# declares that its snapshot may leave (setup/config/mobile-deploy.conf:
+# push=allow), Phase 4 refreshes the local copy and commits and pushes nothing.
+
+test_phase4_holds_the_push_without_an_egress_policy() {
+    local config_repo="$TEST_TMPDIR/config-repo" project_dir="$TEST_TMPDIR/project"
+    local mock_home="$TEST_TMPDIR/home" mobile_repo="$TEST_TMPDIR/home/agent-fleet-mobile" log="$TEST_TMPDIR/shim.log"
+    mkdir -p "$project_dir" "$mock_home"
+    _prep_clean_tree_repo "$config_repo" "$TEST_TMPDIR/remote.git"
+    _stage_recording_shim "$config_repo" "$log"
+    (cd "$config_repo" && git rm -q setup/config/mobile-deploy.conf && git add -A && git commit -qm "no egress policy" && git push -q origin main)
+    create_tracked_repo_main "$mobile_repo" "$TEST_TMPDIR/mobile-remote.git"
+    local before; before=$(git -C "$TEST_TMPDIR/mobile-remote.git" rev-parse main)
+    local patched; patched=$(create_patched_hook "$config_repo" "$project_dir" "$mock_home")
+    run_hook "$patched" || true
+    assert_file_exists "$mobile_repo/context/snapshot.md" "precondition: the local refresh still ran" || return 1
+    assert_eq "$before" "$(git -C "$TEST_TMPDIR/mobile-remote.git" rev-parse main)" "the mobile remote did not move" || return 1
+    local local_commits; local_commits=$(git -C "$mobile_repo" log --oneline | wc -l | tr -d ' ')
+    assert_eq "1" "$local_commits" "nothing was committed locally either, so nothing waits to be pushed later (measured $local_commits)" || return 1
+    assert_file_contains "$config_repo/.sync-warnings.log" "MOBILE_PUSH_HELD" "the next SessionStart is told why the phone snapshot is not moving" || return 1
+    assert_file_exists "$log" "Phase 5 is not affected by the hold"
+}
+run_test "CFG-634 x CFG-626: without an egress policy the mobile snapshot is refreshed locally, never committed or pushed" test_phase4_holds_the_push_without_an_egress_policy
+
+test_phase4_explicit_hold_is_honoured_without_a_warning() {
+    local config_repo="$TEST_TMPDIR/config-repo" project_dir="$TEST_TMPDIR/project" rc=0
+    local mock_home="$TEST_TMPDIR/home" mobile_repo="$TEST_TMPDIR/home/agent-fleet-mobile"
+    mkdir -p "$project_dir" "$mock_home"
+    _prep_clean_tree_repo "$config_repo" "$TEST_TMPDIR/remote.git"
+    printf '# the owner decided\npush=hold\n' > "$config_repo/setup/config/mobile-deploy.conf"
+    (cd "$config_repo" && git add -A && git commit -qm "explicit hold" && git push -q origin main)
+    create_tracked_repo_main "$mobile_repo" "$TEST_TMPDIR/mobile-remote.git"
+    local before; before=$(git -C "$TEST_TMPDIR/mobile-remote.git" rev-parse main)
+    local patched; patched=$(create_patched_hook "$config_repo" "$project_dir" "$mock_home")
+    RUN_HOOK_VERBOSE=1 run_hook "$patched" >/dev/null 2>"$TEST_TMPDIR/err" || rc=$?
+    assert_eq "$before" "$(git -C "$TEST_TMPDIR/mobile-remote.git" rev-parse main)" "push=hold: the mobile remote did not move" || return 1
+    assert_file_contains "$TEST_TMPDIR/err" "push=hold" "the shutdown output says the push is held and why" || return 1
+    if [ -f "$config_repo/.sync-warnings.log" ]; then
+        assert_not_contains "$(cat "$config_repo/.sync-warnings.log")" "MOBILE_PUSH_HELD" "a deliberate hold is not a warning" || return 1
+    fi
+    assert_eq "0" "$rc" "shutdown exits 0 (measured $rc)"
+}
+run_test "CFG-634 x CFG-626: push=hold holds the push and is not reported as a problem" test_phase4_explicit_hold_is_honoured_without_a_warning
 
 # ── Summary ──────────────────────────────────────────────────────────────────
 

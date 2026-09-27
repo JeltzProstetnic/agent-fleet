@@ -104,6 +104,18 @@ echo "mock-mobile-deploy: $*"
 exit 0
 STUB
     chmod +x "$dir/setup/scripts/mobile-deploy.sh"
+
+    # The REAL shared leak gate (CFG-626): Phase 4 sources it from the config
+    # repo and pushes nothing without it, so every hook test carries it. A test
+    # that wants the fail-closed path deletes it after this call.
+    cp "$REPO_ROOT/setup/scripts/lib-leak-gate.sh" "$dir/setup/scripts/lib-leak-gate.sh"
+
+    # Phase 4 pushes the mobile snapshot only when the deployment has declared
+    # that it may leave the machine (CFG-634 x CFG-626). The harness deployment
+    # allows it, so the Phase 4 tests exercise the push; a test of the hold
+    # removes or rewrites this file.
+    mkdir -p "$dir/setup/config"
+    printf 'push=allow\n' > "$dir/setup/config/mobile-deploy.conf"
 }
 
 # Create session files that the hook's git add commands expect.

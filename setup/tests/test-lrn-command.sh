@@ -29,7 +29,7 @@ run_test "quick command entry describes self-audit" test_quick_command_mentions_
 test_quick_command_points_to_skill() {
     local line
     line=$(grep '| `lrn` |' "$CLAUDE_MD" | head -1)
-    assert_contains "$line" "SKILL.md" || assert_contains "$line" "skills/lrn"
+    assert_contains_any "$line" "SKILL.md" "skills/lrn"
 }
 run_test "quick command entry references skills/lrn/SKILL.md" test_quick_command_points_to_skill
 

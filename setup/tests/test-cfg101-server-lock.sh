@@ -121,6 +121,23 @@ test_afd_lock_acquire_calls_correct_endpoint() {
 }
 run_test "afd_lock_acquire calls correct endpoint" test_afd_lock_acquire_calls_correct_endpoint
 
+test_afd_lock_acquire_default_machine_without_hostname() {
+    # CFG-649: the default for an omitted machine was a bare $(hostname), which
+    # is absent on a SteamOS box after an update — an EMPTY machine in the mutex.
+    setup_test_afd "$TEST_TMPDIR" "201" '{"status":"acquired"}'
+    export PATH="$(shadow_hostname_missing):$PATH"
+    afd_lock_acquire "my-project" 2>/dev/null
+    local calls want
+    calls=$(curl_calls "$TEST_TMPDIR" | tr -d ' \n')
+    want="$(uname -n)"
+    assert_contains "$calls" "\"machine\":\"$want\"" "an omitted machine must default through the fallback chain, not to an empty name"
+    local ret=$?
+    restore_env
+    return $ret
+}
+run_test "afd_lock_acquire defaults the machine without the hostname binary (CFG-649)" \
+    test_afd_lock_acquire_default_machine_without_hostname
+
 test_afd_lock_acquire_fails_on_409() {
     setup_test_afd_conflict "$TEST_TMPDIR"
 

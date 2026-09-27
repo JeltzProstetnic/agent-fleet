@@ -8,6 +8,14 @@
 # shellcheck source=common.sh
 # Expects from caller: GLOBAL_DIR, SETUP_DIR (or SCRIPT_DIR), log_error
 
+# _to_native_path normally arrives from lib-portable.sh via common.sh. If it is
+# absent, every python3 JSON validation below silently receives an empty path and
+# reports "invalid JSON" — a false positive that aborts the whole deploy. Fall
+# back to identity (correct everywhere except Git-Bash-on-Windows path mangling).
+if ! declare -F _to_native_path >/dev/null 2>&1; then
+    _to_native_path() { printf '%s\n' "$1"; }
+fi
+
 pre_deploy_checks() {
     local _global="${GLOBAL_DIR:-$SCRIPT_DIR/global}"
     local _setup="${SETUP_DIR:-$SCRIPT_DIR/setup}"
@@ -39,20 +47,27 @@ pre_deploy_checks() {
         done
     done
 
-    # 3. JSON validity for config files
-    for _json in "$_setup/config"/*.json; do
-        [ -f "$_json" ] || continue
-        if command -v jq &>/dev/null; then
-            if ! jq empty "$_json" 2>/dev/null; then
-                log_error "Pre-deploy: invalid JSON in $_json"
-                _fail=1
+    # 3. JSON validity for config files (base + machine overlays)
+    local _json_dirs=("$_setup/config")
+    # CFG-296: Also validate JSON in machine overlay directories
+    for _mdir in "$_setup/config/machines"/*/; do
+        [ -d "$_mdir" ] && _json_dirs+=("$_mdir")
+    done
+    for _jdir in "${_json_dirs[@]}"; do
+        for _json in "$_jdir"/*.json; do
+            [ -f "$_json" ] || continue
+            if command -v jq &>/dev/null; then
+                if ! jq empty "$_json" 2>/dev/null; then
+                    log_error "Pre-deploy: invalid JSON in $_json"
+                    _fail=1
+                fi
+            elif command -v python3 &>/dev/null; then
+                if ! python3 -c "import json,sys; json.load(open(sys.argv[1]))" "$(_to_native_path "$_json")" 2>/dev/null; then
+                    log_error "Pre-deploy: invalid JSON in $_json"
+                    _fail=1
+                fi
             fi
-        elif command -v python3 &>/dev/null; then
-            if ! python3 -c "import json,sys; json.load(open(sys.argv[1]))" "$_json" 2>/dev/null; then
-                log_error "Pre-deploy: invalid JSON in $_json"
-                _fail=1
-            fi
-        fi
+        done
     done
 
     # 4. Hook safe-run audit: verify all hook commands use safe-run.sh
@@ -67,7 +82,7 @@ pre_deploy_checks() {
         elif command -v python3 &>/dev/null; then
             # Same traversal as the jq path. A blind grep for "command" also matches
             # statusLine.command (legitimately not a hook) and would false-positive
-            # this check into blocking every deploy on machines without jq.
+            # this check into blocking every deploy on jq-less machines.
             _hook_cmds=$(python3 -c '
 import json, sys
 with open(sys.argv[1]) as fh:
@@ -77,7 +92,7 @@ for matchers in (data.get("hooks") or {}).values():
         for hook in (matcher.get("hooks") or []):
             if hook.get("type") == "command" and hook.get("command"):
                 print(hook["command"])
-' "$_settings" 2>/dev/null) || true
+' "$(_to_native_path "$_settings")" 2>/dev/null) || true
         else
             _hook_cmds=$(grep -oE '"command"[[:space:]]*:[[:space:]]*"[^"]*"' "$_settings" \
                 | sed 's/.*"\(bash [^"]*\)".*/\1/' | grep '^bash ' || true)

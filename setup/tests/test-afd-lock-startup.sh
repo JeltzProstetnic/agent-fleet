@@ -34,6 +34,9 @@ run_check_31() {
     local PWD="$project_dir"
     local WARNINGS=""
     local AFLEET_SESSION_ID="${AFLEET_SESSION_ID:-}"
+    # The hook's own CC is visible to the lock library, as in production
+    # (CFG-673: a check that sees no CC at all answers 4, not "free").
+    local _CC_SELF_PID="$$"
 
     # Source lock lib
     source "$LOCK_SCRIPT"

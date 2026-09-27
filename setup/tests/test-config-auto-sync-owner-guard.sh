@@ -179,7 +179,9 @@ test_unheld_context_still_rotated() {
     local cfg="$TEST_TMPDIR/cfg" proj="$TEST_TMPDIR/life"
     mkdir -p "$proj" "$TEST_TMPDIR/home"
     _prep_cfg_repo "$cfg"
-    _run "$cfg" "$proj" || true
+    # Under the shutting-down session's own CC, as in production: a lock check
+    # that sees no CC at all answers "unknown" and keeps the repo (CFG-673).
+    _run "$cfg" "$proj" leader || true
     local goal; goal=$(_goal_lines "$cfg")
     assert_eq "0" "$goal" "unheld cfg context is rotated to the blank template (measured $goal goal line(s) left)" || return 1
     assert_file_exists "$cfg/session-history.md" "archive written for the unheld repo" || return 1
@@ -195,7 +197,7 @@ test_stale_lock_does_not_block_rotation() {
     _prep_cfg_repo "$cfg"
     sleep 0.01 & local dead=$!; wait "$dead" 2>/dev/null || true
     ( source "$LOCK_LIB"; _write_lock "$cfg/.claude/.session-lock" "af-gone" "cc-gone" "$dead" )
-    _run "$cfg" "$proj" || true
+    _run "$cfg" "$proj" leader || true   # own CC visible (CFG-673), as in production
     local goal; goal=$(_goal_lines "$cfg")
     assert_eq "0" "$goal" "stale lock (dead pid $dead) does not block rotation (measured $goal goal line(s) left)" || return 1
     assert_file_exists "$cfg/session-history.md" "archive written despite the stale lock"
@@ -297,6 +299,41 @@ test_unheld_docs_and_cross_project_staged_without_projects_dir() {
 }
 run_test "CFG-665: docs/ and cross-project/ are staged even with no projects/ dir (production layout)" test_unheld_docs_and_cross_project_staged_without_projects_dir
 
+test_commit_message_names_every_swept_file() {
+    # The backlog's minimum for CFG-665: a sweep must never again be invisible.
+    # Whatever the directory staging picks up — tracked edits AND new files, in
+    # every staged directory — is named, path by path, in the commit body, so a
+    # session whose work was swept can see it in `git log` instead of finding a
+    # green tree and wondering. Nobody holds the repo here, so the sweep is
+    # legitimate; the assertion is about what the commit SAYS.
+    local cfg="$TEST_TMPDIR/cfg" proj="$TEST_TMPDIR/life"
+    mkdir -p "$proj" "$TEST_TMPDIR/home"
+    _prep_cfg_repo "$cfg"
+    echo "left by a finished session" >> "$cfg/global/hooks/x.sh"
+    echo "left by a finished session" >> "$cfg/backlog.md"
+    echo "left by a finished session" >> "$cfg/docs/pending-work.md"
+    echo "left by a finished session" >> "$cfg/cross-project/inbox.md"
+    echo "new module, still untracked" > "$cfg/global/hooks/new-check.sh"
+    _run "$cfg" "$proj" || true
+    local subject body committed f n
+    subject=$(git -C "$cfg" log -1 --format=%s)
+    assert_contains "$subject" "Auto-sync:" "precondition: the sweep commit was made (subject: '$subject')" || return 1
+    body=$(git -C "$cfg" log -1 --format=%b)
+    committed=$(git -C "$cfg" diff-tree --no-commit-id --name-only -r HEAD)
+    # The five edits above plus whatever the real rotate-session.sh wrote for
+    # the (unheld) cfg context — the count is measured, not assumed.
+    n=$(printf '%s\n' "$committed" | grep -c . || true)
+    for f in global/hooks/x.sh backlog.md docs/pending-work.md cross-project/inbox.md global/hooks/new-check.sh; do
+        assert_contains "$committed" "$f" "precondition: the directory staging swept '$f'" || return 1
+    done
+    while IFS= read -r f; do
+        [[ -n "$f" ]] || continue
+        assert_contains "$body" "$f" "the commit body names swept file '$f'" || return 1
+    done <<< "$committed"
+    assert_contains "$body" "$n file(s)" "the commit body states the measured count ($n file(s))"
+}
+run_test "CFG-665: the Auto-sync commit names every file it swept, with the measured count" test_commit_message_names_every_swept_file
+
 # ── Phase 1: a mis-marked nested CC must not rotate or sweep ITS OWN project ─
 
 test_mismarked_nested_leader_cannot_rotate_or_sweep() {
@@ -379,6 +416,34 @@ test_rotate_guard_holds_when_hook_cannot_check() {
     assert_eq "$before" "$after" "the guard's refusal also stops the sweep (measured $before -> $after)"
 }
 run_test "CFG-666: rotate-session.sh's own guard is honoured when the hook cannot check the lock" test_rotate_guard_holds_when_hook_cannot_check
+
+# ── CFG-673 / GH#9: a blind lock check is "unknown", never "stale" ───────────
+
+test_blind_check_treats_cfg_repo_as_held() {
+    # The lock check sees /proc but no CC process at all, not even the one
+    # shutting down (a CC matcher that recognises nothing here; in Claude
+    # Code's Bash sandbox, a PID namespace). Every recorded pid then reads dead
+    # and "nobody live" is the scan's blindness, not the machine's state.
+    # check_lock answers rc 4 (cannot determine) and keeps the lock; the hook
+    # must treat the config repo as held and record that the state is unknown.
+    local cfg="$TEST_TMPDIR/cfg" proj="$TEST_TMPDIR/life"
+    mkdir -p "$proj" "$TEST_TMPDIR/home"
+    _prep_cfg_repo "$cfg"
+    sleep 0.01 & local dead=$!; wait "$dead" 2>/dev/null || true
+    ( source "$LOCK_LIB"; _write_lock "$cfg/.claude/.session-lock" "af-cfg-owner" "cc-cfg-owner" "$dead" )
+    local before after
+    before=$(_commits "$cfg")
+    _CC_PROC_RE="(^|/)cfg673-no-such-cc-$$([[:space:]]|$)" _run "$cfg" "$proj" || true
+    after=$(_commits "$cfg")
+    assert_file_exists "$cfg/.claude/.session-lock" "the cfg lock is not deleted on a blind scan" || return 1
+    local goal; goal=$(_goal_lines "$cfg")
+    assert_eq "1" "$goal" "the cfg context is not rotated while its holder is unknown (measured $goal goal line(s))" || return 1
+    assert_file_not_exists "$cfg/session-history.md" "no archive written" || return 1
+    assert_eq "$before" "$after" "no Auto-sync commit against a config repo whose holder is unknown (measured $before -> $after)" || return 1
+    assert_file_exists "$cfg/.sync-warnings.log" "the unknown state is recorded for the next session" || return 1
+    assert_file_contains "$cfg/.sync-warnings.log" "unknown" "the record says the lock state is unknown"
+}
+run_test "CFG-673: blind lock check ⇒ config repo treated as held, lock kept, state recorded as unknown" test_blind_check_treats_cfg_repo_as_held
 
 # ── Summary ──────────────────────────────────────────────────────────────────
 

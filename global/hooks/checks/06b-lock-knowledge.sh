@@ -65,8 +65,35 @@ except: pass
             elif kill -0 "$_lock_pid" 2>/dev/null; then
                 INBOX_MSG="${INBOX_MSG:+$INBOX_MSG | }SESSION_LOCKED: Another session active on this machine (PID $_lock_pid, age: $_lock_age)"
             else
-                rm -f "$_project_lock"
-                WARNINGS="${WARNINGS:+$WARNINGS | }STALE_LOCK_CLEARED: Cleared stale lock from this machine (session $_lock_session, PID $_lock_pid dead, age: $_lock_age)"
+                # GH#10: a dead recorded pid is NOT proof the session is gone — the
+                # pid is frequently the ephemeral SessionStart hook (CFG-468), and a
+                # bare rm here deleted the lock of a session still live under another
+                # pid. Only the library may remove a lock: check_lock rm's it solely
+                # when no live CC is cwd'd in the project, and leaves it (rc 2) when
+                # one is. No library ⇒ no removal.
+                # rc 1 = the lock is bound to THIS session's cc id (CFG-454) — a
+                # direct launch's own lock after /compact or resume (a /clear
+                # starts a new cc id, so it no longer matches). It is neither
+                # stale nor another session's: nothing to report.
+                _SESSION_LOCK_LIB="$CONFIG_REPO/setup/scripts/session-lock.sh"
+                _06b_cl_rc=""
+                if [ -f "$_SESSION_LOCK_LIB" ]; then
+                    _06b_cl_rc=0
+                    ( source "$_SESSION_LOCK_LIB"; check_lock "$PROJECT_DIR" ) >/dev/null 2>&1 || _06b_cl_rc=$?
+                fi
+                # rc 4 = cannot determine (CFG-673 / GH#9): the scan saw no CC
+                # process at all, so "nobody live" is its blindness. The library
+                # kept the lock; report the state as unknown, never as cleared
+                # and never as "a live session seen".
+                if [ "$_06b_cl_rc" = "1" ]; then
+                    : # Our own session's lock (bound to our cc id) — normal, skip
+                elif [ "$_06b_cl_rc" = "4" ]; then
+                    INBOX_MSG="${INBOX_MSG:+$INBOX_MSG | }SESSION_LOCK_UNKNOWN: Lock kept, holder unknown — recorded PID $_lock_pid is not visible and the lock check sees no Claude Code process at all, so it cannot tell a stale lock from a live one (age: $_lock_age)"
+                elif [ ! -f "$_project_lock" ]; then
+                    WARNINGS="${WARNINGS:+$WARNINGS | }STALE_LOCK_CLEARED: Cleared stale lock from this machine (session $_lock_session, PID $_lock_pid dead, age: $_lock_age)"
+                else
+                    INBOX_MSG="${INBOX_MSG:+$INBOX_MSG | }SESSION_LOCKED: Another session active on this machine (recorded PID $_lock_pid is dead but a live session holds the project, age: $_lock_age)"
+                fi
             fi
         else
             INBOX_MSG="${INBOX_MSG:+$INBOX_MSG | }SESSION_LOCKED_REMOTE: Lock held by $_lock_machine ($_lock_user, age: $_lock_age)"

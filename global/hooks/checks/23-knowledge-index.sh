@@ -17,8 +17,8 @@ _ki_index="$_ki_dir/INDEX.md"
 # Not this repo — stay silent rather than warn about someone else's layout.
 [ -d "$_ki_dir" ] || return 0 2>/dev/null || true
 
-# Daily gate
-_ki_gate="/tmp/.knowledge-index-check-$(date +%Y-%m-%d)"
+# Daily gate — never a bare /tmp (GH#13: read-only in the CC sandbox)
+_ki_gate="${SCHED_MARKER_DIR:-${TMPDIR:-/tmp}}""/.knowledge-index-check-$(date +%Y-%m-%d)"
 [ ! -f "$_ki_gate" ] || return 0 2>/dev/null || true
 touch "$_ki_gate" 2>/dev/null || true
 

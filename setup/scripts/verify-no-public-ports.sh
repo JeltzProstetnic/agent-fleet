@@ -22,7 +22,8 @@
 #   0 PASS every port observed, nothing unexpected open | 1 FAIL exposure proven
 #   2 USAGE bad arguments (including empty --allow/--ports)
 #   3 INCONCLUSIVE >=1 port unobserved or scan did not run — NEVER a pass
-#   4 ERROR run from the target host itself; that vantage cannot answer
+#   4 ERROR run from the target host itself, or this machine's own identity is
+#     unknown so self-probe cannot be excluded (CFG-649); that vantage cannot answer
 
 set -uo pipefail
 
@@ -45,7 +46,8 @@ Usage: verify-no-public-ports.sh <host> [options]
 Exit: 0 pass (every port observed, nothing unexpected open)
       1 unexpected port open   | 2 usage error
       3 inconclusive — >=1 port unanswered or scan did not run; NEVER a pass
-      4 run on the target itself (that vantage cannot answer)
+      4 run on the target itself (that vantage cannot answer), or this machine's
+        own identity is unknown so self-probe cannot be excluded
 EOF
 }
 
@@ -80,7 +82,19 @@ _default_probe() {
 }
 _probe() { ${VERIFY_PORTS_PROBE_CMD:-_default_probe} "$@"; }
 
-_default_local_addrs() { hostname 2>/dev/null; hostname -I 2>/dev/null | tr ' ' '\n'; }
+# This machine's names and addresses, one per line. `hostname` is not guaranteed
+# to exist — SteamOS updates wipe inetutils (CFG-649) — and this script sources
+# nothing on purpose (an off-host vantage may have no fleet install), so the
+# fallback chain is inlined. An empty result is "identity unknown", which main
+# refuses on: a bare `hostname` used to yield nothing here, the self-probe
+# guard then never fired, and the script scanned the machine it was running on.
+_default_local_addrs() {
+    hostname 2>/dev/null || uname -n 2>/dev/null \
+        || cat /proc/sys/kernel/hostname 2>/dev/null || cat /etc/hostname 2>/dev/null \
+        || printf '%s\n' "${HOSTNAME:-}"
+    { hostname -I 2>/dev/null \
+        || ip -o addr show 2>/dev/null | awk '{ sub("/.*", "", $4); print $4 }'; } | tr ' ' '\n'
+}
 _local_addrs() { ${VERIFY_PORTS_LOCAL_ADDRS_CMD:-_default_local_addrs}; }
 
 # ── Parsing & scanning ────────────────────────────────────────────────────────
@@ -122,13 +136,18 @@ parse_into() {
 
 # The off-host vantage IS the check: probing yourself returns an identical result
 # for a loopback-bound and a world-bound service. That is how CFG-594 happened.
+# Returns 0 = target is this machine, 1 = it is not, 2 = this machine has no
+# known name or address at all, so the question cannot be answered (CFG-649).
 is_local_target() {
-    local target="$1" addr
+    local target="$1" addr known=0
     case "$target" in localhost|127.0.0.1|0.0.0.0|::1) return 0 ;; esac
     while read -r addr; do
-        [[ -n "$addr" && "$addr" == "$target" ]] && return 0
+        [[ -n "$addr" ]] || continue
+        known=1
+        [[ "$addr" == "$target" ]] && return 0
     done < <(_local_addrs)
-    return 1
+    (( known )) && return 1
+    return 2
 }
 
 # Probe every port with bounded parallelism. Prints "<port> <state>" per line.
@@ -198,7 +217,18 @@ main() {
         info "WARNING: TEST SEAM ACTIVE (${seams% }) — this run does NOT measure a real network."
     fi
 
-    if is_local_target "$HOST"; then
+    local vantage=0; is_local_target "$HOST" || vantage=$?
+    if (( vantage == 2 )); then
+        # Fail closed: a vantage that cannot name itself cannot rule out that
+        # the target IS itself, and a generic verdict would point at the wrong
+        # remedy. Say what is actually unknown.
+        err "ERROR: cannot determine this machine's own identity (no hostname binary, and no"
+        err "       uname/-/proc/-/etc fallback answered), so it cannot rule out that '$HOST'"
+        err "       is this machine — and an on-host probe cannot answer the exposure question."
+        err "       Refusing rather than guessing. Fix this vantage's identity or run from a"
+        err "       DIFFERENT machine.$SEAM_TAG"
+        return 4
+    elif (( vantage == 0 )); then
         err "ERROR: '$HOST' is this machine. An on-host probe succeeds whether a service is"
         err "       bound to 127.0.0.1 or 0.0.0.0, so it cannot answer the exposure question"
         err "       at all. Run this from a DIFFERENT machine.$SEAM_TAG"

@@ -9,13 +9,12 @@ _DMS_STATS="$CONFIG_REPO/dms/scripts/dms-stats.sh"
 _sched_lib="${CONFIG_REPO:-}/setup/scripts/sched-lib.sh"
 if [ -f "$_sched_lib" ]; then
     source "$_sched_lib"
-    SCHED_MARKER_DIR="${SCHED_MARKER_DIR:-/tmp}"
     sched_is_due "dms-backup-check" "daily" || return 0 2>/dev/null || true
 else
-    # fallback inline marker
-    _gate="/tmp/.dms-backup-check-$(date +%Y-%m-%d)"
+    # fallback inline marker — never a bare /tmp (GH#13: read-only in the CC sandbox)
+    _gate="${SCHED_MARKER_DIR:-${TMPDIR:-/tmp}}""/.dms-backup-check-$(date +%Y-%m-%d)"
     [ ! -f "$_gate" ] || return 0 2>/dev/null || true
-    touch "$_gate"
+    touch "$_gate" 2>/dev/null || true
 fi
 
 if [ -f "$_DMS_STATS" ]; then
@@ -31,7 +30,7 @@ if [ -f "$_DMS_STATS" ]; then
         if type sched_mark_done &>/dev/null; then
             sched_mark_done "dms-backup-check" "daily"
         elif [ -z "${_gate:-}" ]; then
-            touch "/tmp/.dms-backup-check-$(date +%Y-%m-%d)"
+            touch "${SCHED_MARKER_DIR:-${TMPDIR:-/tmp}}""/.dms-backup-check-$(date +%Y-%m-%d)" 2>/dev/null || true
         fi
     fi
 fi

@@ -137,6 +137,36 @@ else
     fail "mclaude launch line missing"
 fi
 
+# ── T9: no bare `timeout` (agent-fleet GH#5) ────────────────────
+# macOS has no GNU `timeout`: `timeout N bash git-sync-check.sh … || true` exited 127,
+# the `|| true` hid it, and the git sync silently never ran. The launcher chain must
+# use the portable `_timeout` from lib-portable.sh instead.
+echo ""
+echo "T9: No bare timeout in the launcher chain"
+AFLEET_RECOVER="$REPO_ROOT/setup/scripts/afleet-recover.sh"
+for f in "$AFLEET" "$AFLEET_RECOVER"; do
+    bare=$(grep -nE '(^|[^_a-zA-Z-])timeout[[:space:]]+["$0-9]' "$f" 2>/dev/null \
+        | grep -vE '^[0-9]+:[[:space:]]*#' | grep -v '_timeout()' || true)
+    if [[ -z "$bare" ]]; then
+        pass "no bare timeout call in $(basename "$f")"
+    else
+        fail "bare timeout call in $(basename "$f"): $bare"
+    fi
+done
+if grep -qE '_timeout\(\)' "$REPO_ROOT/global/hooks/lib-portable.sh" \
+   && grep -q 'lib-portable\.sh' "$AFLEET"; then
+    pass "afleet.sh loads lib-portable.sh (portable _timeout)"
+else
+    fail "afleet.sh does not load lib-portable.sh's _timeout"
+fi
+# With a portable wrapper, a missing `timeout` no longer degrades anything, so the
+# preflight must stop calling it out as a degradation.
+if grep -E 'for bin in .*\btimeout\b' "$AFLEET" >/dev/null 2>&1; then
+    fail "preflight still lists timeout as a (degrading) optional binary"
+else
+    pass "preflight no longer lists timeout"
+fi
+
 # ── Summary ──────────────────────────────────────────────────────
 echo ""
 echo "=== Results: $PASS passed, $FAIL failed ==="

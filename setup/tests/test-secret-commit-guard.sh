@@ -250,7 +250,446 @@ test_allowlist_marker_does_not_exempt_neighbours() {
 }
 run_test "allowlist marker does not exempt neighbouring lines" test_allowlist_marker_does_not_exempt_neighbours
 
-# ── 10. Syntax ────────────────────────────────────────────────────────────────
+# ── 10. CFG-668: the commit forms that never touch the index first ───────────
+# The guard read `git diff --cached` and nothing else, so a commit that stages
+# and commits in one step — a modified TRACKED file, which is exactly the shape
+# of a handover or a knowledge file being edited — went through unexamined.
+# This suite had zero such cases, so the gap was invisible from inside it.
+#
+# Every case below modifies a tracked file WITHOUT staging it, then issues the
+# form of commit that would carry it. The staged diff is clean in all of them.
+
+# Modify a tracked file in the working tree without staging it.
+_modify() {  # _modify <repo> <relpath> <content>
+    printf '%s\n' "$3" >> "$1/$2"
+}
+
+# Like _run_guard, but the Bash call's cwd is <cwd> — pathspecs resolve there.
+_run_guard_in() {  # usage: _run_guard_in <repo> <cwd> <command>; returns rc
+    local repo="$1" cwd="$2" cmd="$3" rc=0
+    printf '{"tool_name":"Bash","tool_input":{"command":%s}}' \
+        "$(python3 -c 'import json,sys;print(json.dumps(sys.argv[1]))' "$cmd")" \
+        | (cd "$cwd" \
+           && export CC_SECRET_FINGERPRINTS="$repo/secrets/.secret-fingerprints" \
+           && export CC_SECRET_SALT="$repo/secrets/.fingerprint-salt" \
+           && bash "$GUARD") 2>"$TEST_TMPDIR/guard.err" || rc=$?
+    cat "$TEST_TMPDIR/guard.err" >&2
+    return "$rc"
+}
+
+# A repo with one unstaged secret in a tracked file and nothing staged.
+_mkrepo_with_unstaged_secret() {
+    local repo; repo="$(_mkrepo)"
+    _mkfingerprints "$repo" "correct-horse-battery-staple"
+    _modify "$repo" "docs/session-log.md" "NAS admin password is correct-horse-battery-staple"
+    echo "$repo"
+}
+
+test_blocks_commit_dash_a() {
+    local repo; repo="$(_mkrepo_with_unstaged_secret)"
+    local rc=0 out
+    out="$( _run_guard "$repo" "git commit -a -m log" 2>&1 >/dev/null )" || rc=$?
+    assert_eq "2" "$rc" "'git commit -a' commits the unstaged edit, so it must BLOCK" || return 1
+    assert_contains "$out" "docs/session-log.md" "the block message must name the file the -a commit carries"
+}
+run_test "blocks 'git commit -a' carrying an unstaged secret (CFG-668)" test_blocks_commit_dash_a
+
+test_blocks_commit_dash_am() {
+    local repo; repo="$(_mkrepo_with_unstaged_secret)"
+    local rc=0; _run_guard "$repo" "git commit -am 'log update'" 2>/dev/null || rc=$?
+    assert_eq "2" "$rc" "'git commit -am' must BLOCK"
+}
+run_test "blocks 'git commit -am' (CFG-668)" test_blocks_commit_dash_am
+
+test_blocks_commit_all_long() {
+    local repo; repo="$(_mkrepo_with_unstaged_secret)"
+    local rc=0; _run_guard "$repo" "git commit --all -m log" 2>/dev/null || rc=$?
+    assert_eq "2" "$rc" "'git commit --all' must BLOCK"
+}
+run_test "blocks 'git commit --all' (CFG-668)" test_blocks_commit_all_long
+
+test_blocks_commit_short_cluster_with_a() {
+    local repo; repo="$(_mkrepo_with_unstaged_secret)"
+    local rc=0; _run_guard "$repo" "git commit -qam log" 2>/dev/null || rc=$?
+    assert_eq "2" "$rc" "'-qam' carries -a inside a short-flag cluster and must BLOCK"
+}
+run_test "blocks '-a' inside a short-flag cluster (-qam) (CFG-668)" test_blocks_commit_short_cluster_with_a
+
+test_blocks_commit_am_with_heredoc_message() {
+    local repo; repo="$(_mkrepo_with_unstaged_secret)"
+    local rc=0
+    _run_guard "$repo" "git commit -am \"\$(cat <<'EOF'
+log update
+
+Body text.
+EOF
+)\"" 2>/dev/null || rc=$?
+    assert_eq "2" "$rc" "-am with a heredoc message is still an -a commit and must BLOCK"
+}
+run_test "blocks '-am' with a heredoc message (CFG-668)" test_blocks_commit_am_with_heredoc_message
+
+test_blocks_commit_dash_a_via_C_flag() {
+    local repo; repo="$(_mkrepo_with_unstaged_secret)"
+    local rc=0
+    _run_guard_in "$repo" "$TEST_TMPDIR" "git -C $repo commit -am log" 2>/dev/null || rc=$?
+    assert_eq "2" "$rc" "'git -C <dir> commit -am' must resolve the repo and BLOCK"
+}
+run_test "blocks 'git -C <dir> commit -am' (CFG-668)" test_blocks_commit_dash_a_via_C_flag
+
+test_blocks_commit_with_pathspec() {
+    local repo; repo="$(_mkrepo_with_unstaged_secret)"
+    local rc=0; _run_guard "$repo" "git commit -m log docs/session-log.md" 2>/dev/null || rc=$?
+    assert_eq "2" "$rc" "'git commit <path>' commits the working-tree file and must BLOCK"
+}
+run_test "blocks 'git commit <path>' carrying an unstaged secret (CFG-668)" test_blocks_commit_with_pathspec
+
+test_blocks_commit_with_pathspec_after_double_dash() {
+    local repo; repo="$(_mkrepo_with_unstaged_secret)"
+    local rc=0; _run_guard "$repo" "git commit -m log -- docs/session-log.md" 2>/dev/null || rc=$?
+    assert_eq "2" "$rc" "'git commit -- <path>' must BLOCK"
+}
+run_test "blocks 'git commit -- <path>' (CFG-668)" test_blocks_commit_with_pathspec_after_double_dash
+
+test_blocks_commit_only() {
+    local repo; repo="$(_mkrepo_with_unstaged_secret)"
+    local rc=0; _run_guard "$repo" "git commit --only docs/session-log.md -m log" 2>/dev/null || rc=$?
+    assert_eq "2" "$rc" "'git commit --only <path>' must BLOCK" || return 1
+    rc=0; _run_guard "$repo" "git commit -o docs/session-log.md -m log" 2>/dev/null || rc=$?
+    assert_eq "2" "$rc" "'git commit -o <path>' must BLOCK"
+}
+run_test "blocks 'git commit --only/-o <path>' (CFG-668)" test_blocks_commit_only
+
+test_blocks_commit_include() {
+    local repo; repo="$(_mkrepo_with_unstaged_secret)"
+    local rc=0; _run_guard "$repo" "git commit --include docs/session-log.md -m log" 2>/dev/null || rc=$?
+    assert_eq "2" "$rc" "'git commit --include <path>' must BLOCK" || return 1
+    rc=0; _run_guard "$repo" "git commit -i docs/session-log.md -m log" 2>/dev/null || rc=$?
+    assert_eq "2" "$rc" "'git commit -i <path>' must BLOCK"
+}
+run_test "blocks 'git commit --include/-i <path>' (CFG-668)" test_blocks_commit_include
+
+test_include_still_scans_the_index() {
+    # --include = index PLUS the named paths; a staged secret elsewhere must not
+    # slip through just because a clean path was named.
+    local repo; repo="$(_mkrepo)"
+    _mkfingerprints "$repo" "correct-horse-battery-staple"
+    _stage "$repo" "reports/audit.md" "passphrase correct-horse-battery-staple"
+    _modify "$repo" "docs/session-log.md" "ordinary line"
+    local rc=0; _run_guard "$repo" "git commit -i docs/session-log.md -m log" 2>/dev/null || rc=$?
+    assert_eq "2" "$rc" "--include must scan the index as well as the named paths"
+}
+run_test "--include scans the index as well as the named paths (CFG-668)" test_include_still_scans_the_index
+
+test_pathspec_resolves_against_command_cwd() {
+    # A Bash call issued from a subdirectory names the path relative to it.
+    local repo; repo="$(_mkrepo_with_unstaged_secret)"
+    local rc=0
+    _run_guard_in "$repo" "$repo/docs" "git commit -m log session-log.md" 2>/dev/null || rc=$?
+    assert_eq "2" "$rc" "a pathspec relative to the call's cwd must still be scanned"
+}
+run_test "pathspec resolves against the call's cwd, not the repo root (CFG-668)" test_pathspec_resolves_against_command_cwd
+
+# ── 10b. Narrowness: the working tree is read ONLY when the commit carries it ─
+# A guard that false-blocks trains the bypass (CFG-513). A plain commit must
+# stay index-only, message words must never be mistaken for pathspecs, and an
+# untracked file is never part of a -a commit.
+
+test_plain_commit_ignores_unstaged_working_tree() {
+    local repo; repo="$(_mkrepo_with_unstaged_secret)"
+    _stage "$repo" "docs/notes.md" "ordinary staged line"
+    local rc=0; _run_guard "$repo" "git commit -m notes" 2>/dev/null || rc=$?
+    assert_eq "0" "$rc" "a plain commit records the index only; the unstaged secret is not in it"
+}
+run_test "plain commit does not scan unstaged working-tree edits" test_plain_commit_ignores_unstaged_working_tree
+
+test_message_words_are_not_pathspecs() {
+    # 'docs' is a real directory holding an unstaged secret. Naive word-splitting
+    # of the -m body would hand it to the pathspec scan and false-block.
+    local repo; repo="$(_mkrepo_with_unstaged_secret)"
+    _stage "$repo" "docs/notes.md" "ordinary staged line"
+    local rc=0
+    _run_guard "$repo" "git commit -m 'update docs and README' --author 'docs <d@d>'" 2>/dev/null || rc=$?
+    assert_eq "0" "$rc" "words inside a quoted -m body or an option value must not be read as pathspecs"
+}
+run_test "message words and option values are not mistaken for pathspecs" test_message_words_are_not_pathspecs
+
+test_dash_a_ignores_untracked_files() {
+    local repo; repo="$(_mkrepo)"
+    _mkfingerprints "$repo" "correct-horse-battery-staple"
+    _modify "$repo" "docs/session-log.md" "ordinary edit"
+    printf '%s\n' "passphrase correct-horse-battery-staple" > "$repo/docs/untracked.md"
+    local rc=0; _run_guard "$repo" "git commit -am log" 2>/dev/null || rc=$?
+    assert_eq "0" "$rc" "-a never commits an untracked file, so it must not be scanned"
+}
+run_test "-a does not scan untracked files" test_dash_a_ignores_untracked_files
+
+# ── 10c. CFG-668 repair: the index is ALWAYS read ───────────────────────────
+# The first CFG-668 fix scanned the working tree for named paths and then
+# STOPPED reading the index. The word-splitter did not know redirections, heredoc
+# bodies or line continuations, so `2>&1`, `>/dev/null`, `<<'EOF'` and a
+# message with "(x)" in it became "pathspecs", the index was skipped, and a
+# STAGED credential in an everyday commit shape was committed unexamined. The
+# base guard blocked every one of these because it always read --cached. So
+# each shape below stages a secret and must BLOCK: whatever else the guard
+# learns to read, it may never read less than the index.
+
+# A repo with one STAGED shaped token and an otherwise clean tree.
+_mkrepo_with_staged_token() {
+    local repo; repo="$(_mkrepo)"
+    _stage "$repo" "docs/notes.md" "token ghp_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"  # pragma: allowlist secret
+    echo "$repo"
+}
+
+_assert_staged_blocks() {  # _assert_staged_blocks <command> <label>
+    local repo; repo="$(_mkrepo_with_staged_token)"
+    local rc=0; _run_guard "$repo" "$1" 2>/dev/null || rc=$?
+    assert_eq "2" "$rc" "staged secret must BLOCK for: $2"
+}
+
+test_staged_blocks_stderr_merge_and_pipe() {
+    _assert_staged_blocks 'git commit -m "update docs" 2>&1 | tail -5' "2>&1 | tail"
+}
+run_test "staged secret blocks: commit ... 2>&1 | tail (CFG-668 repair)" test_staged_blocks_stderr_merge_and_pipe
+
+test_staged_blocks_stderr_to_devnull() {
+    _assert_staged_blocks 'git commit -q -m x 2>/dev/null' "2>/dev/null"
+}
+run_test "staged secret blocks: commit ... 2>/dev/null (CFG-668 repair)" test_staged_blocks_stderr_to_devnull
+
+test_staged_blocks_stdout_to_devnull() {
+    _assert_staged_blocks 'git commit -m "update docs" > /dev/null' "> /dev/null"
+}
+run_test "staged secret blocks: commit ... > /dev/null (CFG-668 repair)" test_staged_blocks_stdout_to_devnull
+
+test_staged_blocks_stdin_from_devnull() {
+    _assert_staged_blocks 'git commit -m "update docs" </dev/null' "</dev/null"
+}
+run_test "staged secret blocks: commit ... </dev/null (CFG-668 repair)" test_staged_blocks_stdin_from_devnull
+
+test_staged_blocks_message_from_stdin_heredoc() {
+    _assert_staged_blocks "git commit -F - <<'EOF'
+update docs
+EOF" "-F - <<'EOF'"
+}
+run_test "staged secret blocks: commit -F - <<'EOF' (CFG-668 repair)" test_staged_blocks_message_from_stdin_heredoc
+
+test_staged_blocks_line_continuation() {
+    _assert_staged_blocks 'git commit \
+  -m "update docs" \
+  -m "second paragraph"' "backslash-newline continuation"
+}
+run_test "staged secret blocks: commit split over continued lines (CFG-668 repair)" test_staged_blocks_line_continuation
+
+test_staged_blocks_heredoc_message_with_parenthesis_and_quote() {
+    # A ")" in the body used to end the $( early; the next '"' then closed the
+    # quote and the rest of the message spilled into "pathspecs".
+    _assert_staged_blocks "git commit -m \"\$(cat <<'EOF'
+Fix guard (CFG-1) so \"up to date\" holds
+EOF
+)\"" "heredoc message with (x) and a quote"
+}
+run_test "staged secret blocks: heredoc message containing '(x)' and '\"' (CFG-668 repair)" \
+    test_staged_blocks_heredoc_message_with_parenthesis_and_quote
+
+test_staged_blocks_heredoc_message_with_odd_quote_then_redirect() {
+    _assert_staged_blocks "git commit -m \"\$(cat <<'EOF'
+fix (x): handle 12\" screens
+EOF
+)\" 2>&1 | tail -3" "heredoc message with an odd quote, then 2>&1 | tail"
+}
+run_test "staged secret blocks: heredoc message with an odd quote, then a pipe (CFG-668 repair)" \
+    test_staged_blocks_heredoc_message_with_odd_quote_then_redirect
+
+test_staged_blocks_after_comment_with_apostrophe() {
+    # An apostrophe in a comment must not open a quote that swallows the commit.
+    _assert_staged_blocks "# don't forget the notes
+git commit -m notes" "comment line containing an apostrophe"
+}
+run_test "staged secret blocks: commit after a comment with an apostrophe (CFG-668 repair)" \
+    test_staged_blocks_after_comment_with_apostrophe
+
+test_second_commit_in_chain_is_scanned() {
+    # The first commit names a clean path; the second records the staged index.
+    local repo; repo="$(_mkrepo_with_staged_token)"
+    _modify "$repo" "docs/session-log.md" "ordinary edit"
+    local rc=0
+    _run_guard "$repo" "git commit -m a docs/session-log.md && git commit -m b" 2>/dev/null || rc=$?
+    assert_eq "2" "$rc" "every commit in the command is scanned, not only the first"
+}
+run_test "a second commit in the same command is scanned (CFG-668 repair)" test_second_commit_in_chain_is_scanned
+
+test_distinct_pathspec_lists_are_both_scanned() {
+    # "docs/x y.md" (one path) and docs/x y.md (two paths) must not be merged
+    # into one scan job just because they read the same when joined by spaces.
+    local repo; repo="$(_mkrepo)"
+    printf 'base\n' > "$repo/docs/x"; printf 'base\n' > "$repo/docs/x y.md"; printf 'base\n' > "$repo/y.md"
+    git -C "$repo" add -A >/dev/null 2>&1; git -C "$repo" commit -qm files >/dev/null 2>&1
+    _modify "$repo" "docs/x y.md" "harmless edit"
+    _modify "$repo" "docs/x" "export GH=ghp_CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC"  # pragma: allowlist secret
+    _modify "$repo" "y.md" "harmless edit"
+    local rc=0
+    _run_guard "$repo" 'git commit -m a "docs/x y.md" && git commit -m b docs/x y.md' 2>/dev/null || rc=$?
+    assert_eq "2" "$rc" "the second commit's pathspecs carry the secret and must be scanned"
+}
+run_test "two commits whose pathspecs join to the same text are both scanned (CFG-668 repair)" \
+    test_distinct_pathspec_lists_are_both_scanned
+
+# ── 10d. CFG-668 repair: the repo a leading `cd` moves into is the target ────
+# The hook runs in the session's cwd. `cd <other repo> && git commit -am …`
+# commits the OTHER repo, so its working tree is what -a records. Reading the
+# session repo's tree instead false-blocks on unrelated edits there, and never
+# looks at the content actually being committed.
+
+test_cd_into_other_repo_ignores_session_repo_tree() {
+    local a b; a="$(_mkrepo_with_unstaged_secret)"; b="$(_mkrepo)"
+    _modify "$b" "docs/session-log.md" "harmless edit"
+    local rc=0
+    _run_guard_in "$a" "$a" "cd $b && git commit -am 'sync notes'" 2>/dev/null || rc=$?
+    assert_eq "0" "$rc" "the session repo's unrelated unstaged edits are not part of a commit in another repo"
+}
+run_test "'cd <other> && git commit -am' ignores the session repo's tree (CFG-668 repair)" \
+    test_cd_into_other_repo_ignores_session_repo_tree
+
+test_cd_into_other_repo_scans_that_repo() {
+    local a b; a="$(_mkrepo)"; b="$(_mkrepo_with_unstaged_secret)"
+    local rc=0
+    _run_guard_in "$b" "$a" "cd $b && git commit -am 'sync notes'" 2>/dev/null || rc=$?
+    assert_eq "2" "$rc" "'cd <repo> && git commit -am' must scan the repo it moved into"
+}
+run_test "'cd <other> && git commit -am' scans the repo it moved into (CFG-668 repair)" \
+    test_cd_into_other_repo_scans_that_repo
+
+test_cd_in_subshell_scans_that_repo() {
+    local a b; a="$(_mkrepo)"; b="$(_mkrepo_with_unstaged_secret)"
+    local rc=0
+    _run_guard_in "$b" "$a" "(cd $b && git commit -am 'sync notes')" 2>/dev/null || rc=$?
+    assert_eq "2" "$rc" "'(cd <repo> && git commit -am)' must scan the repo it moved into"
+}
+run_test "'(cd <other> && git commit -am)' scans the repo it moved into (CFG-668 repair)" \
+    test_cd_in_subshell_scans_that_repo
+
+test_cd_then_plain_commit_scans_that_index() {
+    local a b; a="$(_mkrepo)"; b="$(_mkrepo_with_staged_token)"
+    local rc=0
+    _run_guard_in "$b" "$a" "cd $b; git commit -m notes" 2>/dev/null || rc=$?
+    assert_eq "2" "$rc" "'cd <repo>; git commit' must scan that repo's index"
+}
+run_test "'cd <other>; git commit' scans that repo's index (CFG-668 repair)" \
+    test_cd_then_plain_commit_scans_that_index
+
+# ── 10e. CFG-668 repair: forms that carry the working tree some other way ────
+
+test_env_prefixed_commit_is_scanned() {
+    local repo; repo="$(_mkrepo_with_unstaged_secret)"
+    local rc=0; _run_guard "$repo" "GIT_AUTHOR_NAME=x git commit -am log" 2>/dev/null || rc=$?
+    assert_eq "2" "$rc" "an env-prefixed 'git commit -am' is still a commit and must BLOCK"
+}
+run_test "blocks an env-prefixed 'VAR=x git commit -am' (CFG-668 repair)" test_env_prefixed_commit_is_scanned
+
+test_pathspec_from_file_is_scanned() {
+    local repo; repo="$(_mkrepo_with_unstaged_secret)"
+    printf 'docs/session-log.md\n' > "$repo/list.txt"
+    local rc=0
+    _run_guard "$repo" "git commit -m log --pathspec-from-file=list.txt" 2>/dev/null || rc=$?
+    assert_eq "2" "$rc" "--pathspec-from-file commits the working-tree content of the listed paths"
+}
+run_test "blocks '--pathspec-from-file' carrying an unstaged secret (CFG-668 repair)" test_pathspec_from_file_is_scanned
+
+test_unresolvable_pathspec_scans_tracked_tree() {
+    # "$F" is unknown before the command runs; it may name any tracked file.
+    local repo; repo="$(_mkrepo_with_unstaged_secret)"
+    local rc=0; _run_guard "$repo" 'git commit -m log "$F"' 2>/dev/null || rc=$?
+    assert_eq "2" "$rc" "a pathspec the shell computes at run time must not be assumed harmless"
+}
+run_test "an unresolvable pathspec scans the tracked working tree (CFG-668 repair)" \
+    test_unresolvable_pathspec_scans_tracked_tree
+
+# ── 10f. CFG-668 repair: narrowness kept ──────────────────────────────────────
+
+test_redirect_target_is_not_a_pathspec() {
+    local repo; repo="$(_mkrepo_with_unstaged_secret)"
+    _stage "$repo" "docs/notes.md" "ordinary staged line"
+    local rc=0
+    _run_guard "$repo" "git commit -m log >> docs/session-log.md" 2>/dev/null || rc=$?
+    assert_eq "0" "$rc" "a redirection target is where output goes, not a path the commit records"
+}
+run_test "a redirection target is not mistaken for a pathspec (CFG-668 repair)" \
+    test_redirect_target_is_not_a_pathspec
+
+test_abbreviated_message_option_takes_its_value() {
+    # git accepts unique prefixes of long options: --mess is --message.
+    local repo; repo="$(_mkrepo_with_unstaged_secret)"
+    _stage "$repo" "docs/notes.md" "ordinary staged line"
+    local rc=0; _run_guard "$repo" "git commit --mess docs" 2>/dev/null || rc=$?
+    assert_eq "0" "$rc" "the value of an abbreviated --message is a message, not a pathspec"
+}
+run_test "an abbreviated --message option consumes its value (CFG-668 repair)" \
+    test_abbreviated_message_option_takes_its_value
+
+# ── 10g. CFG-668 repair: cost and degradation ─────────────────────────────────
+test_large_message_is_parsed_quickly() {
+    # The guard runs on every Bash call that mentions "git " and "commit". A
+    # quadratic word-splitter took ~24 s on a 100 KB heredoc; the hook timeout
+    # is 60 s and Git-Bash is slower still.
+    local repo; repo="$(_mkrepo_with_staged_token)"
+    local body; body="$(python3 -c 'print(("prose line (x) with a \" quote\n" * 3300)[:100000])')"
+    local cmd="git commit -m \"\$(cat <<'EOF'
+subject
+$body
+EOF
+)\""
+    local rc=0 start end
+    start=$(date +%s)
+    _run_guard "$repo" "$cmd" 2>/dev/null || rc=$?
+    end=$(date +%s)
+    assert_eq "2" "$rc" "the staged secret must still block under a 100 KB message" || return 1
+    [ $((end - start)) -le 5 ] || { echo "    took $((end - start)) s for a 100 KB message" >&2; return 1; }
+}
+run_test "a 100 KB heredoc message is parsed in seconds, not minutes (CFG-668 repair)" \
+    test_large_message_is_parsed_quickly
+
+# Run the guard with a python3 that exits 127, as if it were not installed. The
+# payload is built first, while python3 still works.
+_run_guard_without_python() {  # usage: _run_guard_without_python <repo> <command>; returns rc
+    local repo="$1" cmd="$2" rc=0 payload
+    local shim="$TEST_TMPDIR/no-python-bin"; mkdir -p "$shim"
+    printf '#!/usr/bin/env bash\nexit 127\n' > "$shim/python3"; chmod +x "$shim/python3"
+    payload=$(printf '{"tool_name":"Bash","tool_input":{"command":%s}}' \
+        "$(python3 -c 'import json,sys;print(json.dumps(sys.argv[1]))' "$cmd")")
+    printf '%s' "$payload" \
+        | (cd "$repo" && export PATH="$shim:$PATH" && bash "$GUARD") 2>/dev/null || rc=$?
+    return "$rc"
+}
+
+test_without_parser_lib_index_is_still_scanned() {
+    # The parser lives in lib-commit-scan.sh. A deploy that carries the hook but
+    # not the lib must degrade to the base walk, never to no scan.
+    local repo; repo="$(_mkrepo_with_staged_token)"
+    local lone="$TEST_TMPDIR/lone-hook"; mkdir -p "$lone"
+    cp "$GUARD" "$lone/secret-commit-guard.sh"
+    local rc=0
+    GUARD="$lone/secret-commit-guard.sh" _run_guard "$repo" 'git commit -m "update docs" 2>&1 | tail -3' 2>/dev/null || rc=$?
+    assert_eq "2" "$rc" "a staged secret must block when lib-commit-scan.sh is missing"
+}
+run_test "without lib-commit-scan.sh the guard still reads the index (CFG-668 repair)" \
+    test_without_parser_lib_index_is_still_scanned
+
+test_without_python_index_is_still_scanned() {
+    # Without a working python3 the guard must degrade to at least the base
+    # scan (the index), never to nothing.
+    local repo; repo="$(_mkrepo_with_staged_token)"
+    local rc=0
+    _run_guard_without_python "$repo" 'git commit -m "update docs" 2>&1 | tail -3' || rc=$?
+    assert_eq "2" "$rc" "a staged secret must block even when python3 is unusable" || return 1
+    local repo2; repo2="$(_mkrepo)"
+    _modify "$repo2" "docs/session-log.md" "export GH=ghp_BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB"  # pragma: allowlist secret
+    rc=0; _run_guard_without_python "$repo2" "git commit -am log" || rc=$?
+    assert_eq "2" "$rc" "an -a commit must still read the tree when python3 is unusable"
+}
+run_test "without python3 the guard still reads the index and -a (CFG-668 repair)" \
+    test_without_python_index_is_still_scanned
+
+# ── 11. Syntax ────────────────────────────────────────────────────────────────
 test_syntax_valid() {
     assert_success bash -n "$GUARD"
 }

@@ -299,6 +299,93 @@ EOF
 }
 run_test "check 17: all tracked items closed → safe to delete" test_stale_all_tracked_items_closed_is_actionable
 
+# CFG-620: an ID's state is read from ITS OWN line. The first backticked
+# mention of an ID is often inside ANOTHER, closed item's text (real case:
+# closed `CFG-676` cites open P0 `CFG-666` 16 lines above CFG-666's own line),
+# and the "safe to delete" advice then targeted a pending file tracking a live P0.
+test_stale_id_cited_in_other_closed_item_is_not_closed() {
+    local config_repo="$TEST_TMPDIR/config-repo"
+    local mock_home="$TEST_TMPDIR/home"
+    local project_dir="$TEST_TMPDIR/project"
+    mkdir -p "$config_repo/docs" "$mock_home" "$project_dir"
+    cat > "$config_repo/docs/pending-live-p0.md" << 'EOF'
+<!-- Action: reference -->
+<!-- Tracked-by: CFG-666 -->
+# Notes for a live P0
+EOF
+    touch -d "5 days ago" "$config_repo/docs/pending-live-p0.md"
+    cat > "$config_repo/backlog.md" << 'EOF'
+# Backlog
+- [x] [P0] `CFG-676` **FIXED**: both stranded hooks propagate; unblocks `CFG-666`.
+- [ ] [P0] `CFG-666` **Open**: shutdown blanks a live session's context
+EOF
+    local patched output
+    patched=$(create_patched_script "$config_repo" "$mock_home" "$project_dir")
+    output=$(run_hook "$patched")
+
+    assert_not_contains "$output" "safe to delete" \
+        "CFG-666 is OPEN on its own line; a closed item quoting it must not close it" || return 1
+    assert_not_contains "$output" "pending-live-p0.md" \
+        "a tracked file whose item is open is normal, not stale"
+}
+run_test "check 17 (CFG-620): an ID quoted in another closed item stays open" test_stale_id_cited_in_other_closed_item_is_not_closed
+
+# "Safe to delete" is only earned when EVERY tracked ID is [x]; an ID this
+# backlog has no line for (another project's) is unknown, not closed.
+test_stale_missing_id_is_not_closed() {
+    local config_repo="$TEST_TMPDIR/config-repo"
+    local mock_home="$TEST_TMPDIR/home"
+    local project_dir="$TEST_TMPDIR/project"
+    mkdir -p "$config_repo/docs" "$mock_home" "$project_dir"
+    cat > "$config_repo/docs/pending-mixed.md" << 'EOF'
+<!-- Action: reference -->
+<!-- Tracked-by: CFG-201, SOC-17 -->
+# Half here, half elsewhere
+EOF
+    touch -d "5 days ago" "$config_repo/docs/pending-mixed.md"
+    cat > "$config_repo/backlog.md" << 'EOF'
+# Backlog
+- [x] [P2] `CFG-201` **Done**: shipped
+EOF
+    local patched output
+    patched=$(create_patched_script "$config_repo" "$mock_home" "$project_dir")
+    output=$(run_hook "$patched")
+
+    assert_not_contains "$output" "safe to delete" \
+        "SOC-17 has no line in this backlog — its state is unknown, so deletion is not safe"
+}
+run_test "check 17 (CFG-620): an ID missing from this backlog blocks 'safe to delete'" test_stale_missing_id_is_not_closed
+
+# CFG-620 fourth instance: a deliberately-demoted `reference` file with no
+# Tracked-by was reported "Stale pending files: … no backlog item". Missing
+# tracking is true; "stale" is the wrong word and the wrong action — it is
+# UNTRACKED (add the header or delete), not expired.
+test_reference_without_tracking_is_untracked_not_stale() {
+    local config_repo="$TEST_TMPDIR/config-repo"
+    local mock_home="$TEST_TMPDIR/home"
+    local project_dir="$TEST_TMPDIR/project"
+    mkdir -p "$config_repo/docs" "$mock_home" "$project_dir"
+    cat > "$config_repo/docs/pending-ref-notes.md" << 'EOF'
+<!-- Action: reference -->
+# Context held for later
+EOF
+    touch -d "5 days ago" "$config_repo/docs/pending-ref-notes.md"
+    cat > "$config_repo/backlog.md" << 'EOF'
+# Backlog
+- [ ] [P1] `CFG-01` **Unrelated**: no reference
+EOF
+    local patched output
+    patched=$(create_patched_script "$config_repo" "$mock_home" "$project_dir")
+    output=$(run_hook "$patched")
+
+    assert_contains "$output" "pending-ref-notes.md" "the untracked reference file is still named" || return 1
+    assert_not_contains "$output" "Stale pending files: pending-ref-notes.md" \
+        "a reference file is not 'stale' for lacking a header" || return 1
+    assert_contains "$output" "Untracked reference pending files: pending-ref-notes.md" \
+        "it is called untracked, with the fix (add Tracked-by) implied by the label"
+}
+run_test "check 17 (CFG-620): reference file without Tracked-by is 'untracked', not 'stale'" test_reference_without_tracking_is_untracked_not_stale
+
 test_stale_act_severity() {
     local config_repo="$TEST_TMPDIR/config-repo"
     local mock_home="$TEST_TMPDIR/home"

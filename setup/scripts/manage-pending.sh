@@ -10,13 +10,18 @@
 #   report         List all pending files with action, age, backlog status
 #   --auto-promote Warn on untracked defer files older than 14 days
 #   --auto-clean   Delete files whose tracked backlog item(s) are all [x] done
-#   --stale-check  Print STALE: lines for act/present files whose work shipped
-#                  (all Tracked-by PRNs closed, or session-log/git shows shipped).
+#   --stale-check  Print STALE: lines for act/present files whose EVERY
+#                  Tracked-by ID is "- [x]" on its own backlog line, UNTRACKED:
+#                  lines for act/present files with no real Tracked-by ID, and
+#                  DANGLING: lines for any file whose supersession pointer names
+#                  a pending file that does not exist (CFG-620). No prose is
+#                  ever read as completion evidence.
 #                  Advisory only — never deletes, edits, or blocks. Always exit 0.
 #   --demote-check --since <ref>
 #                  Print DEMOTE: lines for act/present files whose Tracked-by PRN
-#                  was committed since <ref>, or whose filename is cited in a
-#                  commit body since <ref>. Advisory only. Always exit 0.
+#                  was committed since <ref> while none of its Tracked-by IDs is
+#                  still open on its own backlog line, or whose filename is cited
+#                  in a commit body since <ref>. Advisory only. Always exit 0.
 #   --dry-run      Show what would happen without making changes
 set -euo pipefail
 
@@ -115,13 +120,18 @@ all_backlog_items_done() {
 # ── Reconciliation helpers (stale-check / demote-check) ───────────────────────
 
 # Extract REAL Tracked-by PRN tokens from a pending file.
+# Accepts BOTH `Tracked-by: x` and `<!-- Tracked-by: x -->` (CFG-620): every
+# real pending file writes the comment form, and the bare-form-only grep left
+# all of them "untracked" — which is how the old prose heuristic got to run on
+# files whose IDs were plainly open.
 # Drops placeholders: literal "PRN-NNNN", or any Tracked-by line containing a
 # parenthetical placeholder ("(file ", "(this file", "per fix", "when user assigns").
 # Returns space-separated real PRN tokens (possibly empty).
 get_tracked_prns() {
     local file="$1"
     local line
-    line=$(grep -iE '^Tracked-by:' "$file" 2>/dev/null || true)
+    line=$(sed -e 's/<!--//' -e 's/-->//' "$file" 2>/dev/null \
+        | grep -iE '^[[:space:]]*Tracked-by:' | head -1 || true)
     [[ -z "$line" ]] && return 0
     # Placeholder lines yield no real PRNs.
     if echo "$line" | grep -qiE '\(file |\(this file|per fix|when user assigns'; then
@@ -135,75 +145,60 @@ get_tracked_prns() {
     echo "$out"
 }
 
-# True only if EVERY PRN appears in a backlog line that is "- [x]" AND contains
-# that PRN token in backticks. Any missing or open/in-progress PRN → false.
+# State of ONE backlog ID, read from the line that IS that item — the ID in
+# backticks right after the checkbox (and optional [Pn] tag). An ID quoted
+# inside another item's text does not count: CFG-597's closed line cites
+# `CFG-695`, which is open. Prints the checkbox character (" ", "x", "?", ">")
+# or "missing" when this backlog has no such line (another project's ID).
+prn_state() {
+    local prn="$1" row
+    [[ -f "$BACKLOG_FILE" ]] || { echo "missing"; return 0; }
+    row=$(grep -E "^- \[.\] (\[[^]]*\] )?\`${prn}\`" "$BACKLOG_FILE" 2>/dev/null | head -1 || true)
+    [[ -n "$row" ]] || { echo "missing"; return 0; }
+    printf '%s\n' "${row:3:1}"
+}
+
+# True only if EVERY PRN's own line is "- [x]". Open, in-progress ([>]),
+# awaiting live proof ([?]) or unresolvable here → false.
 all_prns_closed() {
     local prns="$1"
     [[ -z "$prns" ]] && return 1
     [[ -f "$BACKLOG_FILE" ]] || return 1
     local prn
     for prn in $prns; do
-        grep -E '^- \[x\]' "$BACKLOG_FILE" 2>/dev/null | grep -qF "\`$prn\`" || return 1
+        [[ "$(prn_state "$prn")" == "x" ]] || return 1
     done
     return 0
 }
 
-# Derive search keywords from a pending filename: strip 'pending-' prefix, '.md'
-# suffix, a trailing date (-YYYYMMDD or -YYYY-MM-DD), split on '-', drop tokens
-# shorter than 4 chars. Returns space-separated keywords (possibly empty).
-slug_keywords() {
-    local file="$1"
-    local slug
-    slug=$(basename "$file")
-    slug="${slug#pending-}"
-    slug="${slug%.md}"
-    slug=$(echo "$slug" | sed -E 's/-[0-9]{8}$//; s/-[0-9]{4}-[0-9]{2}-[0-9]{2}$//')
-    local tok out=""
-    for tok in ${slug//-/ }; do
-        [[ ${#tok} -lt 4 ]] && continue
-        out="${out:+$out }$tok"
-    done
-    echo "$out"
+# Subjects and bodies of the commits `git log <args>` selects, as "S <subject>"
+# and "B <body line>" lines — WITHOUT the SessionEnd hook's own commits (subject
+# "Auto-sync: ..."). Their body lists every path the hook swept (CFG-665), so a
+# live, unshipped handoff swept into one is named there; that records the sweep,
+# not a shipment, and counting it hid live handoffs as demotable. (--stale-check
+# reads no commit at all since CFG-620; --demote-check is the caller.)
+non_sweep_log() {
+    git -C "$PROJECT_DIR" log "$@" --pretty='%x1e%s%n%b' 2>/dev/null \
+        | awk 'BEGIN { RS = "\036" }
+               NR > 1 { n = split($0, l, "\n"); if (l[1] ~ /^Auto-sync:/) next
+                        print "S " l[1]; for (i = 2; i <= n; i++) print "B " l[i] }' || true
 }
 
-# True if session-log.md contains a line with any slug keyword AND a shipped
-# marker (shipped|commit <7-hex>|deployed). Missing file → false.
-shipped_in_session_log() {
-    local file="$1"
-    local log="$PROJECT_DIR/docs/session-log.md"
-    [[ -f "$log" ]] || return 1
-    local kws
-    kws=$(slug_keywords "$file")
-    [[ -z "$kws" ]] && return 1
-    local kw
-    for kw in $kws; do
-        if grep -iE "$kw.*(shipped|commit [0-9a-f]{7}|deployed)" "$log" 2>/dev/null | grep -q .; then
-            return 0
-        fi
-    done
-    return 1
-}
-
-# True if any commit mentioning <filename> has a subject starting feat/fix, OR a
-# commit body cites the exact filename. Missing .git → false.
-cited_in_feat_fix_commit() {
-    local file="$1"
-    local fname
-    fname=$(basename "$file")
-    [[ -d "$PROJECT_DIR/.git" ]] || return 1
-    # Subject starts with feat/fix among commits that grep-match the filename
-    local subjects
-    subjects=$(git -C "$PROJECT_DIR" log --all --grep "$fname" --pretty='%s' 2>/dev/null || true)
-    if echo "$subjects" | grep -qE '^(feat|fix)'; then
-        return 0
-    fi
-    # Body cites the exact filename
-    local bodies
-    bodies=$(git -C "$PROJECT_DIR" log --all --grep "$fname" --pretty='%b' 2>/dev/null || true)
-    if echo "$bodies" | grep -qF "$fname"; then
-        return 0
-    fi
-    return 1
+# Successor pointers: a pending file that is the OBJECT of a supersession phrase
+# ("SUPERSEDED … by X", "carried forward into X", "continued in X", "moved to
+# X", "absorbed/folded into X", "successor: X") — X must follow the phrase
+# directly (backticks, quotes, "(" and a docs/ prefix allowed). Any pending
+# file named LATER on the line is not a pointer: "moved to backlog `CFG-700`;
+# the old notes in pending-a.md were deleted" names a resolved predecessor.
+# "Supersedes X" names a PREDECESSOR and is deliberately not matched — those
+# get deleted. Prints the named files (basenames, one per line, self
+# excluded), possibly nothing.
+named_successors() {
+    local file="$1" self
+    self=$(basename "$file")
+    grep -oiE "(superseded[^.]{0,40}by|carried forward[^.]{0,20}(in|into|to)|continued in|moved to|absorbed into|folded into|successor:?)[[:space:]]*[\`\"'(]*(docs/)?pending-[A-Za-z0-9._-]+\.md" "$file" 2>/dev/null \
+        | grep -oE 'pending-[A-Za-z0-9._-]+\.md' \
+        | grep -vFx "$self" | sort -u || true
 }
 
 # ── Collect pending files ────────────────────────────────────────────────────
@@ -291,23 +286,29 @@ if $AUTO_CLEAN; then
 fi
 
 # ── Stale-check (advisory; never deletes/edits/blocks; always exit 0) ──────────
+# CFG-620: backlog STATE only. The former signal 2 (session-log lines matching
+# "shipped|commit <hex>|deployed", feat/fix commits citing the filename) read a
+# file's own prose as completion evidence and was wrong every recorded time.
 if $STALE_CHECK; then
     for pf in "${PENDING_FILES[@]}"; do
         pf_base="$(basename "$pf")"
         action=$(get_action "$pf")
-        # Only act/present files are reconciled.
+
+        # Every file, whatever its action: a supersession pointer must resolve.
+        for _succ in $(named_successors "$pf"); do
+            [[ -f "$DOCS_DIR/$_succ" ]] || echo "DANGLING: $pf_base → $_succ (named successor does not exist)"
+        done
+
+        # Only act/present files are reconciled against the backlog.
         [[ "$action" != "act" && "$action" != "present" ]] && continue
 
         prns=$(get_tracked_prns "$pf")
-        # Signal 1: every real Tracked-by PRN is closed.
-        if [[ -n "$prns" ]] && all_prns_closed "$prns"; then
-            echo "STALE: $pf_base (all PRNs closed)"
+        if [[ -z "$prns" ]]; then
+            echo "UNTRACKED: $pf_base (no Tracked-by)"
             continue
         fi
-        # Signal 2: session-log or git shows the work shipped.
-        if shipped_in_session_log "$pf" || cited_in_feat_fix_commit "$pf"; then
-            echo "STALE: $pf_base (session-log/git shows shipped)"
-            continue
+        if all_prns_closed "$prns"; then
+            echo "STALE: $pf_base (all PRNs closed: ${prns// /, })"
         fi
         # else CLEAN — emit nothing.
     done
@@ -316,10 +317,11 @@ fi
 
 # ── Demote-check (advisory; never deletes/edits/blocks; always exit 0) ─────────
 if $DEMOTE_CHECK; then
-    # Collect committed PRN tokens and cited pending-*.md filenames since <ref>.
+    # Collect committed PRN tokens and cited pending-*.md filenames since <ref>
+    # (Auto-sync commits excluded: their body lists swept paths, see non_sweep_log).
     _committed=""
     if [[ -n "$DEMOTE_SINCE" && -d "$PROJECT_DIR/.git" ]]; then
-        _committed=$(git -C "$PROJECT_DIR" log "${DEMOTE_SINCE}..HEAD" --pretty='%H %s%n%b' 2>/dev/null || true)
+        _committed=$(non_sweep_log "${DEMOTE_SINCE}..HEAD" | sed 's/^[SB] //')
     fi
     _committed_prns=$(echo "$_committed" | grep -oE '[A-Z]+-[0-9]+' 2>/dev/null | sort -u || true)
     _cited_files=$(echo "$_committed" | grep -oE 'pending-[A-Za-z0-9._-]+\.md' 2>/dev/null | sort -u || true)
@@ -334,8 +336,20 @@ if $DEMOTE_CHECK; then
             echo "DEMOTE: $pf_base (cited in a commit since $DEMOTE_SINCE)"
             continue
         fi
-        # Any real Tracked-by PRN committed since <ref>?
+        # Any real Tracked-by PRN committed since <ref>? A commit that MENTIONS
+        # an ID is not the ID shipping (CFG-620): when the backlog has a line
+        # for any tracked ID and that line is not "- [x]", the file still
+        # tracks live work — no demote. With no backlog line to consult
+        # (no backlog, another project's ID) the commit is the only signal.
         prns=$(get_tracked_prns "$pf")
+        _open=""
+        for prn in $prns; do
+            case "$(prn_state "$prn")" in
+                x|missing) ;;
+                *) _open="$prn"; break ;;
+            esac
+        done
+        [[ -n "$_open" ]] && continue
         _hit=""
         for prn in $prns; do
             if echo "$_committed_prns" | grep -qFx "$prn"; then

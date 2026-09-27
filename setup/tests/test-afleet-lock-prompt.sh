@@ -123,6 +123,35 @@ test_no_lock_launches_mclaude() {
 }
 run_test "no lock → launches normally" test_no_lock_launches_mclaude
 
+# ── CFG-649: the AFD lock names the machine even without `hostname` ──────────
+# afleet passed `$(hostname)` with no fallback into afd_lock_acquire, so on a
+# SteamOS box without the binary the session mutex recorded an EMPTY machine —
+# the one place where a wrong answer is a double-leader.
+
+test_afd_lock_machine_name_without_hostname_binary() {
+    local pair env home
+    pair=$(build_env); env="${pair%|*}"; home="${pair#*|}"
+    local project="$home/alpha"
+    init_project "$project"
+    # Stub afd-lib.sh: record the machine argument instead of calling a server.
+    mkdir -p "$env/afd/lib"
+    cat > "$env/afd/lib/afd-lib.sh" <<'STUB'
+afd_lock_acquire() { printf '%s\n' "${2:-}" > "$AFD_STUB_RECORD"; return 0; }
+STUB
+    local me; me=$(uname -n)
+    [[ -n "$me" ]] || { echo "FAIL: uname -n gave nothing; cannot run this case"; return 1; }
+    local record="$TEST_TMPDIR/afd-machine"
+
+    CONFIG_REPO="$env" HOME="$home" PATH="$(shadow_hostname_missing):$home/.local/bin:$PATH" \
+        AFD_TOKEN="stub-token" AFD_STUB_RECORD="$record" AFLEET_DRY_RUN=1 \
+        bash "$SCRIPT" alpha </dev/null >/dev/null 2>&1 || true
+
+    assert_file_exists "$record" "precondition: the afd lock path must have been reached" || return 1
+    assert_eq "$me" "$(cat "$record")" "the lock must record the machine name resolved without the hostname binary"
+}
+run_test "afd lock records the machine name without the hostname binary (CFG-649)" \
+    test_afd_lock_machine_name_without_hostname_binary
+
 # ── Case 2: live lock + 'q' → no launch, exit 0 ───────────────────────────────
 
 test_live_lock_q_aborts() {

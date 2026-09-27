@@ -42,7 +42,9 @@ test_leader_marker_written_on_acquire() {
     local cr="$TEST_TMPDIR/cr1" proj="$TEST_TMPDIR/proj-leader"
     _mk_config_repo "$cr"
     mkdir -p "$proj/.claude"          # free project — no lock
-    _run_07b "$cr" "$proj" "cc-leader" ""
+    # This session's own CC is visible to the lock check, as in production
+    # (CFG-673: a check that sees no CC at all answers "unknown", not "free").
+    _CC_SELF_PID="$$" _run_07b "$cr" "$proj" "cc-leader" ""
     assert_file_exists "$proj/.claude/.session-role.cc-leader" "07b writes a role marker on acquire"
     assert_file_contains "$proj/.claude/.session-role.cc-leader" "leader" "acquire (rc 0) ⇒ leader"
     assert_file_exists "$proj/.claude/.session-lock" "07b acquired the lock"

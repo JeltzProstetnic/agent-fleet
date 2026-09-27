@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 # SessionStart hook: check for config sync failures, symlink health, and inbox tasks.
 # Outputs JSON with additionalContext so Claude sees the warning in context (invisible to user).
+# Every invocation also appends a START record (before any check module runs)
+# and a DONE record (payload chars + sha256) to ~/.claude/logs/session-start.log
+# — see the GH#12 blocks below.
 #
 # Check modules live in checks/ subdirectory and are sourced in filename order
 # (01-sync-state.sh through 20-user-needs.sh) — adding a file there registers it.
@@ -44,6 +47,24 @@ if command -v read_cc_session_id >/dev/null 2>&1; then
     CC_SESSION_ID="$(read_cc_session_id)"
 fi
 export CC_SESSION_ID
+
+# ── Per-invocation log: START record (agent-fleet GH#12) ──
+# Six sessions started with NONE of this payload reaching the model while a manual re-run
+# of the hook was healthy, and nothing could tell "hook never invoked" from "invoked, output
+# discarded". Two records per run, OUTSIDE the repo, sharing the pid:
+#   START — written HERE, before any check module is sourced;
+#   DONE  — written after the payload is emitted (end of file), with its size and hash.
+# Reading it:  no record at all → the hook was never invoked (or could not write the log);
+#   START without DONE → invoked, then killed or hung before emitting (a Claude Code hook
+#   timeout, a stalled module) — the payload never left the hook;
+#   START + DONE for a session that received nothing → emitted, and delivery dropped it.
+# Never affects the output: every step is guarded, exit stays 0. Path override for tests.
+_SS_LOG="${CONFIG_CHECK_LOG:-$HOME/.claude/logs/session-start.log}"
+{
+    mkdir -p "$(dirname "$_SS_LOG")"
+    printf '%s start session=%s cwd=%s pid=%s\n' \
+        "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "${CC_SESSION_ID:--}" "$PROJECT_DIR" "$$" >> "$_SS_LOG"
+} 2>/dev/null || true
 
 # ── Resolve checks directory ──
 _HOOK_DIR="$(cd "$(dirname "$(_readlink_f "${BASH_SOURCE[0]}" 2>/dev/null || echo "${BASH_SOURCE[0]}")")" && pwd)"
@@ -152,6 +173,7 @@ if [ -n "$SYSTEM_MSG" ] && [ "${#SYSTEM_MSG}" -gt "$_MAX_CTX" ]; then
     SYSTEM_MSG="${SYSTEM_MSG:0:$_head} … [TRUNCATED: $_dropped of $_total chars dropped — payload exceeded $_MAX_CTX chars (CONFIG_CHECK_MAX_CONTEXT). Claude Code spills hook output over ~50K chars to a disk file with only a head preview injected, so the cap must stay below that; if startup context ever arrives as a file path + preview, that spill is what happened. Usual cause: cross-project/inbox.md holds too many items for this project; see CFG-515 and CFG-527] … ${SYSTEM_MSG: -$_tail}"
 fi
 
+_EMIT="empty"
 if [ -n "$SYSTEM_MSG" ]; then
     # Payload goes in on STDIN, never as argv. The python3 branch is guarded by its own exit
     # status so a runtime failure falls through to node — `command -v` alone only proves the
@@ -161,14 +183,31 @@ if [ -n "$SYSTEM_MSG" ]; then
     # hook_success, and then SILENTLY DISCARDED — measured against the real binary,
     # not inferred, and contrary to the published docs which present both forms as
     # valid. See setup/tests/test-hook-output-format.sh for the three-variant probe.
-    if ! { command -v python3 >/dev/null 2>&1 &&
+    _EMIT="none"
+    if { command -v python3 >/dev/null 2>&1 &&
            printf '%s' "$SYSTEM_MSG" | python3 -c \
              "import json,sys; print(json.dumps({'hookSpecificOutput': {'hookEventName': 'SessionStart', 'additionalContext': sys.stdin.read()}}))"; }; then
-        if command -v node >/dev/null 2>&1; then
-            printf '%s' "$SYSTEM_MSG" | node -e \
-              "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>console.log(JSON.stringify({hookSpecificOutput:{hookEventName:'SessionStart',additionalContext:s}})))"
-        fi
+        _EMIT="python3"
+    elif command -v node >/dev/null 2>&1; then
+        printf '%s' "$SYSTEM_MSG" | node -e \
+          "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>console.log(JSON.stringify({hookSpecificOutput:{hookEventName:'SessionStart',additionalContext:s}})))" \
+          && _EMIT="node"
     fi
 fi
+
+# ── Per-invocation log: DONE record (agent-fleet GH#12) ──
+# Pairs with the START record above (same pid). Compare chars/sha256 against what the
+# session actually got to spot truncation. Bounded: trimmed to the last 500 lines once it
+# passes 1000 (a per-process temp name, so two sessions trimming at once cannot clobber
+# each other's copy).
+{
+    _hash=$(printf '%s' "$SYSTEM_MSG" | { sha256sum 2>/dev/null || shasum -a 256 2>/dev/null || cksum; } | cut -d' ' -f1 | cut -c1-12)
+    printf '%s done session=%s cwd=%s chars=%s sha256=%s emit=%s pid=%s\n' \
+        "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "${CC_SESSION_ID:--}" "$PROJECT_DIR" "${#SYSTEM_MSG}" "${_hash:--}" "$_EMIT" "$$" >> "$_SS_LOG"
+    if [ "$(wc -l < "$_SS_LOG" 2>/dev/null | tr -d ' ')" -gt 1000 ] 2>/dev/null; then
+        tail -500 "$_SS_LOG" > "$_SS_LOG.tmp.$$" 2>/dev/null && mv -f "$_SS_LOG.tmp.$$" "$_SS_LOG"
+        rm -f "$_SS_LOG.tmp.$$" 2>/dev/null
+    fi
+} 2>/dev/null || true
 
 exit 0

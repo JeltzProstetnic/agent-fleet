@@ -99,6 +99,28 @@ test_parse_registry_missing_creates_minimal() {
 }
 run_test "parse_registry auto-creates minimal registry when missing" test_parse_registry_missing_creates_minimal
 
+# CFG-649: with `hostname` absent (SteamOS after an update) the auto-created row
+# wrote "unknown" into the Machines column. The fallback chain must name the
+# machine instead.
+test_parse_registry_autocreate_names_machine_without_hostname_binary() {
+    local reg="$TEST_TMPDIR/no-such-registry.md"
+    local me; me=$(uname -n)
+    [[ -n "$me" ]] || { echo "FAIL: uname -n gave nothing; cannot run this case"; return 1; }
+    (
+        export PATH="$(shadow_hostname_missing):$PATH"
+        source_lib_and_run "$reg" "/dev/null" "$TEST_TMPDIR" parse_registry >/dev/null 2>&1
+    )
+    assert_file_exists "$reg" "precondition: registry auto-created" || return 1
+    if ! grep -qF "| ${me} |" "$reg"; then
+        echo "FAIL: Machines column does not carry '$me'"; cat "$reg"; return 1
+    fi
+    if grep -qF "| unknown |" "$reg"; then
+        echo "FAIL: Machines column degraded to 'unknown'"; cat "$reg"; return 1
+    fi
+}
+run_test "auto-created registry row names the machine without the hostname binary (CFG-649)" \
+    test_parse_registry_autocreate_names_machine_without_hostname_binary
+
 test_parse_registry_empty_on_first_run() {
     local config="$TEST_TMPDIR/config"
     mkdir -p "$config"

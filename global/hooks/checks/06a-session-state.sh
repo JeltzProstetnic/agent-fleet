@@ -56,11 +56,16 @@ else
 fi
 
 # Check 6a.5: Pending files list — list all pending-*.md files in project docs/
-# Stale-pending reconciliation (CFG): files whose work already shipped (all
-# Tracked-by PRNs closed, or session-log/git shows shipped) are routed to a
-# SEPARATE STALE_PENDING field so the agent verifies-before-presenting instead
-# of re-listing shipped work as live ACT/PENDING. Genuinely-open files keep
-# byte-identical ACT_PENDING/PENDING_FILES output (clean-path regression-tested).
+# Stale-pending reconciliation (CFG-620): manage-pending.sh --stale-check
+# resolves each act/present file's Tracked-by IDs against backlog.md STATE —
+# STALE only when every ID's own line is "- [x]". It never reads prose
+# ("shipped", a commit hash) as evidence; that guess was wrong every recorded
+# time. Stale files go to a SEPARATE STALE_PENDING field so the agent
+# verifies-before-presenting instead of re-listing shipped work as live
+# ACT/PENDING. Files with no real Tracked-by stay live and are named under
+# UNTRACKED_PENDING (a different problem); a supersession pointer to a file
+# that does not exist is DANGLING_PENDING (a data-loss signal). Genuinely-open
+# files keep byte-identical ACT_PENDING/PENDING_FILES output.
 _stale_set=""
 if [ -d "$PROJECT_DIR/docs" ]; then
     _manage_pending="${CONFIG_REPO:-}/setup/scripts/manage-pending.sh"
@@ -68,15 +73,20 @@ if [ -d "$PROJECT_DIR/docs" ]; then
         _stale_set=$(bash "$_manage_pending" --stale-check --project-dir "$PROJECT_DIR" 2>/dev/null || true)
     fi
 fi
-# Returns "stale" if the given filename appears as a STALE: line in the set.
+# Returns 0 if the given filename appears as a STALE: line in the set.
 _is_stale_pending() {
     [ -n "$_stale_set" ] || return 1
     printf '%s\n' "$_stale_set" | grep -qF "STALE: $1"
+}
+_is_untracked_pending() {
+    [ -n "$_stale_set" ] || return 1
+    printf '%s\n' "$_stale_set" | grep -qF "UNTRACKED: $1"
 }
 
 _pending_list=""
 _act_files=""
 _stale_files=""
+_untracked_files=""
 if [ -d "$PROJECT_DIR/docs" ]; then
     for _pf in "$PROJECT_DIR"/docs/pending-*.md; do
         [ -f "$_pf" ] || continue
@@ -96,13 +106,27 @@ if [ -d "$PROJECT_DIR/docs" ]; then
         if [ "$_action" = "act" ]; then
             _act_files="${_act_files:+$_act_files, }$_pf_base"
         fi
+        if _is_untracked_pending "$_pf_base"; then
+            _untracked_files="${_untracked_files:+$_untracked_files, }$_pf_base"
+        fi
     done
 fi
 if [ -n "$_act_files" ]; then
     WARNINGS="${WARNINGS:+$WARNINGS | }ACT_PENDING: These pending files require IMMEDIATE execution before any user task: $_act_files — read them and execute (loading protocol step 0b)."
 fi
 if [ -n "$_stale_files" ]; then
-    WARNINGS="${WARNINGS:+$WARNINGS | }STALE_PENDING: These pending files look already-shipped (completion evidence found): $_stale_files — verify the cited commit/session-log line, then demote (act/present → reference with a real Tracked-by, or delete). Do NOT present them as live work without verifying."
+    WARNINGS="${WARNINGS:+$WARNINGS | }STALE_PENDING: every Tracked-by ID is [x] in backlog.md for: $_stale_files — check those IDs, then demote (act/present → reference, or delete). Not live work unless an ID turns out open."
+fi
+if [ -n "$_untracked_files" ]; then
+    WARNINGS="${WARNINGS:+$WARNINGS | }UNTRACKED_PENDING: act/present files with no Tracked-by: $_untracked_files — file a backlog item and add the header."
+fi
+# Dangling supersession pointers (any action, reference included).
+_dangling=""
+if [ -n "$_stale_set" ]; then
+    _dangling=$(printf '%s\n' "$_stale_set" | sed -n 's/^DANGLING: \([^ ]*\) → \([^ ]*\).*/\1 → \2/p' | tr '\n' ',' | sed 's/,$//; s/,/, /g')
+fi
+if [ -n "$_dangling" ]; then
+    WARNINGS="${WARNINGS:+$WARNINGS | }DANGLING_PENDING: supersession pointer to a file that does not exist (possible data loss — check git log for it): $_dangling"
 fi
 if [ -n "$_pending_list" ]; then
     IDENTITY_MSG="${IDENTITY_MSG:+$IDENTITY_MSG | }PENDING_FILES: $_pending_list"

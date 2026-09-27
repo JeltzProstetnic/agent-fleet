@@ -20,8 +20,12 @@ setup_check_env() {
     mkdir -p "$CONFIG_REPO/.git"
     mkdir -p "$PROJECT_DIR"
 
-    # Clear any date-gate marker from previous test
-    rm -f /tmp/.fleet-update-check-* 2>/dev/null || true
+    # Clear any date-gate marker from previous test. The gate follows
+    # ${SCHED_MARKER_DIR:-${TMPDIR:-/tmp}} (GH#13) — pin it inside the sandbox
+    # so this clears the marker the check reads, whatever TMPDIR is.
+    export SCHED_MARKER_DIR="$TEST_TMPDIR/sched"
+    mkdir -p "$SCHED_MARKER_DIR"
+    rm -f "$SCHED_MARKER_DIR"/.fleet-update-check-* 2>/dev/null || true
 }
 
 # Create a project git repo with an upstream remote pointing to a bare repo.

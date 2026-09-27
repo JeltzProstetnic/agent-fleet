@@ -24,12 +24,12 @@ git -C "$_FLEET_PROJECT_DIR" remote get-url upstream >/dev/null 2>&1 || return 0
 _fleet_sched_lib="${CONFIG_REPO:-}/setup/scripts/sched-lib.sh"
 if [ -f "$_fleet_sched_lib" ]; then
     source "$_fleet_sched_lib"
-    SCHED_MARKER_DIR="${SCHED_MARKER_DIR:-/tmp}"
     sched_is_due "fleet-update-check" "daily" || return 0 2>/dev/null || true
 else
-    _fleet_gate="/tmp/.fleet-update-check-$(date +%Y-%m-%d)"
+    # fallback inline marker — never a bare /tmp (GH#13: read-only in the CC sandbox)
+    _fleet_gate="${SCHED_MARKER_DIR:-${TMPDIR:-/tmp}}""/.fleet-update-check-$(date +%Y-%m-%d)"
     [ ! -f "$_fleet_gate" ] || return 0 2>/dev/null || true
-    touch "$_fleet_gate"
+    touch "$_fleet_gate" 2>/dev/null || true
 fi
 
 # Get upstream version via git show (requires prior fetch — startup hook does this)
@@ -74,7 +74,7 @@ fi
 if type sched_mark_done &>/dev/null; then
     sched_mark_done "fleet-update-check" "daily"
 elif [ -z "${_fleet_gate:-}" ]; then
-    touch "/tmp/.fleet-update-check-$(date +%Y-%m-%d)"
+    touch "${SCHED_MARKER_DIR:-${TMPDIR:-/tmp}}""/.fleet-update-check-$(date +%Y-%m-%d)" 2>/dev/null || true
 fi
 
 # Append warning

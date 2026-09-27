@@ -40,8 +40,9 @@ run_test "SKILL.md contains triage phase" test_skill_has_triage
 test_skill_has_root_cause() {
     local content
     content=$(cat "$SKILL_FILE")
-    # Must reference root cause analysis (classify/root cause/structural)
-    assert_contains "$content" "root cause" || assert_contains "$content" "ROOT CAUSE" || assert_contains "$content" "[Cc]lassify"
+    # Must reference root cause analysis. (A third alternative, "[Cc]lassify", was dropped:
+    # assert_contains matches literally, so that bracket pattern could never match.)
+    assert_contains_any "$content" "root cause" "ROOT CAUSE"
 }
 run_test "SKILL.md contains root cause analysis" test_skill_has_root_cause
 
@@ -49,7 +50,7 @@ test_skill_has_rule_search() {
     local content
     content=$(cat "$SKILL_FILE")
     # Must check for existing rules before proposing new ones
-    assert_contains "$content" "rule violated" || assert_contains "$content" "rule present" || assert_contains "$content" "existing"
+    assert_contains_any "$content" "rule violated" "rule present" "existing"
 }
 run_test "SKILL.md checks for existing rules" test_skill_has_rule_search
 
@@ -64,15 +65,15 @@ run_test "SKILL.md has structured finding/fix format" test_skill_has_draft_forma
 test_skill_has_pattern_check() {
     local content
     content=$(cat "$SKILL_FILE")
-    assert_contains "$content" "Known Faulty Patterns" || assert_contains "$content" "known-faulty-patterns"
+    assert_contains_any "$content" "Known Faulty Patterns" "known-faulty-patterns"
 }
 run_test "SKILL.md references pattern check" test_skill_has_pattern_check
 
 test_skill_has_present_step() {
     local content
     content=$(cat "$SKILL_FILE")
-    assert_contains "$content" "Present" || assert_contains "$content" "present"
-    assert_contains "$content" "approval" || assert_contains "$content" "approve" || assert_contains "$content" "Approval"
+    assert_contains_any "$content" "Present" "present"
+    assert_contains_any "$content" "approval" "approve" "Approval"
 }
 run_test "SKILL.md has present-and-approve step" test_skill_has_present_step
 
@@ -81,28 +82,28 @@ run_test "SKILL.md has present-and-approve step" test_skill_has_present_step
 test_skill_enforces_one_sentence() {
     local content
     content=$(cat "$SKILL_FILE")
-    assert_contains "$content" "One sentence" || assert_contains "$content" "one sentence"
+    assert_contains_any "$content" "One sentence" "one sentence"
 }
 run_test "SKILL.md enforces one-sentence rule format" test_skill_enforces_one_sentence
 
 test_skill_enforces_flat_imperative() {
     local content
     content=$(cat "$SKILL_FILE")
-    assert_contains "$content" "imperative" || assert_contains "$content" "Flat imperative"
+    assert_contains_any "$content" "imperative" "Flat imperative"
 }
 run_test "SKILL.md enforces flat imperative style" test_skill_enforces_flat_imperative
 
 test_skill_forbids_inline_justification() {
     local content
     content=$(cat "$SKILL_FILE")
-    assert_contains "$content" "justification" || assert_contains "$content" "rationale" || assert_contains "$content" "justify"
+    assert_contains_any "$content" "justification" "rationale" "justify"
 }
 run_test "SKILL.md addresses inline justification" test_skill_forbids_inline_justification
 
 test_skill_has_gate_check() {
     local content
     content=$(cat "$SKILL_FILE")
-    assert_contains "$content" "GATE CHECK" || assert_contains "$content" "gate check"
+    assert_contains_any "$content" "GATE CHECK" "gate check"
     assert_contains "$content" "Rule exists"
 }
 run_test "SKILL.md has gate check against 'rule exists' fallacy" test_skill_has_gate_check
@@ -167,7 +168,7 @@ run_test "CLAUDE.md has lrn quick command entry" test_claudemd_quick_command_exi
 test_claudemd_quick_command_points_to_skill() {
     local line
     line=$(grep '| `lrn` |' "$CLAUDE_MD" | head -1)
-    assert_contains "$line" "SKILL.md" || assert_contains "$line" "skills/lrn"
+    assert_contains_any "$line" "SKILL.md" "skills/lrn"
 }
 run_test "CLAUDE.md quick command points to skill" test_claudemd_quick_command_points_to_skill
 
@@ -208,8 +209,8 @@ run_test "old learn-protocol.md is deprecated or deleted" test_old_protocol_depr
 test_skill_has_tier_hierarchy() {
     local content
     content=$(cat "$SKILL_FILE")
-    assert_contains "$content" "hook" || assert_contains "$content" "Hook"
-    assert_contains "$content" "backlog" || assert_contains "$content" "Backlog"
+    assert_contains_any "$content" "hook" "Hook"
+    assert_contains_any "$content" "backlog" "Backlog"
     assert_contains "$content" "CLAUDE.md"
 }
 run_test "SKILL.md has tier hierarchy (hook > backlog > CLAUDE.md)" test_skill_has_tier_hierarchy

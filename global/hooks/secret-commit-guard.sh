@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# PreToolUse hook (CFG-652/653): scan the STAGED DIFF for credentials on every
-# `git commit`, whoever issues it.
+# PreToolUse hook (CFG-652/653): scan the diff a `git commit` will RECORD for
+# credentials, whoever issues it — the index always, and the working tree as
+# well when the commit carries it: -a and named paths (CFG-668).
 #
 # Why this exists, measured in the lrn audit of 2026-09-21: a secret scan
 # already existed, inside config-auto-sync.sh's own commit path. That path
@@ -17,10 +18,12 @@
 #           shape; only a value comparison finds them. Fingerprints are stored,
 #           never values, so this file's own data is not a secret.
 #
-# It reads the staged diff and NOTHING ELSE. CFG-621 is a live defect where
-# vault-read-guard.sh blocks ordinary commits because the English word "more"
-# appears in an -m body; a guard that false-blocks trains the bypass (CFG-513).
-# The commit message is never examined here.
+# It reads what the commit will record — never less, and more only where the
+# base guard already read more (the index under `--only <path>`, and the call's
+# own repo index when a `cd` moves the commit elsewhere) — and NOTHING ELSE.
+# CFG-621 was a defect where vault-read-guard.sh blocked ordinary commits
+# because the English word "more" appeared in an -m body; a guard that
+# false-blocks trains the bypass (CFG-513). The commit message is never read.
 #
 # Exit 2 = block with message. Exit 0 = allow.
 
@@ -43,40 +46,124 @@ fi
 # Cheap reject before any git work.
 [[ "$CMD" == *"git "*"commit"* ]] || exit 0
 
-# ── Resolve which repo the commit applies to ──────────────────────────────────
-# Walk each clause so `git -C <dir> commit` targets the right tree. Only a real
-# `commit` subcommand counts; `git log --grep commit` must not trigger this.
-GIT_C_DIR=""
-IS_COMMIT=0
-while IFS= read -r clause; do
-    # shellcheck disable=SC2086
-    set -- $clause
-    [ "${1:-}" = "git" ] || continue
-    shift
-    local_c=""
-    while [ $# -gt 0 ]; do
-        case "$1" in
-            -C) local_c="${2:-}"; shift 2 ;;
-            -c) shift 2 ;;
-            --no-pager|--no-replace-objects|--bare) shift ;;
-            *) break ;;
-        esac
-    done
-    if [ "${1:-}" = "commit" ]; then
-        IS_COMMIT=1; GIT_C_DIR="$local_c"; break
+# ── Resolve every commit in the command, its repo, and what it will record ────
+# CFG-668: the guard used to read `git diff --cached` and nothing else, so a
+# commit that stages and commits in one step — `-a`/`-am`, or `git commit
+# <path>` — went through unexamined, and the suite had no such case to show it.
+#
+# The rule since the CFG-668 repair: the INDEX IS ALWAYS READ, exactly as the
+# base guard did, and the working tree against HEAD is read IN ADDITION when a
+# commit carries it (-a/--all, named paths, --pathspec-from-file, a pathspec
+# the shell computes at run time). The first fix instead dropped the index
+# whenever it believed it had seen a pathspec, and its word-splitter mistook
+# `2>&1`, `>/dev/null`, `<<'EOF'`, a line continuation and a "(x)" inside a
+# heredoc message for pathspecs — so a STAGED secret in an everyday commit
+# shape was committed unscanned. Reading the index unconditionally means a
+# parsing mistake can at worst over-read, never under-read what base read.
+#
+# Narrowness is kept where it is safe to keep: an ordinary commit reads the
+# index only, the tree is read only for the paths the commit names, and a
+# leading `cd DIR` decides which repo that is (the hook runs in the session's
+# cwd, which is not where `cd ~/other && git commit -am …` commits).
+#
+# The command is parsed by lib-commit-scan.sh (python3, linear). Without a
+# working python3, or without the lib, the guard falls back to the base clause
+# walk below plus an -a heuristic: that degrades toward over-reading, never
+# toward reading less than base.
+JOBS=()   # flattened: J <dir> <n> <git-global-args…> <tree 0|1> <n> <paths…>
+PARSED=0
+# shellcheck source=lib-commit-scan.sh
+source "$(dirname "${BASH_SOURCE[0]}")/lib-commit-scan.sh" 2>/dev/null \
+    && _commit_scan_jobs "$CMD" && PARSED=1
+
+# The base guard's clause walk, kept verbatim in effect: its target's index is
+# ALWAYS read, so nothing the base guard scanned goes unscanned. Without python3
+# it is the only parse, and a word that looks like -a also reads the tree.
+_base_walk() {
+    local clause local_c w all=0
+    set -f
+    while IFS= read -r clause; do
+        # shellcheck disable=SC2086
+        set -- $clause
+        [ "${1:-}" = "git" ] || continue
+        shift
+        local_c=""
+        while [ $# -gt 0 ]; do
+            case "$1" in
+                -C) local_c="${2:-}"; shift 2 ;;
+                -c) shift 2 ;;
+                --no-pager|--no-replace-objects|--bare) shift ;;
+                *) break ;;
+            esac
+        done
+        if [ "${1:-}" = "commit" ]; then
+            shift
+            if [ "$PARSED" -eq 0 ]; then
+                for w in "$@"; do
+                    case "$w" in --all|-a*|-[!-]*a*) all=1 ;; esac   # -a, -am, -qam …
+                done
+            fi
+            set +f
+            JOBS+=(J "${local_c:-$PWD}" 0 "$all" 0)
+            return 0
+        fi
+    done < <(printf '%s\n' "$CMD" | tr '\n;|' '\n\n\n' | sed 's/&&/\n/g' | sed 's/^[[:space:]]*//')
+    set +f
+    return 0
+}
+_base_walk
+
+[ ${#JOBS[@]} -gt 0 ] || exit 0
+
+# ── Read what each commit will record ─────────────────────────────────────────
+# --no-color because this fleet sets color.diff=always, which makes every `^+`
+# match fail silently (a documented WSL trap). Pathspecs resolve against the
+# commit's own directory, which is why the diffs run there and not at the root.
+ADDED=""
+NAMES=""
+FP_ROOT=""
+_seen=$'\n'
+# _job_diff runs inside _scan_job and reads its locals: dir g index tree has_head paths.
+_job_diff() {  # extra diff args (e.g. --name-only) first
+    [ "$index" -eq 1 ] && git -C "$dir" "${g[@]}" diff --no-color "$@" --cached 2>/dev/null
+    [ "$tree" = "1" ] || return 0
+    if [ "$has_head" -eq 1 ]; then
+        git -C "$dir" "${g[@]}" diff --no-color "$@" HEAD -- "${paths[@]}" 2>/dev/null
+    else   # unborn branch: the index above plus unstaged edits is the same set
+        git -C "$dir" "${g[@]}" diff --no-color "$@" -- "${paths[@]}" 2>/dev/null
     fi
-done < <(printf '%s\n' "$CMD" | tr '\n;|' '\n\n\n' | sed 's/&&/\n/g' | sed 's/^[[:space:]]*//')
-
-[ "$IS_COMMIT" -eq 1 ] || exit 0
-
-TARGET_DIR="${GIT_C_DIR:-$PWD}"
-[ -d "$TARGET_DIR" ] || exit 0
-ROOT=$(git -C "$TARGET_DIR" rev-parse --show-toplevel 2>/dev/null) || exit 0
-[ -n "$ROOT" ] || exit 0
-
-# Added lines only. --no-color because this fleet sets color.diff=always, which
-# makes every `^+` match fail silently (a documented WSL trap).
-ADDED=$(git -C "$ROOT" diff --cached --no-color 2>/dev/null | grep '^+' | grep -v '^+++' || true)
+    return 0
+}
+_scan_job() {  # _scan_job <dir> <tree> <n-globals> <globals…> <n-paths> <paths…>
+    local dir="$1" tree="$2" ng="$3"; shift 3
+    local g=("${@:1:$ng}"); shift "$ng"; shift   # drop n-paths: the rest are the paths
+    local paths=("$@") ikey key root has_head=0 index=1
+    # \x1f-joined, so "a b" (one path) and a b (two) never share a key
+    ikey=$(printf '%s\x1f' "$dir" "${g[@]}"); key=$(printf '%s\x1f' "$ikey" "$tree" "${paths[@]}")
+    case "$_seen" in *$'\n'"$key"$'\n'*) return 0 ;; esac
+    case "$_seen" in *$'\n'"$ikey"$'\n'*) index=0 ;; esac   # this index is already read
+    [ "$index" -eq 1 ] || [ "$tree" = "1" ] || return 0
+    _seen+="$key"$'\n'"$ikey"$'\n'
+    [ -d "$dir" ] || return 0
+    root=$(git -C "$dir" "${g[@]}" rev-parse --show-toplevel 2>/dev/null) || return 0
+    [ -n "$root" ] || return 0
+    [ -n "$FP_ROOT" ] || FP_ROOT="$root"
+    git -C "$dir" "${g[@]}" rev-parse --verify -q HEAD >/dev/null 2>&1 && has_head=1
+    ADDED+=$(_job_diff | grep '^+' | grep -v '^+++' || true)$'\n'
+    NAMES+=$(_job_diff --name-only)$'\n'
+}
+_i=0
+while [ "$_i" -lt ${#JOBS[@]} ]; do
+    [ "${JOBS[$_i]}" = "J" ] || break
+    _dir="${JOBS[$((_i + 1))]}"; _ng="${JOBS[$((_i + 2))]}"
+    _g=("${JOBS[@]:$((_i + 3)):$_ng}")
+    _tree="${JOBS[$((_i + 3 + _ng))]}"; _np="${JOBS[$((_i + 4 + _ng))]}"
+    _p=("${JOBS[@]:$((_i + 5 + _ng)):$_np}")
+    _scan_job "$_dir" "$_tree" "$_ng" "${_g[@]}" "$_np" "${_p[@]}"
+    _i=$((_i + 5 + _ng + _np))
+done
+[ -n "$FP_ROOT" ] || exit 0
+ROOT="$FP_ROOT"
 
 # Documentation about secret scanning necessarily contains secret-shaped
 # examples — this guard's own source, its tests, and the backlog entry that
@@ -133,17 +220,17 @@ fi
 # ── Report, naming files only ─────────────────────────────────────────────────
 # The matched line is never printed: echoing it would put the credential into
 # the transcript and the scrollback, which is the exposure being prevented.
-SUSPECT=$(git -C "$ROOT" diff --cached --name-only 2>/dev/null | head -20)
+SUSPECT=$(printf '%s\n' "$NAMES" | sed '/^$/d' | sort -u | head -20)
 {
-    echo "BLOCKED (CFG-652): the staged diff contains something that looks like a credential (${HITS} match)."
-    echo "Staged file(s):"
+    echo "BLOCKED (CFG-652): this commit's diff contains something that looks like a credential (${HITS} match)."
+    echo "File(s) in the commit:"
     printf '%s\n' "$SUSPECT" | sed 's/^/  /'
     echo ""
     echo "The matched value is deliberately NOT shown — printing it here would put it in the"
     echo "transcript and the scrollback, which is the exposure this guard exists to prevent."
     echo ""
     echo "Record a secret's location or fingerprint, never its value. Remove the value from the"
-    echo "staged content, then commit again. If this is a false positive, unstage the file, confirm"
-    echo "what it contains, and stage the corrected version — do not bypass the guard (CFG-513)."
+    echo "content being committed, then commit again. If this is a false positive, confirm what"
+    echo "the file contains and commit the corrected version — do not bypass the guard (CFG-513)."
 } >&2
 exit 2

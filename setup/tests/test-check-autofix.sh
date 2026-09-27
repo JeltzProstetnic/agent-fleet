@@ -372,13 +372,13 @@ EOF
     run_hook "$patched" >/dev/null
 
     # Verify Bash(bash:*) was added
-    assert_file_contains "$mock_home/.cc-mirror/mclaude/config/settings.json" 'Bash(bash:*)' \
+    assert_file_contains "$mock_home/.cc-mirror/mclaude/config/settings.json" 'Bash(bash:\*)' \
         "should auto-add Bash(bash:*) to permissions.allow"
 
     # Verify existing permissions preserved
-    assert_file_contains "$mock_home/.cc-mirror/mclaude/config/settings.json" 'Read(*)' \
+    assert_file_contains "$mock_home/.cc-mirror/mclaude/config/settings.json" 'Read(\*)' \
         "should preserve existing Read(*) permission"
-    assert_file_contains "$mock_home/.cc-mirror/mclaude/config/settings.json" 'Bash(git:*)' \
+    assert_file_contains "$mock_home/.cc-mirror/mclaude/config/settings.json" 'Bash(git:\*)' \
         "should preserve existing Bash(git:*) permission"
 
     # Verify valid JSON

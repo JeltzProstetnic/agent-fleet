@@ -65,19 +65,39 @@ if [[ -n "$LOG_PATH" ]]; then
 fi
 
 # Register with GPI FIRST (the whole point of this wrapper)
+# CFG-616: a failed registration must not fail the launch, but it must not be
+# swallowed either — `2>/dev/null || true` plus an unconditional "GPI registered"
+# reported success while the statusline never learned about the job.
 GPI_ARGS=("$SESSION" "$LABEL")
 [[ -n "$LOG_PATH" ]] && GPI_ARGS+=(--log "$LOG_PATH")
-gpi start "${GPI_ARGS[@]}" 2>/dev/null || true
+GPI_STATUS="GPI registered"
+if ! _gpi_err=$(gpi start "${GPI_ARGS[@]}" 2>&1 >/dev/null); then
+    GPI_STATUS="GPI registration FAILED"
+    echo "WARNING: $GPI_STATUS for '$SESSION': ${_gpi_err:-gpi exited non-zero}" >&2
+fi
+
+# CFG-616 (candidate fix, UNVERIFIED — the backlog item stays open): start tmux
+# through setsid. The first background job of a session died a few minutes in when no
+# server was running (measured on WSL 2026-09-15). setsid only changes the tmux
+# CLIENT's session: tmux daemonizes its server itself, and on Linux the server already
+# has ppid 1 and its own session without setsid, so this is harmless but not a proven
+# cure — what reaps the job on WSL is unexplained. `setsid tmux start-server` alone
+# would be a no-op anyway: with the default `exit-empty on` an empty server exits at
+# once. A script's children are never process-group leaders, so setsid runs tmux in
+# place (no fork) and the exit status is preserved. Where setsid does not exist
+# (macOS), plain tmux is the only option.
+TMUX_CMD=(tmux)
+command -v setsid >/dev/null 2>&1 && TMUX_CMD=(setsid tmux)
 
 # Launch tmux with exit code capture
 launch_session() {
     local session="$1" command="$2" log_path="$3"
     if [[ -n "$log_path" ]]; then
         # Capture real exit code via PIPESTATUS before tee masks it
-        tmux new-session -d -s "$session" \
+        "${TMUX_CMD[@]}" new-session -d -s "$session" \
             "($command) 2>&1 | tee -a $log_path; _rc=\${PIPESTATUS[0]}; echo \"EXIT_CODE: \$_rc\" >> $log_path"
     else
-        tmux new-session -d -s "$session" "$command"
+        "${TMUX_CMD[@]}" new-session -d -s "$session" "$command"
     fi
 }
 
@@ -114,4 +134,4 @@ if [[ -f "$_registry" ]]; then
     [[ -n "$_pane_pid" ]] && bash "$_registry" add "$_pane_pid" "tmux:$SESSION" "$COMMAND" 2>/dev/null || true
 fi
 
-echo "tmux '$SESSION' launched (GPI registered)"
+echo "tmux '$SESSION' launched ($GPI_STATUS)"

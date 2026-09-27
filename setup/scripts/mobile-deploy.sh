@@ -16,6 +16,11 @@
 
 set -euo pipefail
 
+# The shared egress leak gate (CFG-626), beside this script. A missing library
+# is a missing gate: under set -e the failed source aborts before any file is
+# written, which is the point — nothing is deployed unscanned.
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib-leak-gate.sh"
+
 # ── Defaults ─────────────────────────────────────────────────────────────────
 
 MODE="deploy"
@@ -335,6 +340,48 @@ _deploy_project_summaries() {
     done < <(grep -E '^\|[^-]' "$CONFIG_REPO/registry.md" | grep -v 'Project.*Priority')
 }
 
+# ── Leak gate (CFG-626) ──────────────────────────────────────────────────────
+# Everything cmd_deploy writes is about to be committed and pushed to a remote
+# host by the SessionEnd hook. Same gate as template-push.sh and that hook, same
+# hold semantics as CFG-613: a file with a hit is HELD — restored to the last
+# committed copy when the mobile repo is git and that copy is itself clean,
+# removed otherwise — every other file deploys, each hold is reported by name,
+# and the run exits 3 so no caller can read it as clean. The vocabulary is
+# credential VALUES (LEAK_GATE_SECRET_PATTERNS), NOT template-push.conf's
+# personal_patterns: this repo exists to carry the owner's own context to the
+# owner's phone, and measured against the real sources that list holds 100% of
+# the snapshot (registry 61 hits, dashboard 25, personas 7, the mobile CLAUDE.md
+# template itself 2). Which PROJECTS may appear in the snapshot at all is a
+# registry/policy question this gate does not decide.
+_hold_leaks() {
+    local hits rc=0 f rel n kept held=0
+    hits=$(check_leaks "$LEAK_GATE_SECRET_PATTERNS" "$TARGET/context" "$TARGET/CLAUDE.md" "$TARGET/session-context.md" 2>&1) || rc=$?
+    if [[ "$rc" -ge 2 ]]; then
+        log_error "[LEAK] the leak gate refused to scan ($hits) — removing the snapshot rather than publishing it unscanned (fail closed)"
+        rm -rf "$TARGET/context"
+        return 2
+    fi
+    [[ "$rc" -eq 1 ]] || return 0
+    while IFS= read -r f; do
+        [[ -n "$f" ]] || continue
+        rel="${f#"$TARGET"/}"
+        n=$(printf '%s\n' "$hits" | grep -c -F "$f:" || true)
+        kept="removed (no committed clean copy to fall back to)"
+        if git -C "$TARGET" rev-parse --git-dir >/dev/null 2>&1 \
+           && git -C "$TARGET" ls-files --error-unmatch -- "$rel" >/dev/null 2>&1 \
+           && git -C "$TARGET" checkout -q -- "$rel" 2>/dev/null \
+           && check_leaks "$LEAK_GATE_SECRET_PATTERNS" "$f" >/dev/null 2>&1; then
+            kept="restored the last committed copy"
+        else
+            rm -f "$f"
+        fi
+        held=$((held + 1))
+        log_error "[LEAK] HELD: $rel — $n credential-shaped hit(s); $kept"
+    done <<< "$(printf '%s\n' "$hits" | leak_gate_hit_files)"
+    log_error "[LEAK] $held file(s) held back by the leak gate; every other file deployed. Remove the credential from the source, then re-run."
+    return 3
+}
+
 cmd_deploy() {
     log_info "Deploying mobile repo to $TARGET"
 
@@ -402,7 +449,13 @@ SC
     # Write deploy marker — staleness check compares source mtimes against this
     touch "$TARGET/.deployed-at"
 
+    # Nothing may leave with a credential value in it (CFG-626); a hold is
+    # reported above and turns the exit status into 3 (partial), 2 (refused).
+    local gate_rc=0
+    _hold_leaks || gate_rc=$?
+
     log_info "Mobile repo deployed to $TARGET"
+    [[ "$gate_rc" -eq 0 ]] || exit "$gate_rc"
 }
 
 # ── CHECK-STALENESS MODE ─────────────────────────────────────────────────────

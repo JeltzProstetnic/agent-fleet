@@ -451,7 +451,13 @@ test_stale_all_prns_closed() {
 }
 run_test "stale-check: all Tracked-by PRNs [x] → STALE" test_stale_all_prns_closed
 
-# (2) no-PRN placeholder + session-log shows shipped → flagged STALE (trigger bug)
+# (2)+(3) CFG-620: the prose heuristic is GONE. A session-log line saying
+# "shipped (commit …)" or a fix commit citing the filename used to flag a
+# no-PRN file as STALE — that guess was wrong every recorded time (a pending
+# file documenting shipped work while tracking open work is the normal case).
+# Such a file is reported as UNTRACKED — a different problem with a different
+# action (file a backlog item, add the header) — never as "already shipped".
+# These two tests previously asserted the STALE flag; revised, not extended.
 test_stale_no_prn_session_log_shipped() {
     local project_dir="$TEST_TMPDIR/project"
     mkdir -p "$project_dir/docs"
@@ -465,13 +471,13 @@ test_stale_no_prn_session_log_shipped() {
     local output
     output=$(bash "$SCRIPT" --stale-check --project-dir "$project_dir" 2>&1)
 
-    assert_contains "$output" "STALE: pending-rca-stage5-variety-20260607.md" \
-        "should flag no-PRN file whose work shipped per session-log" || return 1
-    assert_contains "$output" "session-log/git shows shipped" "reason should cite shipped evidence"
+    assert_not_contains "$output" "STALE: pending-rca-stage5-variety-20260607.md" \
+        "session-log prose is not completion evidence" || return 1
+    assert_contains "$output" "UNTRACKED: pending-rca-stage5-variety-20260607.md" \
+        "a placeholder Tracked-by is reported as untracked"
 }
-run_test "stale-check: no-PRN + session-log shipped → STALE (trigger bug)" test_stale_no_prn_session_log_shipped
+run_test "stale-check: no-PRN + session-log 'shipped' prose → UNTRACKED, never STALE" test_stale_no_prn_session_log_shipped
 
-# (3) no-PRN + a feat/fix commit cites the filename → flagged STALE
 test_stale_no_prn_feat_commit_cites_file() {
     local project_dir="$TEST_TMPDIR/project"
     init_project_git "$project_dir"
@@ -486,11 +492,177 @@ test_stale_no_prn_feat_commit_cites_file() {
     local output
     output=$(bash "$SCRIPT" --stale-check --project-dir "$project_dir" 2>&1)
 
-    assert_contains "$output" "STALE: pending-shuffled-bag-fix.md" \
-        "should flag no-PRN file cited in a fix commit" || return 1
-    assert_contains "$output" "session-log/git shows shipped" "reason should cite shipped evidence"
+    assert_not_contains "$output" "STALE: pending-shuffled-bag-fix.md" \
+        "a commit citing the file is not completion evidence" || return 1
+    assert_contains "$output" "UNTRACKED: pending-shuffled-bag-fix.md" \
+        "no real Tracked-by → untracked"
 }
-run_test "stale-check: no-PRN + feat/fix commit cites filename → STALE" test_stale_no_prn_feat_commit_cites_file
+run_test "stale-check: no-PRN + fix commit citing filename → UNTRACKED, never STALE" test_stale_no_prn_feat_commit_cites_file
+
+# CFG-620 root cause: every real pending file writes `<!-- Tracked-by: … -->`,
+# which the bare-form parser never matched — so every real file fell through
+# to the prose heuristic. The exact false positive: open IDs in the comment
+# form + a session-log line that reads as shipped.
+test_stale_comment_form_tracked_by_open_not_flagged() {
+    local project_dir="$TEST_TMPDIR/project"
+    mkdir -p "$project_dir/docs"
+
+    printf '<!-- Action: act -->\n<!-- Tracked-by: CFG-602, CFG-603 -->\n# lrn audit\nfix shipped (commit abcdef1), deployed.\n' \
+        > "$project_dir/docs/pending-lrn-audit-2026-09-15.md"
+    create_backlog "$project_dir" \
+        "- [ ] [P2] \`CFG-602\` **Open**: still open" \
+        "- [ ] [P2] \`CFG-603\` **Open too**: still open"
+    create_session_log "$project_dir" \
+        "- lrn audit findings shipped (commit abcdef1), deployed to all machines"
+
+    local output
+    output=$(bash "$SCRIPT" --stale-check --project-dir "$project_dir" 2>&1)
+
+    assert_not_contains "$output" "STALE:" "open comment-form IDs → not stale, whatever the prose says" || return 1
+    assert_not_contains "$output" "UNTRACKED:" "comment-form Tracked-by IS tracking"
+}
+run_test "stale-check (CFG-620): comment-form Tracked-by with open IDs is never stale" test_stale_comment_form_tracked_by_open_not_flagged
+
+test_stale_comment_form_all_closed_flagged() {
+    local project_dir="$TEST_TMPDIR/project"
+    mkdir -p "$project_dir/docs"
+
+    printf '<!-- Action: present -->\n<!-- Tracked-by: CFG-610, CFG-611 -->\n# done\n' \
+        > "$project_dir/docs/pending-all-done.md"
+    create_backlog "$project_dir" \
+        "- [x] [P2] \`CFG-610\` **Done**: closed" \
+        "- [x] [P3] \`CFG-611\` **Done**: closed"
+
+    local output
+    output=$(bash "$SCRIPT" --stale-check --project-dir "$project_dir" 2>&1)
+
+    assert_contains "$output" "STALE: pending-all-done.md" || return 1
+    assert_contains "$output" "CFG-610" "the closed IDs are cited as the evidence" || return 1
+    assert_contains "$output" "CFG-611"
+}
+run_test "stale-check (CFG-620): comment-form Tracked-by, every ID [x] → STALE citing the IDs" test_stale_comment_form_all_closed_flagged
+
+# [?] = awaiting live proof, [>] = in progress: both are OPEN for this purpose.
+test_stale_question_and_progress_markers_not_closed() {
+    local project_dir="$TEST_TMPDIR/project"
+    mkdir -p "$project_dir/docs"
+
+    create_tracked_pending "$project_dir/docs" "pending-awaiting-proof.md" "act" "CFG-620, CFG-621"
+    create_tracked_pending "$project_dir/docs" "pending-in-progress.md" "act" "CFG-622"
+    create_backlog "$project_dir" \
+        "- [x] [P1] \`CFG-620\` **Done**: closed" \
+        "- [?] [P1] \`CFG-621\` **Awaiting live proof**: not yet" \
+        "- [>] [P1] \`CFG-622\` **In progress**: running"
+
+    local output
+    output=$(bash "$SCRIPT" --stale-check --project-dir "$project_dir" 2>&1)
+
+    assert_not_contains "$output" "STALE: pending-awaiting-proof.md" "[?] is not closed" || return 1
+    assert_not_contains "$output" "STALE: pending-in-progress.md" "[>] is not closed"
+}
+run_test "stale-check (CFG-620): [?] and [>] items count as open" test_stale_question_and_progress_markers_not_closed
+
+# An ID quoted inside ANOTHER closed item's text (CFG-597's closed line cites
+# `CFG-695`) must not count as that ID being closed — only its own line does.
+test_stale_id_cited_in_other_closed_item_not_closed() {
+    local project_dir="$TEST_TMPDIR/project"
+    mkdir -p "$project_dir/docs"
+
+    create_tracked_pending "$project_dir/docs" "pending-consent.md" "act" "CFG-695"
+    create_backlog "$project_dir" \
+        "- [x] [P0] \`CFG-597\` **CLOSED by hook**; the failure mode is tracked as \`CFG-695\`." \
+        "- [ ] [P1] \`CFG-695\` **Blocked-on-consent items sit dead**: open"
+
+    local output
+    output=$(bash "$SCRIPT" --stale-check --project-dir "$project_dir" 2>&1)
+
+    assert_not_contains "$output" "STALE: pending-consent.md" "an ID is closed only by its OWN [x] line"
+}
+run_test "stale-check (CFG-620): ID mentioned in another closed item's text is not closed" test_stale_id_cited_in_other_closed_item_not_closed
+
+test_stale_mixed_closed_and_missing_not_flagged() {
+    local project_dir="$TEST_TMPDIR/project"
+    mkdir -p "$project_dir/docs"
+
+    create_tracked_pending "$project_dir/docs" "pending-mixed.md" "act" "CFG-630, AIW-257"
+    create_backlog "$project_dir" \
+        "- [x] [P1] \`CFG-630\` **Done**: closed"
+    # AIW-257 lives in another project's backlog → unresolvable here → open
+
+    local output
+    output=$(bash "$SCRIPT" --stale-check --project-dir "$project_dir" 2>&1)
+
+    assert_not_contains "$output" "STALE: pending-mixed.md" "an ID this backlog cannot resolve is not closed"
+}
+run_test "stale-check (CFG-620): an ID missing from this backlog keeps the file live" test_stale_mixed_closed_and_missing_not_flagged
+
+# ── successor pointers (CFG-620, fourth instance) ─────────────────────────────
+# A pending file that says it was superseded by / carried forward into another
+# file must have that file exist — a dangling pointer is a data-loss signal
+# that reads as tidiness. Checked for EVERY action, reference included (the
+# real case was a demoted reference file).
+test_dangling_successor_flagged() {
+    local project_dir="$TEST_TMPDIR/project"
+    mkdir -p "$project_dir/docs"
+
+    printf '<!-- Action: reference -->\n<!-- SUPERSEDED 2026-09-11 by docs/pending-next-session-2026-09-11.md, which is tagged present.\n     carried forward there verbatim. -->\n<!-- Tracked-by: CFG-433 -->\n# old\n' \
+        > "$project_dir/docs/pending-next-session-2026-09-10.md"
+    create_backlog "$project_dir" "- [ ] [P1] \`CFG-433\` **Open**: open"
+
+    local output
+    output=$(bash "$SCRIPT" --stale-check --project-dir "$project_dir" 2>&1)
+
+    assert_contains "$output" "DANGLING: pending-next-session-2026-09-10.md" "missing successor is flagged" || return 1
+    assert_contains "$output" "pending-next-session-2026-09-11.md" "the missing successor is named" || return 1
+    assert_not_contains "$output" "STALE:" "a dangling pointer is not staleness"
+}
+run_test "stale-check (CFG-620): supersession pointer to a missing file → DANGLING" test_dangling_successor_flagged
+
+test_existing_successor_and_predecessor_not_flagged() {
+    local project_dir="$TEST_TMPDIR/project"
+    mkdir -p "$project_dir/docs"
+
+    printf '<!-- Action: reference -->\n<!-- Superseded 2026-09-21 by docs/pending-next-session-2026-09-21b.md. -->\n' \
+        > "$project_dir/docs/pending-next-session-2026-09-21.md"
+    # The successor exists, and it names its (deleted) PREDECESSOR — that is fine.
+    printf '<!-- Action: present -->\n<!-- Tracked-by: CFG-551 -->\n**Supersedes:** docs/pending-inbox-triage-2026-08-07.md (deleted after absorption)\n' \
+        > "$project_dir/docs/pending-next-session-2026-09-21b.md"
+    create_backlog "$project_dir" "- [ ] [P1] \`CFG-551\` **Open**: open"
+
+    local output
+    output=$(bash "$SCRIPT" --stale-check --project-dir "$project_dir" 2>&1)
+
+    assert_not_contains "$output" "DANGLING:" "existing successor / missing predecessor are both fine"
+}
+run_test "stale-check (CFG-620): existing successor and a missing predecessor are not dangling" test_existing_successor_and_predecessor_not_flagged
+
+# The successor must be the OBJECT of the pointer phrase. Generic prose that
+# happens to contain "moved to" / "successor" and names some other, deleted
+# pending file later on the same line is not a supersession pointer — reading
+# it as one reports "possible data loss" for a predecessor that was resolved.
+test_generic_prose_mentioning_deleted_file_not_dangling() {
+    local project_dir="$TEST_TMPDIR/project"
+    mkdir -p "$project_dir/docs"
+
+    cat > "$project_dir/docs/pending-handover.md" << 'EOF'
+<!-- Action: reference -->
+<!-- Tracked-by: CFG-700 -->
+- Step 2 moved to backlog `CFG-700`; the old notes in pending-step1-notes.md were deleted once closed.
+- No successor file needed; pending-old-plan.md was resolved and removed per protocol.
+- Carried forward into `docs/pending-real-successor.md` verbatim.
+EOF
+    create_backlog "$project_dir" "- [ ] [P1] \`CFG-700\` **Open**: open"
+
+    local output
+    output=$(bash "$SCRIPT" --stale-check --project-dir "$project_dir" 2>&1)
+
+    assert_not_contains "$output" "pending-step1-notes.md" "'moved to backlog …' does not point at a later file" || return 1
+    assert_not_contains "$output" "pending-old-plan.md" "'No successor file needed; X' does not point at X" || return 1
+    assert_contains "$output" "DANGLING: pending-handover.md → pending-real-successor.md" \
+        "a real pointer (phrase + file, backticks and docs/ allowed) is still caught"
+}
+run_test "stale-check (CFG-620): generic prose naming a deleted file is not DANGLING" test_generic_prose_mentioning_deleted_file_not_dangling
+
 
 # (4) TRUE NEGATIVE: act + open [ ] PRN + no shipped line → NOT flagged
 test_stale_true_negative_open_prn() {
@@ -585,6 +757,62 @@ test_stale_clean_emits_nothing() {
     assert_not_contains "$output" "STALE:" "clean files emit no STALE line"
 }
 run_test "stale-check: clean files emit nothing" test_stale_clean_emits_nothing
+
+# CFG-665: the SessionEnd hook's Auto-sync commit body lists every path it swept.
+# A live, unshipped handoff swept into one is listed there — that is a record
+# of the sweep, not evidence the work shipped. Counting it hid the handoff from
+# ACT_PENDING at every later SessionStart (git log --all: forever).
+test_stale_auto_sync_sweep_is_not_shipped_evidence() {
+    local project_dir="$TEST_TMPDIR/project"
+    init_project_git "$project_dir"
+    mkdir -p "$project_dir/docs"
+    create_tracked_pending "$project_dir/docs" "pending-live-handoff.md" "act" \
+        "(this file IS the plan)"
+    add_named_commit "$project_dir" "Auto-sync: 2026-09-25 12:00:00 UTC" \
+        "Swept by the SessionEnd hook from project: 1 file(s)
+  - docs/pending-live-handoff.md"
+
+    local output
+    output=$(bash "$SCRIPT" --stale-check --project-dir "$project_dir" 2>&1)
+    assert_not_contains "$output" "STALE: pending-live-handoff.md" \
+        "a file listed in an Auto-sync sweep body has not shipped"
+}
+run_test "stale-check: an Auto-sync commit listing the file is not shipped evidence (CFG-665)" test_stale_auto_sync_sweep_is_not_shipped_evidence
+
+# Over-blocking control for the sweep exclusion. On fix/shutdown this asserted
+# that a real commit citing an untracked file made it STALE. CFG-620 (merged
+# beside it) retired commit citations as --stale-check evidence altogether:
+# the backlog state of the file's own Tracked-by IDs is the only signal, and a
+# file with no real Tracked-by is UNTRACKED, never STALE (see
+# test_stale_no_prn_feat_commit_cites_file). The control keeps its purpose
+# under that rule: a sweep beside the real evidence must not hide it. The
+# commit-evidence form of this control lives in test-pending-demote.sh, where
+# commit citations are still a signal.
+test_stale_real_commit_still_counts_beside_a_sweep() {
+    local project_dir="$TEST_TMPDIR/project"
+    init_project_git "$project_dir"
+    mkdir -p "$project_dir/docs"
+    create_tracked_pending "$project_dir/docs" "pending-live-handoff.md" "act" \
+        "(this file IS the plan)"
+    create_tracked_pending "$project_dir/docs" "pending-done-work.md" "act" "CFG-777"
+    create_backlog "$project_dir" "- [x] [P1] \`CFG-777\` **Done**: closed"
+    add_named_commit "$project_dir" "Auto-sync: 2026-09-25 12:00:00 UTC" \
+        "Swept by the SessionEnd hook from project: 2 file(s)
+  - docs/pending-live-handoff.md
+  - docs/pending-done-work.md"
+    add_named_commit "$project_dir" "docs: close the handoff" \
+        "Shipped; see docs/pending-live-handoff.md"
+
+    local output
+    output=$(bash "$SCRIPT" --stale-check --project-dir "$project_dir" 2>&1)
+    assert_contains "$output" "STALE: pending-done-work.md" \
+        "closed Tracked-by IDs still make a swept file STALE — the sweep hides nothing" || return 1
+    assert_not_contains "$output" "STALE: pending-live-handoff.md" \
+        "a commit citing an untracked file is not completion evidence (CFG-620)" || return 1
+    assert_contains "$output" "UNTRACKED: pending-live-handoff.md" \
+        "the untracked file is reported as untracked instead"
+}
+run_test "stale-check: a sweep hides no real staleness; a citing commit is not evidence (CFG-665 x CFG-620)" test_stale_real_commit_still_counts_beside_a_sweep
 
 # ── summary ──────────────────────────────────────────────────────────────────
 suite_summary

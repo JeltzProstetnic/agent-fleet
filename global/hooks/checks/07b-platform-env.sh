@@ -110,9 +110,14 @@ if [ -f "$_SESSION_LOCK_LIB" ]; then
     source "$_SESSION_LOCK_LIB"
     check_lock "$PWD" 2>/dev/null
     _lock_rc=$?
-    # check_lock's verdict is final. It already recognises the afleet leader by
-    # AFLEET_SESSION_ID (CFG-536) — gated on "not a nested CC", because a nested
-    # CC INHERITS that id. An ungated re-comparison here (2026-03 → 2026-09)
+    # check_lock's verdict is final. It already recognises the leader itself: by
+    # the lock's ccSessionId (CC_SESSION_ID here, CLAUDE_CODE_SESSION_ID in a
+    # tool subprocess — CFG-454, also on a dead recorded pid), by launcher
+    # ancestry for the af path (CFG-672), and by AFLEET_SESSION_ID only when the
+    # CC matcher is degraded (a tmux-launched CC inherits that id from the tmux
+    # server, and ancestry cannot see it). Every id match is gated on "not a
+    # nested CC", because a nested CC INHERITS the leader's env.
+    # An ungated re-comparison here (2026-03 → 2026-09)
     # flipped rc 2 → 1 for exactly that nested CC, marked it `leader`, and its
     # SessionEnd then rotated the leader's live session-context.md (CFG-666).
 
@@ -143,6 +148,15 @@ if [ -f "$_SESSION_LOCK_LIB" ]; then
             stamp_cc_session "$PWD" "${CC_SESSION_ID:-}" 2>/dev/null || true
             # CFG-452 Phase 2: this session already owns the lock → leader.
             write_role "$PWD" leader "${CC_SESSION_ID:-}" "${AFLEET_SESSION_ID:-}" 2>/dev/null || true
+            ;;
+        *)
+            # 4 = cannot determine (CFG-673 / GH#9), and any rc this module does
+            # not know. The lock check saw no Claude Code process at all, not
+            # even this session's own, so it cannot tell a free project from
+            # one held by a session it cannot see. Fail closed: no acquire, the
+            # lock (if any) stays, and this session is a follower.
+            WARNINGS="${WARNINGS:+$WARNINGS | }SESSION_LOCK_UNKNOWN: Cannot tell whether another session holds this project — the lock check sees no Claude Code process, not even this one (check_lock=$_lock_rc). Treated as held: FOLLOWER — load knowledge/follower-mode.md and follow it. If the user confirms no other session is running here, force_release + acquire_lock takes the lead."
+            write_role "$PWD" follower "${CC_SESSION_ID:-}" "${AFLEET_SESSION_ID:-}" 2>/dev/null || true
             ;;
     esac
 fi

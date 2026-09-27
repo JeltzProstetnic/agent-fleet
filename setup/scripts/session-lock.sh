@@ -16,6 +16,14 @@
 #   1 = locked by us (our PID on this machine)
 #   2 = locked by another session on this machine (different live PID)
 #   3 = locked by another machine (can't verify PID — warn only)
+#   4 = cannot determine (CFG-673 / GH#9): the liveness scan sees /proc but NO
+#       Claude Code process at all, not even the caller's own, so "no live
+#       session" would describe the scan's blindness, not the machine. Seen
+#       inside Claude Code's Bash sandbox (its own PID namespace hides every
+#       host process while /proc still exists) and with a CC matcher that
+#       recognises nothing on this install. The lock, if any, is LEFT IN PLACE.
+#       Callers MUST treat 4 as held (fail closed) and report it as unknown,
+#       never as free. Owner decision 2026-09-25: "Fail closed: 'unknown'".
 #
 # Hook integration points (DO NOT modify hooks yet — library must be proven first):
 #   SessionStart hook → check_lock → if locked, inject warning into systemMessage
@@ -73,9 +81,16 @@ _pid_cwd() {
 }
 
 _ppid_of() {
-    local pid="$1"
+    local pid="$1" st=""
     if [[ -r "/proc/$pid/stat" ]]; then
-        awk '{print $4}' "/proc/$pid/stat" 2>/dev/null
+        # "pid (comm) state ppid …" — comm may contain spaces and ')', so take
+        # the fields after the LAST ') ' (a whitespace split read "tmux: server"
+        # as ppid 'S'). Builtins only: this runs once per hop of every ancestry
+        # walk, i.e. up to 40 times per pid in a /proc scan.
+        { read -r st < "/proc/$pid/stat"; } 2>/dev/null || return 0
+        st="${st##*) }"          # "state ppid …"
+        st="${st#* }"            # "ppid …"
+        printf '%s\n' "${st%% *}"
     else
         ps -p "$pid" -o ppid= 2>/dev/null | tr -d ' '
     fi
@@ -133,12 +148,49 @@ _cc_owns_lock_pid() {
 }
 
 # rc 0 iff the caller is positively a NESTED CC (another CC sits above its own CC).
-# rc 1 if it is the outermost CC or its CC pid is unresolvable. Used to gate the
-# stamp claim (fail-open: refuse only a proven nested).
+# rc 1 if it is the outermost CC or its CC pid is unresolvable. Gates check_lock's
+# id-based ownership signals (fail-open: refuse only a proven nested).
 _cc_is_nested() {
     local mycc; mycc="$(_cc_self_pid)" || return 1
     [[ -n "$mycc" ]] || return 1
     _cc_ancestor_pid "$(_ppid_of "$mycc")" >/dev/null 2>&1
+}
+
+# The caller's own CC session id, or "" (CFG-454). Three sources, in order:
+#   CC_SESSION_ID          — config-check.sh reads it from the SessionStart hook's
+#                            stdin and exports it for the checks (07b, 06b). It
+#                            exists ONLY inside that hook's process tree.
+#   CLAUDE_CODE_SESSION_ID — what Claude Code itself puts in the env of every hook
+#                            AND tool subprocess it spawns, set per spawn to the
+#                            spawning CC's OWN session id (the hook-stdin id), so a
+#                            value inherited from a parent CC or a tmux server is
+#                            replaced, never passed through. This is the only id a
+#                            Bash-tool subprocess — the agent's bare
+#                            `rotate-session.sh` at shutdown — has.
+#                            Counted ONLY when a CC above the caller resolves: that
+#                            CC is what vouches for it. A job in a tmux pane has no
+#                            CC above it and carries the tmux SERVER's global env —
+#                            the id of whichever CC started the server, even when
+#                            another session opened the pane (the CFG-672 class).
+#   CLAUDE_SESSION_ID      — legacy name, kept for callers that still set it.
+_caller_cc_session_id() {
+    if [[ -n "${CC_SESSION_ID:-}" ]]; then
+        printf '%s' "$CC_SESSION_ID"; return 0
+    fi
+    if [[ -n "${CLAUDE_CODE_SESSION_ID:-}" && -n "$(_cc_self_pid)" ]]; then
+        printf '%s' "$CLAUDE_CODE_SESSION_ID"; return 0
+    fi
+    printf '%s' "${CLAUDE_SESSION_ID:-}"
+}
+
+# rc 0 iff the lock just read (_read_lock globals) is bound to the caller's own CC
+# session: a non-empty ccSessionId equal to _caller_cc_session_id, and the caller
+# is not a proven nested CC (a nested CC inherits its parent's environment, so an
+# ungated id comparison would reopen the CFG-454 F1 spoof).
+_lock_bound_to_caller() {
+    local mine; mine="$(_caller_cc_session_id)"
+    [[ -n "$_LOCK_CC_SESSION" && -n "$mine" && "$_LOCK_CC_SESSION" == "$mine" ]] || return 1
+    ! _cc_is_nested
 }
 
 # rc 0 ⇒ a live CC process (other than exclude_pid) has cwd == project_dir.
@@ -168,6 +220,23 @@ _pid_is_descendant_of() {
         [[ "$pid" == "$ancestor" ]] && return 0
         pid="$(_ppid_of "$pid")"
         guard=$((guard + 1))
+    done
+    return 1
+}
+
+# rc 0 iff at least one Claude Code process is visible to this caller (CFG-673).
+# A non-empty self pid counts as a visible CC: _cc_self_pid returns only a pid
+# the matcher recognised, and an explicit check_lock self-pid argument is the
+# caller naming its own CC. So the full scan runs only when self is unresolvable.
+# rc 1 when enumeration is unavailable or finds no CC: the caller is blind (the
+# Bash sandbox's PID namespace, or a matcher that recognises nothing here), and
+# a scan that found nobody proves nothing about who holds a project.
+_cc_visible() {
+    local self_pid="${1:-}" pids p
+    [[ -n "$self_pid" ]] && return 0
+    pids="$(_enumerate_pids)" || return 1
+    for p in $pids; do
+        _pid_is_cc "$p" && return 0
     done
     return 1
 }
@@ -497,15 +566,28 @@ stamp_cc_session() {
         return 1
     fi
 
-    # CFG-454: binding an UNSTAMPED lock is an ownership claim. Refuse it when the
-    # caller is a proven NESTED CC (a headless `mclaude -p` / tmux CC that inherited
-    # the leader's AFLEET_SESSION_ID) trying to claim the leader's live lock — even
-    # if the 07b rc-2→1 rewrite routed it into this branch. Fail-open otherwise (the
-    # outermost/leader CC, a genuinely dead lock pid, or an unresolvable CC pid on
-    # the native-binary detection gap — closed by CFG-454 3b): a bad stamp is
-    # low-harm because release still requires positive ancestry ownership.
-    if [[ -z "$_LOCK_CC_SESSION" ]] && _is_pid_alive "$_LOCK_PID" && _cc_is_nested; then
-        return 1
+    # CFG-454: binding an UNSTAMPED lock is an ownership claim and needs POSITIVE
+    # proof — "not a proven nested CC" was not enough. A CC started through
+    # tmux-launch.sh / setsid is parented to the tmux server, not to the leader's
+    # CC, so the nesting gate could not see it, yet it inherits the leader's
+    # AFLEET_SESSION_ID; with the leader's lock still unstamped (deploy-transition
+    # window, CC_SESSION_ID empty at the leader's SessionStart) it bound the lock
+    # to ITS cc id and released it at its own SessionEnd (3b(4)).
+    # Proof is ancestry (3a): the lock pid is this hook's own shell (07b acquired
+    # it a moment ago — $$ is a DESCENDANT of our CC, so ancestry cannot say so)
+    # or a live launcher ancestor of our CC with no other CC in between (the af
+    # shape). Without it the lock is someone else's whenever its pid is alive OR
+    # another live CC is cwd'd in the project (a direct-launch leader whose hook
+    # pid has died). Fail-open only when our own CC pid is unresolvable: the
+    # spoof needs a resolvable rival, which a detection-degraded platform
+    # equally lacks, and a leader there stamps at its own SessionStart first.
+    if [[ -z "$_LOCK_CC_SESSION" ]]; then
+        local _mycc; _mycc="$(_cc_self_pid)"
+        if [[ -n "$_mycc" && "$_LOCK_PID" != "$$" ]] && ! _cc_owns_lock_pid "$_LOCK_PID"; then
+            if _is_pid_alive "$_LOCK_PID" || _project_has_live_cc "$project_dir" "$_mycc"; then
+                return 1
+            fi
+        fi
     fi
 
     # Rewrite preserving sessionId and the ORIGINAL pid (never clobber it with $$).
@@ -575,7 +657,16 @@ release_own_lock() {
 # ── check_lock ──────────────────────────────────────────────────────────────
 # Check if lock exists.
 # Returns: 0 = free, 1 = locked by us, 2 = locked by another (same machine),
-#          3 = locked by another machine
+#          3 = locked by another machine, 4 = cannot determine (blind scan —
+#          see the header; the lock is kept, callers treat it as held)
+#
+# CFG-673 / GH#9: every "free" verdict below rests on the liveness scan having
+# found no live CC. When the scan can see no CC process at all (_cc_visible),
+# that finding is the scan's blindness, so the verdict is 4 and nothing is
+# removed. The alive-pid and remote-machine verdicts do not rest on the scan
+# and are unchanged. Deliberately NOT extended: an unresolvable own CC while
+# OTHER CCs are visible keeps its fail-open contract (it is not blind), and
+# acquire_lock keeps its own scan (afleet runs it before any CC exists).
 
 check_lock() {
     local project_dir="$1"
@@ -588,12 +679,15 @@ check_lock() {
     # No lock file — but a live foreign CC in the project still means LOCKED (CFG-468)
     if [[ ! -f "$lockfile" ]]; then
         _project_has_live_cc "$project_dir" "$self_pid" && return 2
+        _cc_visible "$self_pid" || return 4
         return 0
     fi
 
-    # Corrupt — do NOT clean/steal while a live foreign CC is present
+    # Corrupt — do NOT clean/steal while a live foreign CC is present, nor on a
+    # blind scan (CFG-673)
     if ! _read_lock "$lockfile"; then
         _project_has_live_cc "$project_dir" "$self_pid" && return 2
+        _cc_visible "$self_pid" || return 4
         rm -f "$lockfile"
         return 0
     fi
@@ -618,12 +712,10 @@ check_lock() {
         # leader's CC_SESSION_ID / AFLEET_SESSION_ID, so an ungated id comparison
         # would hand it ownership and reopen the CFG-454 F1 spoof.
         if ! _cc_is_nested; then
-            local _my_cc="${CC_SESSION_ID:-${CLAUDE_SESSION_ID:-}}"
             # ccSessionId is the reliable ownership signal; the pid is not.
-            if [[ -n "$_LOCK_CC_SESSION" && -n "$_my_cc" && "$_LOCK_CC_SESSION" == "$_my_cc" ]]; then
-                return 1
-            fi
-            if [[ -n "$_LOCK_SESSION" && -n "${AFLEET_SESSION_ID:-}" && "$_LOCK_SESSION" == "${AFLEET_SESSION_ID}" ]]; then
+            # _lock_bound_to_caller repeats the nesting gate — cheap, and keeps
+            # the one definition of "bound to the caller" in one place.
+            if _lock_bound_to_caller; then
                 return 1
             fi
             # Ancestry: the lock pid is a live ancestor of our CC with no other CC
@@ -631,16 +723,43 @@ check_lock() {
             if _cc_owns_lock_pid "$_LOCK_PID"; then
                 return 1
             fi
+            # CFG-672: the afleet id is an INHERITED env var and the nesting gate
+            # above is ancestry-only. A CC started through tmux-launch.sh is
+            # parented to the tmux server — which carries the AFLEET_SESSION_ID of
+            # whichever session started it — not to the leader's CC, so the gate
+            # cannot see it and an ungated id match handed it the leader's lock.
+            # Ancestry already proves the af leader whenever our own CC pid
+            # resolves; the id match is accepted only when it does not (degraded
+            # matcher), mirroring release_own_lock's sessionId fallback.
+            if [[ -z "$(_cc_self_pid)" && -n "$_LOCK_SESSION" && -n "${AFLEET_SESSION_ID:-}" && "$_LOCK_SESSION" == "${AFLEET_SESSION_ID}" ]]; then
+                return 1
+            fi
         fi
         # Another live session on this machine
         return 2
     fi
 
-    # Recorded PID dead — but the session may still be live under a different pid
-    # (the lock's pid is often the ephemeral SessionStart hook). Only auto-clean
-    # when NO live CC process is cwd'd in this project. FAIL OPEN. (CFG-468)
+    # Recorded PID dead. A lock bound to OUR cc session is ours whatever its pid
+    # says (CFG-454): a direct launch records the SessionStart hook's pid, dead
+    # seconds later (CFG-468), so without this the leader read its own lock as
+    # foreign whenever any other CC — a follower, a tmux job — was cwd'd in the
+    # project (the ivbook refusal), and with nobody else there it deleted its own
+    # lock as stale. Checked before the scan, which it also saves.
+    if _lock_bound_to_caller; then
+        return 1
+    fi
+
+    # Otherwise the session may still be live under a different pid (the lock's
+    # pid is often the ephemeral SessionStart hook). Only auto-clean when NO live
+    # CC process is cwd'd in this project. FAIL OPEN. (CFG-468)
     if _project_has_live_cc "$project_dir" "$self_pid"; then
         return 2
+    fi
+    # CFG-673: a scan that sees no CC at all cannot tell "stale" from "held by
+    # a session I cannot see" (the Bash sandbox hides the host's processes, so
+    # the recorded pid read dead above for the same reason). Keep the lock.
+    if ! _cc_visible "$self_pid"; then
+        return 4
     fi
     rm -f "$lockfile"
     return 0

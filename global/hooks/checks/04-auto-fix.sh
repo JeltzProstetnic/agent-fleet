@@ -64,13 +64,12 @@ _dep_sched_lib="${CONFIG_REPO:-}/setup/scripts/sched-lib.sh"
 _dep_run=1
 if [ -f "$_dep_sched_lib" ]; then
     source "$_dep_sched_lib"
-    SCHED_MARKER_DIR="${SCHED_MARKER_DIR:-/tmp}"
     sched_is_due "cc-dep-check" "daily" || _dep_run=0
 else
-    # fallback inline marker
-    _dep_gate="/tmp/.cc-dep-check-$(date +%Y-%m-%d)"
+    # fallback inline marker — never a bare /tmp (GH#13: read-only in the CC sandbox)
+    _dep_gate="${SCHED_MARKER_DIR:-${TMPDIR:-/tmp}}""/.cc-dep-check-$(date +%Y-%m-%d)"
     [ ! -f "$_dep_gate" ] || _dep_run=0
-    [ "$_dep_run" -eq 1 ] && touch "$_dep_gate"
+    [ "$_dep_run" -eq 1 ] && { touch "$_dep_gate" 2>/dev/null || true; }
 fi
 if [ "$_dep_run" -eq 1 ]; then
     DEP_RESULTS=""
@@ -104,7 +103,7 @@ if [ "$_dep_run" -eq 1 ]; then
     if type sched_mark_done &>/dev/null; then
         sched_mark_done "cc-dep-check" "daily"
     elif [ -z "${_dep_gate:-}" ]; then
-        touch "/tmp/.cc-dep-check-$(date +%Y-%m-%d)"
+        touch "${SCHED_MARKER_DIR:-${TMPDIR:-/tmp}}""/.cc-dep-check-$(date +%Y-%m-%d)" 2>/dev/null || true
     fi
     if [ -n "$DEP_RESULTS" ]; then
         WARNINGS="${WARNINGS:+$WARNINGS | }Upstream dependency check: $DEP_RESULTS"

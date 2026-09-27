@@ -90,8 +90,12 @@ else fail "escalation is prepended (got first chars: ${_result:0:30})"; fi
 echo ""
 echo "=== 15b-backlog-health.sh tests ==="
 
-# Clean daily gate before each test group
-_BACKLOG_GATE="/tmp/.backlog-health-check-$(date +%Y-%m-%d)"
+# Clean daily gate before each test group. The gate follows
+# ${SCHED_MARKER_DIR:-${TMPDIR:-/tmp}} (GH#13) — pin it to a private dir so the
+# marker cleared here is the one the check reads, whatever TMPDIR is.
+export SCHED_MARKER_DIR="$(mktemp -d)"
+trap 'rm -rf "$SCHED_MARKER_DIR"' EXIT
+_BACKLOG_GATE="$SCHED_MARKER_DIR/.backlog-health-check-$(date +%Y-%m-%d)"
 rm -f "$_BACKLOG_GATE"
 
 # Test: No backlog file → no warning

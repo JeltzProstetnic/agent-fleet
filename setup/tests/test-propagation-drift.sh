@@ -293,6 +293,96 @@ test_deeply_nested_paths() {
 }
 run_test "drift: deeply nested file path" test_deeply_nested_paths
 
+# ── CFG-613 (b): a failing propagation is its own warning, naming its age ────
+# The only startup signal used to be the generic "Propagation drift detected at
+# last shutdown: ...", which reads the same whether propagation is one commit
+# behind or has been dead for six days. The marker SessionEnd keeps
+# (.template-push-failed) now carries the streak; this check names it.
+
+_write_fail_marker() {  # $1 config_repo, $2 days ago, $3 consecutive, $4 exit code
+    local epoch=$(( $(date +%s) - $2 * 86400 - 60 ))
+    cat > "$1/.template-push-failed" << EOF
+time=2026-09-25 08:00:00 UTC
+first_failed=2026-09-19 08:00:00 UTC
+first_failed_epoch=$epoch
+consecutive=$3
+exit_code=$4
+drift_files=12
+output_tail=[ERROR]     - setup/tests/test-held-a.sh
+[ERROR]     - setup/tests/test-held-b.sh
+[ERROR]   Held (personal data): 2 file(s) NOT propagated (3 hit line(s)) — genericize and re-run; exit 3
+EOF
+}
+
+test_failing_push_is_its_own_warning_with_age() {
+    local config_repo="$TEST_TMPDIR/config-repo" mock_home="$TEST_TMPDIR/home"
+    mkdir -p "$config_repo" "$mock_home"
+    _write_fail_marker "$config_repo" 6 4 3
+
+    local output; output=$(run_drift_check "$config_repo" "$mock_home")
+    assert_contains "$output" "TEMPLATE_PUSH_FAILING" "a failing propagation must get its own warning tag" || return 1
+    assert_contains "$output" "4 consecutive" "the warning must name the streak length" || return 1
+    assert_contains "$output" "6 day(s)" "the warning must name the age" || return 1
+    assert_contains "$output" "2026-09-19 08:00:00 UTC" "the warning must name when the streak began" || return 1
+    assert_contains "$output" "exit=3" "the warning must carry the last exit code" || return 1
+    assert_contains "$output" "setup/tests/test-held-a.sh" "held files must be named" || return 1
+    assert_not_contains "$output" "PROPAGATION_DRIFT" "this is not generic drift"
+}
+run_test "CFG-613: a failing propagation is its own warning with streak, age and held files" test_failing_push_is_its_own_warning_with_age
+
+test_failing_push_under_a_day_reports_hours() {
+    local config_repo="$TEST_TMPDIR/config-repo" mock_home="$TEST_TMPDIR/home"
+    mkdir -p "$config_repo" "$mock_home"
+    _write_fail_marker "$config_repo" 0 1 1
+    local output; output=$(run_drift_check "$config_repo" "$mock_home")
+    assert_contains "$output" "TEMPLATE_PUSH_FAILING" || return 1
+    assert_contains "$output" "hour(s)" "an age under a day is named in hours, not '0 days'" || return 1
+    assert_contains "$output" "exit=1" || return 1
+    assert_contains "$output" "nothing propagated" "exit 1 must be told apart from a partial hold"
+}
+run_test "CFG-613: a failure younger than a day is aged in hours; exit 1 reads as nothing propagated" test_failing_push_under_a_day_reports_hours
+
+test_no_marker_no_failing_warning() {
+    local config_repo="$TEST_TMPDIR/config-repo" mock_home="$TEST_TMPDIR/home"
+    mkdir -p "$config_repo" "$mock_home"
+    local output; output=$(run_drift_check "$config_repo" "$mock_home")
+    assert_not_contains "$output" "TEMPLATE_PUSH_FAILING" "no marker, no warning"
+}
+run_test "CFG-613: no marker, no failing-propagation warning" test_no_marker_no_failing_warning
+
+test_legacy_marker_still_warns() {
+    local config_repo="$TEST_TMPDIR/config-repo" mock_home="$TEST_TMPDIR/home"
+    mkdir -p "$config_repo" "$mock_home"
+    printf 'time=2026-09-11 08:00:00 UTC\nexit_code=1\ndrift_files=3\noutput_tail=x\n' > "$config_repo/.template-push-failed"
+    local output; output=$(run_drift_check "$config_repo" "$mock_home")
+    assert_contains "$output" "TEMPLATE_PUSH_FAILING" "a pre-CFG-613 marker must still surface" || return 1
+    assert_contains "$output" "2026-09-11 08:00:00 UTC" "it must name the failure time it has"
+}
+run_test "CFG-613: a pre-CFG-613 marker still surfaces as its own warning" test_legacy_marker_still_warns
+
+# An exit 3 can hold NOTHING: a template registration whose hook the template lacks
+# (CFG-664 orphan) forces 3 by itself. It must not read as "held files did not
+# propagate" with no names; the orphan names are in the tail and must be carried.
+test_orphan_only_exit3_names_the_orphans() {
+    local config_repo="$TEST_TMPDIR/config-repo" mock_home="$TEST_TMPDIR/home"
+    mkdir -p "$config_repo" "$mock_home"
+    cat > "$config_repo/.template-push-failed" << EOF
+time=2026-09-25 08:00:00 UTC
+first_failed=2026-09-25 07:00:00 UTC
+first_failed_epoch=$(( $(date +%s) - 3600 ))
+consecutive=1
+exit_code=3
+drift_files=4
+output_tail=[INFO]   Skipped (unchanged): 0
+$(printf '\033[0;31m[ERROR]\033[0m')   Orphan registrations: 2 in the template's settings.json arm no hook: ghost-guard.sh, spook-guard.sh; exit 3
+EOF
+    local output; output=$(run_drift_check "$config_repo" "$mock_home")
+    assert_contains "$output" "TEMPLATE_PUSH_FAILING" || return 1
+    assert_contains "$output" "ghost-guard.sh, spook-guard.sh" "the orphan registrations must be named" || return 1
+    assert_not_contains "$output" "held files did not propagate" "nothing was held — the reason must not say so"
+}
+run_test "CFG-664: an orphan-only exit 3 names the orphans, not held files" test_orphan_only_exit3_names_the_orphans
+
 # ── Summary ──────────────────────────────────────────────────────────────────
 
 suite_summary

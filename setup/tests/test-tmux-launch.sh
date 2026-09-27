@@ -258,6 +258,123 @@ test_prefix_sibling_survives_and_death_still_detected() {
 }
 run_test "prefix-named sibling is neither killed nor mistaken for our session" test_prefix_sibling_survives_and_death_still_detected
 
+# ── Detached server (CFG-616) ───────────────────────────────────────────────
+# With no tmux server running, `tmux new-session -d` spawns the server from the
+# caller's process tree — a Claude Code bash call — and the first background job
+# of a session died with it (measured on WSL 2026-09-15: empty log, `no
+# server running`). The launcher must start tmux through `setsid`, so the server
+# is born outside the caller's session. These tests use a PRIVATE socket dir so
+# "no server running" is deterministic and no shared server is touched.
+
+_private_tmux() {
+    unset TMUX
+    export TMUX_TMPDIR="$TEST_TMPDIR/tmuxsock"
+    mkdir -p "$TMUX_TMPDIR"
+}
+
+_private_tmux_cleanup() {
+    # TMUX_TMPDIR is the private dir here, so this can only reach our own server.
+    [[ "${TMUX_TMPDIR:-}" == "$TEST_TMPDIR/tmuxsock" ]] && tmux kill-server 2>/dev/null || true
+    unset TMUX_TMPDIR
+}
+
+_mock_setsid() {
+    local dir="$TEST_TMPDIR/setsidbin"
+    mkdir -p "$dir"
+    cat > "$dir/setsid" << 'MOCKEOF'
+#!/usr/bin/env bash
+echo "setsid $*" >> "$SETSID_CALL_LOG"
+while [[ "${1:-}" == -* ]]; do shift; done
+exec "$@"
+MOCKEOF
+    chmod +x "$dir/setsid"
+    echo "$dir"
+}
+
+test_server_started_via_setsid() {
+    _private_tmux
+    local mock_dir call_log="$TEST_TMPDIR/setsid-calls.log"
+    mock_dir=$(_mock_setsid)
+    : > "$call_log"
+    tmux list-sessions >/dev/null 2>&1 && { echo "precondition: private server already running" >&2; _private_tmux_cleanup; return 1; }
+
+    local rc=0
+    SETSID_CALL_LOG="$call_log" PATH="$mock_dir:$PATH" \
+        bash "$TMUX_LAUNCH" "tl-setsid-$$" "setsid probe" "sleep 30" >/dev/null 2>&1 || rc=$?
+    local alive=1
+    tmux has-session -t="tl-setsid-$$" 2>/dev/null || alive=0
+    _private_tmux_cleanup
+
+    assert_eq "0" "$rc" "launch should succeed" || return 1
+    assert_eq "1" "$alive" "session should be alive on the private server" || return 1
+    assert_file_contains "$call_log" "tmux" "tmux must be started through setsid when no server is running" || return 1
+}
+run_test "no running server: tmux is started through setsid (CFG-616)" test_server_started_via_setsid
+
+test_server_is_own_session_leader() {
+    _private_tmux
+    local rc=0
+    bash "$TMUX_LAUNCH" "tl-sid-$$" "sid probe" "sleep 30" >/dev/null 2>&1 || rc=$?
+    local spid sid mysid
+    spid=$(tmux display-message -p -t="tl-sid-$$" '#{pid}' 2>/dev/null || true)
+    sid=$(ps -o sid= -p "${spid:-0}" 2>/dev/null | tr -d ' ')
+    mysid=$(ps -o sid= -p $$ 2>/dev/null | tr -d ' ')
+    _private_tmux_cleanup
+
+    assert_eq "0" "$rc" "launch should succeed" || return 1
+    [[ -n "$spid" ]] || { echo "    no server pid" >&2; return 1; }
+    assert_neq "$mysid" "$sid" "tmux server must not share the caller's session" || return 1
+}
+# NOTE: a regression guard, not proof of the CFG-616 fix — tmux daemonizes its server
+# itself, so on Linux this also holds without setsid (measured: ppid 1, own session).
+run_test "spawned tmux server does not share the caller's session" test_server_is_own_session_leader
+
+# ── GPI reporting honesty (CFG-616 / CFG-598) ───────────────────────────────
+# `gpi start … 2>/dev/null || true` swallowed every registration error and the
+# final line said "GPI registered" unconditionally, so a failed registration
+# reported success and the statusline silently lacked the job.
+
+_mock_failing_gpi() {
+    local dir="$TEST_TMPDIR/failgpi"
+    mkdir -p "$dir"
+    cat > "$dir/gpi" << 'MOCKEOF'
+#!/usr/bin/env bash
+echo "gpi: jq: command not found" >&2
+exit 1
+MOCKEOF
+    chmod +x "$dir/gpi"
+    echo "$dir"
+}
+
+test_gpi_failure_not_reported_as_success() {
+    _private_tmux
+    local mock_dir out rc=0
+    mock_dir=$(_mock_failing_gpi)
+    out=$(PATH="$mock_dir:$PATH" bash "$TMUX_LAUNCH" "tl-gpifail-$$" "gpi fail" "sleep 30" 2>&1) || rc=$?
+    local alive=1
+    tmux has-session -t="tl-gpifail-$$" 2>/dev/null || alive=0
+    _private_tmux_cleanup
+
+    # A registration failure must not cost the job: the launch still succeeds...
+    assert_eq "0" "$rc" "a gpi failure must not fail the launch" || return 1
+    assert_eq "1" "$alive" "the job must still be running" || return 1
+    # ...but it must be reported, not dressed up as success.
+    assert_not_contains "$out" "GPI registered" "a failed registration must not print 'GPI registered'" || return 1
+    assert_contains "$out" "GPI registration FAILED" "the failure must be reported" || return 1
+    assert_contains "$out" "jq: command not found" "gpi's own error must be surfaced, not swallowed" || return 1
+}
+run_test "failed GPI registration is reported, not claimed as success" test_gpi_failure_not_reported_as_success
+
+test_gpi_success_still_reported() {
+    _private_tmux
+    local out rc=0
+    out=$(bash "$TMUX_LAUNCH" "tl-gpiok-$$" "gpi ok" "sleep 30" 2>&1) || rc=$?
+    _private_tmux_cleanup
+    assert_eq "0" "$rc" "launch should succeed" || return 1
+    assert_contains "$out" "GPI registered" "a successful registration is still reported" || return 1
+}
+run_test "successful GPI registration is still reported" test_gpi_success_still_reported
+
 # ── Summary ─────────────────────────────────────────────────────────────────
 
 suite_summary

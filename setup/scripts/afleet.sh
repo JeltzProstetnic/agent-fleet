@@ -55,9 +55,18 @@ DRY_RUN="${AFLEET_DRY_RUN:-0}"
 # ── Pre-picker: pull config repo so registry.md is current ──────────────────
 # Must happen BEFORE parse_registry / picker — otherwise new projects added on
 # other machines won't appear. Timeout prevents network hangs from blocking launch.
+# `_timeout` is the portable one from lib-portable.sh: macOS has no GNU `timeout`, and
+# a bare `timeout … || true` there exited 127 silently, so the sync never ran (GH#5).
+for _p in "$CONFIG_REPO/global/hooks/lib-portable.sh" "$HOME/.claude/hooks/lib-portable.sh"; do
+    [[ -f "$_p" ]] && bash -n "$_p" 2>/dev/null && source "$_p" && break
+done
+# Library missing: keep the old behaviour rather than drop the bound altogether.
+type _timeout &>/dev/null || _timeout() { timeout "$@"; }
+# `afleet transfer` shows no picker and runs from inside live sessions: it must not pull
+# (and on divergence rebase/stash) the config repo as a side effect (CFG-427).
 _PRE_PICKER_TIMEOUT="${AFLEET_PRE_PICKER_TIMEOUT:-10}"
-if [[ -f "$SYNC_SCRIPT" && -d "$CONFIG_REPO/.git" ]]; then
-    timeout "$_PRE_PICKER_TIMEOUT" bash "$SYNC_SCRIPT" --pull "$CONFIG_REPO" >/dev/null 2>&1 || true
+if [[ "${1:-}" != "transfer" && -f "$SYNC_SCRIPT" && -d "$CONFIG_REPO/.git" ]]; then
+    _timeout "$_PRE_PICKER_TIMEOUT" bash "$SYNC_SCRIPT" --pull "$CONFIG_REPO" >/dev/null 2>&1 || true
 fi
 
 # ── Portable readlink -f (needed before any library is sourced) ───────────────
@@ -237,7 +246,8 @@ afleet_check_binaries() {
     for bin in git bash; do
         command -v "$bin" &>/dev/null || missing_critical+=("$bin")
     done
-    for bin in script timeout node fzf; do
+    # `timeout` is not listed: `_timeout` (lib-portable.sh) falls back to gtimeout/perl/bash.
+    for bin in script node fzf; do
         command -v "$bin" &>/dev/null || missing_optional+=("$bin")
     done
     if (( ${#missing_critical[@]} )); then
@@ -285,7 +295,7 @@ pre_pull_all_repos() {
             echo "SYNC_CALLED path=$path" >> "$sync_log"
         fi
 
-        timeout "$timeout" bash "$SYNC_SCRIPT" --pull "$path" >/dev/null 2>&1 || true
+        _timeout "$timeout" bash "$SYNC_SCRIPT" --pull "$path" >/dev/null 2>&1 || true
     done < <(parse_registry)
 }
 
@@ -421,7 +431,14 @@ afleet_acquire_session_lock() {
     if [[ -f "$afd_lib" && -n "${AFD_TOKEN:-}" ]]; then
         source "$afd_lib" 2>/dev/null || { echo "  Warning: afd-lib.sh failed to load" >&2; return 0; }
         local _lock_rc=0
-        afd_lock_acquire "$project_name" "$(hostname)" "$session_id" "$$" 2>/tmp/.afleet-lock-msg || _lock_rc=$?
+        # CFG-649: `hostname` is not guaranteed (SteamOS updates wipe inetutils),
+        # and an EMPTY machine name in the mutex is a double-leader waiting to
+        # happen. Inlined: afleet-lib.sh cannot reach get_hostname either.
+        local _machine
+        _machine="$(hostname 2>/dev/null || uname -n 2>/dev/null \
+            || cat /proc/sys/kernel/hostname 2>/dev/null || cat /etc/hostname 2>/dev/null \
+            || echo "${HOSTNAME:-unknown}")"
+        afd_lock_acquire "$project_name" "$_machine" "$session_id" "$$" 2>/tmp/.afleet-lock-msg || _lock_rc=$?
         if [[ "$_lock_rc" -eq 2 ]]; then
             echo "" >&2
             echo "  ✖ $(cat /tmp/.afleet-lock-msg 2>/dev/null)" >&2
@@ -476,6 +493,10 @@ resolve_project() {
                 echo "  afleet recover      Auto-diagnose and fix common issues"
                 echo "  afleet rollback N   Roll back config repo by N commits + redeploy"
                 echo "  afleet safe-mode    Launch Claude Code with minimal config"
+                echo ""
+                echo "Tools:"
+                echo "  afleet transfer <file> <target-dir> [--replace-with-pointer]"
+                echo "                      Hand a file to another project (copy + inbox item + commit)"
                 exit 0 ;;
             --list|-l) MODE="list"; shift ;;
             --pick|-p|--dash|-d) SHOW_PICKER=true; shift ;;
@@ -489,6 +510,14 @@ resolve_project() {
                     exec bash "$_AFLEET_DIR/afleet-recover.sh" "$@"
                 else
                     echo "Recovery module not yet installed." >&2; exit 1
+                fi ;;
+            # Cross-project file handoff (CFG-427) — everything after the word is its own.
+            transfer)
+                shift
+                if [[ -f "$_AFLEET_DIR/cross-project-transfer.sh" ]]; then
+                    exec bash "$_AFLEET_DIR/cross-project-transfer.sh" "$@"
+                else
+                    echo "Transfer tool not yet installed (setup/scripts/cross-project-transfer.sh)." >&2; exit 1
                 fi ;;
             --model) [[ $# -ge 2 ]] || { echo "Error: --model requires an argument" >&2; exit 1; }; MODEL_ARG="$2"; shift 2 ;;
             # MCP selection for local-model mode. DEFAULT IS NONE — the lean profile exists

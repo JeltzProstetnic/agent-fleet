@@ -43,13 +43,27 @@ EOF
 #!/usr/bin/env bash
 exec -a fakecc-nested bash "$@"
 EOF
+    # The af launcher shape (CFG-672): afleet.sh writes the lock with ITS OWN pid
+    # and runs CC as a CHILD (via `script`), so the launcher stays a live ANCESTOR
+    # of the CC for the whole session — the topology check_lock's ancestry proof
+    # expects. Args: <proj> <afleet-id> <cc-script> [args]. The child must not be
+    # the last command (bash exec-optimises a trailing command, see above).
+    cat > "$TEST_TMPDIR/afleet-shell.sh" << EOF
+#!/usr/bin/env bash
+source "$LOCK_LIB"
+_write_lock "\$1/.claude/.session-lock" "\$2" "" "\$\$"
+shift 2
+bash "\$@"; rc=\$?; exit \$rc
+EOF
 }
 
-_under_tree() {   # leader|nested <script> [args] — run <script> as the innermost fake CC
+_under_tree() {   # leader|nested|af <script> [args] — run <script> as the innermost fake CC
     local tree="$1"; shift
     case "$tree" in
         leader) _CC_PROC_RE="$_FAKE_CC_RE" bash "$TEST_TMPDIR/fakecc-leader.sh" "$@" ;;
         nested) _CC_PROC_RE="$_FAKE_CC_RE" bash "$TEST_TMPDIR/fakecc-leader.sh" "$TEST_TMPDIR/fakecc-nested.sh" "$@" ;;
+        # af <proj> <afleet-id> <script>: launcher writes the lock, CC is its child
+        af)     _CC_PROC_RE="$_FAKE_CC_RE" bash "$TEST_TMPDIR/afleet-shell.sh" "$1" "$2" "$TEST_TMPDIR/fakecc-leader.sh" "${@:3}" ;;
     esac
 }
 
@@ -68,6 +82,7 @@ export CONFIG_REPO="$1" PROJECT_DIR="$2"
 WARNINGS="" INBOX_MSG=""
 cd "$2"
 source "$HOOK_07B"
+printf 'WARNINGS=%s\n' "\$WARNINGS"
 EOF
 }
 
@@ -97,22 +112,145 @@ run_test "07b: nested CC (inherited AFLEET_SESSION_ID) gets role follower, not l
 test_afleet_leader_stays_leader() {
     # Removing the override must not demote the genuine `af` leader: its lock
     # (written by afleet before CC starts: afleet id, no cc id yet, launcher pid)
-    # is recognised by check_lock itself through the AFLEET_SESSION_ID match,
-    # gated on "not nested" — which a single fake CC satisfies.
+    # is recognised by check_lock itself. Since CFG-672 that recognition is by
+    # ANCESTRY — the launcher shell that wrote the lock is a live ancestor of the
+    # CC — so the fixture runs the real launcher shape (afleet-shell → fake CC),
+    # not merely "some alive pid" (which is the tmux shape tested below).
     local cr="$TEST_TMPDIR/cr" proj="$TEST_TMPDIR/proj"
     _mk_config_repo "$cr"; _mk_fake_cc_tree; _mk_07b_runner "$cr" "$proj"
     mkdir -p "$proj/.claude"
-    sleep 120 & local lpid=$!
-    ( source "$LOCK_LIB"; _write_lock "$proj/.claude/.session-lock" "af-leader" "" "$lpid" )
     AFLEET_SESSION_ID=af-leader CC_SESSION_ID=cc-leader \
-        _under_tree leader "$TEST_TMPDIR/run07b.sh" >/dev/null 2>&1 || true
-    kill "$lpid" 2>/dev/null || true
+        _under_tree af "$proj" af-leader "$TEST_TMPDIR/run07b.sh" >/dev/null 2>&1 || true
     local marker="$proj/.claude/.session-role.cc-leader" role
     assert_file_exists "$marker" "07b wrote a role marker for the leader" || return 1
     role=$(_role_of "$marker")
     assert_eq "leader" "$role" "the genuine af leader keeps role leader without the override (measured role: '$role')" || return 1
     assert_file_contains "$proj/.claude/.session-lock" '"cc-leader"' "07b stamped the leader's lock with its cc id"
 }
-run_test "07b: the genuine af leader (AFLEET_SESSION_ID matches, not nested) stays leader" test_afleet_leader_stays_leader
+run_test "07b: the genuine af leader (launcher is CC's ancestor, AFLEET_SESSION_ID matches) stays leader" test_afleet_leader_stays_leader
+
+test_tmux_cc_with_inherited_afleet_id_is_follower() {
+    # CFG-672: a CC started through tmux-launch.sh is parented to the tmux
+    # server, not to the leader's CC, so _cc_is_nested cannot see it — yet it
+    # carries the server's inherited AFLEET_SESSION_ID. The leader's lock pid is
+    # alive but NOT an ancestor of this CC, and the lock is still unstamped
+    # (the exposed window). check_lock accepted the bare id match (rc 1) and 07b
+    # then stamped the leader's lock with the tmux CC's id and marked it leader.
+    local cr="$TEST_TMPDIR/cr" proj="$TEST_TMPDIR/proj"
+    _mk_config_repo "$cr"; _mk_fake_cc_tree; _mk_07b_runner "$cr" "$proj"
+    mkdir -p "$proj/.claude"
+    sleep 120 & local lpid=$!      # the leader's launcher: alive, unrelated to our tree
+    ( source "$LOCK_LIB"; _write_lock "$proj/.claude/.session-lock" "af-leader" "" "$lpid" )
+    AFLEET_SESSION_ID=af-leader CC_SESSION_ID=cc-tmux \
+        _under_tree leader "$TEST_TMPDIR/run07b.sh" >/dev/null 2>&1 || true
+    kill "$lpid" 2>/dev/null || true
+    local marker="$proj/.claude/.session-role.cc-tmux" role
+    assert_file_exists "$marker" "07b wrote a role marker for the tmux CC" || return 1
+    role=$(_role_of "$marker")
+    assert_eq "follower" "$role" "a tmux-launched CC with an inherited AFLEET_SESSION_ID is a follower (measured role: '$role')" || return 1
+    assert_file_exists "$proj/.claude/.session-lock" "the leader's lock is left intact" || return 1
+    assert_file_not_contains "$proj/.claude/.session-lock" '"cc-tmux"' "the leader's lock is NOT stamped with the tmux CC's id"
+}
+run_test "07b: tmux-launched CC (inherited AFLEET_SESSION_ID, lock pid alive elsewhere) gets role follower" test_tmux_cc_with_inherited_afleet_id_is_follower
+
+test_tmux_cc_on_stamped_leader_lock_is_follower() {
+    # The same tmux CC against the NORMAL production state: the leader's lock is
+    # already stamped with the leader's cc id. The tmux CC's own ids (hook stdin
+    # and the CLAUDE_CODE_SESSION_ID its CC sets for the hook) are its own.
+    local cr="$TEST_TMPDIR/cr" proj="$TEST_TMPDIR/proj"
+    _mk_config_repo "$cr"; _mk_fake_cc_tree; _mk_07b_runner "$cr" "$proj"
+    mkdir -p "$proj/.claude"
+    sleep 120 & local lpid=$!
+    ( source "$LOCK_LIB"; _write_lock "$proj/.claude/.session-lock" "af-leader" "cc-leader" "$lpid" )
+    AFLEET_SESSION_ID=af-leader CC_SESSION_ID=cc-tmux CLAUDE_CODE_SESSION_ID=cc-tmux \
+        _under_tree leader "$TEST_TMPDIR/run07b.sh" >/dev/null 2>&1 || true
+    kill "$lpid" 2>/dev/null || true
+    local marker="$proj/.claude/.session-role.cc-tmux" role
+    assert_file_exists "$marker" "07b wrote a role marker for the tmux CC" || return 1
+    role=$(_role_of "$marker")
+    assert_eq "follower" "$role" "a tmux CC on the leader's STAMPED lock is a follower (measured role: '$role')" || return 1
+    assert_file_contains "$proj/.claude/.session-lock" '"cc-leader"' "the lock stays bound to the leader's cc id"
+}
+run_test "07b: tmux-launched CC on the leader's already-stamped lock gets role follower" test_tmux_cc_on_stamped_leader_lock_is_follower
+
+_spawn_other_cc() {   # <dir> — a detached fake CC cwd'd in <dir>; echoes its pid
+    local dir="$1" pf="$TEST_TMPDIR/other-cc.pid" i
+    rm -f "$pf"
+    ( cd "$dir" && setsid bash -c 'echo $$ > "$0"; exec -a fakecc-leader sleep 60' "$pf" ) \
+        </dev/null >/dev/null 2>&1 &
+    for i in $(seq 1 50); do
+        if [[ -s "$pf" ]] && tr '\0' ' ' < "/proc/$(cat "$pf")/cmdline" 2>/dev/null | grep -q '^fakecc-leader'; then
+            cat "$pf"; return 0
+        fi
+        sleep 0.1
+    done
+    return 1
+}
+
+test_direct_leader_compacting_with_follower_live_stays_leader() {
+    # CFG-454: a direct launch records the SessionStart hook's pid, dead seconds
+    # later. When that leader compacts (SessionStart again, same cc id) while a
+    # follower CC is live in the project, check_lock read the leader's OWN
+    # stamped lock as foreign (the dead-pid branch never looked at the cc id):
+    # the leader became a follower — two followers, no leader.
+    local cr="$TEST_TMPDIR/cr" proj="$TEST_TMPDIR/proj"
+    _mk_config_repo "$cr"; _mk_fake_cc_tree; _mk_07b_runner "$cr" "$proj"
+    mkdir -p "$proj/.claude"
+    true & local dpid=$!; wait "$dpid" 2>/dev/null || true
+    ( source "$LOCK_LIB"; _write_lock "$proj/.claude/.session-lock" "" "cc-leader" "$dpid" )
+    local fol; fol="$(_spawn_other_cc "$proj")" || { echo "could not spawn the follower CC" >&2; return 1; }
+    env -u AFLEET_SESSION_ID CC_SESSION_ID=cc-leader CLAUDE_CODE_SESSION_ID=cc-leader \
+        _CC_PROC_RE="$_FAKE_CC_RE" bash "$TEST_TMPDIR/fakecc-leader.sh" "$TEST_TMPDIR/run07b.sh" >/dev/null 2>&1 || true
+    kill "$fol" 2>/dev/null || true
+    local marker="$proj/.claude/.session-role.cc-leader" role
+    assert_file_exists "$marker" "07b wrote a role marker for the leader" || return 1
+    role=$(_role_of "$marker")
+    assert_eq "leader" "$role" "the leader keeps its role on its own decayed lock with a follower live (measured role: '$role')" || return 1
+    assert_file_contains "$proj/.claude/.session-lock" '"cc-leader"' "the lock stays bound to the leader's cc id"
+}
+run_test "07b: direct-launch leader compacting while a follower is live stays leader" test_direct_leader_compacting_with_follower_live_stays_leader
+
+# ── CFG-673 / GH#9: a blind lock check is "unknown", never "free" ────────────
+# When the lock check can see /proc but no CC process at all, not even this
+# session's own, its liveness scan is blind (a CC matcher that recognises
+# nothing here; inside Claude Code's Bash sandbox, a PID namespace). check_lock
+# read that as "no holder": it deleted the lock and 07b took the lead. The
+# owner decision is fail closed: rc 4, lock kept, this session a follower, and
+# the user told the state is unknown. _CC_PROC_RE names no running process.
+_run07b_blind() {   # <cc-id>: the real 07b with nothing CC-shaped visible; echoes its WARNINGS
+    env -u AFLEET_SESSION_ID -u _CC_SELF_PID CC_SESSION_ID="$1" CLAUDE_CODE_SESSION_ID="$1" \
+        _CC_PROC_RE="(^|/)cfg673-no-such-cc-$$([[:space:]]|$)" bash "$TEST_TMPDIR/run07b.sh" 2>/dev/null || true
+}
+
+test_blind_check_on_dead_pid_lock_is_follower_unknown() {
+    local cr="$TEST_TMPDIR/cr" proj="$TEST_TMPDIR/proj"
+    _mk_config_repo "$cr"; _mk_07b_runner "$cr" "$proj"
+    mkdir -p "$proj/.claude"
+    true & local dpid=$!; wait "$dpid" 2>/dev/null || true
+    ( source "$LOCK_LIB"; _write_lock "$proj/.claude/.session-lock" "af-leader" "cc-leader" "$dpid" )
+    local out; out="$(_run07b_blind cc-blind)"
+    assert_file_exists "$proj/.claude/.session-lock" "the lock is not deleted on a blind scan" || return 1
+    assert_file_contains "$proj/.claude/.session-lock" '"cc-leader"' "the lock still names the other session" || return 1
+    local marker="$proj/.claude/.session-role.cc-blind" role
+    assert_file_exists "$marker" "07b wrote a role marker" || return 1
+    role=$(_role_of "$marker")
+    assert_eq "follower" "$role" "a session that cannot see who holds the project is a follower (measured role: '$role')" || return 1
+    assert_contains "$out" "SESSION_LOCK_UNKNOWN" "the user is told the lock state is unknown"
+}
+run_test "07b: blind lock check on a dead-pid lock ⇒ lock kept, follower, SESSION_LOCK_UNKNOWN" test_blind_check_on_dead_pid_lock_is_follower_unknown
+
+test_blind_check_without_lock_does_not_take_the_lead() {
+    local cr="$TEST_TMPDIR/cr" proj="$TEST_TMPDIR/proj"
+    _mk_config_repo "$cr"; _mk_07b_runner "$cr" "$proj"
+    mkdir -p "$proj/.claude"
+    local out; out="$(_run07b_blind cc-blind)"
+    assert_file_not_exists "$proj/.claude/.session-lock" "no lock is acquired on a blind scan" || return 1
+    local marker="$proj/.claude/.session-role.cc-blind" role
+    assert_file_exists "$marker" "07b wrote a role marker" || return 1
+    role=$(_role_of "$marker")
+    assert_eq "follower" "$role" "no lock + blind scan ⇒ follower, not leader (measured role: '$role')" || return 1
+    assert_contains "$out" "SESSION_LOCK_UNKNOWN" "the user is told the lock state is unknown"
+}
+run_test "07b: blind lock check with no lock file ⇒ no acquire, follower, SESSION_LOCK_UNKNOWN" test_blind_check_without_lock_does_not_take_the_lead
 
 suite_summary

@@ -515,8 +515,11 @@ test_clean_state_no_output() {
     assert_eq "0" "$rc" "should exit 0"
     # git pull may output "Already up to date." — that's expected non-JSON noise.
     # The key assertion: no JSON warning output (no additionalContext).
-    assert_not_contains "$output" "additionalContext" "should produce no JSON warnings when everything is clean"
-    assert_not_contains "$output" "WARNING" "should produce no WARNING text when everything is clean"
+    # The identity payload (HOSTNAME/TIME/PERSONA/...) is ALWAYS emitted — main and the
+    # merged branch are byte-identical here; the old "no additionalContext" assert was
+    # non-final and never enforced. The real claim is: no warnings.
+    assert_contains "$output" "HOSTNAME:" "identity payload is emitted" || return 1
+    assert_not_contains "$output" "WARNING" "should produce no WARNING text when everything is clean" || return 1
 }
 run_test "clean state: no JSON warnings and exit 0" test_clean_state_no_output
 
@@ -616,7 +619,10 @@ EOF
     output=$(_FORCE_WSL=0 run_hook "$patched")
 
     # git pull may output "Already up to date." — that's expected non-JSON noise.
-    assert_not_contains "$output" "additionalContext" "should produce no JSON warnings when inbox is done"
+    # The identity payload (HOSTNAME/TIME/PERSONA/...) is ALWAYS emitted — main and the
+    # merged branch are byte-identical here; the old "no additionalContext" assert was
+    # non-final and never enforced. The real claim is: no warnings.
+    assert_contains "$output" "HOSTNAME:" "identity payload is emitted" || return 1
     assert_not_contains "$output" "WARNING" "should produce no WARNING when inbox is done"
 }
 run_test "inbox: no warnings when all tasks are completed" test_inbox_all_done

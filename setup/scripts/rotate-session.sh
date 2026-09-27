@@ -51,6 +51,14 @@ if [[ "$_OWNER_VERIFIED" -ne 1 ]]; then
             echo "rotate-session: refusing — $PROJECT_DIR is held by another live session (check_lock=$_rs_rc)." >&2
             echo "This is a follower-safety guard. The leader's shutdown passes --owner-verified to rotate." >&2
             exit 3
+        elif [[ "$_rs_rc" -eq 4 ]]; then
+            # CFG-673 / GH#9: the lock check saw no Claude Code process at all
+            # (inside Claude Code's Bash sandbox, whose PID namespace hides the
+            # host's processes). Whether a live session holds the project is
+            # unknown: fail closed, the same exit as "held", and the lock stays.
+            echo "rotate-session: refusing — whether another live session holds $PROJECT_DIR is unknown (check_lock=4: no Claude Code process is visible to the lock check, e.g. inside Claude Code's Bash sandbox). Treated as held; the lock was left in place." >&2
+            echo "The leader's SessionEnd hook runs outside the sandbox and rotates its own project. If you have verified that no session is running there, clear the stale lock (session-lock.sh force_release) and run this again." >&2
+            exit 3
         fi
     fi
 fi
@@ -105,6 +113,12 @@ if [[ -n "$DANGLING_REFS" ]]; then
     echo "" >&2
     echo "Consider saving the referenced content to a dedicated file before rotating." >&2
     echo "" >&2
+fi
+
+# --- CFG-204: Recovery items not carried into the handover ---
+# Warn, don't block: rotation also runs inside the SessionEnd hook.
+if [[ -f "${_ROTATE_SCRIPT_DIR}/handover-check.sh" ]]; then
+    bash "${_ROTATE_SCRIPT_DIR}/handover-check.sh" "$PROJECT_DIR" || true
 fi
 
 # --- Fix B: Extract ## Next Session Task section ---

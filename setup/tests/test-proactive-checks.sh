@@ -23,6 +23,11 @@ setup_check_env() {
     WARNINGS=""
     INBOX_MSG=""
 
+    # Daily gates follow ${SCHED_MARKER_DIR:-${TMPDIR:-/tmp}} (GH#13) — pin
+    # them inside the sandbox so the markers cleared below are the ones read.
+    export SCHED_MARKER_DIR="$TEST_TMPDIR/sched"
+    mkdir -p "$SCHED_MARKER_DIR"
+
     mkdir -p "$PROJECT_DIR"
     mkdir -p "$CONFIG_REPO/cross-project"
     mkdir -p "$CONFIG_REPO/dms/scripts"
@@ -208,7 +213,7 @@ run_test "Inbox staleness: missing file is silent" test_inbox_stale_missing_file
 test_audit_recent() {
     setup_check_env
     # Remove any daily gate marker
-    rm -f /tmp/.audit-stale-check-* 2>/dev/null || true
+    rm -f "$SCHED_MARKER_DIR"/.audit-stale-check-* 2>/dev/null || true
     echo "$(date +%Y-%m-%d)" > "$HOME/.claude/.last-audit-date"
     source "$CHECK_14"
     assert_not_contains "$INBOX_MSG" "AUDIT_DUE" "recent audit should not trigger"
@@ -218,7 +223,7 @@ run_test "Audit staleness: recent audit is silent" test_audit_recent
 # Test: Missing marker file → audit due
 test_audit_missing_marker() {
     setup_check_env
-    rm -f /tmp/.audit-stale-check-* 2>/dev/null || true
+    rm -f "$SCHED_MARKER_DIR"/.audit-stale-check-* 2>/dev/null || true
     rm -f "$HOME/.claude/.last-audit-date"
     source "$CHECK_14"
     assert_contains "$INBOX_MSG" "AUDIT_DUE" "missing marker should trigger audit due"
@@ -229,7 +234,7 @@ run_test "Audit staleness: missing marker triggers due" test_audit_missing_marke
 # Test: Old audit date (>7 days ago) → audit due
 test_audit_old_date() {
     setup_check_env
-    rm -f /tmp/.audit-stale-check-* 2>/dev/null || true
+    rm -f "$SCHED_MARKER_DIR"/.audit-stale-check-* 2>/dev/null || true
     echo "2025-01-01" > "$HOME/.claude/.last-audit-date"
     source "$CHECK_14"
     assert_contains "$INBOX_MSG" "AUDIT_DUE" "old audit date should trigger"
@@ -239,7 +244,7 @@ run_test "Audit staleness: old date triggers due" test_audit_old_date
 # Test: Daily gate prevents duplicate runs
 test_audit_daily_gate() {
     setup_check_env
-    rm -f /tmp/.audit-stale-check-* 2>/dev/null || true
+    rm -f "$SCHED_MARKER_DIR"/.audit-stale-check-* 2>/dev/null || true
     rm -f "$HOME/.claude/.last-audit-date"
     # First run: should fire
     source "$CHECK_14"
@@ -249,14 +254,14 @@ test_audit_daily_gate() {
     source "$CHECK_14"
     assert_not_contains "$INBOX_MSG" "AUDIT_DUE" "second run same day should be gated"
     # Clean up gate file
-    rm -f /tmp/.audit-stale-check-* 2>/dev/null || true
+    rm -f "$SCHED_MARKER_DIR"/.audit-stale-check-* 2>/dev/null || true
 }
 run_test "Audit staleness: daily gate prevents duplicates" test_audit_daily_gate
 
 # Test: Audit 6 days ago (within window) → no message
 test_audit_within_window() {
     setup_check_env
-    rm -f /tmp/.audit-stale-check-* 2>/dev/null || true
+    rm -f "$SCHED_MARKER_DIR"/.audit-stale-check-* 2>/dev/null || true
     local six_days_ago
     six_days_ago=$(date -d "6 days ago" +%Y-%m-%d 2>/dev/null || date -v-6d +%Y-%m-%d 2>/dev/null)
     echo "$six_days_ago" > "$HOME/.claude/.last-audit-date"

@@ -26,7 +26,11 @@ setup_repo() {
 run_check() {
     export CONFIG_REPO="$TEST_TMPDIR/config-repo"
     WARNINGS=""
-    rm -f "/tmp/.knowledge-index-check-$(date +%Y-%m-%d)" 2>/dev/null || true
+    # The daily gate follows SCHED_MARKER_DIR (GH#13) — keep it inside the sandbox
+    # and clear it so every run_check is "due".
+    export SCHED_MARKER_DIR="$TEST_TMPDIR/sched"
+    mkdir -p "$SCHED_MARKER_DIR"
+    rm -f "$SCHED_MARKER_DIR"/.knowledge-index-check-* 2>/dev/null || true
     source "$CHECK"
     echo "$WARNINGS"
 }

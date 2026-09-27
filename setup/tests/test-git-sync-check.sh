@@ -233,7 +233,13 @@ test_dirty_worktree_auto_stash() {
 }
 run_test "auto-stashes dirty worktree before pull, pops after" test_dirty_worktree_auto_stash
 
-# ── Auto-stash with conflicting file ────────────────────────────────────────
+# ── Auto-stash with conflicting file (CFG-640 / CFG-461) ────────────────────
+# A stash pop that conflicts used to be a WARNING on an exit-0 run, and the next
+# run reported "Up to date." over the unmerged tree — on host fedora a conflict
+# sat unresolved in cross-project/inbox.md for ~2 days that way. The pop's
+# failure is now the run's failure, and any run over unmerged paths hard-stops
+# naming them. This test previously asserted exit 0 for the first run; that
+# encoded the defect and is revised, not extended.
 
 test_dirty_worktree_conflict_stash() {
     create_tracked_repo "$TEST_TMPDIR/repo" "$TEST_TMPDIR/remote.git"
@@ -247,10 +253,179 @@ test_dirty_worktree_conflict_stash() {
 
     local out rc=0
     out=$(cd "$TEST_TMPDIR/repo" && bash "$SYNC_SCRIPT" --pull 2>&1) || rc=$?
-    assert_eq "0" "$rc" "should exit 0 — stash+pull succeeds, pop may conflict but pull worked"
-    assert_contains "$out" "Pulled successfully"
+    assert_eq "2" "$rc" "pop conflict is a failure, not a warning" || return 1
+    assert_contains "$out" "Pulled successfully" "the pull itself still lands" || return 1
+    assert_contains "$out" "CONFLICT" "pop conflict must be named loudly" || return 1
+    assert_contains "$out" "README.md" "conflicted path must be named" || return 1
+    assert_not_contains "$out" "Up to date" "a conflicted tree is never up to date" || return 1
+
+    # git keeps the stash on a conflicted pop — the run must say so, not hide it
+    local stashes
+    stashes=$(cd "$TEST_TMPDIR/repo" && git stash list | grep -c 'git-sync-check auto-stash' || true)
+    assert_eq "1" "$stashes" "stash is kept on conflict" || return 1
+    assert_contains "$out" "stash" "kept stash must be mentioned" || return 1
+
+    # The NEXT run over the same tree must hard-stop, not report success
+    rc=0; out=$(cd "$TEST_TMPDIR/repo" && bash "$SYNC_SCRIPT" --pull 2>&1) || rc=$?
+    assert_eq "2" "$rc" "unmerged tree hard-stops on the next run" || return 1
+    assert_contains "$out" "CONFLICT" "next run names the conflict" || return 1
+    assert_contains "$out" "README.md" "next run names the file" || return 1
+    assert_not_contains "$out" "Up to date" "next run must not claim up to date" || return 1
+    # …and the report-only mode stops the same way
+    rc=0; out=$(cd "$TEST_TMPDIR/repo" && bash "$SYNC_SCRIPT" 2>&1) || rc=$?
+    assert_eq "2" "$rc" "report-only mode hard-stops too" || return 1
+    assert_contains "$out" "CONFLICT" || return 1
+
+    # Resolve + drop the stash → the block clears
+    (cd "$TEST_TMPDIR/repo" && echo "merged version" > README.md && git add README.md && git stash drop --quiet)
+    rc=0; out=$(cd "$TEST_TMPDIR/repo" && bash "$SYNC_SCRIPT" --pull 2>&1) || rc=$?
+    assert_eq "0" "$rc" "resolved tree syncs normally" || return 1
+    assert_not_contains "$out" "CONFLICT" "no conflict after resolution"
 }
-run_test "auto-stash works even when same file modified locally and remotely" test_dirty_worktree_conflict_stash
+run_test "pop conflict exits 2, names the file, keeps the stash, and hard-stops every run until resolved" test_dirty_worktree_conflict_stash
+
+# Conflicted by ANY route (here: a plain merge), not just our own stash pop.
+test_unmerged_paths_hard_stop_any_route() {
+    create_tracked_repo "$TEST_TMPDIR/repo" "$TEST_TMPDIR/remote.git"
+    (
+        cd "$TEST_TMPDIR/repo"
+        git checkout -q -b side
+        echo "side" > README.md && git commit -qam "side"
+        git checkout -q main
+        echo "main" > README.md && git commit -qam "main"
+        git push --quiet 2>/dev/null
+        git merge side >/dev/null 2>&1 || true   # leaves README.md UU
+        git stash list >/dev/null
+    )
+    local st
+    st=$(cd "$TEST_TMPDIR/repo" && git status --porcelain)
+    assert_contains "$st" "UU README.md" "fixture must be unmerged" || return 1
+
+    local out rc=0
+    out=$(cd "$TEST_TMPDIR/repo" && bash "$SYNC_SCRIPT" --pull 2>&1) || rc=$?
+    assert_eq "2" "$rc" "unmerged paths hard-stop" || return 1
+    assert_contains "$out" "CONFLICT" || return 1
+    assert_contains "$out" "README.md" "conflicted file is named" || return 1
+    assert_not_contains "$out" "Up to date" || return 1
+    # The tree is left exactly as found — no stash, no commit, no reset
+    st=$(cd "$TEST_TMPDIR/repo" && git status --porcelain)
+    assert_contains "$st" "UU README.md" "conflict must be left for the user, never auto-resolved"
+}
+run_test "unmerged paths from any route hard-stop with the files named" test_unmerged_paths_hard_stop_any_route
+
+# A conflicted REBASE leaves HEAD detached as well as the tree unmerged. The
+# detached-HEAD exit used to come first, so the run printed only "Detached
+# HEAD — cannot check remote." and never named the unmerged file.
+test_rebase_conflict_names_unmerged_file() {
+    create_tracked_repo "$TEST_TMPDIR/repo" "$TEST_TMPDIR/remote.git"
+    git clone "$TEST_TMPDIR/remote.git" "$TEST_TMPDIR/other" --quiet 2>/dev/null
+    (cd "$TEST_TMPDIR/other" && echo "remote" > README.md && git commit -qam "remote" && git push --quiet 2>/dev/null)
+    (
+        cd "$TEST_TMPDIR/repo"
+        echo "local" > README.md && git commit -qam "local"
+        git fetch --quiet 2>/dev/null
+        git rebase origin/main >/dev/null 2>&1 || true   # stops: detached + UU
+    )
+    local st
+    st=$(cd "$TEST_TMPDIR/repo" && git status --porcelain)
+    assert_contains "$st" "README.md" "fixture must be unmerged" || return 1
+    [ -z "$(cd "$TEST_TMPDIR/repo" && git symbolic-ref -q HEAD)" ] \
+        || { echo "fixture: HEAD should be detached mid-rebase" >&2; return 1; }
+
+    local out rc=0
+    out=$(cd "$TEST_TMPDIR/repo" && bash "$SYNC_SCRIPT" --pull 2>&1) || rc=$?
+    assert_eq "2" "$rc" || return 1
+    assert_contains "$out" "CONFLICT" "a rebase conflict is a conflict, not just a detached HEAD" || return 1
+    assert_contains "$out" "README.md" "the unmerged file is named"
+}
+run_test "rebase conflict (detached + unmerged) names the unmerged file" test_rebase_conflict_names_unmerged_file
+
+# The CFG-208 auto-deploy copies hooks live. After a stash pop that conflicted,
+# the tree holds conflict markers — deploying it would put a hook with
+# <<<<<<< markers live (bash -n fails, safe-run skips it: the hook stops
+# enforcing). "Nothing below is safe on such a tree" must include the deploy.
+test_pop_conflict_skips_auto_deploy() {
+    create_tracked_repo "$TEST_TMPDIR/repo" "$TEST_TMPDIR/remote.git"
+    (
+        cd "$TEST_TMPDIR/repo"
+        mkdir -p global/hooks
+        echo "echo v1" > global/hooks/guard.sh
+        git add global/hooks/guard.sh && git commit -qm "guard v1" && git push --quiet 2>/dev/null
+    )
+    git clone "$TEST_TMPDIR/remote.git" "$TEST_TMPDIR/other" --quiet 2>/dev/null
+    (cd "$TEST_TMPDIR/other" && echo "echo remote" > global/hooks/guard.sh && git commit -qam "guard remote" && git push --quiet 2>/dev/null)
+    echo "echo local" > "$TEST_TMPDIR/repo/global/hooks/guard.sh"   # conflicts on pop
+    printf '#!/usr/bin/env bash\n[ "$1" = deploy ] && touch .deploy-marker\nexit 0\n' \
+        > "$TEST_TMPDIR/repo/sync.sh"
+    chmod +x "$TEST_TMPDIR/repo/sync.sh"
+
+    local out rc=0
+    out=$(cd "$TEST_TMPDIR/repo" && bash "$SYNC_SCRIPT" --pull 2>&1) || rc=$?
+    assert_eq "2" "$rc" || return 1
+    assert_contains "$out" "CONFLICT" || return 1
+    assert_contains "$out" "global/hooks/guard.sh" "the conflicted hook is named" || return 1
+    assert_file_not_exists "$TEST_TMPDIR/repo/.deploy-marker" \
+        "no auto-deploy over a tree with conflict markers" || return 1
+    assert_contains "$out" "deploy" "the skipped deploy is said out loud, so it is re-run after resolving"
+}
+run_test "pop conflict skips the CFG-208 auto-deploy and says so" test_pop_conflict_skips_auto_deploy
+
+# CFG-461: the leak. A stash whose content the pulled commit already carries
+# used to be popped anyway (no-op at best, conflict + kept stash at worst).
+test_redundant_stash_dropped_not_popped() {
+    create_tracked_repo "$TEST_TMPDIR/repo" "$TEST_TMPDIR/remote.git"
+    git clone "$TEST_TMPDIR/remote.git" "$TEST_TMPDIR/other" --quiet 2>/dev/null
+    (cd "$TEST_TMPDIR/other" && echo "same edit" >> README.md && git add README.md && git commit -m "remote edit" >/dev/null 2>&1 && git push --quiet 2>/dev/null)
+    # Local made the identical edit (another machine already pushed it)
+    echo "same edit" >> "$TEST_TMPDIR/repo/README.md"
+
+    local out rc=0
+    out=$(cd "$TEST_TMPDIR/repo" && bash "$SYNC_SCRIPT" --pull 2>&1) || rc=$?
+    assert_eq "0" "$rc" || return 1
+    assert_contains "$out" "Pulled successfully" || return 1
+    assert_not_contains "$out" "CONFLICT" || return 1
+    local stashes st
+    stashes=$(cd "$TEST_TMPDIR/repo" && git stash list | wc -l | tr -d ' ')
+    assert_eq "0" "$stashes" "redundant auto-stash must be dropped, not left behind" || return 1
+    st=$(cd "$TEST_TMPDIR/repo" && git status --porcelain)
+    assert_eq "" "$st" "tree is clean — the edit is in HEAD" || return 1
+    assert_file_contains "$TEST_TMPDIR/repo/README.md" "same edit"
+}
+run_test "auto-stash already contained in the pulled commit is dropped, not popped" test_redundant_stash_dropped_not_popped
+
+# Leftover auto-stashes are reported every run — 10 had accumulated unseen.
+test_leftover_auto_stashes_reported() {
+    create_tracked_repo "$TEST_TMPDIR/repo" "$TEST_TMPDIR/remote.git"
+    (
+        cd "$TEST_TMPDIR/repo"
+        echo "a" >> README.md && git stash push --quiet -m "git-sync-check auto-stash"
+        echo "b" >> README.md && git stash push --quiet -m "git-sync-check auto-stash"
+        echo "c" >> README.md && git stash push --quiet -m "user stash"
+    )
+    local out rc=0
+    out=$(cd "$TEST_TMPDIR/repo" && bash "$SYNC_SCRIPT" --pull 2>&1) || rc=$?
+    assert_eq "0" "$rc" "leftover stashes report, they do not block" || return 1
+    assert_contains "$out" "Up to date" || return 1
+    assert_contains "$out" "Auto-stashes pending: 2" "count of our own stashes, not the user's" || return 1
+    # CFG-383: dropping leftover stashes is the user's decision (the stack is
+    # shared with every worktree and concurrent session) — the line must not
+    # read as an instruction for the session to drop them.
+    assert_not_contains "$out" "drop each" "no drop instruction to the session" || return 1
+    assert_contains "$out" "tell the user" "the report routes the decision to the user" || return 1
+    local stashes
+    stashes=$(cd "$TEST_TMPDIR/repo" && git stash list | wc -l | tr -d ' ')
+    assert_eq "3" "$stashes" "pre-existing stashes are never dropped unasked"
+}
+run_test "leftover auto-stashes are counted in the report, never silently dropped" test_leftover_auto_stashes_reported
+
+test_no_stash_line_when_none() {
+    create_tracked_repo "$TEST_TMPDIR/repo" "$TEST_TMPDIR/remote.git"
+    local out rc=0
+    out=$(cd "$TEST_TMPDIR/repo" && bash "$SYNC_SCRIPT" --pull 2>&1) || rc=$?
+    assert_eq "0" "$rc" || return 1
+    assert_not_contains "$out" "Auto-stashes" "clean repo prints no stash line"
+}
+run_test "clean repo prints no stash line" test_no_stash_line_when_none
 
 # ── Clone-if-missing: registry has matching URL ────────────────────────────
 
@@ -549,9 +724,12 @@ test_gh8_behind_report_and_deploy_intact() {
 run_test "gh-8: behind path keeps report, pull, and CFG-208 deploy with rotation dirt" test_gh8_behind_report_and_deploy_intact
 
 # Refuted attempt, point 2: rotation dirt conflicting with an incoming commit
-# must not become a permanent exit-2 startup block, and later runs must never
-# commit the conflicted file (git add on an unmerged path would mark it
-# resolved WITH the conflict markers still inside).
+# must never be auto-committed (git add on an unmerged path would mark it
+# resolved WITH the conflict markers still inside). Originally this also pinned
+# exit 0 on every run over the conflicted tree — that was the CFG-640 defect
+# ("Up to date" over UU paths). Revised: every run over the unmerged tree is a
+# hard stop naming the file, and the block clears the moment it is resolved —
+# a block with a named remedy, not a permanent one.
 test_gh8_conflict_never_blocks_permanently() {
     _mk_rotation_repo "$TEST_TMPDIR/repo" "$TEST_TMPDIR/remote.git"
     git clone "$TEST_TMPDIR/remote.git" "$TEST_TMPDIR/other" --quiet 2>/dev/null
@@ -568,25 +746,34 @@ test_gh8_conflict_never_blocks_permanently() {
 
     local out rc=0
     out=$(cd "$TEST_TMPDIR/repo" && bash "$SYNC_SCRIPT" --pull 2>&1) || rc=$?
-    assert_eq "0" "$rc" "first run: conflict falls back to stash, still exit 0" || return 1
+    assert_eq "2" "$rc" "first run: conflict falls back to stash, pop conflicts → exit 2" || return 1
+    assert_contains "$out" "CONFLICT" || return 1
+    assert_contains "$out" "session-context.md" "conflicted path named" || return 1
     local log
     log=$(cd "$TEST_TMPDIR/repo" && git log --oneline)
     assert_contains "$log" "remote context change" "remote change must be pulled" || return 1
 
     # Two more runs over the conflicted (unmerged) worktree the stash-pop left
     rc=0; out=$(cd "$TEST_TMPDIR/repo" && bash "$SYNC_SCRIPT" --pull 2>&1) || rc=$?
-    assert_eq "0" "$rc" "second run must not exit 2" || return 1
+    assert_eq "2" "$rc" "second run hard-stops" || return 1
+    assert_not_contains "$out" "Up to date" "second run must not claim up to date" || return 1
     rc=0; out=$(cd "$TEST_TMPDIR/repo" && bash "$SYNC_SCRIPT" --pull 2>&1) || rc=$?
-    assert_eq "0" "$rc" "third run must not exit 2" || return 1
+    assert_eq "2" "$rc" "third run hard-stops" || return 1
 
     log=$(cd "$TEST_TMPDIR/repo" && git log --format=%s)
     assert_not_contains "$log" "Auto-sync: recovered rotation" \
         "a conflicted worktree must never be auto-committed" || return 1
+
+    # Resolve like a user would: keep the rotated (blank-goal) content, drop the stash
+    (cd "$TEST_TMPDIR/repo" && printf '# Session Context\n\n- **Session Goal**:\n' > session-context.md && git add session-context.md && git stash drop --quiet)
+    rc=0; out=$(cd "$TEST_TMPDIR/repo" && bash "$SYNC_SCRIPT" --pull 2>&1) || rc=$?
+    assert_eq "0" "$rc" "block clears once resolved" || return 1
+    assert_not_contains "$out" "CONFLICT" || return 1
     local head_content
     head_content=$(cd "$TEST_TMPDIR/repo" && git show HEAD:session-context.md 2>/dev/null)
     assert_not_contains "$head_content" "<<<<<<<" "no conflict markers may ever be committed"
 }
-run_test "gh-8: conflicting rotation dirt never becomes a permanent block" test_gh8_conflict_never_blocks_permanently
+run_test "gh-8: conflicting rotation dirt hard-stops every run, is never auto-committed, clears when resolved" test_gh8_conflict_never_blocks_permanently
 
 # Refuted attempt, points 3 + 5: git diff prints repo-root-relative paths while
 # a bare 'git add' resolves cwd-relative. From a subdirectory that mismatch

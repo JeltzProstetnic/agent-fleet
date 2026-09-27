@@ -531,6 +531,71 @@ _sort_versions() {
 }
 
 # ============================================================================
+# FLEET SHORTCUT (CFG-507)
+# ============================================================================
+
+# Install `af`, the standard short name for `afleet`, at <target> (normally ~/.local/bin/af).
+# Usage: install_af_shortcut <copy source> <target>
+#   <copy source> is only used on MSYS/Cygwin, where af is a COPY: pass afleet-wrapper.sh
+#   (self-contained, finds the repo itself). A raw afleet.sh copy resolves its own directory
+#   to ~/.local/bin, finds no afleet-lib.sh there and drops into the DEGRADED launch.
+# Returns 0 when installed/refreshed. Returns 1 when an unrelated `af` is in the way,
+# printing its path on stdout for the caller's warning.
+# ⛔ Never clobbers or shadows someone else's `af`: an existing <target> is replaced only when
+#    it is already ours — a link to afleet/afleet.sh, or a copy carrying afleet's own header —
+#    and an unrelated `af` anywhere on PATH wins. If our own <target> is already there (an
+#    earlier, unguarded deploy made it), it is withdrawn so it stops shadowing that `af`.
+#    Both install.sh and sync.sh's deploy_afleet (setup + every SessionEnd deploy) go
+#    through here — a second, unguarded writer is what made this guard dead (CFG-507 repair).
+install_af_shortcut() {
+    local src="$1" target="$2" other
+    if [[ -L "$target" || -e "$target" ]]; then
+        if ! _af_is_ours "$target"; then
+            echo "$target"; return 1
+        fi
+    fi
+    if other="$(_af_unrelated_on_path "$target")"; then
+        if [[ -L "$target" || -e "$target" ]]; then
+            rm -f "$target"
+        fi
+        echo "$other"; return 1
+    fi
+    mkdir -p "$(dirname "$target")"
+    if [[ "${OSTYPE:-}" == msys* || "${OSTYPE:-}" == cygwin* ]]; then
+        rm -f "$target"
+        cp -f "$src" "$target"
+    else
+        ln -sfn "afleet" "$target"
+    fi
+}
+
+# True when <path> is the fleet's own af: a link to afleet/afleet.sh (dangling or not), or a
+# copy carrying afleet's (or afleet-wrapper.sh's) own header.
+_af_is_ours() {
+    local path="$1"
+    if [[ -L "$path" ]]; then
+        case "$(basename "$(readlink "$path")")" in
+            afleet|afleet.sh) return 0 ;;
+            *) return 1 ;;
+        esac
+    fi
+    head -n 3 "$path" 2>/dev/null | grep -qE '^# afleet(-wrapper\.sh)? — '
+}
+
+# Prints the first `af` file on PATH that is neither <target> itself nor ours; 1 if none.
+# Only files count — a user's alias or function does not (the fleet ships no `af` alias).
+_af_unrelated_on_path() {
+    local target="$1" cand
+    while IFS= read -r cand; do
+        [[ "$cand" == /* ]] || continue
+        [[ "$cand" -ef "$target" ]] && continue
+        _af_is_ours "$cand" && continue
+        echo "$cand"; return 0
+    done < <(type -a -P af 2>/dev/null || true)
+    return 1
+}
+
+# ============================================================================
 # DISTRO DETECTION
 # ============================================================================
 

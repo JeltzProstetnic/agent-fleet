@@ -63,6 +63,12 @@ parse_registry() {
         local config_name
         config_name="$(basename "$CONFIG_REPO")"
         mkdir -p "$(dirname "$REGISTRY")"
+        # CFG-649: `hostname` is not guaranteed (SteamOS updates wipe inetutils);
+        # inlined fallback chain so the row names the machine, not "unknown".
+        local machine_name
+        machine_name="$(hostname 2>/dev/null || uname -n 2>/dev/null \
+            || cat /proc/sys/kernel/hostname 2>/dev/null || cat /etc/hostname 2>/dev/null \
+            || echo "${HOSTNAME:-unknown}")"
         cat > "$REGISTRY" << EOF
 # Project Registry
 
@@ -70,7 +76,7 @@ parse_registry() {
 
 | Project | Priority | Parent | Path | GitHub Remote | Machines | Type | Phase | Notes |
 |---------|----------|--------|------|--------------|----------|------|-------|-------|
-| ${config_name} | P1 | — | \`~/${config_name}\` | | $(hostname 2>/dev/null || echo "unknown") | meta | active | Auto-created by afleet |
+| ${config_name} | P1 | — | \`~/${config_name}\` | | ${machine_name} | meta | active | Auto-created by afleet |
 EOF
         echo "Note: Created minimal registry.md at $REGISTRY" >&2
     fi

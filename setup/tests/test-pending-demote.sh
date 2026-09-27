@@ -91,6 +91,63 @@ test_demote_filename_cited_in_body() {
 }
 run_test "demote-check: filename cited in commit body → DEMOTE" test_demote_filename_cited_in_body
 
+# CFG-665: the Auto-sync commit body lists every swept path. Naming a live
+# handoff there records the sweep; it does not ship the work.
+test_demote_ignores_auto_sync_sweep_body() {
+    local project_dir="$TEST_TMPDIR/project"
+    init_project_git "$project_dir"
+    local ref
+    ref=$(git -C "$project_dir" rev-parse HEAD)
+
+    create_tracked_pending "$project_dir/docs" "pending-live-handoff.md" "act" \
+        "(this file IS the plan)"
+    create_tracked_pending "$project_dir/docs" "pending-CFG-777-notes.md" "act" "CFG-777"
+    add_named_commit "$project_dir" "Auto-sync: 2026-09-25 12:00:00 UTC" \
+        "Swept by the SessionEnd hook from project: 2 file(s)
+  - docs/pending-live-handoff.md
+  - docs/pending-CFG-777-notes.md" >/dev/null
+
+    local output
+    output=$(bash "$SCRIPT" --demote-check --since "$ref" --project-dir "$project_dir" 2>&1)
+
+    assert_not_contains "$output" "DEMOTE: pending-live-handoff.md" \
+        "a file listed in an Auto-sync sweep body is not demoted" || return 1
+    assert_not_contains "$output" "DEMOTE: pending-CFG-777-notes.md" \
+        "a PRN that appears only in a swept path name is not a shipped PRN"
+}
+run_test "demote-check: an Auto-sync sweep body is not shipped evidence (CFG-665)" test_demote_ignores_auto_sync_sweep_body
+
+# Over-blocking control for the sweep exclusion, in the one check where commit
+# citations are still evidence (--stale-check reads none since CFG-620): a real
+# commit citing the file beside a sweep still demotes it, and a PRN a real
+# commit ships still counts.
+test_demote_real_commit_still_counts_beside_a_sweep() {
+    local project_dir="$TEST_TMPDIR/project"
+    init_project_git "$project_dir"
+    local ref
+    ref=$(git -C "$project_dir" rev-parse HEAD)
+
+    create_tracked_pending "$project_dir/docs" "pending-live-handoff.md" "act" \
+        "(this file IS the plan)"
+    create_tracked_pending "$project_dir/docs" "pending-CFG-777-notes.md" "act" "CFG-777"
+    add_named_commit "$project_dir" "Auto-sync: 2026-09-25 12:00:00 UTC" \
+        "Swept by the SessionEnd hook from project: 2 file(s)
+  - docs/pending-live-handoff.md
+  - docs/pending-CFG-777-notes.md" >/dev/null
+    add_named_commit "$project_dir" "docs: close the handoff" \
+        "Shipped; see docs/pending-live-handoff.md" >/dev/null
+    add_named_commit "$project_dir" "fix: ship CFG-777" >/dev/null
+
+    local output
+    output=$(bash "$SCRIPT" --demote-check --since "$ref" --project-dir "$project_dir" 2>&1)
+
+    assert_contains "$output" "DEMOTE: pending-live-handoff.md" \
+        "a real commit citing the file still counts beside a sweep" || return 1
+    assert_contains "$output" "DEMOTE: pending-CFG-777-notes.md" \
+        "a PRN a real commit ships still counts beside a sweep"
+}
+run_test "demote-check: a real commit still counts beside a sweep (CFG-665)" test_demote_real_commit_still_counts_beside_a_sweep
+
 # PRN committed BEFORE the ref → NOT flagged
 test_demote_prn_committed_before_ref() {
     local project_dir="$TEST_TMPDIR/project"
@@ -182,6 +239,78 @@ test_demote_no_git_failsafe() {
     assert_not_contains "$output" "DEMOTE:" "no .git → no demotions"
 }
 run_test "demote-check: missing .git → exit 0, not flagged" test_demote_no_git_failsafe
+
+# ── CFG-620: a commit MENTIONING an ID is not the ID shipping ─────────────────
+# get_tracked_prns reads the <!-- Tracked-by: --> comment form every real
+# pending file uses, so --demote-check now sees their IDs. A commit that only
+# cites an ID ("groundwork; CFG-665 itself stays open") then produced
+# "DEMOTE: <file> (CFG-665 shipped …)" for MG's live action list while the
+# backlog still had CFG-665 open. The backlog's own line for the ID vetoes.
+
+create_comment_form_pending() {
+    local dir="$1" name="$2" action="$3" tracked="$4"
+    mkdir -p "$dir"
+    printf "<!-- Action: %s -->\n<!-- Tracked-by: %s -->\n# %s\n\nContent.\n" \
+        "$action" "$tracked" "$name" > "$dir/$name"
+}
+
+test_demote_open_id_mentioned_in_commit_not_flagged() {
+    local project_dir="$TEST_TMPDIR/project"
+    init_project_git "$project_dir"
+    cat > "$project_dir/backlog.md" << 'EOF'
+- [ ] [P1] `CFG-665` open item, still being worked
+- [ ] [P1] `CFG-666` open item
+EOF
+    create_comment_form_pending "$project_dir/docs" "pending-action-list.md" "present" "CFG-665, CFG-666"
+    local ref
+    ref=$(git -C "$project_dir" rev-parse HEAD)
+    add_named_commit "$project_dir" "Name swept files in auto-sync message" \
+        "Groundwork only; CFG-665 itself stays open." >/dev/null
+
+    local output
+    output=$(bash "$SCRIPT" --demote-check --since "$ref" --project-dir "$project_dir" 2>&1)
+    assert_not_contains "$output" "DEMOTE: pending-action-list.md" \
+        "CFG-665 is open on its own backlog line — a commit citing it is not a ship"
+}
+run_test "demote-check (CFG-620): open ID merely mentioned in a commit → NOT flagged" test_demote_open_id_mentioned_in_commit_not_flagged
+
+test_demote_closed_id_comment_form_flagged() {
+    local project_dir="$TEST_TMPDIR/project"
+    init_project_git "$project_dir"
+    cat > "$project_dir/backlog.md" << 'EOF'
+- [x] [P1] `CFG-665` shipped
+EOF
+    create_comment_form_pending "$project_dir/docs" "pending-shipped.md" "act" "CFG-665"
+    local ref
+    ref=$(git -C "$project_dir" rev-parse HEAD)
+    add_named_commit "$project_dir" "fix: ship CFG-665" >/dev/null
+
+    local output
+    output=$(bash "$SCRIPT" --demote-check --since "$ref" --project-dir "$project_dir" 2>&1)
+    assert_contains "$output" "DEMOTE: pending-shipped.md" \
+        "committed AND closed on its own line → demote (comment-form header honoured)" || return 1
+    assert_contains "$output" "CFG-665" "reason cites the ID"
+}
+run_test "demote-check (CFG-620): committed ID that is [x] in the backlog → DEMOTE" test_demote_closed_id_comment_form_flagged
+
+test_demote_other_tracked_id_open_not_flagged() {
+    local project_dir="$TEST_TMPDIR/project"
+    init_project_git "$project_dir"
+    cat > "$project_dir/backlog.md" << 'EOF'
+- [x] [P1] `CFG-701` first half shipped; `CFG-702` carries the rest
+- [ ] [P1] `CFG-702` second half, open
+EOF
+    create_comment_form_pending "$project_dir/docs" "pending-two-halves.md" "act" "CFG-701, CFG-702"
+    local ref
+    ref=$(git -C "$project_dir" rev-parse HEAD)
+    add_named_commit "$project_dir" "fix: ship CFG-701" >/dev/null
+
+    local output
+    output=$(bash "$SCRIPT" --demote-check --since "$ref" --project-dir "$project_dir" 2>&1)
+    assert_not_contains "$output" "DEMOTE: pending-two-halves.md" \
+        "a file that still tracks an OPEN item is live work, whatever else shipped"
+}
+run_test "demote-check (CFG-620): one tracked ID shipped, another still open → NOT flagged" test_demote_other_tracked_id_open_not_flagged
 
 # ── Summary ──────────────────────────────────────────────────────────────────
 

@@ -7,7 +7,8 @@
 # Exit codes:
 #   0 = up to date (or pulled successfully)
 #   1 = behind remote (when not using --pull)
-#   2 = error (not a git repo, no remote, fetch failed)
+#   2 = error (not a git repo, no remote, fetch failed, unmerged paths in the
+#       tree, or a stash pop that conflicted — see "CONFLICT:" in the output)
 
 set -euo pipefail
 
@@ -120,6 +121,34 @@ if ! git rev-parse --is-inside-work-tree &>/dev/null; then
   fi
 fi
 
+# ── Conflict hard-stop + auto-stash report (CFG-640 / CFG-461) ──────────────
+# Unmerged paths mean a stash pop, merge or rebase was never resolved. Nothing
+# below is safe on such a tree — and "Up to date." over UU paths is exactly how
+# a conflict in cross-project/inbox.md went unseen for two days. Stop here,
+# before the fetch (a network failure must not mask it), name the files, and
+# exit 2 so the startup protocol's "resolve before proceeding" can fire.
+# Never touch the tree: git add on an unmerged path would "resolve" it with
+# the markers inside.
+# Leftover "git-sync-check auto-stash" entries (git keeps the stash when a pop
+# conflicts) are counted on every run — they had accumulated to ten unseen.
+# Reported, never dropped: only the user knows whether the content landed.
+_UNMERGED=$(git diff --name-only --diff-filter=U 2>/dev/null || true)
+_AUTO_STASHES=$(git stash list 2>/dev/null | grep -c 'git-sync-check auto-stash' || true)
+_stash_report() {
+  if [ "${_AUTO_STASHES:-0}" -gt 0 ]; then
+    echo "Auto-stashes pending: $_AUTO_STASHES ('git stash list') — left by earlier conflicted pops; tell the user. Dropping them is the user's call, not the session's (CFG-383: the stash stack is shared with every worktree and concurrent session)."
+  fi
+}
+if [ -n "$_UNMERGED" ]; then
+  echo "CONFLICT: $(printf '%s\n' "$_UNMERGED" | wc -l | tr -d ' ') unmerged path(s) — resolve before ANY other work, nothing was synced:"
+  printf '%s\n' "$_UNMERGED" | sed 's/^/  /'
+  _stash_report
+  exit 2
+fi
+_stash_report
+
+# After the conflict gate: a conflicted rebase is BOTH detached and unmerged,
+# and the unmerged files are what the user needs named (CFG-640).
 BRANCH=$(git symbolic-ref --short HEAD 2>/dev/null || echo "")
 if [ -z "$BRANCH" ]; then
   echo "ERROR: Detached HEAD — cannot check remote."
@@ -414,16 +443,32 @@ if [ "$BEHIND" -gt 0 ]; then
 
     fi # end: skip normal pull if rotation recovery handled it
 
-    # Restore stashed changes
+    # Restore stashed changes. A pop that conflicts is this run's FAILURE
+    # (exit 2), not a warning that scrolls past — the tree is unmerged and
+    # git has kept the stash, so both are named for the user to finish.
+    POP_FAILED=false
     if [ "$STASHED" = true ]; then
       if ! git stash pop --quiet 2>/dev/null; then
-        echo "WARNING: Stash pop had conflicts — resolve manually (changes in 'git stash list')."
+        POP_FAILED=true
+        _POP_UNMERGED=$(git diff --name-only --diff-filter=U 2>/dev/null || true)
+        if [ -n "$_POP_UNMERGED" ]; then
+          echo "CONFLICT: stash pop left $(printf '%s\n' "$_POP_UNMERGED" | wc -l | tr -d ' ') unmerged path(s) — resolve, then 'git stash drop' (stash kept as stash@{0}):"
+          printf '%s\n' "$_POP_UNMERGED" | sed 's/^/  /'
+        else
+          echo "CONFLICT: stash pop failed — local changes kept as stash@{0}; apply by hand, then 'git stash drop'."
+        fi
       fi
     fi
 
     # CFG-208: Auto-deploy if pulled commits include deploy-sensitive paths.
     # Runs BEFORE SessionStart hook fires — avoids self-referencing hazard.
-    if [ "$PULL_OK" = true ]; then
+    # Never over a conflicted pop (CFG-640): the tree holds conflict markers, and
+    # deploying it puts a hook live that fails bash -n — safe-run then skips it,
+    # so the hook silently stops enforcing. Say so; the deploy re-runs once the
+    # user resolves and pulls again.
+    if [ "$PULL_OK" = true ] && [ "$POP_FAILED" = true ]; then
+      echo "Auto-deploy SKIPPED — the tree has conflict markers; run 'bash sync.sh deploy' after resolving."
+    elif [ "$PULL_OK" = true ]; then
       DEPLOY_SENSITIVE_PREFIXES="global/hooks/ global/knowledge/ global/reference/ global/foundation/ global/domains/ setup/config/ setup/scripts/"
       CHANGED_FILES=$(git diff --name-only "$PRE_PULL_HEAD" HEAD 2>/dev/null || true)
       NEEDS_DEPLOY=false
@@ -445,7 +490,7 @@ if [ "$BEHIND" -gt 0 ]; then
       fi
     fi
 
-    if [ "$PULL_OK" = true ]; then
+    if [ "$PULL_OK" = true ] && [ "$POP_FAILED" != true ]; then
       exit 0
     else
       exit 2

@@ -93,19 +93,33 @@ if [ -d "$CONFIG_REPO/docs" ]; then
             fi
             if [ "$_is_tracked" -eq 0 ]; then
                 if ! echo "$STALE_MSG" | grep -q "$PF_BASE" 2>/dev/null; then
-                    STALE_MSG="${STALE_MSG:+$STALE_MSG | }Stale pending files: $PF_BASE (${FILE_AGE_DAYS}d, no backlog item)"
+                    if [ "$_action" = "reference" ]; then
+                        # CFG-620: a deliberately-demoted reference file with no
+                        # Tracked-by is UNTRACKED, not stale — it may hold context
+                        # for open work; the fix is the header, not deletion.
+                        STALE_MSG="${STALE_MSG:+$STALE_MSG | }Untracked reference pending files: $PF_BASE (${FILE_AGE_DAYS}d, no Tracked-by) — add a Tracked-by header naming the item(s) it serves, or delete it if it serves none"
+                    else
+                        STALE_MSG="${STALE_MSG:+$STALE_MSG | }Stale pending files: $PF_BASE (${FILE_AGE_DAYS}d, no backlog item)"
+                    fi
                 fi
             elif [ -n "$_tracked_by" ] && [ -f "$BACKLOG_FILE" ]; then
                 # Tracked and old is normal. The actionable case is a file whose
-                # every tracked item has closed — the convention says delete it.
+                # EVERY tracked item has closed — the convention says delete it.
+                # CFG-620: each ID's state comes from ITS OWN line (the ID in
+                # backticks right after the checkbox and optional [Pn] tag), the
+                # same anchor manage-pending.sh prn_state uses. The first mention
+                # of an ID is often a citation inside ANOTHER, closed item — that
+                # made open P0s read as closed and advised deleting live files.
+                # An ID with no own line here (another project's) is unknown, and
+                # unknown is not closed.
                 _any_open=0; _any_found=0
-                for _id in $(echo "$_tracked_by" | tr ',' ' '); do
-                    _id=$(echo "$_id" | tr -d '[:space:]')
-                    [ -z "$_id" ] && continue
-                    _row=$(grep -m1 -- "\`$_id\`" "$BACKLOG_FILE" 2>/dev/null || true)
-                    [ -z "$_row" ] && continue
+                for _id in $(printf '%s\n' "$_tracked_by" | grep -oE '[A-Z][A-Z0-9]*-[0-9]+' | sort -u); do
                     _any_found=1
-                    echo "$_row" | grep -q '^- \[x\]' || _any_open=1
+                    _row=$(grep -m1 -E "^- \[.\] (\[[^]]*\] )?\`$_id\`" "$BACKLOG_FILE" 2>/dev/null || true)
+                    case "$_row" in
+                        "- [x]"*) ;;
+                        *) _any_open=1 ;;
+                    esac
                 done
                 if [ "$_any_found" -eq 1 ] && [ "$_any_open" -eq 0 ]; then
                     if ! echo "$STALE_MSG" | grep -q "$PF_BASE" 2>/dev/null; then

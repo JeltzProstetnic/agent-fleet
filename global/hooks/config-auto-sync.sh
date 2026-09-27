@@ -16,6 +16,9 @@
 
 # Source portable wrappers (provides _readlink_f for macOS compat)
 source "$(dirname "${BASH_SOURCE[0]}")/lib-portable.sh" 2>/dev/null || true
+# In-place sed for the drift-log strips: lib-portable's _sed_i handles BSD sed;
+# without the library, fall back to GNU syntax rather than fail the strip.
+command -v _sed_i >/dev/null 2>&1 || _sed_i() { sed -i "$@"; }
 
 # Config repo detection — canonical source in lib-detect-repo.sh
 source "$(dirname "${BASH_SOURCE[0]}")/lib-detect-repo.sh" 2>/dev/null || true
@@ -225,8 +228,26 @@ _TPL_SCRIPT="$CONFIG_REPO/setup/scripts/template-push.sh"
 _TPL_DIR="$HOME/agent-fleet"
 _TPL_FAIL_MARKER="$CONFIG_REPO/.template-push-failed"
 if [ -f "$_TPL_SCRIPT" ] && [ -d "$_TPL_DIR/.git" ]; then
-    _TPL_DRIFT=$(bash "$_TPL_SCRIPT" --dry-run 2>&1 | grep -c 'Would copy\|Would sanitize' || true)
-    if [ "$_TPL_DRIFT" -gt 0 ]; then
+    # CFG-431: gate on REAL drift. The dry-run reports "Would copy/sanitize" only
+    # for files that differ from the template (byte-identical targets print
+    # "Identical:"), so the count is the number of files a push would change —
+    # it used to be every manifest file, and Phase 0.8 pushed on every shutdown.
+    # Two more reasons to run with zero drift: agent-fleet still holds a commit
+    # the last push never delivered, or the last run left a failure marker that
+    # only a clean run may clear. The dry-run output is kept: with no push it is
+    # also where the Cat-3 detection below reads its Flag-only lines.
+    # CFG-613 / CFG-431: the dry-run's EXIT CODE is kept too. The hard aborts
+    # (1: manifest coverage gap, empty personal_patterns, dirty template at
+    # preflight) and a run that holds every candidate (3) print no "Would copy"
+    # line. With the exit code thrown away those failures wrote no marker and
+    # advanced no streak - the commonest hard failure was the one that never
+    # escalated. When no real pass follows, the dry-run IS the verdict; it is
+    # recorded through the same marker path below.
+    _TPL_DRY=$(bash "$_TPL_SCRIPT" --dry-run 2>&1); _TPL_DRY_RC=$?
+    _TPL_DRIFT=$(printf '%s\n' "$_TPL_DRY" | grep -c 'Would copy\|Would sanitize' || true)
+    _TPL_UNPUSHED=$(git -C "$_TPL_DIR" log '@{u}..HEAD' --oneline 2>/dev/null | grep -c . || true)
+    _TPL_OUT="$_TPL_DRY"; _TPL_RC=$_TPL_DRY_RC; _TPL_RAN=0
+    if [ "$_TPL_DRIFT" -gt 0 ] || [ "$_TPL_UNPUSHED" -gt 0 ] || [ -f "$_TPL_FAIL_MARKER" ]; then
         # Preflight (CFG-391): use --push only when origin remote exists.
         # Anything else (no remote, dual-remote misconfig, missing upstream
         # branch) → fall back to --commit and log the reason. The audit that
@@ -244,56 +265,103 @@ if [ -f "$_TPL_SCRIPT" ] && [ -d "$_TPL_DIR/.git" ]; then
         # Auto-propagate (Cat 1-2 only, Cat 3 flagged) using the chosen flag
         _TPL_OUT=$(bash "$_TPL_SCRIPT" "$_TPL_FLAG" 2>&1)
         _TPL_RC=$?
-        if [ "$_TPL_RC" -ne 0 ]; then
-            printf 'time=%s\nexit_code=%d\ndrift_files=%d\noutput_tail=%s\n' \
-                "$(date -u +'%Y-%m-%d %H:%M:%S UTC')" \
-                "$_TPL_RC" \
-                "$_TPL_DRIFT" \
-                "$(echo "$_TPL_OUT" | tail -10)" \
-                > "$_TPL_FAIL_MARKER"
-            printf 'TEMPLATE_PUSH_FAILED: exit=%d drift=%d (see .template-push-failed)\n' \
-                "$_TPL_RC" "$_TPL_DRIFT" \
-                >> "${DRIFT_LOG:-$CONFIG_REPO/.sync-warnings.log}"
-        else
-            # Success: clear any prior failure marker
-            rm -f "$_TPL_FAIL_MARKER"
-            echo "$_TPL_OUT" | tail -5
+        _TPL_RAN=1
+    fi
+    if [ "$_TPL_RC" -ne 0 ]; then
+        # The real pass's exit code when one ran, the dry-run's otherwise.
+        # CFG-613: keep the STREAK across failures — when it began and how long it
+        # is — so SessionStart (checks/08) can name the age. Overwriting it made six
+        # dead days read like one bad night. A pre-CFG-613 marker (time= only) is
+        # carried forward as the streak's first failure. Fields stop at output_tail=.
+        _tpl_now=$(date -u +'%Y-%m-%d %H:%M:%S UTC')
+        _tpl_field() { awk -v k="$1" '/^output_tail=/{exit} index($0, k "=")==1 {print substr($0, length(k)+2); exit}' "$_TPL_FAIL_MARKER" 2>/dev/null; }
+        _tpl_first="" _tpl_epoch="" _tpl_n=0
+        if [ -f "$_TPL_FAIL_MARKER" ]; then
+            _tpl_first=$(_tpl_field first_failed)
+            _tpl_epoch=$(_tpl_field first_failed_epoch)
+            _tpl_n=$(_tpl_field consecutive)
+            [ -n "$_tpl_first" ] || _tpl_first=$(_tpl_field time)
+            case "$_tpl_n" in ''|*[!0-9]*) _tpl_n=1 ;; esac
+            case "$_tpl_epoch" in
+                ''|*[!0-9]*) _tpl_epoch=$(date -u -d "$_tpl_first" +%s 2>/dev/null \
+                               || date -j -u -f '%Y-%m-%d %H:%M:%S UTC' "$_tpl_first" +%s 2>/dev/null \
+                               || date +%s) ;;
+            esac
         fi
-        # Cat-3 inbox auto-generation (CFG-395): parse Flag-only warnings from
-        # template-push output, compare against .cat3-known, generate per-file
-        # inbox tasks for genuinely new Cat-3 entries. First run seeds the file
-        # without spamming inbox (avoids 21-item dump on upgrade).
-        _CAT3_KNOWN="$CONFIG_REPO/.cat3-known"
-        _CAT3_FILES=$(echo "$_TPL_OUT" | grep -oP 'Flag-only file changed: \K\S+' || true)
-        if [ -n "$_CAT3_FILES" ]; then
-            if [ ! -f "$_CAT3_KNOWN" ]; then
-                echo "$_CAT3_FILES" > "$_CAT3_KNOWN"
-            else
-                # Per-project, typed item (CFG-542/541) — never the legacy inbox.md.
-                _INBOX="$CONFIG_REPO/cross-project/inbox/agent-fleet.md"
-                _NEW_COUNT=0
-                while IFS= read -r _cf; do
-                    [ -z "$_cf" ] && continue
-                    grep -Fxq "$_cf" "$_CAT3_KNOWN" && continue
-                    echo "$_cf" >> "$_CAT3_KNOWN"
-                    _NEW_COUNT=$((_NEW_COUNT + 1))
-                    if [ -d "$CONFIG_REPO/cross-project" ]; then
-                        mkdir -p "$CONFIG_REPO/cross-project/inbox"
-                        _REASON=$(grep -F "\`$_cf\`" "$CONFIG_REPO/template-sync-manifest.md" 2>/dev/null \
-                            | head -1 | sed -E 's/.*\|[[:space:]]*([^|]+)[[:space:]]*\|[[:space:]]*$/\1/' \
-                            | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
-                        printf -- '- [ ] **agent-fleet** [work] (P3): Cat-3 review — `%s`. Diff: %s. Source: auto-detect %s.\n' \
-                            "$_cf" "${_REASON:-(no manifest entry)}" "$(date -u +%Y-%m-%d)" >> "$_INBOX"
-                    fi
-                done <<< "$_CAT3_FILES"
-                # .cat3-known was append-only, so a file that re-converged or was reclassified
-                # stayed "known" forever and a later drift raised no item. Keep only current flags.
-                printf '%s\n' "$_CAT3_FILES" | grep -Fxf - "$_CAT3_KNOWN" > "$_CAT3_KNOWN.tmp" 2>/dev/null || true
-                mv -f "$_CAT3_KNOWN.tmp" "$_CAT3_KNOWN"
-                if [ "$_NEW_COUNT" -gt 0 ]; then
-                    printf 'TEMPLATE_PROPAGATION_CAT3_NEW: %d new Cat-3 file(s) added to agent-fleet inbox\n' \
-                        "$_NEW_COUNT" >> "${DRIFT_LOG:-$CONFIG_REPO/.sync-warnings.log}"
+        printf 'time=%s\nfirst_failed=%s\nfirst_failed_epoch=%s\nconsecutive=%d\nexit_code=%d\ndrift_files=%d\noutput_tail=%s\n' \
+            "$_tpl_now" \
+            "${_tpl_first:-$_tpl_now}" \
+            "${_tpl_epoch:-$(date +%s)}" \
+            "$((_tpl_n + 1))" \
+            "$_TPL_RC" \
+            "$_TPL_DRIFT" \
+            "$(echo "$_TPL_OUT" | tail -10)" \
+            > "$_TPL_FAIL_MARKER"
+        unset -f _tpl_field
+        printf 'TEMPLATE_PUSH_FAILED: exit=%d drift=%d consecutive=%d since %s (see .template-push-failed)\n' \
+            "$_TPL_RC" "$_TPL_DRIFT" "$((_tpl_n + 1))" "${_tpl_first:-$_tpl_now}" \
+            >> "${DRIFT_LOG:-$CONFIG_REPO/.sync-warnings.log}"
+    elif [ "$_TPL_RAN" -eq 1 ]; then
+        # Success: clear any prior failure marker
+        rm -f "$_TPL_FAIL_MARKER"
+        echo "$_TPL_OUT" | tail -5
+        # CFG-431: the template drift Phase 0.7 logged is fixed now — strip
+        # it the way Phase 4 strips mobile staleness, and leave every other
+        # warning in place. A log left holding only the "N issue(s) found"
+        # summary is removed too, or the next session still opens with
+        # "propagation drift detected at last shutdown" for drift that no
+        # longer exists.
+        if [ -f "$DRIFT_LOG" ]; then
+            _sed_i '/differs from template/d; /not found in template/d; /file(s) drifted/d' "$DRIFT_LOG"
+            if ! grep -v 'issue(s) found' "$DRIFT_LOG" 2>/dev/null | grep -q '[^[:space:]]'; then
+                rm -f "$DRIFT_LOG"
+            fi
+        fi
+    else
+        # A clean dry-run with nothing to copy, nothing unpushed and no marker:
+        # the template is current. That is exactly when the real pass used to
+        # write .template-push-verified-<HEAD> ("No changes to commit"), which
+        # manifest-push-check.sh requires before a cfg commit of a tracked
+        # file. The dry-run is now the only verification that ran, so it
+        # leaves the same marker (CFG-394).
+        _tpl_head=$(git -C "$CONFIG_REPO" rev-parse HEAD 2>/dev/null) \
+            && touch "$CONFIG_REPO/.template-push-verified-$_tpl_head" 2>/dev/null || true
+    fi
+    # Cat-3 inbox auto-generation (CFG-395): parse Flag-only warnings from
+    # template-push output — the push's when one ran, the dry-run's otherwise
+    # (CFG-431) — compare against .cat3-known, generate per-file inbox tasks
+    # for genuinely new Cat-3 entries. First run seeds the file without
+    # spamming inbox (avoids 21-item dump on upgrade).
+    _CAT3_KNOWN="$CONFIG_REPO/.cat3-known"
+    _CAT3_FILES=$(echo "$_TPL_OUT" | grep -oP 'Flag-only file changed: \K\S+' || true)
+    if [ -n "$_CAT3_FILES" ]; then
+        if [ ! -f "$_CAT3_KNOWN" ]; then
+            echo "$_CAT3_FILES" > "$_CAT3_KNOWN"
+        else
+            # Per-project, typed item (CFG-542/541) — never the legacy inbox.md.
+            _INBOX="$CONFIG_REPO/cross-project/inbox/agent-fleet.md"
+            _NEW_COUNT=0
+            while IFS= read -r _cf; do
+                [ -z "$_cf" ] && continue
+                grep -Fxq "$_cf" "$_CAT3_KNOWN" && continue
+                echo "$_cf" >> "$_CAT3_KNOWN"
+                _NEW_COUNT=$((_NEW_COUNT + 1))
+                if [ -d "$CONFIG_REPO/cross-project" ]; then
+                    mkdir -p "$CONFIG_REPO/cross-project/inbox"
+                    _REASON=$(grep -F "\`$_cf\`" "$CONFIG_REPO/template-sync-manifest.md" 2>/dev/null \
+                        | head -1 | sed -E 's/.*\|[[:space:]]*([^|]+)[[:space:]]*\|[[:space:]]*$/\1/' \
+                        | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+                    printf -- '- [ ] **agent-fleet** [work] (P3): Cat-3 review — `%s`. Diff: %s. Source: auto-detect %s.\n' \
+                        "$_cf" "${_REASON:-(no manifest entry)}" "$(date -u +%Y-%m-%d)" >> "$_INBOX"
                 fi
+            done <<< "$_CAT3_FILES"
+            # .cat3-known was append-only, so a file that re-converged or was reclassified
+            # stayed "known" forever and a later drift raised no item. Keep only current flags.
+            printf '%s\n' "$_CAT3_FILES" | grep -Fxf - "$_CAT3_KNOWN" > "$_CAT3_KNOWN.tmp" 2>/dev/null || true
+            mv -f "$_CAT3_KNOWN.tmp" "$_CAT3_KNOWN"
+            if [ "$_NEW_COUNT" -gt 0 ]; then
+                printf 'TEMPLATE_PROPAGATION_CAT3_NEW: %d new Cat-3 file(s) added to agent-fleet inbox\n' \
+                    "$_NEW_COUNT" >> "${DRIFT_LOG:-$CONFIG_REPO/.sync-warnings.log}"
             fi
         fi
     fi
@@ -318,18 +386,36 @@ fi
 
 # Phase 0.9 moved to Phase 4 (after commit+push) so mobile gets final file state.
 
-# Clear any previous failure marker on success path
+# The single normal exit, after Phase 5. Clears a previous failure marker —
+# unless THIS run recorded one (sync_fail_continue), which must survive to the
+# next SessionStart.
+_SYNC_FAILED=0
 sync_success() {
-    rm -f "$FAIL_MARKER"
+    [ "$_SYNC_FAILED" -eq 1 ] || rm -f "$FAIL_MARKER"
     _shutdown_done
     exit 0
 }
 
-sync_fail() {
+_sync_fail_record() {
     local stage="$1" detail="$2"
     printf 'stage=%s\ntime=%s\ndetail=%s\n' "$stage" "$(date -u +'%Y-%m-%d %H:%M:%S UTC')" "$detail" > "$FAIL_MARKER"
     printf '\r\033[K  Shutdown: failed at %s (see .sync-failed)\n' "$stage" >&2
+}
+
+# A failure after which nothing below can run (no config repo, lock not held).
+sync_fail() {
+    _sync_fail_record "$1" "$2"
     exit 0  # Still exit 0 — don't block session end
+}
+
+# A failure of the cfg commit or push (CFG-634). Recorded, then the hook carries
+# on: the mobile refresh (Phase 4) and the deployment-local steps (Phase 5) do
+# not depend on the cfg push, and exiting here skipped them on every shutdown
+# whose push was refused — a non-fast-forward after another machine pushed cfg
+# repeats on every later shutdown until somebody pulls.
+sync_fail_continue() {
+    _sync_fail_record "$1" "$2"
+    _SYNC_FAILED=1
 }
 
 _shutdown_progress "Rotating session..."
@@ -426,6 +512,14 @@ elif command -v check_lock >/dev/null 2>&1; then
     if [[ "$_cl_rc" -eq 2 || "$_cl_rc" -eq 3 ]]; then
         _CFG_HELD_BY_OTHER=1
         _cfg_held_notice
+    elif [[ "$_cl_rc" -eq 4 ]]; then
+        # CFG-673 / GH#9: cannot determine — the lock check saw no Claude Code
+        # process at all, so "nobody live" is its blindness. Fail closed: treat
+        # the config repo as held (no rotation, no staging, no commit) and
+        # record the unknown state where the next SessionStart surfaces it.
+        _CFG_HELD_BY_OTHER=1
+        _shutdown_progress "Config repo lock state unknown (no Claude Code process visible) — treated as held; its context and work are left alone."
+        echo "$(date -u +'%Y-%m-%d %H:%M:%S UTC') config repo lock state unknown (check_lock=4: no Claude Code process visible to the lock check) — treated as held, rotation and commit skipped, lock left in place" >> "$CONFIG_REPO/.sync-warnings.log"
     fi
 fi
 
@@ -493,57 +587,8 @@ if [[ "$_CFG_HELD_BY_OTHER" -eq 0 ]]; then
         git add -- "$_p" 2>/dev/null || true
     done
 fi
-# Held by another session, or nothing new staged: still check for unpushed
-# commits before exiting (pushing existing commits touches no working file).
-if [[ "$_CFG_HELD_BY_OTHER" -eq 1 ]] || git diff --cached --quiet 2>/dev/null; then
-    # No new changes to commit — but are there unpushed commits?
-    PUSH_REMOTE="origin"
-    if [ -f "$CONFIG_REPO/.push-filter.conf" ]; then
-        PR=$(grep '^private_remote=' "$CONFIG_REPO/.push-filter.conf" 2>/dev/null | head -1 | cut -d= -f2 | xargs)
-        [ -n "$PR" ] && PUSH_REMOTE="$PR"
-    fi
-    DEFAULT_BRANCH=$(git symbolic-ref "refs/remotes/$PUSH_REMOTE/HEAD" 2>/dev/null | sed "s|refs/remotes/$PUSH_REMOTE/||")
-    [ -z "$DEFAULT_BRANCH" ] && DEFAULT_BRANCH="main"
-    UNPUSHED=$(git log "$PUSH_REMOTE/$DEFAULT_BRANCH..HEAD" --oneline 2>/dev/null)
-    if [ -n "$UNPUSHED" ]; then
-        git push "$PUSH_REMOTE" "$DEFAULT_BRANCH" 2>/dev/null \
-            || sync_fail "push" "git push failed (unpushed commits exist)"
-    fi
-    sync_success
-fi
-
-# Secret scan: check staged diff for obvious secret patterns before committing
-STAGED_DIFF=$(git diff --cached 2>/dev/null)
-SECRET_PATTERNS='sk-ant-[A-Za-z0-9-]{20,}|sk-[A-Za-z0-9]{20,}|AKIA[0-9A-Z]{16}|AIzaSy[A-Za-z0-9_-]{33}|ghp_[A-Za-z0-9]{36,}|gho_[A-Za-z0-9]{36,}|xoxb-[A-Za-z0-9-]+|xoxp-[A-Za-z0-9-]+|password\s*[:=]|secret\s*[:=]|private_key\s*[:=]|-----BEGIN RSA|-----BEGIN PRIVATE KEY|(key|token|secret)\s*[:=]\s*[A-Za-z0-9+/]{40,}={0,2}'
-SECRET_HITS=$(printf '%s' "$STAGED_DIFF" | grep -E "$SECRET_PATTERNS" 2>/dev/null | grep '^+' | grep -v '^+++' || true)
-if [ -n "$SECRET_HITS" ]; then
-    # Identify which staged files contain the suspicious content (newline-separated)
-    SUSPICIOUS_FILES=$(git diff --cached --name-only 2>/dev/null | while read -r f; do
-        if git diff --cached -- "$f" 2>/dev/null | grep -qE "$SECRET_PATTERNS"; then
-            echo "$f"
-        fi
-    done)
-    if [ -n "$SUSPICIOUS_FILES" ]; then
-        # Unstage each suspicious file individually (bash 3.2 compat — no mapfile)
-        while IFS= read -r _sf; do
-            [ -n "$_sf" ] && git restore --staged "$_sf" 2>/dev/null || true
-        done <<< "$SUSPICIOUS_FILES"
-        printf 'AUTO-SYNC WARNING: Possible secrets detected in staged files: %s\n' \
-            "${SUSPICIOUS_FILES//$'\n'/ }" >> "$CONFIG_REPO/.sync-warnings.log"
-        printf 'time=%s\n' "$(date -u +'%Y-%m-%d %H:%M:%S UTC')" >> "$CONFIG_REPO/.sync-warnings.log"
-        # If nothing left staged, exit cleanly (no commit needed)
-        git diff --cached --quiet 2>/dev/null && sync_success
-    fi
-fi
-
-_shutdown_progress "Committing & pushing..."
-
-# Commit
-git commit -m "Auto-sync: $(date -u +'%Y-%m-%d %H:%M:%S UTC')" 2>/dev/null \
-    || sync_fail "commit" "git commit failed"
-
-# Push (auto-detect default branch: main or master)
-# Respect dual-remote projects: push to private remote, never public
+# Push target (auto-detect default branch: main or master). Respect dual-remote
+# projects: push to the private remote, never public.
 PUSH_REMOTE="origin"
 if [ -f "$CONFIG_REPO/.push-filter.conf" ]; then
     PR=$(grep '^private_remote=' "$CONFIG_REPO/.push-filter.conf" 2>/dev/null | head -1 | cut -d= -f2 | xargs)
@@ -551,11 +596,78 @@ if [ -f "$CONFIG_REPO/.push-filter.conf" ]; then
 fi
 DEFAULT_BRANCH=$(git symbolic-ref "refs/remotes/$PUSH_REMOTE/HEAD" 2>/dev/null | sed "s|refs/remotes/$PUSH_REMOTE/||")
 [ -z "$DEFAULT_BRANCH" ] && DEFAULT_BRANCH="main"
-# Capture stderr rather than discarding it: this push can be refused by the repo's
-# pre-push leak guard, and "git push failed (network? auth?)" actively misdirects
-# when the real answer is "personal data was found and publication was prevented".
-_PUSH_ERR="$(git push "$PUSH_REMOTE" "$DEFAULT_BRANCH" 2>&1 >/dev/null)" \
-    || sync_fail "push" "git push failed: ${_PUSH_ERR:-no stderr}"
+
+# CFG-634: no path through here may EXIT before Phase 4 and Phase 5. This block
+# used to end in `sync_success`, which is `exit 0`, whenever the repo was held
+# or nothing new was staged — and a session that follows session-shutdown.md
+# commits and pushes explicitly, so it hands this hook a clean tree every time.
+# A well-behaved session guaranteed the early exit: the mobile refresh and the
+# deployment-local steps (config-auto-sync-local.sh, the credential push) ran
+# only when Phase 3 had something to commit. Measured: every mobile snapshot
+# commit ever made landed 1-3 s after a cfg Auto-sync commit and never
+# otherwise, and the distributed token expired on the last such day. The
+# nothing-to-commit case now SKIPS the commit
+# (still pushing whatever is unpushed — that touches no working file) and falls
+# through; the secret-scan path below does the same. A refused commit or push
+# is recorded (sync_fail_continue) and falls through as well; only a failure
+# after which nothing can run (no config repo, lock not acquired) leaves early.
+_PHASE3_COMMIT=1
+if [[ "$_CFG_HELD_BY_OTHER" -eq 1 ]] || git diff --cached --quiet 2>/dev/null; then
+    _PHASE3_COMMIT=0
+    UNPUSHED=$(git log "$PUSH_REMOTE/$DEFAULT_BRANCH..HEAD" --oneline 2>/dev/null)
+    if [ -n "$UNPUSHED" ]; then
+        _PUSH_ERR="$(git push "$PUSH_REMOTE" "$DEFAULT_BRANCH" 2>&1 >/dev/null)" \
+            || sync_fail_continue "push" "git push failed (unpushed commits exist): ${_PUSH_ERR:-no stderr}"
+    fi
+fi
+
+# Secret scan: check staged diff for obvious secret patterns before committing
+if [[ "$_PHASE3_COMMIT" -eq 1 ]]; then
+    STAGED_DIFF=$(git diff --cached 2>/dev/null)
+    SECRET_PATTERNS='sk-ant-[A-Za-z0-9-]{20,}|sk-[A-Za-z0-9]{20,}|AKIA[0-9A-Z]{16}|AIzaSy[A-Za-z0-9_-]{33}|ghp_[A-Za-z0-9]{36,}|gho_[A-Za-z0-9]{36,}|xoxb-[A-Za-z0-9-]+|xoxp-[A-Za-z0-9-]+|password\s*[:=]|secret\s*[:=]|private_key\s*[:=]|-----BEGIN RSA|-----BEGIN PRIVATE KEY|(key|token|secret)\s*[:=]\s*[A-Za-z0-9+/]{40,}={0,2}'  # pragma: allowlist secret
+    SECRET_HITS=$(printf '%s' "$STAGED_DIFF" | grep -E "$SECRET_PATTERNS" 2>/dev/null | grep '^+' | grep -v '^+++' || true)
+    if [ -n "$SECRET_HITS" ]; then
+        # Identify which staged files contain the suspicious content (newline-separated)
+        SUSPICIOUS_FILES=$(git diff --cached --name-only 2>/dev/null | while read -r f; do
+            if git diff --cached -- "$f" 2>/dev/null | grep -qE "$SECRET_PATTERNS"; then
+                echo "$f"
+            fi
+        done)
+        if [ -n "$SUSPICIOUS_FILES" ]; then
+            # Unstage each suspicious file individually (bash 3.2 compat — no mapfile)
+            while IFS= read -r _sf; do
+                [ -n "$_sf" ] && git restore --staged "$_sf" 2>/dev/null || true
+            done <<< "$SUSPICIOUS_FILES"
+            printf 'AUTO-SYNC WARNING: Possible secrets detected in staged files: %s\n' \
+                "${SUSPICIOUS_FILES//$'\n'/ }" >> "$CONFIG_REPO/.sync-warnings.log"
+            printf 'time=%s\n' "$(date -u +'%Y-%m-%d %H:%M:%S UTC')" >> "$CONFIG_REPO/.sync-warnings.log"
+            # Nothing left staged: no commit — but the tail still runs (CFG-634)
+            git diff --cached --quiet 2>/dev/null && _PHASE3_COMMIT=0
+        fi
+    fi
+fi
+
+if [[ "$_PHASE3_COMMIT" -eq 1 ]]; then
+    _shutdown_progress "Committing & pushing..."
+
+    # Commit. The body names EVERY path this shutdown swept in, with the count
+    # (CFG-665): the directory staging above is deliberately broad, and a sweep
+    # of somebody's half-finished work produces a green tree that looks like
+    # nothing happened. `git log` is where they will look; make it say so.
+    _SWEPT=$(git diff --cached --name-only 2>/dev/null)
+    _SWEPT_N=$(printf '%s\n' "$_SWEPT" | grep -c . || true)
+    if git commit -m "Auto-sync: $(date -u +'%Y-%m-%d %H:%M:%S UTC')" \
+        -m "Swept by the SessionEnd hook from $(basename "$ORIGINAL_DIR"): $_SWEPT_N file(s)
+$(printf '%s\n' "$_SWEPT" | sed 's/^/  - /')" 2>/dev/null; then
+        # Capture stderr rather than discarding it: this push can be refused by the repo's
+        # pre-push leak guard, and "git push failed (network? auth?)" actively misdirects
+        # when the real answer is "personal data was found and publication was prevented".
+        _PUSH_ERR="$(git push "$PUSH_REMOTE" "$DEFAULT_BRANCH" 2>&1 >/dev/null)" \
+            || sync_fail_continue "push" "git push failed: ${_PUSH_ERR:-no stderr}"
+    else
+        sync_fail_continue "commit" "git commit failed"
+    fi
+fi
 
 # Phase 3 deploy (above) already ensures deployed state matches repo.
 # Phase 3.5 (redundant deploy) removed in v1.0 — repo is sole authority.
@@ -563,23 +675,91 @@ _PUSH_ERR="$(git push "$PUSH_REMOTE" "$DEFAULT_BRANCH" 2>&1 >/dev/null)" \
 # --- Phase 4: Auto-refresh mobile repo snapshots ---
 # Runs AFTER commit+push so mobile gets final file state (dashboard-cache, inbox, etc.).
 # Moved from Phase 0.9 — running before session rotation caused persistent staleness.
+# Reached on EVERY leader shutdown since CFG-634, whether or not Phase 3 committed;
+# a follower has already exited in Phase -1, so only a leader ever refreshes mobile.
 _MOBILE_DEPLOY="$CONFIG_REPO/setup/scripts/mobile-deploy.sh"
+_LEAK_LIB="$CONFIG_REPO/setup/scripts/lib-leak-gate.sh"
 if [ -f "$_MOBILE_DEPLOY" ] && [ -d "$MOBILE_REPO" ]; then
     _shutdown_progress "Refreshing mobile repo..."
-    bash "$_MOBILE_DEPLOY" --config-repo "$CONFIG_REPO" --target "$MOBILE_REPO" 2>/dev/null || true
+    # CFG-626: keep the output. This line ended in `2>/dev/null || true` and the
+    # push below in the same, while the push failed on every run for five weeks
+    # and nothing said so. A failed refresh is now a drift-log line the next
+    # session surfaces; a held file (mobile-deploy exit 3) lands there too.
+    _MOB_OUT=$(bash "$_MOBILE_DEPLOY" --config-repo "$CONFIG_REPO" --target "$MOBILE_REPO" 2>&1) || {
+        _mob_rc=$?
+        printf 'MOBILE_DEPLOY_FAILED: mobile-deploy.sh exit=%d: %s\n' "$_mob_rc" \
+            "$(printf '%s\n' "$_MOB_OUT" | sed "s/$(printf '\033')\[[0-9;]*m//g" \
+                | grep -E '\[LEAK\]|\[ERROR\]|ERROR' | tail -3 | tr '\n' ';')" >> "$DRIFT_LOG"
+    }
+    # The belt over mobile-deploy's braces: the SAME shared gate (lib-leak-gate.sh)
+    # over exactly what is about to be committed. No library means nothing can
+    # be scanned, and nothing unscanned leaves this machine — fail closed.
+    _MOB_OK=0
+    if [ -f "$_LEAK_LIB" ] && source "$_LEAK_LIB" 2>/dev/null; then
+        _mob_gate_rc=0
+        _MOB_HITS=$(check_leaks "$LEAK_GATE_SECRET_PATTERNS" "$MOBILE_REPO/context" 2>&1) || _mob_gate_rc=$?
+        if [ "$_mob_gate_rc" -eq 0 ]; then
+            _MOB_OK=1
+        elif [ "$_mob_gate_rc" -eq 1 ]; then
+            printf 'MOBILE_LEAK_HELD: credential-shaped content in the mobile snapshot — NOT committed or pushed: %s\n' \
+                "$(printf '%s\n' "$_MOB_HITS" | leak_gate_hit_files | sed "s|^$MOBILE_REPO/||" | tr '\n' ' ')" >> "$DRIFT_LOG"
+        else
+            # The gate's own refusal lines only: when a refusal coincides with
+            # real hits, the hit lines carry the credential text.
+            printf 'MOBILE_LEAK_HELD: the leak gate refused to scan (rc %d) — NOT committed or pushed: %s\n' \
+                "$_mob_gate_rc" "$(printf '%s\n' "$_MOB_HITS" | grep '^check_leaks:' | tr '\n' ' ')" >> "$DRIFT_LOG"
+        fi
+    else
+        printf 'MOBILE_LEAK_GATE_UNAVAILABLE: %s missing — mobile snapshot NOT committed or pushed (fail closed)\n' \
+            "$_LEAK_LIB" >> "$DRIFT_LOG"
+    fi
+    # Egress policy (CFG-634 x CFG-626). The snapshot is an excerpt of EVERY
+    # registry project's session-context and backlog plus the registry,
+    # dashboard and inbox, bound for an external host — and the gate above
+    # only knows credential values, not which projects' work may leave the
+    # machine. Before CFG-634 a clean-tree shutdown never got here; now every
+    # leader shutdown does. So the push needs a declared policy: the deployment
+    # sets push=allow in setup/config/mobile-deploy.conf once it has decided
+    # its snapshot may leave (or filters it first). push=hold is that decision
+    # the other way and is not a warning; no policy at all holds the push AND
+    # says so. Either way the local refresh above has run and nothing is
+    # committed, so nothing waits in the mobile repo to be pushed later.
+    if [ "$_MOB_OK" -eq 1 ]; then
+        _MOB_POLICY=$(leak_gate_conf_value "$CONFIG_REPO/setup/config/mobile-deploy.conf" push)
+        case "$_MOB_POLICY" in
+            allow) ;;
+            hold)
+                _MOB_OK=0
+                _shutdown_progress "Mobile snapshot refreshed locally; push held (setup/config/mobile-deploy.conf: push=hold)."
+                ;;
+            *)
+                _MOB_OK=0
+                printf 'MOBILE_PUSH_HELD: no egress policy — the mobile snapshot (every registry project'"'"'s context) was refreshed locally but NOT committed or pushed; set push=allow (or push=hold) in setup/config/mobile-deploy.conf\n' \
+                    >> "$DRIFT_LOG"
+                ;;
+        esac
+    fi
     # Commit and push mobile changes — without this, snapshots stay dirty
     # and the next session's check reports eternal staleness.
-    git -C "$MOBILE_REPO" add -A context/ 2>/dev/null || true
-    if ! git -C "$MOBILE_REPO" diff --cached --quiet 2>/dev/null; then
-        git -C "$MOBILE_REPO" commit -m "Auto-sync: mobile context snapshots" 2>/dev/null || true
-        git -C "$MOBILE_REPO" push origin main 2>/dev/null || true
+    if [ "$_MOB_OK" -eq 1 ]; then
+        git -C "$MOBILE_REPO" add -A context/ 2>/dev/null || true
+        if ! git -C "$MOBILE_REPO" diff --cached --quiet 2>/dev/null; then
+            git -C "$MOBILE_REPO" commit -m "Auto-sync: mobile context snapshots" 2>/dev/null || true
+            # Capture stderr: a refused push must name its reason, not vanish.
+            _MPUSH_ERR="$(git -C "$MOBILE_REPO" push origin main 2>&1 >/dev/null)" \
+                || printf 'MOBILE_PUSH_FAILED: git push origin main in %s: %s\n' \
+                    "$MOBILE_REPO" "${_MPUSH_ERR:-no stderr}" >> "$DRIFT_LOG"
+        fi
     fi
     # Clear mobile staleness warnings from drift log — Phase 0.7 ran before this
     # refresh, so mobile appeared stale. Now it's fresh. Remove stale warnings.
     if [ -f "$DRIFT_LOG" ]; then
-        sed -i '/mobile repo is stale/d; /Checking mobile/d' "$DRIFT_LOG"
-        # Remove log if now empty (only whitespace/blank lines remain)
-        if [ ! -s "$DRIFT_LOG" ] || ! grep -q '[^[:space:]]' "$DRIFT_LOG" 2>/dev/null; then
+        _sed_i "/mobile repo is stale/d; /Checking mobile/d; /file(s) stale\. Run 'sync\.sh mobile-deploy'/d" "$DRIFT_LOG"
+        # Remove the log when nothing but the "N issue(s) found" summary (or
+        # blank lines) is left — the issues it counted were stripped above or
+        # in Phase 0.8 as fixed (CFG-431), and a summary alone would still make
+        # the next session report drift that no longer exists.
+        if ! grep -v 'issue(s) found' "$DRIFT_LOG" 2>/dev/null | grep -q '[^[:space:]]'; then
             rm -f "$DRIFT_LOG"
         fi
     fi
@@ -592,10 +772,13 @@ fi
 # Propagated), never in this file. This hook is Category 1: template-push copies
 # it verbatim into every downstream fleet, which is exactly what a host name or a
 # persona name here would prevent — and did, stranding the CFG-665/666 owner
-# guard above on one machine. The shim runs as a subprocess, after commit+push,
+# guard above on one machine. The shim runs as a subprocess, after the Phase 3
+# commit+push was attempted (a refused push no longer skips it, CFG-634),
 # with CONFIG_REPO and ORIGINAL_DIR in its environment; its stdout is dropped,
 # its stderr (progress lines) reaches the user, and its exit status never blocks
-# shutdown. Absent shim = nothing to do.
+# shutdown. Absent shim = nothing to do. It runs on every LEADER shutdown, with
+# or without a Phase 3 commit (CFG-634); follower shutdowns exit in Phase -1, so
+# only the leader's shutdown can ever refresh what the shim refreshes.
 _LOCAL_SHIM="$CONFIG_REPO/setup/scripts/config-auto-sync-local.sh"
 if [ -f "$_LOCAL_SHIM" ]; then
     CONFIG_REPO="$CONFIG_REPO" ORIGINAL_DIR="$ORIGINAL_DIR" bash "$_LOCAL_SHIM" >/dev/null || true

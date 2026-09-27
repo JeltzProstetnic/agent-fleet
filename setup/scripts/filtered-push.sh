@@ -16,6 +16,10 @@
 
 set -euo pipefail
 
+# The shared egress leak gate (CFG-626), beside this script. Under set -e a
+# missing library aborts before any push — fail closed.
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib-leak-gate.sh"
+
 DRY_RUN=false
 [[ "${1:-}" == "--dry-run" ]] && DRY_RUN=true
 
@@ -45,6 +49,7 @@ if [[ ! -f "$CONFIG" ]]; then
     echo "  branch=<name>            # branch to push (default: main)" >&2
     echo "  exclude=<path>           # one per line, paths to exclude from public" >&2
     echo "  exclude_glob=<pattern>   # one per line, glob patterns to exclude" >&2
+    echo "  leak_pattern=<regex>     # optional, one per line: extra grep -E patterns that refuse the public push" >&2
     exit 1
 fi
 
@@ -54,6 +59,7 @@ PUBLIC_REMOTE=""
 BRANCH="main"
 EXCLUDE_PATHS=()
 EXCLUDE_GLOBS=()
+LEAK_PATTERNS=()
 
 while IFS='=' read -r key value; do
     # Skip comments and blank lines
@@ -66,6 +72,7 @@ while IFS='=' read -r key value; do
         branch)         BRANCH="$value" ;;
         exclude)        EXCLUDE_PATHS+=("$value") ;;
         exclude_glob)   EXCLUDE_GLOBS+=("$value") ;;
+        leak_pattern)   [[ -n "$value" ]] && LEAK_PATTERNS+=("$value") ;;   # an empty alternative matches every line
         *) echo "WARNING: Unknown config key '$key'" >&2 ;;
     esac
 done < "$CONFIG"
@@ -146,12 +153,61 @@ else
     git push "$PRIVATE_REMOTE" "$BRANCH"
 fi
 
+# CFG-626: the shared egress leak gate over what WOULD be published. The
+# exclusions decide which PATHS leave; this decides whether their CONTENT may —
+# a credential value in a public-bound file refuses the whole public push,
+# fail-closed, in --dry-run too, with or without exclusions configured. The
+# worktree is clean and on $BRANCH (checked above), so its copies of the tree's
+# regular files are the bytes the push would carry. The list is read with -z and
+# quoting off: under the default core.quotePath a non-ASCII name comes back
+# C-quoted, names no file on disk, and was skipped in silence while the push
+# published it. Symlinks (the published bytes are the link text; following one
+# scans outside the tree) and submodules (no content in this tree) are not
+# scanned; every regular file is, and check_leaks refuses a listed file it
+# cannot read. Vocabulary: LEAK_GATE_SECRET_PATTERNS (credential values, every
+# destination) plus any non-empty leak_pattern= lines in .push-filter.conf.
+# The refusal names FILES only — printing the hit lines would put the
+# credential into whatever transcript ran this script.
+leak_gate_public_tree() {   # <tree-ish>
+    local tree="$1" list entry meta path rc=0 hits
+    local patterns="$LEAK_GATE_SECRET_PATTERNS" lp
+    for lp in "${LEAK_PATTERNS[@]+"${LEAK_PATTERNS[@]}"}"; do
+        patterns="$patterns|$lp"
+    done
+    list=$(mktemp)
+    if ! git -c core.quotePath=false ls-tree -r -z "$tree" > "$list"; then
+        rm -f "$list"
+        echo "FATAL: cannot list the tree bound for $PUBLIC_REMOTE — refusing to push (fail-closed)." >&2
+        exit 1
+    fi
+    local -a files=()
+    while IFS= read -r -d '' entry; do
+        meta="${entry%%$'\t'*}"; path="${entry#*$'\t'}"
+        case "${meta%% *}" in
+            100644|100755) files+=("$path") ;;
+        esac
+    done < "$list"
+    rm -f "$list"
+    hits=$(check_leaks "$patterns" "${files[@]+"${files[@]}"}" 2>&1) || rc=$?
+    [[ "$rc" -eq 0 ]] && return 0
+    if [[ "$rc" -eq 1 ]]; then
+        echo "FATAL: credential-shaped content in file(s) bound for $PUBLIC_REMOTE — refusing to push (fail-closed):" >&2
+        printf '%s\n' "$hits" | leak_gate_hit_files | head -10 | sed 's/^/  /' >&2 || true
+    else
+        echo "FATAL: the leak gate refused to scan (rc $rc) — refusing to push to $PUBLIC_REMOTE (fail-closed):" >&2
+        printf '%s\n' "$hits" | grep '^check_leaks:' | head -10 | sed 's/^/  /' >&2 || true
+    fi
+    echo "Remove the credential (or exclude the path) and retry." >&2
+    exit 1
+}
+
 # --- Step 3: Build filtered tree for public ---
 echo ""
 echo "=== Preparing filtered push to $PUBLIC_REMOTE ==="
 
 if [[ ${#EXCLUDE_PATHS[@]} -eq 0 && ${#EXCLUDE_GLOBS[@]} -eq 0 ]]; then
     echo "No exclusions configured — pushing full content to public too."
+    leak_gate_public_tree "$BRANCH"
     if $DRY_RUN; then
         echo "[dry-run] Would push $BRANCH to $PUBLIC_REMOTE"
     else
@@ -214,6 +270,9 @@ for pat in "${EXCLUDE_PATHS[@]}" "${EXCLUDE_GLOBS[@]}"; do
         exit 1
     fi
 done
+
+# The shared leak gate (CFG-626) over the filtered tree — see leak_gate_public_tree.
+leak_gate_public_tree "$TREE"
 
 # Determine parent for the public commit (fetch only the ref, no merge)
 # SAFETY: We only read the remote ref — we never merge it into our working tree.

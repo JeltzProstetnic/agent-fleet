@@ -6,6 +6,16 @@ suite_header "Scaling Thresholds Check (13-scaling-thresholds.sh)"
 
 CHECK="$REPO_ROOT/global/hooks/checks/13-scaling-thresholds.sh"
 
+# The daily gate follows ${SCHED_MARKER_DIR:-${TMPDIR:-/tmp}} (GH#13). Pin it
+# inside the test sandbox so the marker this suite clears is the one the check
+# reads, whatever TMPDIR the runner has (macOS and the CC sandbox always set it).
+# Call it directly (not in $(…)): the export must reach the sourcing shell.
+_scaling_gate() {
+    export SCHED_MARKER_DIR="$TEST_TMPDIR/sched"
+    mkdir -p "$SCHED_MARKER_DIR"
+    SCALING_GATE="$SCHED_MARKER_DIR/.scaling-check-$(date +%Y-%m-%d)"
+}
+
 # Helper: generate a file with N lines
 make_file() {
     local path="$1"
@@ -22,7 +32,8 @@ run_check() {
     mkdir -p "$CONFIG_REPO"
     WARNINGS=""
     # Ensure daily gate does not block — remove marker
-    rm -f "/tmp/.scaling-check-$(date +%Y-%m-%d)" 2>/dev/null || true
+    _scaling_gate
+    rm -f "$SCALING_GATE" 2>/dev/null || true
     source "$CHECK"
     echo "$WARNINGS"
 }
@@ -238,7 +249,8 @@ test_daily_gate() {
     make_file "$TEST_TMPDIR/config-repo/setup/scripts/big.sh" 450
 
     # Create the daily marker BEFORE running check
-    touch "/tmp/.scaling-check-$(date +%Y-%m-%d)"
+    _scaling_gate
+    touch "$SCALING_GATE"
 
     export CONFIG_REPO="$TEST_TMPDIR/config-repo"
     WARNINGS=""
@@ -246,7 +258,7 @@ test_daily_gate() {
     local output="$WARNINGS"
 
     # Clean up marker
-    rm -f "/tmp/.scaling-check-$(date +%Y-%m-%d)" 2>/dev/null || true
+    rm -f "$SCALING_GATE" 2>/dev/null || true
 
     assert_not_contains "$output" "big.sh" "daily gate should prevent warnings"
 }

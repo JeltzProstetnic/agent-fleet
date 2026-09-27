@@ -57,13 +57,16 @@ EOF
 }
 
 # Run the script under test with all seams stubbed. Sets RUN_OUT and RUN_RC.
+# The addrs seam defaults to a fixed OFF-HOST identity: since CFG-649 an empty
+# identity is a refusal (exit 4), so a stub that prints nothing would no longer
+# model an off-host vantage — it would model a box that cannot name itself.
 run_verify() {
     local out="" rc=0
     out=$(STUB_PORT_MAP="$STUB_PORT_MAP" \
           STUB_PROBE_LOG="$STUB_PROBE_LOG" \
           TMPDIR="${OVERRIDE_TMPDIR:-${TMPDIR:-/tmp}}" \
           VERIFY_PORTS_PROBE_CMD="$STUB_PROBE" \
-          VERIFY_PORTS_LOCAL_ADDRS_CMD="${LOCAL_ADDRS_CMD:-true}" \
+          VERIFY_PORTS_LOCAL_ADDRS_CMD="${LOCAL_ADDRS_CMD:-echo vantage.test.invalid}" \
           bash "$SCRIPT" "$@" 2>&1) || rc=$?
     RUN_OUT="$out"
     RUN_RC=$rc
@@ -301,6 +304,44 @@ test_on_host_vantage_refused() {
     assert_not_contains "$RUN_OUT" "PASS" "must not read as a pass"
 }
 run_test "on-host vantage point is refused (exit 4), probes nothing" test_on_host_vantage_refused
+
+# CFG-649: a vantage that cannot name itself cannot rule out that the target IS
+# itself. Empty output from the addrs seam is exactly what a box without the
+# `hostname` binary used to yield; the run then proceeded, scanned the machine
+# it was running on, and — with every port observed — said PASS. The honest
+# answer is a refusal that names the real problem, not a generic verdict.
+test_unknown_local_identity_is_refused() {
+    local map; map=$(write_port_map "22 open" "443 open")
+    make_stub_probe "$map"
+    LOCAL_ADDRS_CMD="true"
+    run_verify example.invalid --ports 22,443
+    LOCAL_ADDRS_CMD=""
+    assert_eq "4" "$RUN_RC" "unknown local identity must refuse (exit 4), never scan" || return 1
+    assert_eq "" "$(probed_ports)" "nothing may be probed before this machine's identity is known" || return 1
+    assert_contains "$RUN_OUT" "identity" "the message must name the real problem: this machine's identity" || return 1
+    assert_not_contains "$RUN_OUT" "PASS" "must not read as a pass"
+}
+run_test "unknown local identity is refused (exit 4), probes nothing (CFG-649)" test_unknown_local_identity_is_refused
+
+# The real-world shape: `hostname` is gone, the target is this machine's own
+# name. The fallback chain (uname -n, /proc/sys/kernel/hostname, ...) must still
+# identify the machine so the ordinary self-probe refusal fires.
+test_missing_hostname_binary_still_identifies_self() {
+    local map; map=$(write_port_map "22 open")
+    make_stub_probe "$map"
+    local me; me=$(uname -n)
+    [[ -n "$me" ]] || { echo "FAIL: uname -n gave nothing; cannot run this case"; return 1; }
+    local out="" rc=0
+    out=$(env -u VERIFY_PORTS_LOCAL_ADDRS_CMD \
+          PATH="$(shadow_hostname_missing):$PATH" \
+          STUB_PORT_MAP="$STUB_PORT_MAP" STUB_PROBE_LOG="$STUB_PROBE_LOG" \
+          VERIFY_PORTS_PROBE_CMD="$STUB_PROBE" \
+          bash "$SCRIPT" "$me" --ports 22 2>&1) || rc=$?
+    assert_eq "4" "$rc" "own name as target must be refused even without the hostname binary" || return 1
+    assert_contains "$out" "is this machine" "the ordinary self-probe refusal must fire" || return 1
+    assert_eq "" "$(probed_ports)" "the guard must fire before any probe runs"
+}
+run_test "self-probe refusal survives a missing hostname binary (CFG-649)" test_missing_hostname_binary_still_identifies_self
 
 # ── Test seams are self-identifying (refutation #6) ──────────────────────────
 
