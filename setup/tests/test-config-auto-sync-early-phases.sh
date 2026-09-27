@@ -718,13 +718,13 @@ test_phase08_cat3_new_file_generates_inbox() {
 
     local af="$config_repo/cross-project/inbox/agent-fleet.md"
     assert_file_contains "$af" "Cat-3 review" \
-        "new Cat-3 file should generate an inbox task in the per-project file (CFG-542)"
+        "new Cat-3 file should generate an inbox task in the per-project file (CFG-542)" || return 1
     assert_file_contains "$af" "global/CLAUDE.md" \
-        "inbox task should name the specific file"
-    assert_file_contains "$af" "**agent-fleet** [work]" \
-        "the item must carry its type tag (CFG-541)"
+        "inbox task should name the specific file" || return 1
+    assert_file_contains "$af" "agent-fleet\\*\\* \\[work\\]" \
+        "the item must carry its type tag (CFG-541)" || return 1
     assert_not_contains "$(cat "$config_repo/cross-project/inbox.md")" "Cat-3 review" \
-        "nothing may be appended to the legacy inbox.md any more"
+        "nothing may be appended to the legacy inbox.md any more" || return 1
     assert_file_contains "$config_repo/.cat3-known" "global/CLAUDE.md" \
         ".cat3-known should now include the new file"
 }

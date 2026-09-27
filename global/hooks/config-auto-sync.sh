@@ -269,21 +269,27 @@ if [ -f "$_TPL_SCRIPT" ] && [ -d "$_TPL_DIR/.git" ]; then
             if [ ! -f "$_CAT3_KNOWN" ]; then
                 echo "$_CAT3_FILES" > "$_CAT3_KNOWN"
             else
-                _INBOX="$CONFIG_REPO/cross-project/inbox.md"
+                # Per-project, typed item (CFG-542/541) — never the legacy inbox.md.
+                _INBOX="$CONFIG_REPO/cross-project/inbox/agent-fleet.md"
                 _NEW_COUNT=0
                 while IFS= read -r _cf; do
                     [ -z "$_cf" ] && continue
                     grep -Fxq "$_cf" "$_CAT3_KNOWN" && continue
                     echo "$_cf" >> "$_CAT3_KNOWN"
                     _NEW_COUNT=$((_NEW_COUNT + 1))
-                    if [ -f "$_INBOX" ]; then
+                    if [ -d "$CONFIG_REPO/cross-project" ]; then
+                        mkdir -p "$CONFIG_REPO/cross-project/inbox"
                         _REASON=$(grep -F "\`$_cf\`" "$CONFIG_REPO/template-sync-manifest.md" 2>/dev/null \
                             | head -1 | sed -E 's/.*\|[[:space:]]*([^|]+)[[:space:]]*\|[[:space:]]*$/\1/' \
                             | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
-                        printf '\n- [ ] **agent-fleet**: Cat-3 review — `%s`. Diff: %s. Source: auto-detect %s.\n' \
+                        printf -- '- [ ] **agent-fleet** [work] (P3): Cat-3 review — `%s`. Diff: %s. Source: auto-detect %s.\n' \
                             "$_cf" "${_REASON:-(no manifest entry)}" "$(date -u +%Y-%m-%d)" >> "$_INBOX"
                     fi
                 done <<< "$_CAT3_FILES"
+                # .cat3-known was append-only, so a file that re-converged or was reclassified
+                # stayed "known" forever and a later drift raised no item. Keep only current flags.
+                printf '%s\n' "$_CAT3_FILES" | grep -Fxf - "$_CAT3_KNOWN" > "$_CAT3_KNOWN.tmp" 2>/dev/null || true
+                mv -f "$_CAT3_KNOWN.tmp" "$_CAT3_KNOWN"
                 if [ "$_NEW_COUNT" -gt 0 ]; then
                     printf 'TEMPLATE_PROPAGATION_CAT3_NEW: %d new Cat-3 file(s) added to agent-fleet inbox\n' \
                         "$_NEW_COUNT" >> "${DRIFT_LOG:-$CONFIG_REPO/.sync-warnings.log}"
