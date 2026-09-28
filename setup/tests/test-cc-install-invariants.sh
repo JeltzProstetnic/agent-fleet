@@ -189,6 +189,69 @@ test_settings_env_declared_by_template_passes() {
 }
 run_test "SETTINGS: key declared by template is not drift (template is the policy)" test_settings_env_declared_by_template_passes
 
+# ── 10c. SETTINGS: the cc-mirror-managed env keys are policy, not drift ───────
+# cc-mirror injects a fixed quiet-mode/feature env set into the live settings.json on
+# every install/update. sync.sh's env merge PRESERVES them but never writes them, and the
+# fleet template deliberately omits them (they are cc-mirror's, not fleet policy). The
+# checker must carry them as a 4th, enumerated policy source or every update rolls back.
+CC_MIRROR_MANAGED_KEYS=(
+    CLAUDE_CODE_DISABLE_AUTO_MEMORY
+    CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC
+    CLAUDE_CODE_DISABLE_OFFICIAL_MARKETPLACE_AUTOINSTALL
+    CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY
+    DISABLE_AUTO_MIGRATE_TO_NATIVE
+    DISABLE_BUG_COMMAND
+    DISABLE_ERROR_REPORTING
+    DISABLE_FEEDBACK_COMMAND
+    DISABLE_GROWTHBOOK
+    DISABLE_INSTALLATION_CHECKS
+    DISABLE_TELEMETRY
+    DISABLE_UPDATES
+    DISABLE_UPGRADE_COMMAND
+    ENABLE_CLAUDEAI_MCP_SERVERS
+    ENABLE_TOOL_SEARCH
+)
+
+test_cc_mirror_managed_env_keys_pass() {
+    fx 2.1.280 '^2.1.280' false
+    fixture_settings_env_keys "$MIRROR" "${CC_MIRROR_MANAGED_KEYS[@]}"
+    guard
+    echo "    measured: injected ${#CC_MIRROR_MANAGED_KEYS[@]} cc-mirror keys; SETTINGS FAIL present=[$(printf '%s' "$OUT" | grep -c '^FAIL: SETTINGS')]"
+    assert_eq "0" "$RC" "the cc-mirror-managed env key set must PASS (not drift)" || return 1
+    assert_not_contains "$OUT" "FAIL: SETTINGS" "cc-mirror-managed keys must not trip SETTINGS"
+}
+run_test "SETTINGS: the 15 cc-mirror-managed env keys are policy, not drift" test_cc_mirror_managed_env_keys_pass
+
+# ── 10d. SETTINGS: the allowlist stays a tripwire — an UNKNOWN key still fails ─
+test_cc_mirror_allowlist_still_a_tripwire() {
+    fx 2.1.280 '^2.1.280' false
+    fixture_settings_env_keys "$MIRROR" "${CC_MIRROR_MANAGED_KEYS[@]}"
+    fixture_settings_env "$MIRROR" TOTALLY_UNEXPECTED_KEY 1
+    guard
+    echo "    measured: cc-mirror set + 1 unknown key; SETTINGS FAIL count=[$(printf '%s' "$OUT" | grep -c '^FAIL: SETTINGS')]"
+    assert_neq "0" "$RC" "an unknown key alongside the allowlist must still FAIL" || return 1
+    assert_contains "$OUT" "SETTINGS" "must still name SETTINGS" || return 1
+    assert_contains "$OUT" "TOTALLY_UNEXPECTED_KEY" "must name the unknown key, not the allowlisted ones" || return 1
+    assert_not_contains "$OUT" "DISABLE_TELEMETRY" "must NOT list an allowlisted cc-mirror key as leaked"
+}
+run_test "SETTINGS: cc-mirror allowlist is precise — a new unknown key still fails" test_cc_mirror_allowlist_still_a_tripwire
+
+# ── 10e. SETTINGS: a leaked credential is NOT allowlisted and still fails ──────
+# GITHUB_PERSONAL_ACCESS_TOKEN belongs in .mcp.json (vault deploy_mcp_tokens), never in
+# settings.json. Its presence in the live env is a credential outside vault/sync control —
+# exactly what §5 exists to catch. The fix must NOT allowlist it; the tripwire must fire.
+test_github_pat_in_settings_still_fails() {
+    fx 2.1.280 '^2.1.280' false
+    fixture_settings_env_keys "$MIRROR" "${CC_MIRROR_MANAGED_KEYS[@]}"
+    fixture_settings_env "$MIRROR" GITHUB_PERSONAL_ACCESS_TOKEN 1
+    guard
+    echo "    measured: cc-mirror set + GitHub PAT; SETTINGS FAIL count=[$(printf '%s' "$OUT" | grep -c '^FAIL: SETTINGS')]"
+    assert_neq "0" "$RC" "a GitHub PAT in settings.json env must still FAIL — it is a leaked credential" || return 1
+    assert_contains "$OUT" "SETTINGS" "must name SETTINGS" || return 1
+    assert_contains "$OUT" "GITHUB_PERSONAL_ACCESS_TOKEN" "must name the leaked credential key"
+}
+run_test "SETTINGS: GITHUB_PERSONAL_ACCESS_TOKEN is a leak, not allowlisted — still fails" test_github_pat_in_settings_still_fails
+
 # ── 11. EXPECT: caller states the version it just installed ───────────────────
 test_expect_version_mismatch_fails() {
     fx 2.1.1 '^2.1.1' false

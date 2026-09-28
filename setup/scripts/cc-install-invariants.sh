@@ -190,7 +190,34 @@ else
     else warn "launcher does not invoke update-checker.sh — the daily version notice never runs at startup (cc-update.sh wires it on the next update; see cc-update.sh --help)"; fi
 fi
 
-# ── 5. SETTINGS: every live env key must be fleet policy (template ∪ overlays ∪ vault) ──
+# cc-mirror-managed env keys — the 4th policy source for §5. cc-mirror injects this fixed
+# quiet-mode/feature set into the live settings.json on every install/update; sync.sh's env
+# merge PRESERVES them but never writes them, and the fleet template deliberately omits them
+# because they are cc-mirror's runtime concern, not fleet policy. 14 of the 15 are literally
+# the env-injection set in cc-mirror's own source (dist/cc-mirror.mjs, verified 2026-09-28);
+# CLAUDE_CODE_DISABLE_AUTO_MEMORY is a CC-side quiet key earlier cc-mirror installs wrote and
+# is kept here as part of the empirically-observed set. This is an ENUMERATED allowlist, not a
+# blanket rule: a key outside it still FAILs SETTINGS (that is what catches a real leak). A
+# credential such as GITHUB_PERSONAL_ACCESS_TOKEN is deliberately NOT here — its home is
+# .mcp.json (vault deploy_mcp_tokens), so in settings.json it is a leak and must still fail.
+CC_MIRROR_MANAGED_ENV_KEYS="CLAUDE_CODE_DISABLE_AUTO_MEMORY
+CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC
+CLAUDE_CODE_DISABLE_OFFICIAL_MARKETPLACE_AUTOINSTALL
+CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY
+DISABLE_AUTO_MIGRATE_TO_NATIVE
+DISABLE_BUG_COMMAND
+DISABLE_ERROR_REPORTING
+DISABLE_FEEDBACK_COMMAND
+DISABLE_GROWTHBOOK
+DISABLE_INSTALLATION_CHECKS
+DISABLE_TELEMETRY
+DISABLE_UPDATES
+DISABLE_UPGRADE_COMMAND
+ENABLE_CLAUDEAI_MCP_SERVERS
+ENABLE_TOOL_SEARCH"
+
+# ── 5. SETTINGS: every live env key must be fleet policy (template ∪ overlays ∪ vault ∪
+#       cc-mirror-managed) ─────────────────────────────────────────────────────────────
 if [[ -f "$LIVE_SETTINGS" ]]; then
     if [[ ! -f "$TEMPLATE" ]]; then
         info "settings template not found at $TEMPLATE — live env keys not checked"
@@ -200,10 +227,11 @@ if [[ -f "$LIVE_SETTINGS" ]]; then
         POLICY=$(_env_keys "$TEMPLATE")
         for _ov in "$OVERLAY_DIR"/*/settings.json; do [[ -f "$_ov" ]] && POLICY="$POLICY"$'\n'"$(_env_keys "$_ov")"; done
         [[ -f "$VAULT_MANAGE" ]] && POLICY="$POLICY"$'\n'"$(grep -oE "env\['[A-Za-z_]+'\]" "$VAULT_MANAGE" 2>/dev/null | sed "s/env\['\(.*\)'\]/\1/" || true)"
+        POLICY="$POLICY"$'\n'"$CC_MIRROR_MANAGED_ENV_KEYS"
         LEAKED=""
         while IFS= read -r _k; do
             [[ -n "$_k" ]] || continue
-            grep -qx "$_k" <<<"$POLICY" || LEAKED="${LEAKED:+$LEAKED,}$_k"
+            grep -qxF "$_k" <<<"$POLICY" || LEAKED="${LEAKED:+$LEAKED,}$_k"
         done <<<"$(_env_keys "$LIVE_SETTINGS")"
         if [[ -n "$LEAKED" ]]; then
             fail SETTINGS "live $LIVE_SETTINGS env carries key(s) the fleet does not declare: $LEAKED — not in $TEMPLATE, not in a machine overlay under $OVERLAY_DIR, not written by vault-manage.sh deploy. Something outside sync.sh wrote them."

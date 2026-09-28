@@ -129,6 +129,21 @@ open(p, "w").write(json.dumps(d, indent=2) + "\n")
 PY
 }
 
+# fixture_settings_env_keys <mirror_dir> KEY [KEY ...] — add several env keys to the LIVE
+# settings.json at once (value "1" each). Used to stand in the cc-mirror-injected key set.
+fixture_settings_env_keys() {
+    local mirror="$1"; shift
+    python3 - "$mirror/config/settings.json" "$@" <<'PY'
+import json, sys
+p = sys.argv[1]; keys = sys.argv[2:]
+d = json.load(open(p))
+env = d.setdefault("env", {})
+for k in keys:
+    env[k] = "1"
+open(p, "w").write(json.dumps(d, indent=2) + "\n")
+PY
+}
+
 # fixture_set_variant_field <mirror_dir> KEY JSON_VALUE — e.g. teamModeEnabled true
 fixture_set_variant_field() {
     python3 - "$1/variant.json" "$2" "$3" <<'PY'
