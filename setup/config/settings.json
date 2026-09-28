@@ -219,6 +219,10 @@
           },
           {
             "type": "command",
+            "command": "bash ~/.claude/hooks/safe-run.sh compound-cd-warn.sh"
+          },
+          {
+            "type": "command",
             "command": "bash ~/.claude/hooks/safe-run.sh hard-rule-guard.sh"
           },
           {
