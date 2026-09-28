@@ -159,4 +159,13 @@ if [ -f "$_SESSION_LOCK_LIB" ]; then
             write_role "$PWD" follower "${CC_SESSION_ID:-}" "${AFLEET_SESSION_ID:-}" 2>/dev/null || true
             ;;
     esac
+    # CFG-592: rc 0/1 = this session leads. When the check could not identify
+    # this session's OWN Claude Code process while other CCs are visible, its
+    # liveness scan failed open without looking (deliberate — a solo session must
+    # never self-block; the blind case is rc 4 above), so the lead rests on an
+    # unproven "no other session here". Owner decision 2026-09-28: keep granting,
+    # say so loudly.
+    if [ "$_lock_rc" -le 1 ] && lock_self_unknown; then
+        WARNINGS="${WARNINGS:+$WARNINGS | }SESSION_LOCK_SELF_UNKNOWN: The lock check could not identify this session's own Claude Code process — no ancestor of this hook matches the CC matcher (_CC_PROC_RE may not match this install's own CC, cf. CFG-590/GH#7; compare 'pgrep -af claude' against it) — while other Claude Code process(es) ARE visible. Its liveness scan therefore cannot tell this session from a rival and failed open without looking (deliberate: a solo session must never block itself), so the 'no other session here' behind this lead (check_lock=$_lock_rc) is UNPROVEN: a second session already running in this project would NOT have been detected, now or at shutdown. Proceeding as LEADER — ask the user whether another session is open on this project before writing shared state, and report the matcher gap to cfg-agent-fleet."
+    fi
 fi

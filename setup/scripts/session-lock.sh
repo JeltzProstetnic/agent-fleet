@@ -7,6 +7,7 @@
 #   check_lock <project_dir>
 #   lock_info <project_dir>
 #   force_release <project_dir>
+#   lock_self_unknown [self_pid]   (CFG-592: rc 0 ⇒ own CC unresolvable, others visible)
 #
 # Lock file: $PROJECT_DIR/.claude/.session-lock (JSON, gitignored)
 # Format: {"machine":"hostname","pid":12345,"sessionId":"abc","timestamp":"ISO8601","user":"name"}
@@ -259,6 +260,26 @@ _project_has_live_cc() {
         [[ "$cwd" == "$target" ]] && return 0
     done
     return 1
+}
+
+# ── Self-unknown but not blind (CFG-592) ─────────────────────────────────────
+# rc 0 iff the caller's own CC pid is UNRESOLVABLE while at least one CC process
+# IS visible. That is the one shape check_lock still grants silently: the scan
+# is not blind (so rc 4 does not fire), yet _project_has_live_cc fails OPEN on
+# its empty exclude without looking (deliberate — a solo session must never
+# self-block), so a "no other session here" verdict is unproven: a second
+# session already in the project would NOT have been detected. Owner decision
+# 2026-09-28 (option 3): keep granting, but a caller that takes the lead on such
+# a verdict MUST say so (07b: SESSION_LOCK_SELF_UNKNOWN). Typical causes:
+# _CC_PROC_RE matching another install's CC but not this one's (CFG-590/GH#7),
+# or an ancestry walk cut short (an ancestor's /proc/<pid>/stat unreadable).
+# Optional $1 = the caller's own CC pid; ${1-...} respects an explicitly empty
+# argument as "unresolvable", exactly as check_lock's second argument does.
+# rc 1: self resolves, or no CC is visible at all (that case is check_lock's 4).
+lock_self_unknown() {
+    local self_pid="${1-$(_cc_self_pid)}"
+    [[ -z "$self_pid" ]] || return 1
+    _cc_visible ""
 }
 
 # ── Helper: generate a pseudo-random session ID ────────────────────────────
@@ -665,7 +686,8 @@ release_own_lock() {
 # that finding is the scan's blindness, so the verdict is 4 and nothing is
 # removed. The alive-pid and remote-machine verdicts do not rest on the scan
 # and are unchanged. Deliberately NOT extended: an unresolvable own CC while
-# OTHER CCs are visible keeps its fail-open contract (it is not blind), and
+# OTHER CCs are visible keeps its fail-open contract (it is not blind) — the
+# caller reports that shape via lock_self_unknown (CFG-592) — and
 # acquire_lock keeps its own scan (afleet runs it before any CC exists).
 
 check_lock() {

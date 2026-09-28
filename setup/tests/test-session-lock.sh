@@ -1308,6 +1308,91 @@ test_cfg673_sandbox_remote_lock_still_remote() {
 }
 run_test "CFG-673: check_lock — sandbox, remote lock ⇒ still rc 3" test_cfg673_sandbox_remote_lock_still_remote
 
+# ── CFG-592: an unresolvable own CC with other CCs visible is loud, not silent ─
+# The one shape check_lock still grants silently: the caller's own CC pid is
+# unresolvable, so _project_has_live_cc fails OPEN on its empty exclude without
+# looking (deliberate — a solo session must never self-block), while a CC IS
+# visible, so CFG-673's rc 4 does not fire. Owner decision 2026-09-28, option 3:
+# keep the grant, surface it. lock_self_unknown is the predicate the SessionStart
+# hook uses to say so; the verdicts themselves do not move.
+
+test_cfg592_self_unknown_rival_in_project_flagged_grant_unchanged() {
+    local proj="$TEST_TMPDIR/p592-flag" real
+    source "$LOCK_SCRIPT"
+    _cfg536_lock "$proj" "sess-gone" "cc-gone" 424242
+    real="$(realpath "$proj")"
+    local out
+    out="$( unset _CC_SELF_PID
+      _cfg673_sandbox_world
+      _pid_is_cc() { [[ "$1" == "700" ]]; }       # a CC cwd'd IN the project: a rival
+      _pid_cwd()   { echo "$real"; }
+      _enumerate_pids() { printf '%s\n' 1 2 700; }
+      CC_SESSION_ID="" CLAUDE_SESSION_ID="" AFLEET_SESSION_ID="" CLAUDE_CODE_SESSION_ID=""
+      rc=0; check_lock "$proj" || rc=$?
+      flag=0; lock_self_unknown || flag=$?
+      echo "rc=$rc flag=$flag" )"
+    assert_eq "rc=0 flag=0" "$out" "own CC unresolvable + a CC visible (a rival in the project, unseen) ⇒ rc 0 as before, and lock_self_unknown says so (measured '$out')" || return 1
+    assert_file_not_exists "$proj/.claude/.session-lock" "the grant is unchanged: the dead-pid lock is still cleaned"
+}
+run_test "CFG-592: check_lock — own CC unresolvable, rival CC visible in project ⇒ rc 0 kept, lock_self_unknown rc 0" test_cfg592_self_unknown_rival_in_project_flagged_grant_unchanged
+
+test_cfg592_self_resolved_not_flagged_rival_detected() {
+    local proj="$TEST_TMPDIR/p592-self" real
+    source "$LOCK_SCRIPT"
+    _cfg536_lock "$proj" "sess-gone" "cc-gone" 424242
+    real="$(realpath "$proj")"
+    local out
+    out="$( _cfg673_sandbox_world
+      _pid_is_cc() { [[ "$1" == "300" || "$1" == "700" ]]; }   # 300 = our own CC, 700 = the same rival
+      _pid_cwd()   { if [[ "$1" == "700" ]]; then echo "$real"; else echo "/elsewhere"; fi; }
+      _enumerate_pids() { printf '%s\n' 1 2 300 700; }
+      _CC_SELF_PID=300
+      CC_SESSION_ID="cc-mine" CLAUDE_SESSION_ID="" AFLEET_SESSION_ID="" CLAUDE_CODE_SESSION_ID=""
+      rc=0; check_lock "$proj" || rc=$?
+      flag=0; lock_self_unknown || flag=$?
+      arg=0; lock_self_unknown 300 || arg=$?
+      echo "rc=$rc flag=$flag arg=$arg" )"
+    assert_eq "rc=2 flag=1 arg=1" "$out" "own CC resolved ⇒ the same rival IS detected (rc 2) and nothing is flagged, resolved by ancestry or passed explicitly (measured '$out')"
+}
+run_test "CFG-592: check_lock — own CC resolved ⇒ rival detected (rc 2), lock_self_unknown rc 1" test_cfg592_self_resolved_not_flagged_rival_detected
+
+test_cfg592_blind_scan_not_flagged_rc4_kept() {
+    local proj="$TEST_TMPDIR/p592-blind"
+    source "$LOCK_SCRIPT"
+    _cfg536_lock "$proj" "sess-leader" "cc-leader" 424242
+    local out
+    out="$( unset _CC_SELF_PID
+      _cfg673_sandbox_world
+      CC_SESSION_ID="" CLAUDE_SESSION_ID="" AFLEET_SESSION_ID="" CLAUDE_CODE_SESSION_ID=""
+      rc=0; check_lock "$proj" || rc=$?
+      flag=0; lock_self_unknown || flag=$?
+      echo "rc=$rc flag=$flag" )"
+    assert_eq "rc=4 flag=1" "$out" "no CC visible at all ⇒ rc 4 as before, and that is CFG-673's signal, not this one (measured '$out')" || return 1
+    assert_file_exists "$proj/.claude/.session-lock" "the lock is still kept on a blind scan"
+}
+run_test "CFG-592: check_lock — blind scan ⇒ rc 4 unchanged, lock_self_unknown rc 1" test_cfg592_blind_scan_not_flagged_rc4_kept
+
+test_cfg592_explicit_empty_self_no_lock_flagged() {
+    # No lock file, and the self pid passed EXPLICITLY empty (respected as
+    # "unresolvable", exactly as check_lock's ${2-...} does) although ancestry
+    # would have resolved it.
+    local proj="$TEST_TMPDIR/p592-nolock"
+    source "$LOCK_SCRIPT"
+    make_project_dir "$proj"
+    local out
+    out="$( _cfg673_sandbox_world
+      _pid_is_cc() { [[ "$1" == "300" || "$1" == "700" ]]; }
+      _pid_cwd()   { echo "/some/other/project"; }
+      _enumerate_pids() { printf '%s\n' 1 2 300 700; }
+      _CC_SELF_PID=300
+      CC_SESSION_ID="" CLAUDE_SESSION_ID="" AFLEET_SESSION_ID="" CLAUDE_CODE_SESSION_ID=""
+      rc=0; check_lock "$proj" "" || rc=$?
+      flag=0; lock_self_unknown "" || flag=$?
+      echo "rc=$rc flag=$flag" )"
+    assert_eq "rc=0 flag=0" "$out" "no lock + explicitly empty self + a CC visible ⇒ rc 0 as before, flagged (measured '$out')"
+}
+run_test "CFG-592: check_lock — no lock, explicit empty self, CC visible ⇒ rc 0 kept, lock_self_unknown rc 0" test_cfg592_explicit_empty_self_no_lock_flagged
+
 # ── Summary ─────────────────────────────────────────────────────────────────
 
 suite_summary

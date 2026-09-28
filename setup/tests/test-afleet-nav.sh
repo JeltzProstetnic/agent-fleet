@@ -234,6 +234,52 @@ test_unknown_action_exits_error() {
 }
 run_test "unknown action exits with error" test_unknown_action_exits_error
 
+# ── 7. Prefix matching ──────────────────────────────────────────────────────
+
+test_nav_prefix_match_single() {
+    local config_dir
+    config_dir=$(create_mock_env)
+    mkdir -p "$TEST_TMPDIR/home/my-config"
+
+    local output
+    output=$(bash "$SCRIPT" info my --config-repo "$config_dir" 2>&1)
+    assert_contains "$output" "my-config" "prefix 'my' should match my-config"
+}
+run_test "afleet-nav prefix match single result" test_nav_prefix_match_single
+
+test_nav_prefix_match_ambiguous() {
+    local config_dir="$TEST_TMPDIR/config"
+    mkdir -p "$config_dir/cross-project"
+    cat > "$config_dir/registry.md" << 'EOF'
+# Project Registry
+
+## Projects
+
+| Project | Priority | Parent | Path | GitHub Remote | Machines | Type | Phase | Notes |
+|---------|----------|--------|------|--------------|----------|------|-------|-------|
+| project-beta | P1 | — | `~/project-beta` | | dev-main | marketing | active | |
+| project-gamma | P1 | — | `~/project-gamma` | | dev-main | writing | active | |
+EOF
+
+    local output rc=0
+    output=$(bash "$SCRIPT" info project- --config-repo "$config_dir" 2>&1) || rc=$?
+    assert_neq "0" "$rc" "ambiguous prefix should exit non-zero"
+    assert_contains "$output" "matches multiple" "should report multiple matches"
+}
+run_test "afleet-nav prefix match ambiguous errors" test_nav_prefix_match_ambiguous
+
+test_nav_exact_match_preferred() {
+    local config_dir
+    config_dir=$(create_mock_env)
+    mkdir -p "$TEST_TMPDIR/home/project-gamma"
+
+    local output
+    output=$(bash "$SCRIPT" info project-gamma --config-repo "$config_dir" 2>&1)
+    assert_contains "$output" "project-gamma" "exact match 'project-gamma' should work"
+    assert_not_contains "$output" "matches multiple" "should not report ambiguity"
+}
+run_test "afleet-nav exact match preferred over prefix" test_nav_exact_match_preferred
+
 # ── Summary ──────────────────────────────────────────────────────────────────
 
 suite_summary

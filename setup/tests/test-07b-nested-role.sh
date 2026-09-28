@@ -253,4 +253,110 @@ test_blind_check_without_lock_does_not_take_the_lead() {
 }
 run_test "07b: blind lock check with no lock file ⇒ no acquire, follower, SESSION_LOCK_UNKNOWN" test_blind_check_without_lock_does_not_take_the_lead
 
+# ── CFG-592: own CC unresolvable, other CCs visible ⇒ lead granted, but LOUD ──
+# The last silent grant. The hook's own CC is not among its ancestors as far as
+# the CC matcher can tell (_CC_PROC_RE not matching this install's own CC while
+# matching another — CFG-590 / GH#7 — or an ancestry walk cut short), yet a CC
+# IS visible, so CFG-673's rc 4 does not fire. _project_has_live_cc then fails
+# OPEN without looking (deliberate: a solo session must never self-block), and
+# a rival already cwd'd in the project is simply not seen. Owner decision
+# 2026-09-28, option 3: keep granting, warn SESSION_LOCK_SELF_UNKNOWN. Fixture:
+# the real 07b run OUTSIDE any fake CC tree (own CC unresolvable) while a
+# detached fake CC — visible to the matcher — is cwd'd IN the project.
+_run07b_self_unknown() {   # <cc-id>: the real 07b, own CC unresolvable, fake CCs visible; echoes WARNINGS
+    env -u AFLEET_SESSION_ID -u _CC_SELF_PID CC_SESSION_ID="$1" CLAUDE_CODE_SESSION_ID="$1" \
+        _CC_PROC_RE="$_FAKE_CC_RE" bash "$TEST_TMPDIR/run07b.sh" 2>/dev/null || true
+}
+
+test_self_unknown_rival_in_project_leads_but_warns() {
+    local cr="$TEST_TMPDIR/cr" proj="$TEST_TMPDIR/proj"
+    _mk_config_repo "$cr"; _mk_07b_runner "$cr" "$proj"
+    mkdir -p "$proj/.claude"
+    local rival; rival="$(_spawn_other_cc "$proj")" || { echo "could not spawn the rival CC" >&2; return 1; }
+    local out; out="$(_run07b_self_unknown cc-selfunk)"
+    kill "$rival" 2>/dev/null || true
+    local marker="$proj/.claude/.session-role.cc-selfunk" role
+    assert_file_exists "$marker" "07b wrote a role marker" || return 1
+    role=$(_role_of "$marker")
+    assert_eq "leader" "$role" "the grant is unchanged: own CC unresolvable ⇒ fail open, leader even with a rival in the project (measured role: '$role')" || return 1
+    assert_file_exists "$proj/.claude/.session-lock" "the lock was acquired as before" || return 1
+    assert_contains "$out" "SESSION_LOCK_SELF_UNKNOWN" "the user is told the mutex could not identify this session's own CC" || return 1
+    assert_contains "$out" "_CC_PROC_RE" "the warning names the matcher to check" || return 1
+    assert_contains "$out" "check_lock=0" "the warning carries the verdict it qualifies" || return 1
+    assert_not_contains "$out" "SESSION_LOCK_UNKNOWN" "this is not the blind-scan case" || return 1
+    assert_not_contains "$out" "SESSION_LOCKED" "the rival was not detected — the warning exists because of exactly that"
+}
+run_test "07b: own CC unresolvable + rival CC visible in project ⇒ still leader, SESSION_LOCK_SELF_UNKNOWN" test_self_unknown_rival_in_project_leads_but_warns
+
+test_self_unknown_own_stamped_lock_dead_pid_leads_and_warns() {
+    # The rc 1 shape: a direct-launch leader compacting on its own lock (bound
+    # to its cc id, hook pid dead). Still the leader, still warned: the session
+    # goes on with a scan that cannot tell it from a rival.
+    local cr="$TEST_TMPDIR/cr" proj="$TEST_TMPDIR/proj"
+    _mk_config_repo "$cr"; _mk_07b_runner "$cr" "$proj"
+    mkdir -p "$proj/.claude"
+    true & local dpid=$!; wait "$dpid" 2>/dev/null || true
+    ( source "$LOCK_LIB"; _write_lock "$proj/.claude/.session-lock" "" "cc-mine" "$dpid" )
+    local other; other="$(_spawn_other_cc "$TEST_TMPDIR")" || { echo "could not spawn the visible CC" >&2; return 1; }
+    local out; out="$(_run07b_self_unknown cc-mine)"
+    kill "$other" 2>/dev/null || true
+    local marker="$proj/.claude/.session-role.cc-mine" role
+    assert_file_exists "$marker" "07b wrote a role marker" || return 1
+    role=$(_role_of "$marker")
+    assert_eq "leader" "$role" "own stamped lock ⇒ leader as before (measured role: '$role')" || return 1
+    assert_file_contains "$proj/.claude/.session-lock" '"cc-mine"' "the lock stays bound to this session" || return 1
+    assert_contains "$out" "SESSION_LOCK_SELF_UNKNOWN" "a leader whose own CC is unresolvable is warned on rc 1 too" || return 1
+    assert_contains "$out" "check_lock=1" "the warning carries the verdict it qualifies"
+}
+run_test "07b: own CC unresolvable, own stamped lock (dead pid), other CC visible ⇒ leader, SESSION_LOCK_SELF_UNKNOWN" test_self_unknown_own_stamped_lock_dead_pid_leads_and_warns
+
+test_self_resolved_solo_leads_without_self_unknown() {
+    local cr="$TEST_TMPDIR/cr" proj="$TEST_TMPDIR/proj"
+    _mk_config_repo "$cr"; _mk_fake_cc_tree; _mk_07b_runner "$cr" "$proj"
+    mkdir -p "$proj/.claude"
+    local out
+    out="$(env -u AFLEET_SESSION_ID -u _CC_SELF_PID CC_SESSION_ID=cc-solo CLAUDE_CODE_SESSION_ID=cc-solo \
+        _CC_PROC_RE="$_FAKE_CC_RE" bash "$TEST_TMPDIR/fakecc-leader.sh" "$TEST_TMPDIR/run07b.sh" 2>/dev/null || true)"
+    local marker="$proj/.claude/.session-role.cc-solo" role
+    assert_file_exists "$marker" "07b wrote a role marker" || return 1
+    role=$(_role_of "$marker")
+    assert_eq "leader" "$role" "a solo session whose own CC resolves is the leader (measured role: '$role')" || return 1
+    assert_not_contains "$out" "SESSION_LOCK_SELF_UNKNOWN" "own CC resolved ⇒ no self-unknown warning" || return 1
+    assert_not_contains "$out" "SESSION_LOCK_UNKNOWN" "own CC resolved ⇒ not blind either"
+}
+run_test "07b: own CC resolves, solo ⇒ leader, no SESSION_LOCK_SELF_UNKNOWN" test_self_resolved_solo_leads_without_self_unknown
+
+test_self_resolved_rival_in_project_is_follower_without_self_unknown() {
+    # The same rival as the first CFG-592 test, but with the hook's own CC
+    # resolvable: now the rival IS seen — follower, SESSION_LOCKED, and nothing
+    # about self. The warning tracks self-resolution, not the rival's presence.
+    local cr="$TEST_TMPDIR/cr" proj="$TEST_TMPDIR/proj"
+    _mk_config_repo "$cr"; _mk_fake_cc_tree; _mk_07b_runner "$cr" "$proj"
+    mkdir -p "$proj/.claude"
+    local rival; rival="$(_spawn_other_cc "$proj")" || { echo "could not spawn the rival CC" >&2; return 1; }
+    local out
+    out="$(env -u AFLEET_SESSION_ID -u _CC_SELF_PID CC_SESSION_ID=cc-second CLAUDE_CODE_SESSION_ID=cc-second \
+        _CC_PROC_RE="$_FAKE_CC_RE" bash "$TEST_TMPDIR/fakecc-leader.sh" "$TEST_TMPDIR/run07b.sh" 2>/dev/null || true)"
+    kill "$rival" 2>/dev/null || true
+    local marker="$proj/.claude/.session-role.cc-second" role
+    assert_file_exists "$marker" "07b wrote a role marker" || return 1
+    role=$(_role_of "$marker")
+    assert_eq "follower" "$role" "own CC resolved ⇒ the rival is detected, follower (measured role: '$role')" || return 1
+    assert_contains "$out" "SESSION_LOCKED" "the rival is reported" || return 1
+    assert_not_contains "$out" "SESSION_LOCK_SELF_UNKNOWN" "a detected rival is not a self-unknown case"
+}
+run_test "07b: own CC resolves, rival in project ⇒ follower, SESSION_LOCKED, no SESSION_LOCK_SELF_UNKNOWN" test_self_resolved_rival_in_project_is_follower_without_self_unknown
+
+test_blind_scan_is_unknown_not_self_unknown() {
+    local cr="$TEST_TMPDIR/cr" proj="$TEST_TMPDIR/proj"
+    _mk_config_repo "$cr"; _mk_07b_runner "$cr" "$proj"
+    mkdir -p "$proj/.claude"
+    local out; out="$(_run07b_blind cc-blind)"
+    assert_contains "$out" "SESSION_LOCK_UNKNOWN" "a blind scan is still reported as unknown" || return 1
+    assert_not_contains "$out" "SESSION_LOCK_SELF_UNKNOWN" "a blind scan is not double-reported as self-unknown" || return 1
+    local role; role="$(_role_of "$proj/.claude/.session-role.cc-blind")"
+    assert_eq "follower" "$role" "a blind scan still yields a follower (measured role: '$role')"
+}
+run_test "07b: blind scan ⇒ SESSION_LOCK_UNKNOWN only, never SESSION_LOCK_SELF_UNKNOWN, follower" test_blind_scan_is_unknown_not_self_unknown
+
 suite_summary

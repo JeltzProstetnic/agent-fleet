@@ -16,6 +16,9 @@ setup_mock_config() {
     mkdir -p "$config/setup/scripts"
     mkdir -p "$config/setup/config"
 
+    # sync.sh stub (mobile-deploy.sh validates this exists)
+    echo '#!/bin/bash' > "$config/sync.sh"
+
     # Minimal foundation files
     echo "# User Profile" > "$config/global/foundation/user-profile.md"
     echo "Name: Test User" >> "$config/global/foundation/user-profile.md"
@@ -49,10 +52,6 @@ INBOX
 
     # Machine files
     echo "# Machine: test" > "$config/global/machines/test.md"
-
-    # Minimal sync.sh (required by defensive check in mobile-deploy.sh)
-    echo '#!/usr/bin/env bash' > "$config/sync.sh"
-    echo 'echo "mock sync.sh"' >> "$config/sync.sh"
 
     # Mobile CLAUDE.md template
     echo "# Mobile Mode" > "$config/setup/config/mobile-CLAUDE.md"
@@ -709,6 +708,115 @@ LOG
     assert_file_contains "$TEST_TMPDIR/config/docs/mobile-session-log.md" "Mobile Session Log"
 }
 run_test "mobile-collect handles multiple entries in one session-log" test_collect_session_log_multiple_entries
+
+# ── Remote branch tests (Bug 2+3: fetch remote, delete after merge) ──────────
+
+# Helper: create a mobile repo with a bare remote (simulating GitHub)
+setup_mobile_with_remote() {
+    local target="$1"
+    local config="$2"
+    local bare="$TEST_TMPDIR/bare-remote.git"
+
+    # Create bare repo as the "remote"
+    git init --bare "$bare" >/dev/null 2>&1
+
+    # Deploy and init local mobile repo
+    setup_mobile_git_repo "$target" "$config"
+
+    # Add the bare repo as origin and push main
+    git -C "$target" remote add origin "$bare" >/dev/null 2>&1
+    git -C "$target" push -u origin main >/dev/null 2>&1
+}
+
+test_collect_fetches_remote_branches() {
+    setup_mock_config "$TEST_TMPDIR/config"
+    setup_mock_projects "$TEST_TMPDIR/home"
+    setup_mobile_with_remote "$TEST_TMPDIR/mobile" "$TEST_TMPDIR/config"
+
+    local bare="$TEST_TMPDIR/bare-remote.git"
+
+    # Simulate a mobile session: clone the bare repo elsewhere, create a claude/* branch, push
+    local mobile_clone="$TEST_TMPDIR/mobile-clone"
+    git clone --branch main "$bare" "$mobile_clone" >/dev/null 2>&1
+    git -C "$mobile_clone" config user.email "test@test.com"
+    git -C "$mobile_clone" config user.name "Test"
+    git -C "$mobile_clone" checkout -b "claude/remote-session-1" >/dev/null 2>&1
+    echo "- [ ] **my-project**: Task from remote branch" >> "$mobile_clone/inbox/outbox.md"
+    git -C "$mobile_clone" add -A >/dev/null 2>&1
+    git -C "$mobile_clone" commit -m "Remote session work" >/dev/null 2>&1
+    git -C "$mobile_clone" push origin "claude/remote-session-1" >/dev/null 2>&1
+
+    # The local mobile repo does NOT have this branch locally — only on remote
+    local local_branches
+    local_branches=$(git -C "$TEST_TMPDIR/mobile" branch --list "claude/*" 2>/dev/null)
+    assert_eq "" "$local_branches" "branch should NOT exist locally before collect"
+
+    # Collect should fetch, track, merge, and pick up the task
+    bash "$MOBILE_DEPLOY" --collect \
+        --config-repo "$TEST_TMPDIR/config" \
+        --target "$TEST_TMPDIR/mobile"
+
+    assert_file_contains "$TEST_TMPDIR/config/cross-project/inbox.md" "Task from remote branch"
+}
+run_test "mobile-collect fetches and merges remote-only claude/* branches" test_collect_fetches_remote_branches
+
+test_collect_deletes_remote_branches_after_merge() {
+    setup_mock_config "$TEST_TMPDIR/config"
+    setup_mock_projects "$TEST_TMPDIR/home"
+    setup_mobile_with_remote "$TEST_TMPDIR/mobile" "$TEST_TMPDIR/config"
+
+    local bare="$TEST_TMPDIR/bare-remote.git"
+
+    # Simulate a mobile session pushing a branch to remote
+    local mobile_clone="$TEST_TMPDIR/mobile-clone"
+    git clone --branch main "$bare" "$mobile_clone" >/dev/null 2>&1
+    git -C "$mobile_clone" config user.email "test@test.com"
+    git -C "$mobile_clone" config user.name "Test"
+    git -C "$mobile_clone" checkout -b "claude/cleanup-test" >/dev/null 2>&1
+    echo "- [ ] **my-config**: Cleanup test task" >> "$mobile_clone/inbox/outbox.md"
+    git -C "$mobile_clone" add -A >/dev/null 2>&1
+    git -C "$mobile_clone" commit -m "Cleanup test" >/dev/null 2>&1
+    git -C "$mobile_clone" push origin "claude/cleanup-test" >/dev/null 2>&1
+
+    # Verify remote branch exists before collect
+    local remote_branches_before
+    remote_branches_before=$(git -C "$TEST_TMPDIR/mobile" ls-remote --heads origin "claude/*" 2>/dev/null)
+    assert_neq "" "$remote_branches_before" "remote branch should exist before collect"
+
+    # Collect
+    bash "$MOBILE_DEPLOY" --collect \
+        --config-repo "$TEST_TMPDIR/config" \
+        --target "$TEST_TMPDIR/mobile"
+
+    # Remote branch should be deleted after successful merge
+    local remote_branches_after
+    remote_branches_after=$(git -C "$TEST_TMPDIR/mobile" ls-remote --heads origin "claude/*" 2>/dev/null)
+    assert_eq "" "$remote_branches_after" "remote claude/* branches should be deleted after merge"
+
+    # Local branch should also be deleted
+    local local_branches_after
+    local_branches_after=$(git -C "$TEST_TMPDIR/mobile" branch --list "claude/*" 2>/dev/null)
+    assert_eq "" "$local_branches_after" "local claude/* branches should be deleted after merge"
+}
+run_test "mobile-collect deletes remote branches after merge" test_collect_deletes_remote_branches_after_merge
+
+test_collect_handles_no_remote_gracefully() {
+    setup_mock_config "$TEST_TMPDIR/config"
+    setup_mock_projects "$TEST_TMPDIR/home"
+    setup_mobile_git_repo "$TEST_TMPDIR/mobile" "$TEST_TMPDIR/config"
+
+    # Git repo without a remote — fetch should be skipped gracefully
+    echo "- [ ] **my-project**: Local only task" >> "$TEST_TMPDIR/mobile/inbox/outbox.md"
+
+    local rc=0
+    bash "$MOBILE_DEPLOY" --collect \
+        --config-repo "$TEST_TMPDIR/config" \
+        --target "$TEST_TMPDIR/mobile" || rc=$?
+
+    assert_eq "0" "$rc" "collect should succeed without a remote"
+    assert_file_contains "$TEST_TMPDIR/config/cross-project/inbox.md" "Local only task"
+}
+run_test "mobile-collect handles repos without a remote gracefully" test_collect_handles_no_remote_gracefully
 
 # ── CLAUDE.md deployment ─────────────────────────────────────────────────────
 
