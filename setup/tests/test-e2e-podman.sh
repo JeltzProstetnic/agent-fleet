@@ -107,6 +107,18 @@ test_source_missing_dir_fails_before_podman() {
 }
 run_test "--source: missing directory fails fast" test_source_missing_dir_fails_before_podman
 
+# Measured 2026-09-28: a tarball extracted as root keeps the host uid, git then
+# refuses the tree ("dubious ownership") and upgrade.sh reports it as
+# "Uncommitted changes detected" — the upgrade phase silently never ran.
+test_source_extracts_as_container_owner() {
+    reset_state
+    local bin; bin=$(make_fake_podman); local src; src=$(make_source_tree)
+    run_runner "$bin" --source "$src"
+    local own="no"; grep -q -- "--no-same-owner" "$TEST_TMPDIR/podman.log" && own="yes"
+    assert_eq "yes" "$own" "the tree must be extracted owned by the container user"
+}
+run_test "--source: extracted tree is owned by the container user" test_source_extracts_as_container_owner
+
 test_marker_records_what_was_tested() {
     reset_state
     local bin; bin=$(make_fake_podman); local src; src=$(make_source_tree)

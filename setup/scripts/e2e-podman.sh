@@ -122,7 +122,7 @@ if [[ -n "$SOURCE_DIR" ]]; then
     podman cp "$_src_tar" "$CONTAINER_NAME:/root/agent-fleet-src.tar"
     rm -rf "$(dirname "$_src_tar")"
     podman exec "$CONTAINER_NAME" bash -c '
-        mkdir -p /root/agent-fleet && tar -C /root/agent-fleet -xf /root/agent-fleet-src.tar
+        mkdir -p /root/agent-fleet && tar --no-same-owner -C /root/agent-fleet -xf /root/agent-fleet-src.tar
     '
 else
     echo "Cloning agent-fleet..."
