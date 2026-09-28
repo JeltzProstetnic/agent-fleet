@@ -197,6 +197,31 @@
             "command": "bash ~/.claude/hooks/safe-run.sh secret-commit-guard.sh"
           }
         ]
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash ~/.claude/hooks/safe-run.sh cc-mirror-guard.sh"
+          },
+          {
+            "type": "command",
+            "command": "bash ~/.claude/hooks/safe-run.sh pkill-guard.sh"
+          },
+          {
+            "type": "command",
+            "command": "bash ~/.claude/hooks/safe-run.sh kill-guard.sh"
+          },
+          {
+            "type": "command",
+            "command": "bash ~/.claude/hooks/safe-run.sh flatpak-kill-guard.sh"
+          },
+          {
+            "type": "command",
+            "command": "bash ~/.claude/hooks/safe-run.sh hard-rule-guard.sh"
+          }
+        ]
       }
     ],
     "PostToolUse": [
