@@ -76,11 +76,18 @@ _is_ours() {  # <pid> → 0 when this session may kill it
 _targets=""     # resolved pids we are not allowed to kill
 _how=""         # how they were named, for the message
 
+# `flatpak kill` is not kill(1): its argument is a flatpak INSTANCE id (or an app id, which
+# flatpak-kill-guard.sh refuses), never a PID. Read as `kill <pid>`, an instance id is a pid
+# nobody owns, so the kill-one-instance form flatpak-kill-guard recommends was always
+# refused (CFG-412 review). Take those out of the kill(1) scan and judge them below.
+_FK_RE='(^|[^A-Za-z0-9_.-])flatpak([[:space:]]+-[^[:space:]]+)*[[:space:]]+kill'
+_kcmd=$(printf '%s \n' "$CMD" | sed -E "s/${_FK_RE}([[:space:]])/\\1flatpak_kill\\3/g")
+
 # ── kill [-SIG] <pid>… ────────────────────────────────────────────────────────
 # -0 probes without signalling and -l only lists names: neither kills anything.
-if printf '%s' "$CMD" | grep -qE '(^|[;&|(]|&&|\|\||[[:space:]])kill([[:space:]]|$)' \
-   && ! printf '%s' "$CMD" | grep -qE '(^|[[:space:]])kill[[:space:]]+(-0|-l|-L)([[:space:]]|$)'; then
-    _seg=$(printf '%s' "$CMD" | grep -oE '(^|[;&|[:space:]])kill([[:space:]]+-[^[:space:]]+)*[[:space:]]+[^;&|)]+' | head -1)
+if printf '%s' "$_kcmd" | grep -qE '(^|[;&|(]|&&|\|\||[[:space:]])kill([[:space:]]|$)' \
+   && ! printf '%s' "$_kcmd" | grep -qE '(^|[[:space:]])kill[[:space:]]+(-0|-l|-L)([[:space:]]|$)'; then
+    _seg=$(printf '%s' "$_kcmd" | grep -oE '(^|[;&|[:space:]])kill([[:space:]]+-[^[:space:]]+)*[[:space:]]+[^;&|)]+' | head -1)
     for _t in $(printf '%s' "$_seg" | sed -E 's/^[^k]*kill//' | tr ' ' '\n'); do
         case "$_t" in
             ''|-*|%*|\$*|\`*|*'$('*) continue ;;   # flags, job specs, anything unresolved
@@ -109,6 +116,26 @@ if printf '%s' "$CMD" | grep -qE '(^|[;&|(]|&&|\|\||[[:space:]])(pkill|killall)(
     fi
 fi
 
+# ── flatpak kill <instance-id> ────────────────────────────────────────────────
+# Judge the process the instance resolves to — the one flatpak will signal — read-only via
+# `flatpak ps`, the way pkill's pattern is resolved above. An id flatpak does not know
+# kills nothing (flatpak fails on its own); a quoted ssh payload is not resolved locally.
+_fk_ids=$(printf '%s \n' "$CMD" \
+    | grep -oE "${_FK_RE}([[:space:]]+-[^[:space:]]+)*[[:space:]]+[0-9]+[[:space:];&|)]" \
+    | grep -oE '[0-9]+[[:space:];&|)]$' | tr -dc '0-9\n' | sort -u)
+_fk_note=""
+if [ -n "$_fk_ids" ]; then
+    _fk_ps=$(flatpak ps --columns=instance,pid 2>/dev/null)
+    for _id in $_fk_ids; do
+        _pid=$(printf '%s\n' "$_fk_ps" | awk -v id="$_id" '$1 == id && $2 ~ /^[0-9]+$/ { print $2; exit }')
+        [ -n "$_pid" ] || continue
+        _is_ours "$_pid" && continue
+        _targets="$_targets $_pid"; _how="${_how:-flatpak}"
+        _fk_note="$_fk_note  (flatpak instance $_id is pid $_pid)
+"
+    done
+fi
+
 _targets=$(printf '%s' "$_targets" | tr ' ' '\n' | grep -v '^$' | sort -u | tr '\n' ' ')
 [ -z "$(printf '%s' "$_targets" | tr -d ' ')" ] && exit 0
 
@@ -118,6 +145,7 @@ _targets=$(printf '%s' "$_targets" | tr ' ' '\n' | grep -v '^$' | sort -u | tr '
     for _p in $_targets; do
         printf '  %-8s %s\n' "$_p" "$(ps -o args= -p "$_p" 2>/dev/null | cut -c1-90)"
     done
+    [ -n "$_fk_note" ] && printf '%s' "$_fk_note"
     printf '\nThree kills in one night (2026-09-23) picked their target by NAME rather than by\n'
     printf 'OWNERSHIP: an ssh pkill that matched its own shell, a stop script that had recorded a\n'
     printf 'subshell'"'"'s pid instead of the service'"'"'s, and a cleanup that killed every `sleep 300`\n'
