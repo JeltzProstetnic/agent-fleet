@@ -7,9 +7,20 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CONFIG_REPO="${CONFIG_REPO:-}"
 if [[ -z "$CONFIG_REPO" ]]; then
-    for d in "$HOME/cfg-agent-fleet" "$HOME/agent-fleet"; do
-        [[ -f "$d/sync.sh" && ! -f "$d/.template-repo" ]] && CONFIG_REPO="$d" && break
+    _LIB_DETECT=""
+    for _p in "$HOME/.claude/hooks/lib-detect-repo.sh" "$SCRIPT_DIR/../../global/hooks/lib-detect-repo.sh"; do
+        [[ -f "$_p" ]] && _LIB_DETECT="$_p" && break
     done
+    if [[ -n "$_LIB_DETECT" ]]; then
+        source "$_LIB_DETECT"
+        # PERSONAL_CONFIG_REPO: the user's personal config repo (cfg-agent-fleet), not the template
+        CONFIG_REPO="$(_detect_config_repo)"
+    else
+        # Fallback: inline detection if shared lib not found
+        for d in "$HOME/cfg-agent-fleet" "$HOME/agent-fleet"; do
+            [[ -f "$d/sync.sh" ]] && CONFIG_REPO="$d" && break
+        done
+    fi
 fi
 
 # Source portable wrappers for _to_native_path (needed for Python calls on MINGW64)
@@ -18,8 +29,9 @@ for _portable in "$CONFIG_REPO/global/hooks/lib-portable.sh" "$HOME/.claude/hook
 done
 # Fallback no-op if lib-portable.sh not found
 type _to_native_path &>/dev/null || _to_native_path() { echo "$1"; }
+type _timeout &>/dev/null || _timeout() { timeout "$@"; }
 
-CLAUDE_CONFIG_DIR="${CLAUDE_CONFIG_DIR:-$HOME/.claude}"
+CLAUDE_CONFIG_DIR="${CLAUDE_CONFIG_DIR:-${CC_MIRROR_DIR:-$HOME/.cc-mirror/mclaude}/config}"
 
 # ── Colors ──────────────────────────────────────────────────────────────────
 if [[ -t 1 ]] && [[ "${NO_COLOR:-}" != "1" ]]; then
@@ -113,7 +125,7 @@ except Exception as e:
             host=$(echo "$val" | sed -E 's|https?://||; s|/.*||; s|:.*||')
             port=$(echo "$val" | grep -oE ':[0-9]+' | sed 's/^://' | head -1)
             port="${port:-80}"
-            if ! timeout 2 bash -c "echo >/dev/tcp/$host/$port" 2>/dev/null; then
+            if ! _timeout 2 bash -c "echo >/dev/tcp/$host/$port" 2>/dev/null; then
                 details+="  $name: unreachable ($host:$port)\n"
                 ((failed++)) || true
             fi
@@ -406,10 +418,10 @@ EOF
         return 1
     fi
 
-    # Belt-and-suspenders: on top of the temp-config isolation above, also pass
-    # CC's native --safe-mode flag (2.1.169+) so customizations are disabled at the
-    # binary level even if config-dir isolation leaks. Probe first so an older
-    # binary that doesn't know the flag still launches.
+    # Belt-and-suspenders (CFG-437): on top of the temp-config isolation above,
+    # also pass CC's native --safe-mode flag (2.1.169+) so customizations are
+    # disabled at the binary level even if config-dir isolation leaks. Probe first
+    # so an older binary that doesn't know the flag still launches.
     local safe_flag=""
     if $claude_bin --help 2>&1 | grep -q -- '--safe-mode'; then
         safe_flag="--safe-mode"

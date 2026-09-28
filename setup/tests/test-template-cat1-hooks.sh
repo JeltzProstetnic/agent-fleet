@@ -23,6 +23,16 @@ MANIFEST="$REPO_ROOT/template-sync-manifest.md"
 HOOK_07B="global/hooks/checks/07b-platform-env.sh"
 HOOK_CAS="global/hooks/config-auto-sync.sh"
 
+# CFG-709: this file ships downstream (Must Be Identical), but template-push.conf
+# is the source repo's own propagation config and never does. Without it the
+# gate pattern is empty and an empty ERE matches every line ('787 hits'), so the
+# suite would fail on a clone for a reason that has nothing to do with the hooks.
+if [[ ! -f "$CONF" ]]; then
+    skip_test "CFG-676 Cat-1 guards" "no setup/config/template-push.conf — this install is downstream of template-push, the guards only apply at the source"
+    suite_summary
+    exit 0
+fi
+
 # The gate regex exactly as template-push.sh's load_conf reads it: parameter
 # expansion trim, never xargs (CFG-606 — xargs ate every `\b`).
 _gate_patterns() {

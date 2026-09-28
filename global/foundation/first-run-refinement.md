@@ -144,7 +144,7 @@ After processing all selections, present a final overview of available capabilit
 
 **Built-in capabilities:**
 - **Backlog management** — every project gets a `backlog.md` with prioritized tasks, tracked automatically. No external tool needed. (If you use Jira, I can work with that too — it just costs more tokens per operation.)
-- **Session memory** — I remember what we were doing across sessions, machines, and crashes. Say `cls` to shut down cleanly.
+- **Session memory** — I remember what we were doing across sessions, machines, and crashes. Two important commands: type `cls` to shut down cleanly and clear the screen (ready for a new session), or `end` to shut down and exit completely.
 - **Document management** — I can catalog, organize, and track documents across your machines. PDFs, reports, research papers — filed and findable.
 - **File management** — sorting, deduplication, bulk operations, cross-disk organization. Tell me about your file chaos and I'll help.
 - **Cross-project coordination** — tasks flow between projects automatically via an inbox system.
@@ -165,7 +165,7 @@ After processing all selections, present a final overview of available capabilit
 
 Type `lsd` for a project dashboard anytime. Everything is documented — just ask."
 
-### 5. Verify and Clean Up
+### 5. Verification and Clean-Up
 
 - Run `bash sync.sh status` to verify everything is linked
 - Delete `.setup-pending` marker file
