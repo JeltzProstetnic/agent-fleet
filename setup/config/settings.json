@@ -220,6 +220,19 @@
           {
             "type": "command",
             "command": "bash ~/.claude/hooks/safe-run.sh hard-rule-guard.sh"
+          },
+          {
+            "type": "command",
+            "command": "bash ~/.claude/hooks/safe-run.sh vault-read-guard.sh"
+          }
+        ]
+      },
+      {
+        "matcher": "Artifact",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash ~/.claude/hooks/safe-run.sh cloud-publish-guard.sh"
           }
         ]
       }
