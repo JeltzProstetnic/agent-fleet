@@ -27,6 +27,21 @@ service principal into a project that needs one POST with one header.
 
 ---
 
+## Claude on Amazon Bedrock (Opus 4.7+) is the "Mantle" Messages endpoint
+
+Source: competitor-radar WSL 2026-09-28, verified on platform.claude.com "Claude in Amazon Bedrock (Opus 4.7 and later)".
+- Endpoint `https://bedrock-mantle.{region}.api.aws/anthropic/v1/messages`, header `anthropic-version: 2023-06-01`.
+- Model ids `anthropic.<bare>` with **no geo prefix** (e.g. `anthropic.claude-opus-5-5`).
+- Auth: SigV4 service `bedrock-mantle` (IAM `bedrock-mantle:CreateInference`), or a short-term token from
+  `aws-bedrock-token-generator` sent in **`x-api-key`** — not `Authorization: Bearer`.
+- Residency follows the endpoint region: `eu-central-1` is "Global, EU" (needs an EU inference profile to stay in
+  the EU); only `eu-west-1` and `eu-north-1` are "In-region only" in the EU.
+- Legacy `InvokeModel`/`Converse` on `bedrock-runtime` with ARN-versioned ids remains for Opus 4.6 and earlier.
+- **Trap:** a research subagent confidently claimed bedrock-runtime + an `eu.` prefix + Bearer auth — all wrong for
+  Mantle. Verify Bedrock specifics against that page, not model memory.
+
+---
+
 ## ⚠ SECURITY: CPython's default opener re-sends `x-api-key` across a redirect
 
 **Verified against a loopback server on CPython 3.12.** `urllib.request.HTTPRedirectHandler` follows
