@@ -11,21 +11,36 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 # Pipe-separated grep -E regex. Keep in sync with cfg-agent-fleet template-push.conf.
 PATTERNS='(JeltzProstetnic|jeltz\.prostetnic|Matthias Gruber|matthias@matthiasgruber\.com|gutachten@matthiasgruber\.com|bartl@matthiasgruber\.com|srv943133|DESKTOP-32ILURB|148\.230\.108\.107|109\.106\.246\.63|Ivoclar)'
 
-# File extensions to scan
-EXTENSIONS='--include=*.md --include=*.sh --include=*.json --include=*.yml --include=*.yaml --include=*.conf --include=*.js'
+# What is being PUSHED, not what is on disk (CFG-555): git hands pre-push one line
+# per ref — "<local ref> <local sha> <remote ref> <remote sha>". A gitignored or
+# uncommitted file can never reach the remote, so it must never block. A branch
+# delete (all-zero local sha) pushes no content. Run by hand with no refs: HEAD.
+SHAS=()
+_refs_given=0
+if [[ ! -t 0 ]]; then
+    while read -r _lref _lsha _rref _rsha; do
+        [[ -n "${_lref:-}" ]] || continue
+        _refs_given=1
+        [[ "$_lsha" =~ ^0+$ ]] && continue      # branch delete: no content
+        SHAS+=("$_lsha")
+    done
+fi
+[[ "$_refs_given" -eq 0 ]] && SHAS=("$(git -C "$REPO_ROOT" rev-parse HEAD)")
 
-# Scan tracked files (not .git/)
+# Scan the pushed trees' text files (not .githooks/, which defines the patterns).
 # Exclusions: pattern definitions, test files, GitHub repo URLs, security audit references
-matches=$(grep -rn $EXTENSIONS -E "$PATTERNS" "$REPO_ROOT" \
-    --exclude-dir=.git \
-    --exclude-dir=.githooks \
-    2>/dev/null \
-    | grep -v "PATTERNS=" \
-    | grep -v "personal_patterns=" \
-    | grep -v 'setup/tests/' \
-    | grep -v 'github\.com/JeltzProstetnic/agent-fleet' \
-    | grep -v 'Security audit.*JeltzProstetnic' \
-    || true)
+matches=""
+for _sha in "${SHAS[@]}"; do
+    matches+=$(git -C "$REPO_ROOT" grep -n -E "$PATTERNS" "$_sha" -- \
+        '*.md' '*.sh' '*.json' '*.yml' '*.yaml' '*.conf' '*.js' ':!.githooks' \
+        2>/dev/null \
+        | grep -v "PATTERNS=" \
+        | grep -v "personal_patterns=" \
+        | grep -v 'setup/tests/' \
+        | grep -v 'github\.com/JeltzProstetnic/agent-fleet' \
+        | grep -v 'Security audit.*JeltzProstetnic' \
+        || true)
+done
 
 if [[ -n "$matches" ]]; then
     echo ""
@@ -43,10 +58,13 @@ fi
 # Check for volatile files that shouldn't have content
 _check_volatile() {
     local file="$1" pattern="$2" label="$3"
-    if [[ -f "$REPO_ROOT/$file" ]] && grep -qE "$pattern" "$REPO_ROOT/$file" 2>/dev/null; then
-        echo "  VOLATILE: $file contains $label"
-        return 1
-    fi
+    local _s
+    for _s in "${SHAS[@]}"; do
+        if git -C "$REPO_ROOT" show "$_s:$file" 2>/dev/null | grep -qE "$pattern"; then
+            echo "  VOLATILE: $file contains $label"
+            return 1
+        fi
+    done
     return 0
 }
 
