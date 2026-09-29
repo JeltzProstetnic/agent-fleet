@@ -22,7 +22,7 @@ source "$REPO_ROOT/setup/tests/test-helpers.sh"
 
 # CFG666_HOOK_07B=<path> runs this suite against a candidate check instead of the
 # repo's (e.g. an extracted `git show <rev>:...07b-platform-env.sh`).
-HOOK_07B="${CFG666_HOOK_07B:-$REPO_ROOT/global/hooks/checks/07b-platform-env.sh}"
+HOOK_07B="${CFG666_HOOK_07B:-$REPO_ROOT/global/hooks/checks/07c-session-lock.sh}"
 LOCK_LIB="$REPO_ROOT/setup/scripts/session-lock.sh"
 
 suite_header "checks/07b — a nested CC is a follower (CFG-666 trigger)"

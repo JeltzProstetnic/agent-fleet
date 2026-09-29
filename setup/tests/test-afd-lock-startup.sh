@@ -8,7 +8,7 @@ suite_header "CFG-210: AFD lock query in SessionStart"
 
 LOCK_SCRIPT="$REPO_ROOT/setup/scripts/session-lock.sh"
 AFD_LIB="$REPO_ROOT/afd/lib/afd-lib.sh"
-CHECK_SCRIPT="$REPO_ROOT/global/hooks/checks/07b-platform-env.sh"
+CHECK_SCRIPT="$REPO_ROOT/global/hooks/checks/07c-session-lock.sh"
 
 _REAL_AFD_TOKEN="${AFD_TOKEN:-}"
 _REAL_AFD_URL="${AFD_URL:-}"

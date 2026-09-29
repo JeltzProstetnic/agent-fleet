@@ -39,7 +39,7 @@ PROJECT_ROOT="$(git -C "$CONFIG_REPO" rev-parse --show-toplevel 2>/dev/null || e
 
 # ── CC session id (CFG-452) ──
 # Read the session_id from this hook's stdin JSON and export it so the lock
-# check (checks/07b-platform-env.sh) can bind the lock to a unique CC session,
+# check (checks/07c-session-lock.sh) can bind the lock to a unique CC session,
 # closing the F1 env-inheritance spoof. Empty on any failure → legacy behaviour.
 # TTY-guarded + 2s-bounded read (see lib-hook-stdin.sh) — cannot hang startup.
 CC_SESSION_ID=""

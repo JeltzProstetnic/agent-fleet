@@ -21,6 +21,8 @@ suite_header "CFG-676: 07b-platform-env.sh and config-auto-sync.sh are generic a
 CONF="$REPO_ROOT/setup/config/template-push.conf"
 MANIFEST="$REPO_ROOT/template-sync-manifest.md"
 HOOK_07B="global/hooks/checks/07b-platform-env.sh"
+# CFG-721: the session-lock section (was 7b.4) lives in its own Cat-1 check.
+HOOK_07C="global/hooks/checks/07c-session-lock.sh"
 HOOK_CAS="global/hooks/config-auto-sync.sh"
 
 # CFG-709: this file ships downstream (Must Be Identical), but template-push.conf
@@ -63,8 +65,11 @@ _ci_hit_count() {   # <repo-relative file> <ERE>
 
 test_07b_has_no_persona_literal() {
     local n
-    n="$(_ci_hit_count "$HOOK_07B" 'bartl' | tail -1)"
-    assert_eq "0" "$n" "07b carries no persona literal (measured case-insensitive 'bartl' hits: $n)"
+    local f
+    for f in "$HOOK_07B" "$HOOK_07C"; do
+        n="$(_ci_hit_count "$f" 'bartl' | tail -1)"
+        assert_eq "0" "$n" "$f carries no persona literal (measured case-insensitive 'bartl' hits: $n)"
+    done
 }
 run_test "07b: no persona literal — neither the mail-check filename nor the output tag" test_07b_has_no_persona_literal
 
@@ -84,8 +89,11 @@ test_hooks_have_no_repo_name_literal() {
     # Both hooks resolve the config repo at runtime (CONFIG_REPO / lib-detect-repo);
     # a verbatim copy lands in a repo with a different name, so the name must not
     # appear even in a comment.
-    local n7 nc
+    local n7 n7c nc
     n7="$(grep -c 'cfg-agent-fleet' "$REPO_ROOT/$HOOK_07B" || true)"
+    assert_file_exists "$REPO_ROOT/$HOOK_07C" || return 1
+    n7c="$(grep -c 'cfg-agent-fleet' "$REPO_ROOT/$HOOK_07C" || true)"
+    assert_eq "0" "$n7c" "07c has no repo-name literal (measured: $n7c)"
     nc="$(grep -c 'cfg-agent-fleet' "$REPO_ROOT/$HOOK_CAS" || true)"
     assert_eq "0" "$n7" "07b has no repo-name literal (measured: $n7)" || return 1
     assert_eq "0" "$nc" "config-auto-sync.sh has no repo-name literal (measured: $nc)"
@@ -96,7 +104,7 @@ test_hooks_pass_the_leak_gate() {
     local pat hits n f
     pat="$(_gate_patterns)"
     [[ -n "$pat" ]] || { echo "FAIL: personal_patterns not found in $CONF"; return 1; }
-    for f in "$HOOK_07B" "$HOOK_CAS"; do
+    for f in "$HOOK_07B" "$HOOK_07C" "$HOOK_CAS"; do
         # scan_leaks also whitelists the template's own GitHub URL; that
         # exclusion is not replicated here (naming it would hold this file),
         # so this check is strictly at least as strict as the gate.
@@ -111,7 +119,7 @@ run_test "both hooks: zero hits against template-push.conf personal_patterns" te
 
 test_conf_does_not_flag_them() {
     local n
-    n="$(grep -c -E "^[[:space:]]*flag_only[[:space:]]*=[[:space:]]*($HOOK_07B|$HOOK_CAS)[[:space:]]*$" "$CONF" || true)"
+    n="$(grep -c -E "^[[:space:]]*flag_only[[:space:]]*=[[:space:]]*($HOOK_07B|$HOOK_07C|$HOOK_CAS)[[:space:]]*$" "$CONF" || true)"
     assert_eq "0" "$n" "template-push.conf has no flag_only= line for either hook (measured: $n)"
 }
 run_test "template-push.conf: neither hook is flag_only" test_conf_does_not_flag_them
@@ -121,6 +129,8 @@ test_manifest_lists_them_as_identical() {
     list="$(_identical_files)"
     printf '%s\n' "$list" | grep -Fxq "$HOOK_07B" \
         || { echo "FAIL: $HOOK_07B is not under 'Must Be Identical'"; return 1; }
+    printf '%s\n' "$list" | grep -Fxq "$HOOK_07C" \
+        || { echo "FAIL: $HOOK_07C is not under 'Must Be Identical'"; return 1; }
     printf '%s\n' "$list" | grep -Fxq "$HOOK_CAS" \
         || { echo "FAIL: $HOOK_CAS is not under 'Must Be Identical'"; return 1; }
     echo "  both hooks found under 'Must Be Identical' ($(printf '%s\n' "$list" | grep -c .) rows in section)"
@@ -131,7 +141,7 @@ test_hooks_are_not_in_both_sections() {
     # A row in Intentional Diffs AND Must Be Identical would make the file's
     # category depend on parser order. Exactly one section, and it is the first.
     local n f
-    for f in "$HOOK_07B" "$HOOK_CAS"; do
+    for f in "$HOOK_07B" "$HOOK_07C" "$HOOK_CAS"; do
         n="$(awk '
             /^## Tracked Files.*Intentional Diffs/ { in_sec=1; next }
             /^## / && in_sec { in_sec=0 }
@@ -141,5 +151,16 @@ test_hooks_are_not_in_both_sections() {
     done
 }
 run_test "manifest: no leftover Intentional-Diffs row for either hook" test_hooks_are_not_in_both_sections
+
+test_lock_section_moved_to_07c() {
+    # CFG-721: 07b was 171 lines against the 150-line hook-check limit.
+    local lines
+    lines="$(wc -l < "$REPO_ROOT/$HOOK_07B")"
+    [[ "$lines" -le 150 ]] || { echo "FAIL: 07b has $lines lines (limit 150)"; return 1; }
+    assert_not_contains "$(cat "$REPO_ROOT/$HOOK_07B")" "check_lock" "07b no longer runs the lock check"
+    assert_contains "$(cat "$REPO_ROOT/$HOOK_07C" 2>/dev/null)" 'check_lock "$PWD"' "07c runs the lock check"
+    echo "  07b measured at $lines lines"
+}
+run_test "CFG-721: the session-lock section lives in 07c, 07b is within the limit" test_lock_section_moved_to_07c
 
 suite_summary

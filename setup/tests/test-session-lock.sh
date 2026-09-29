@@ -53,6 +53,7 @@ test_acquire_lockfile_fields() {
     make_project_dir "$proj"
 
     source "$LOCK_SCRIPT"
+    local _CC_SELF_PID=""   # CFG-723: model "no CC resolvable"; under a live CC session ancestry would resolve one
     acquire_lock "$proj" "test-session-42"
 
     local lockfile="$proj/.claude/.session-lock"
@@ -105,6 +106,7 @@ test_acquire_succeeds_when_lock_stale() {
 LOCKEOF
 
     source "$LOCK_SCRIPT"
+    local _CC_SELF_PID=""   # CFG-723: model "no CC resolvable"; under a live CC session ancestry would resolve one
     local rc=0
     acquire_lock "$proj" "new-session" || rc=$?
 
@@ -181,6 +183,7 @@ test_release_by_pid_when_no_session_id() {
     make_project_dir "$proj"
 
     source "$LOCK_SCRIPT"
+    local _CC_SELF_PID=""   # CFG-723: model "no CC resolvable"; under a live CC session ancestry would resolve one
     acquire_lock "$proj" "my-session"
 
     # Release without session ID — should use PID check
@@ -231,6 +234,7 @@ test_release_own_lock_keeps_foreign_lock() {
     local proj="$TEST_TMPDIR/project"
     make_project_dir "$proj"
     source "$LOCK_SCRIPT"
+    local _CC_SELF_PID=""   # CFG-723: model "no CC resolvable"; under a live CC session ancestry would resolve one
     # A live leader holds the lock (our PID, foreign sid)
     acquire_lock "$proj" "leader-sid"
 
@@ -248,6 +252,7 @@ test_release_own_lock_keeps_lock_when_no_sid() {
     local proj="$TEST_TMPDIR/project"
     make_project_dir "$proj"
     source "$LOCK_SCRIPT"
+    local _CC_SELF_PID=""   # CFG-723: model "no CC resolvable"; under a live CC session ancestry would resolve one
     acquire_lock "$proj" "leader-sid"
 
     local rc=0
@@ -590,6 +595,7 @@ test_lock_info_prints_readable() {
     make_project_dir "$proj"
 
     source "$LOCK_SCRIPT"
+    local _CC_SELF_PID=""   # CFG-723: model "no CC resolvable"; under a live CC session ancestry would resolve one
     acquire_lock "$proj" "info-session"
 
     local output
@@ -1392,6 +1398,35 @@ test_cfg592_explicit_empty_self_no_lock_flagged() {
     assert_eq "rc=0 flag=0" "$out" "no lock + explicitly empty self + a CC visible ⇒ rc 0 as before, flagged (measured '$out')"
 }
 run_test "CFG-592: check_lock — no lock, explicit empty self, CC visible ⇒ rc 0 kept, lock_self_unknown rc 0" test_cfg592_explicit_empty_self_no_lock_flagged
+
+# CFG-723 (agent-fleet GH#7): 07b calls acquire_lock with no pid arguments, so a new
+# lock recorded $$ — the hook subshell, dead within seconds — although acquire_lock had
+# already resolved this session's CC pid as self_pid. Record self_pid when it is known.
+test_cfg723_new_lock_records_resolved_cc_pid() {
+    local proj="$TEST_TMPDIR/p723"
+    make_project_dir "$proj"
+    local out
+    out="$( source "$LOCK_SCRIPT"
+      _project_has_live_cc() { return 1; }
+      _CC_SELF_PID=4242
+      acquire_lock "$proj" "sess-723" "cc-723" >/dev/null 2>&1
+      lock_field "$proj/.claude/.session-lock" pid )"
+    assert_eq "4242" "$out" "new lock records the resolved CC pid, not the hook's \$\$ (measured '$out')"
+}
+run_test "CFG-723: a new lock records the resolved CC pid, not the transient hook pid" test_cfg723_new_lock_records_resolved_cc_pid
+
+test_cfg723_unresolved_self_falls_back_to_caller_pid() {
+    local proj="$TEST_TMPDIR/p723b"
+    make_project_dir "$proj"
+    local out
+    out="$( source "$LOCK_SCRIPT"
+      _project_has_live_cc() { return 1; }
+      acquire_lock "$proj" "sess-723b" "" "" >/dev/null 2>&1
+      echo "$(lock_field "$proj/.claude/.session-lock" pid) $$" )"
+    local rec self; read -r rec self <<<"$out"
+    assert_eq "$self" "$rec" "explicitly empty self_pid ⇒ the caller's own pid is recorded, as before (measured '$out')"
+}
+run_test "CFG-723: an unresolved (empty) self pid still records the caller's pid" test_cfg723_unresolved_self_falls_back_to_caller_pid
 
 # ── Summary ─────────────────────────────────────────────────────────────────
 

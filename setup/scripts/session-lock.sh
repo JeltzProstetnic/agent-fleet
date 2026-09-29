@@ -501,7 +501,9 @@ acquire_lock() {
     # Atomic write: mkdir is atomic on POSIX — prevents concurrent acquires.
     # Only reached when lock file doesn't exist (free, stale-cleaned, or corrupt-cleaned).
     if mkdir "$lockdir" 2>/dev/null; then
-        _write_lock "$lockfile" "$session_id" "$cc_session_id"
+        # CFG-723: record the resolved CC pid when known. Without it the lock carried
+        # $$ — the SessionStart hook's subshell, dead within seconds of acquiring.
+        _write_lock "$lockfile" "$session_id" "$cc_session_id" "$self_pid"
         rmdir "$lockdir" 2>/dev/null || true
         return 0
     fi

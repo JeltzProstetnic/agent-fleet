@@ -12,7 +12,7 @@ set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 source "$REPO_ROOT/setup/tests/test-helpers.sh"
 
-HOOK_07B="$REPO_ROOT/global/hooks/checks/07b-platform-env.sh"
+HOOK_07B="$REPO_ROOT/global/hooks/checks/07c-session-lock.sh"   # CFG-721: the lock section moved out of 07b
 LOCK_LIB="$REPO_ROOT/setup/scripts/session-lock.sh"
 
 suite_header "session-role hook wiring (checks/07b writes leader|follower)"

@@ -36,7 +36,7 @@ Session information is organized in 3 layers to balance startup speed with histo
 
 **Layer 3a (docs/session-log.md):** Full chronological archive. Every session ever, append-only, never pruned. Same entry format as Layer 2. Read when you need to look back further than 3 sessions.
 
-**Layer 3b (docs/decisions.md):** Curated, topic-organized record of important decisions, user requirements, and design rationale. Manually maintained — add entries during sessions when significant decisions are made. NOT automated at shutdown.
+**Layer 3b (docs/decisions.md):** Curated, topic-organized record of important decisions, user requirements, and design rationale. Manually maintained — add entries during sessions when significant decisions are made. NOT automated at shutdown. Review it monthly (date in its `Last reviewed:` line): archive superseded or executed entries to `docs/decisions-archive.md` and compress the remaining entries to decision plus rationale.
 
 **decisions.md vs CLAUDE.md:** No overlap. CLAUDE.md contains rules (behavioral directives). decisions.md contains rationale, context, and choices that don't translate to rules.
 
