@@ -76,6 +76,10 @@ document at another URL. Delegating to the user is the step after that ladder, n
 
 Approved 2026-09-17. Source: a life-management project session, 2026-09-15.
 
+## A newsroom with no hrefs is not a dead end — click through
+
+Cards that carry no `<a href>` (Vue click handlers) still lead somewhere: click each card the page offers, record the URL the browser actually lands on, and read the date plus a verbatim excerpt from that article page. Never mine a hidden SEO sitemap or slug-match headlines — both are stale and attach wrong URLs. Honest UA, sandboxed headless Chromium, ≥2 s pacing. Reference implementation: `tools/observe_render_clicks.mjs` in the competitor-monitoring project (50 items across 6 pages, 0 off-site, 2026-09-29).
+
 ## Scope
 
 Applies to any project that fetches and parses third-party pages — competitor/news monitoring,
