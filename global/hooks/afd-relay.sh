@@ -28,7 +28,7 @@ if [[ "$INPUT" == *'"tool_name":"AskUserQuestion"'* || "$INPUT" == *'"tool_name"
     echo "AFK mode: routing question to Telegram..." >&2
     NL=$'\n'
     MSG="Question from Claude (AFK):${NL}${NL}${QUESTION}${NL}${NL}Reply with your answer."
-    RESULT=$("$AFD_CLI" notify all "$MSG" --type permission --priority high 2>&1)
+    RESULT=$("$AFD_CLI" notify all "$MSG" --channel telegram --type permission --priority high 2>&1)
     NOTIF_ID=$(echo "$RESULT" | grep -oE '#[0-9]+' | sed 's/^#//')
     if [[ -z "$NOTIF_ID" ]]; then
         echo "Failed to route question to Telegram" >&2
@@ -118,7 +118,7 @@ NL=$'\n'
 MSG="Permission needed (AFK):${NL}${NL}${DESCRIPTION:+$DESCRIPTION$NL}"
 MSG="${MSG}${NL}\`${COMMAND}\`${NL}${NL}Approve: reply \`${CODE}\` | Deny: reply \`d\`"
 RESULT=$("$AFD_CLI" notify all "$MSG" \
-  --type permission --priority high --ref "$CODE" 2>&1)
+  --type permission --priority high --channel telegram --ref "$CODE" 2>&1)
 
 # Extract notification ID
 NOTIF_ID=$(echo "$RESULT" | grep -oE '#[0-9]+' | sed 's/^#//')

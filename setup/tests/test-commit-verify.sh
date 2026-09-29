@@ -12,7 +12,7 @@ run_hook() {
     local stdout="${2:-}"
     python3 -c "
 import json, sys
-print(json.dumps({'tool_name':'Bash','tool_input':{'command':sys.argv[1]},'tool_output':{'stdout':sys.argv[2]}}))" \
+print(json.dumps({'tool_name':'Bash','tool_input':{'command':sys.argv[1]},'tool_response':{'stdout':sys.argv[2],'stderr':'','interrupted':False}}))" \
         "$command" "$stdout" | bash "$HOOK" 2>/dev/null
 }
 

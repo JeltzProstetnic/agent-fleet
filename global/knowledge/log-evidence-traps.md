@@ -93,6 +93,10 @@ stripped-index mapping if you need the tested version.
 
 ---
 
+## 7. A global substring replacement also rewrites words that merely contain the target
+
+Require either a word-boundary-anchored pattern or a reviewed match list before any repo-wide replacement, whether by sed/perl or by Edit with `replace_all: true`. Example: `preensão → garra` also turned `compreensão` into `comgarra`. (CFG-638, 2026-09-29)
+
 ## The one-line test
 
 Before trusting a check: **what would this command print if it had looked at nothing?** If that output

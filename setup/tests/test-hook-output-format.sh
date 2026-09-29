@@ -198,7 +198,9 @@ run_test "PostToolUse: auto-lint uses additionalContext" test_auto_lint_uses_add
 
 test_commit_verify_uses_additionalContext() {
     local hook="$REPO_ROOT/global/hooks/commit-verify.sh"
-    local input='{"tool_name":"Bash","tool_input":{"command":"git commit -m fix"},"stdout":"[main abc1234] fix"}'
+    # CFG-708: Claude Code's PostToolUse payload carries the Bash result under
+    # tool_response (stdout/stderr/interrupted) — not tool_output, not top-level stdout.
+    local input='{"hook_event_name":"PostToolUse","tool_name":"Bash","tool_input":{"command":"git commit -m fix"},"tool_response":{"stdout":"[main abc1234] fix","stderr":"","interrupted":false}}'
     local output
     output=$(echo "$input" | bash "$hook" 2>/dev/null)
 

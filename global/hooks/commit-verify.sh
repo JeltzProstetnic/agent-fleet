@@ -21,7 +21,13 @@ case "$COMMAND" in
 esac
 
 # Check output for successful commit pattern: [branch hash] message
-STDOUT=$(echo "$INPUT" | python3 -c "import sys,json; print(json.load(sys.stdin).get('tool_output',{}).get('stdout',''))" 2>/dev/null) || exit 0
+# CFG-708: Claude Code sends the Bash result as tool_response.stdout; tool_output
+# (read here before) is not in the payload, so this hook never fired.
+STDOUT=$(echo "$INPUT" | python3 -c "
+import sys, json
+d = json.load(sys.stdin)
+r = d.get('tool_response') or d.get('tool_output') or {}
+print(r.get('stdout', '') if isinstance(r, dict) else r)" 2>/dev/null) || exit 0
 
 # Successful commits have "[branch hash]" in output
 case "$STDOUT" in

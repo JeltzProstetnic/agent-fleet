@@ -23,6 +23,8 @@
 _bc_backlog="$PROJECT_DIR/backlog.md"
 if [ -f "$_bc_backlog" ]; then
     _bc_need='(need|needs|require|requires|requiring|await|awaits|awaiting|blocked[- ]on|pending|through|via|→)[^.;:]{0,30}consent|consent[- ](required|needed|pending)'
+    # An item whose own open line records MG's answer is no longer parked (2026-09-29).
+    _bc_resolved='\bAPPROVED\b|[Nn]o consent needed|reclassified'
     _bc_ids=""
     _bc_lines=$(sed -E 's/consent[- ](screen|marker|gated)//g; s/\.artifact-consent//g' "$_bc_backlog" 2>/dev/null \
         | grep -iE "$_bc_need" || true)
@@ -30,12 +32,14 @@ if [ -f "$_bc_backlog" ]; then
         [ -n "$_bc_line" ] || continue
         case "$_bc_line" in
             "- [ ]"*)
+                printf '%s' "$_bc_line" | grep -qE "$_bc_resolved" && continue
                 _bc_id=$(printf '%s' "$_bc_line" | grep -oE '^- \[ \] (\[[^]]*\] )?`[A-Z]+-[0-9]+`' | grep -oE '[A-Z]+-[0-9]+' || true)
                 [ -n "$_bc_id" ] && _bc_ids="$_bc_ids $_bc_id"
                 ;;
             "<!--"*)
                 for _bc_id in $(printf '%s' "$_bc_line" | grep -oE '[A-Z]+-[0-9]+' | sort -u); do
-                    grep -qE "^- \[ \] (\[[^]]*\] )?\`$_bc_id\`" "$_bc_backlog" 2>/dev/null && _bc_ids="$_bc_ids $_bc_id"
+                    grep -E "^- \[ \] (\[[^]]*\] )?\`$_bc_id\`" "$_bc_backlog" 2>/dev/null \
+                        | grep -qvE "$_bc_resolved" && _bc_ids="$_bc_ids $_bc_id"
                 done
                 ;;
         esac

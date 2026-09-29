@@ -86,6 +86,35 @@ EOF
 }
 run_test "check 6d: IDs named in a consent header comment are listed while open" test_header_comment_marks_items
 
+# CFG-708 follow-up 2026-09-29: once the owner has answered, the item's own line records it
+# (APPROVED / No consent needed / reclassified) while keeping its historical "needs
+# consent" wording. Such items are no longer parked on consent and must not be listed —
+# also when a header comment names them.
+test_resolved_items_not_listed() {
+    local patched; patched=$(_bc_setup)
+    cat > "$TEST_TMPDIR/project/backlog.md" <<'EOF'
+# Backlog
+<!-- CFG-596 and CFG-599 both propose RULE changes and are blocked on Meta-Rules consent. -->
+- [ ] [P1] `CFG-596` **APPROVED by owner 2026-09-29 (rule) — persist after the Meta-Rules check.** A session can draft a grievance letter.
+- [ ] [P1] `CFG-599` **Still waiting.** Something the owner has not seen.
+- [ ] [P3] `CFG-637` **APPROVED by owner 2026-09-29 as: regular reviews.** **Rule proposal (needs Meta-Rules consent): decisions.md size.**
+- [ ] [P2] `CFG-698` **No consent needed (rule approved 2026-09-23); hook work only.** Fold into the blocked-on-consent listing, needs consent wording kept.
+- [ ] [P1] `CFG-489` **Target is knowledge/ — reclassified by owner 2026-09-29.** Consent needed only if it goes into CLAUDE.md.
+- [ ] [P2] `CFG-638` **Rule proposal (needs Meta-Rules consent): ban blind replace_all.**
+EOF
+    local output field
+    output=$(run_hook "$patched")
+    field=$(_bc_field "$output")
+    assert_contains "$field" "2 open item" "only the two unresolved items" || return 1
+    assert_contains "$field" "CFG-599"
+    assert_contains "$field" "CFG-638"
+    assert_not_contains "$field" "CFG-596" "comment-named but APPROVED on its own line"
+    assert_not_contains "$field" "CFG-637" "APPROVED"
+    assert_not_contains "$field" "CFG-698" "No consent needed"
+    assert_not_contains "$field" "CFG-489" "reclassified"
+}
+run_test "check 6d: items whose own line records the answer are not listed" test_resolved_items_not_listed
+
 test_output_is_bounded() {
     local patched; patched=$(_bc_setup)
     {

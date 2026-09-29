@@ -39,6 +39,13 @@ fi
 # the sandbox and touches live config, it FAILS with a clear error.
 _PROTECTED_FILES=(.mcp.json .claude/settings.json .cc-mirror/mclaude/config/settings.json .cc-mirror/mclaude/config/.mcp.json .gitconfig .git-credentials)
 
+# CFG-708: fingerprint by CONTENT, not mtime+size. A concurrent git auth rewrites
+# .git-credentials with identical bytes, which changed mtime and read as a SANDBOX
+# BREACH (seen twice 2026-09-27). Only the hash is compared, never the content.
+_content_hash() {
+    { sha256sum "$1" 2>/dev/null || shasum -a 256 "$1" 2>/dev/null; } | cut -c1-64
+}
+
 _snapshot_protected() {
     _PROTECTED_SNAPSHOT=""
     for _pf in "${_PROTECTED_FILES[@]}"; do
@@ -46,7 +53,7 @@ _snapshot_protected() {
         if [ -L "$_full" ]; then
             _PROTECTED_SNAPSHOT="${_PROTECTED_SNAPSHOT}${_pf}:L:$(readlink "$_full")"$'\n'
         elif [ -f "$_full" ]; then
-            _PROTECTED_SNAPSHOT="${_PROTECTED_SNAPSHOT}${_pf}:F:$(stat -c '%Y%s' "$_full" 2>/dev/null || stat -f '%m%z' "$_full" 2>/dev/null)"$'\n'
+            _PROTECTED_SNAPSHOT="${_PROTECTED_SNAPSHOT}${_pf}:F:$(_content_hash "$_full")"$'\n'
         else
             _PROTECTED_SNAPSHOT="${_PROTECTED_SNAPSHOT}${_pf}:N:"$'\n'
         fi
@@ -60,7 +67,7 @@ _verify_protected() {
         if [ -L "$_full" ]; then
             _current="${_current}${_pf}:L:$(readlink "$_full")"$'\n'
         elif [ -f "$_full" ]; then
-            _current="${_current}${_pf}:F:$(stat -c '%Y%s' "$_full" 2>/dev/null || stat -f '%m%z' "$_full" 2>/dev/null)"$'\n'
+            _current="${_current}${_pf}:F:$(_content_hash "$_full")"$'\n'
         else
             _current="${_current}${_pf}:N:"$'\n'
         fi
@@ -321,7 +328,8 @@ assert_file_contains() {
     local path="$1"
     local pattern="$2"
     local msg="${3:-expected file '$path' to contain pattern '$pattern'}"
-    if ! grep -q "$pattern" "$path" 2>/dev/null; then
+    # -e: a pattern starting with '-' (e.g. '--channel x') is otherwise parsed as a grep option
+    if ! grep -q -e "$pattern" "$path" 2>/dev/null; then
         printf "${RED}    ASSERT_FILE_CONTAINS failed: %s${RESET}\n" "$msg" >&2
         _record_assert_failure
         return 1
@@ -333,7 +341,7 @@ assert_file_not_contains() {
     local path="$1"
     local pattern="$2"
     local msg="${3:-expected file '$path' NOT to contain pattern '$pattern'}"
-    if grep -q "$pattern" "$path" 2>/dev/null; then
+    if grep -q -e "$pattern" "$path" 2>/dev/null; then
         printf "${RED}    ASSERT_FILE_NOT_CONTAINS failed: %s${RESET}\n" "$msg" >&2
         _record_assert_failure
         return 1

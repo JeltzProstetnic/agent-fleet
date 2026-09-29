@@ -327,6 +327,31 @@ test_create_session_context() {
 }
 run_test "create_session_context generates valid session file" test_create_session_context
 
+# CFG-708: the live-file sandbox check fingerprints content, not mtime+size
+test_protected_snapshot_ignores_identical_rewrite() {
+    local saved_real="$REAL_HOME" saved_files=("${_PROTECTED_FILES[@]}")
+    REAL_HOME="$TEST_TMPDIR/fakehome"; mkdir -p "$REAL_HOME"
+    _PROTECTED_FILES=(.git-credentials)
+    printf 'https://u:secretvalue@example.test\n' > "$REAL_HOME/.git-credentials"
+    _snapshot_protected
+    sleep 1
+    printf 'https://u:secretvalue@example.test\n' > "$REAL_HOME/.git-credentials"
+    local rc_same=0; _verify_protected 2>/dev/null || rc_same=$?
+    printf 'https://u:changed@example.test\n' > "$REAL_HOME/.git-credentials"
+    local rc_changed=0; _verify_protected 2>/dev/null || rc_changed=$?
+    REAL_HOME="$saved_real"; _PROTECTED_FILES=("${saved_files[@]}"); _PROTECTED_SNAPSHOT=""
+    assert_eq "0" "$rc_same" "identical-bytes rewrite must not read as a sandbox breach"
+    assert_eq "1" "$rc_changed" "a real content change must still be caught"
+}
+run_test "sandbox check: identical rewrite passes, content change is caught" test_protected_snapshot_ignores_identical_rewrite
+
+test_assert_file_contains_dash_pattern() {
+    printf 'afd notify all msg --channel telegram\n' > "$TEST_TMPDIR/log"
+    assert_file_contains "$TEST_TMPDIR/log" "--channel telegram"
+    assert_file_not_contains "$TEST_TMPDIR/log" "--channel discord"
+}
+run_test "file assertions accept patterns that start with a dash" test_assert_file_contains_dash_pattern
+
 # ── Summary ──────────────────────────────────────────────────────────────────
 
 suite_summary

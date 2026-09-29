@@ -1231,6 +1231,8 @@ MOCK
     assert_file_exists "$MOCK_HOME/.afd-calls.log"
     assert_file_contains "$MOCK_HOME/.afd-calls.log" "notify"
     assert_file_contains "$MOCK_HOME/.afd-calls.log" "What branch should I deploy to?"
+    # CFG-708: the question must go to Telegram, not the default 'all' broadcast
+    assert_file_contains "$MOCK_HOME/.afd-calls.log" "--channel telegram"
     # Verify updatedInput is in stdout
     assert_contains "$HOOK_STDOUT" "updatedInput"
     assert_contains "$HOOK_STDOUT" "What branch? Use main"
