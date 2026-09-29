@@ -110,7 +110,9 @@ _get_latest_tag() {
     tags=$(git -C "$REPO_DIR" tag -l 'v*' --sort=-version:refname 2>/dev/null)
     if [[ "$CHANNEL" == "major" ]]; then
         # Major only: match vN.0 or vN.0.0 patterns (no minor bumps)
-        echo "$tags" | grep -E '^v[0-9]+\.0(\.0)?$' | head -1 | sed 's/^v//'
+        # CFG-708: no matching tag must yield "", not a pipefail exit that set -e
+        # turns into a silent abort right after "Fetching upstream..."
+        echo "$tags" | { grep -E '^v[0-9]+\.0(\.0)?$' || true; } | head -1 | sed 's/^v//'
     else
         # Rolling: latest tag regardless
         echo "$tags" | head -1 | sed 's/^v//'
