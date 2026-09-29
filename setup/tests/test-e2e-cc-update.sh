@@ -2,13 +2,13 @@
 # E2E test for cc-update.sh — runs a REAL npm install on a VM.
 # Installs CC 2.1.111, then upgrades to latest via cc-update.sh.
 #
-# Run via: vm-exec.sh afleet-e2e --script setup/tests/test-e2e-cc-update.sh
+# Run via: bash setup/scripts/e2e-podman.sh --source ~/agent-fleet --test cc-update
 
 set -euo pipefail
 
 if [[ -f "$HOME/cfg-agent-fleet/.git/HEAD" && "${1:-}" != "--force" ]]; then
     echo "ERROR: E2E test detected cfg-agent-fleet (personal config repo)." >&2
-    echo "Run only on a VM via: vm-exec.sh afleet-e2e --script $0" >&2
+    echo "Run only in isolation via: bash setup/scripts/e2e-podman.sh --source ~/agent-fleet --test cc-update" >&2
     exit 1
 fi
 

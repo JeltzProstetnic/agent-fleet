@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# E2E deployment and upgrade tests — runs ON the VM via vm-exec.sh or directly.
+# E2E deployment and upgrade tests — runs inside the e2e-podman.sh container, or directly on a throwaway machine.
 # Tests the full lifecycle: fresh deploy → verify → upgrade → verify again.
 # No CC API key needed — tests infrastructure only.
 #
@@ -16,7 +16,7 @@ set -euo pipefail
 # Safety guard: E2E tests modify real files. Refuse to run outside a VM.
 if [[ -f "$HOME/cfg-agent-fleet/.git/HEAD" && "${1:-}" != "--force" ]]; then
     echo "ERROR: E2E test detected cfg-agent-fleet (personal config repo)." >&2
-    echo "Run only on a VM via: vm-exec.sh afleet-e2e --script $0" >&2
+    echo "Run only in isolation via: bash setup/scripts/e2e-podman.sh --source ~/agent-fleet --test deployment" >&2
     exit 1
 fi
 

@@ -3,14 +3,14 @@
 # Simulates: start session → do work → cls → new session reads state.
 #
 # Requires: CC installed on VM with valid credentials, agent-fleet setup complete.
-# Run via: vm-exec.sh afleet-e2e --script setup/tests/test-e2e-daily-workflow.sh
+# Run via: bash setup/scripts/e2e-podman.sh --source ~/agent-fleet --test daily-workflow
 
 set -euo pipefail
 
 # Safety guard: E2E tests modify real files. Refuse to run outside a VM.
 if [[ -f "$HOME/cfg-agent-fleet/.git/HEAD" && "${1:-}" != "--force" ]]; then
     echo "ERROR: E2E test detected cfg-agent-fleet (personal config repo)." >&2
-    echo "Run only on a VM via: vm-exec.sh afleet-e2e --script $0" >&2
+    echo "Run only in isolation via: bash setup/scripts/e2e-podman.sh --source ~/agent-fleet --test daily-workflow" >&2
     exit 1
 fi
 

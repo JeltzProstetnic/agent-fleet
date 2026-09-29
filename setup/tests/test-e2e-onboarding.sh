@@ -4,7 +4,7 @@
 # profile creation, persona setup, features showcase, .setup-pending removal.
 #
 # Requires: CC installed on VM with valid credentials, agent-fleet setup complete.
-# Run via: vm-exec.sh afleet-e2e --script setup/tests/test-e2e-onboarding.sh
+# Run via: bash setup/scripts/e2e-podman.sh --source ~/agent-fleet --test onboarding
 
 set -euo pipefail
 
@@ -12,7 +12,7 @@ set -euo pipefail
 if [[ -f "$HOME/cfg-agent-fleet/.git/HEAD" && "${1:-}" != "--force" ]]; then
     echo "ERROR: E2E test detected cfg-agent-fleet (personal config repo)." >&2
     echo "E2E tests are destructive — they modify ~/agent-fleet/, ~/.claude/, and personas." >&2
-    echo "Run only on a VM via: vm-exec.sh afleet-e2e --script $0" >&2
+    echo "Run only in isolation via: bash setup/scripts/e2e-podman.sh --source ~/agent-fleet --test onboarding" >&2
     echo "Override with: $0 --force" >&2
     exit 1
 fi

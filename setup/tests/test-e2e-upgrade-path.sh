@@ -2,15 +2,16 @@
 # E2E upgrade path test — verifies template change → upgrade.sh → propagation.
 # Simulates: upstream template gets a new file → user runs upgrade → file appears locally.
 #
-# Requires: agent-fleet cloned on VM with git access to origin.
-# Run via: vm-exec.sh afleet-e2e --script setup/tests/test-e2e-upgrade-path.sh
+# Requires: an isolated container or VM with agent-fleet cloned and git access to origin.
+# Run via: bash setup/scripts/e2e-podman.sh --source ~/agent-fleet --test upgrade-path
 
 set -euo pipefail
 
-# Safety guard: E2E tests modify real files. Refuse to run outside a VM.
+# Safety guard: E2E tests modify real files. Refuse to run on a machine holding the
+# personal config repo (i.e. outside an isolated container or VM).
 if [[ -f "$HOME/cfg-agent-fleet/.git/HEAD" && "${1:-}" != "--force" ]]; then
     echo "ERROR: E2E test detected cfg-agent-fleet (personal config repo)." >&2
-    echo "Run only on a VM via: vm-exec.sh afleet-e2e --script $0" >&2
+    echo "Run only in isolation via: bash setup/scripts/e2e-podman.sh --source ~/agent-fleet --test upgrade-path" >&2
     exit 1
 fi
 

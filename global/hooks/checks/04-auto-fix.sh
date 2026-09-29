@@ -55,7 +55,7 @@ fi
 T2_MARKER="$CONFIG_REPO/.t2-edits-pending"
 if [ -f "$T2_MARKER" ] && [ -s "$T2_MARKER" ]; then
     T2_CONTENT=$(cat "$T2_MARKER")
-    WARNINGS="${WARNINGS:+$WARNINGS | }$T2_CONTENT — run E2E tests before release: bash setup/tests/run.sh && vm-exec.sh afleet-e2e"
+    WARNINGS="${WARNINGS:+$WARNINGS | }$T2_CONTENT — run E2E tests before release: bash setup/tests/run.sh && bash setup/scripts/e2e-podman.sh --source ~/agent-fleet"
     rm -f "$T2_MARKER"
 fi
 

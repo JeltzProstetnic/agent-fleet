@@ -9,14 +9,14 @@
 #   test-e2e-update-notification.sh              # refuse outside VM
 #   test-e2e-update-notification.sh --force       # run on personal machine
 #
-# Run via: vm-exec.sh afleet-e2e --script setup/tests/test-e2e-update-notification.sh
+# Run via: bash setup/scripts/e2e-podman.sh --source ~/agent-fleet --test update-notification
 
 set -euo pipefail
 
 # Safety guard: E2E tests modify real files. Refuse to run outside a VM.
 if [[ -f "$HOME/cfg-agent-fleet/.git/HEAD" && "${1:-}" != "--force" ]]; then
     echo "ERROR: E2E test detected cfg-agent-fleet (personal config repo)." >&2
-    echo "Run only on a VM via: vm-exec.sh afleet-e2e --script $0" >&2
+    echo "Run only in isolation via: bash setup/scripts/e2e-podman.sh --source ~/agent-fleet --test update-notification" >&2
     exit 1
 fi
 

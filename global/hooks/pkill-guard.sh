@@ -48,10 +48,46 @@ case "$CMD" in
     grep\ *|rg\ *|ag\ *|ack\ *|cat\ *|less\ *|head\ *|tail\ *|awk\ *|sed\ *) exit 0 ;;
 esac
 
-# Each pkill/pgrep invocation and its arguments, up to a shell separator or a closing
-# quote. Covers payloads inside ssh '…' and bash -c "…" for free: the text is still there.
-_offenders=$(printf '%s' "$CMD" \
-    | grep -oE '(pkill|pgrep)([[:space:]]+-[^[:space:]]+)*[[:space:]]+[^;&|)"'"'"']+' || true)
+# CFG-731: prose is data, not execution. Drop (1) heredoc bodies fed to anything that is
+# not a shell (python3 - <<'PY' writing a backlog line was refused, 2026-09-29) and
+# (2) the quoted values of message-like flags (-m, --body, …). A heredoc on a line that
+# names a shell (bash/sh/zsh/dash/ssh/eval — also `cat <<EOF | bash`) is kept: it runs.
+# No python3 → scan the raw command (fail safe: over-block rather than under-block).
+if command -v python3 >/dev/null 2>&1; then
+    _stripped=$(printf '%s' "$CMD" | python3 -c '
+import re, sys
+s = sys.stdin.read()
+lines, out, i = s.split("\n"), [], 0
+while i < len(lines):
+    l = lines[i]; out.append(l)
+    m = re.search(r"<<-?\s*([\x27\"]?)(\w+)\1", l)
+    if not m:
+        i += 1; continue
+    term = m.group(2)
+    shell = re.search(r"(^|[\s;&|(])(bash|sh|zsh|dash|ssh|eval)(\s|$)", l) is not None
+    j = i + 1
+    while j < len(lines) and lines[j].strip() != term:
+        if shell: out.append(lines[j])
+        j += 1
+    if j < len(lines): out.append(lines[j])
+    i = j + 1
+s = "\n".join(out)
+s = re.sub(r"(\s(?:-m|--message|--body|--title|--description|--comment)(?:\s+|=))(\"(?:[^\"\\\\]|\\\\.)*\"|\x27[^\x27]*\x27)", r"\1\"\"", s)
+sys.stdout.write(s)
+' 2>/dev/null) && CMD="$_stripped"
+    case "$CMD" in
+        *pkill*|*pgrep*) ;;
+        *) exit 0 ;;
+    esac
+fi
+
+# Each pkill/pgrep invocation and its arguments, up to a shell separator. Quotes,
+# backticks and backslashes are removed first (CFG-731): payloads inside ssh '…',
+# bash -c "…" or `…` are still scanned, and the pattern shown back is copy-pasteable
+# instead of ending in a stray \ or `.
+_scan=$(printf '%s' "$CMD" | tr -d "\"'\`\\\\")
+_offenders=$(printf '%s' "$_scan" \
+    | grep -oE '(pkill|pgrep)([[:space:]]+-[^[:space:]]+)*[[:space:]]+[^;&|)]+' || true)
 [ -z "$_offenders" ] && exit 0
 
 _bad_pattern=""

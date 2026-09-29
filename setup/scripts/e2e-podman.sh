@@ -6,13 +6,13 @@
 # Usage:
 #   e2e-podman.sh                    # run deployment E2E
 #   e2e-podman.sh --all              # run all E2E tests
-#   e2e-podman.sh --test <name>      # run specific test (deployment, onboarding, upgrade, daily)
+#   e2e-podman.sh --test <name>      # run specific test (deployment, onboarding, upgrade-path, daily-workflow, …: test-e2e-<name>.sh)
 #   e2e-podman.sh --keep             # don't remove container after run (for debugging)
 #   e2e-podman.sh --image <img>      # use custom image (default: fedora:42)
 #   e2e-podman.sh --source <dir>     # test a LOCAL working tree (uncommitted edits included)
 #                                    # instead of cloning the published template (CFG-675)
 #
-# Requirements: podman, network access (to clone agent-fleet from GitHub)
+# Requirements: podman; network access only without --source (to clone agent-fleet from GitHub)
 
 set -euo pipefail
 

@@ -136,4 +136,56 @@ t_refusal_names_the_safe_form() {
 }
 run_test "refusal rewrites the caller's own pattern into the safe form" t_refusal_names_the_safe_form
 
+# ── CFG-731: prose is not execution (over-block) ──────────────────────────────
+# Reproduced live 2026-09-29: a python heredoc that only WROTE the phrase into a
+# backlog line was refused. Text handed to a non-shell interpreter, a commit
+# message or an --body string is data, never a process-table kill.
+
+t_allows_prose_in_python_heredoc() {
+    local cmd
+    cmd=$(printf "python3 - <<'PY'\nopen('b.md','a').write('the pkill -f <pattern> self-match class')\nPY")
+    assert_eq "0" "$(_rc "$cmd")" "a python heredoc body is data, not a shell command"
+}
+run_test "CFG-731: allows the phrase inside a python heredoc body" t_allows_prose_in_python_heredoc
+
+t_allows_prose_in_commit_message() {
+    assert_eq "0" "$(_rc 'git -C /tmp/r commit -q -m "guard: pkill -f foo self-matches" -m "trailer"')" \
+        "a commit message only quotes the command"
+}
+run_test "CFG-731: allows the phrase inside a git -m message" t_allows_prose_in_commit_message
+
+t_allows_prose_in_body_flag() {
+    assert_eq "0" "$(_rc 'bash inbox-file.sh --project x --type work --body "never run pkill -f foo in a loop"')" \
+        "an --body string only quotes the command"
+}
+run_test "CFG-731: allows the phrase inside an --body string" t_allows_prose_in_body_flag
+
+t_still_blocks_shell_heredoc() {
+    local cmd
+    cmd=$(printf "bash <<'EOF'\npkill -f myworker.py\nEOF")
+    assert_eq "2" "$(_rc "$cmd")" "a heredoc fed to a SHELL is executed and must still be refused"
+}
+run_test "CFG-731: still blocks the command in a heredoc fed to bash" t_still_blocks_shell_heredoc
+
+t_still_blocks_after_a_message() {
+    assert_eq "2" "$(_rc 'git commit -m "x"; pkill -f myworker.py')" \
+        "stripping the -m string must not hide a real pkill after it"
+}
+run_test "CFG-731: still blocks a real pkill that follows a commit message" t_still_blocks_after_a_message
+
+# ── CFG-731: the suggestion must be copy-pasteable (garbled suggestion) ────────
+
+t_suggestion_strips_escaped_quotes() {
+    _rc 'bash -c "pkill -f \"myworker.py\""' >/dev/null
+    assert_contains "$HOOK_STDERR" "'[m]yworker.py'" "escaped quotes are not part of the pattern"
+    assert_not_contains "$HOOK_STDERR" '[\]' "the suggestion must not be a character class of a backslash"
+}
+run_test "CFG-731: suggestion is clean when the pattern sits in escaped double quotes" t_suggestion_strips_escaped_quotes
+
+t_suggestion_strips_backtick() {
+    _rc 'x=`pkill -f myworker.py`' >/dev/null
+    assert_contains "$HOOK_STDERR" "'[m]yworker.py'" "a closing backtick is not part of the pattern"
+}
+run_test "CFG-731: suggestion is clean when the command sits in backticks" t_suggestion_strips_backtick
+
 suite_summary
