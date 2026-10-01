@@ -174,14 +174,14 @@ run_test "other session lock (different AFLEET_SESSION_ID): reports locked" test
 # (CFG-468), so 06b's bare `kill -0` + `rm -f` deleted the lock of a session
 # that was still live under another pid. Every lock removal must go through the
 # library's liveness-proven path (check_lock refuses while a live CC is cwd'd in
-# the project). A fake "CC" is a setsid-detached `sleep` cwd'd in the project,
+# the project). A fake "CC" is a setsid-detached `sleep` (argv0 `fakecc-cfg732`) cwd'd in the project,
 # made visible to the library by _CC_PROC_RE; _CC_SELF_PID is this shell so the
 # scan runs (an empty exclude fails open, as it must for a solo session).
 
 _spawn_foreign_cc() {   # <dir> — echoes the pid of a detached sleep cwd'd in <dir>
     local dir="$1" real i p
     real="$(realpath "$dir" 2>/dev/null || echo "$dir")"
-    setsid sh -c "cd '$dir' && exec sleep 20" </dev/null >/dev/null 2>&1 &
+    setsid bash -c "cd '$dir' && exec -a fakecc-cfg732 sleep 20" </dev/null >/dev/null 2>&1 &
     for i in $(seq 1 30); do
         for p in $(pgrep -x sleep 2>/dev/null); do
             if [[ "$(readlink "/proc/$p/cwd" 2>/dev/null)" == "$real" ]]; then
@@ -200,7 +200,11 @@ run_check_with_liveness() {   # <project_dir> — 06b with the library's CC matc
         export CONFIG_REPO="$REPO_ROOT"
         export WARNINGS=""
         export INBOX_MSG=""
-        export _CC_PROC_RE='sleep' _CC_SELF_PID="$$"
+        # Anchored to the fake's argv0 (CFG-732): a bare 'sleep' also matched any
+        # ANCESTOR whose argv merely contains the word — the tmux keepalive server
+        # (`tmux new-session … sleep 86400`) or a caller's polling loop — which made
+        # this shell look like a nested CC, so its own lock read as foreign.
+        export _CC_PROC_RE='(^|/)fakecc-cfg732([[:space:]]|$)' _CC_SELF_PID="$$"
         unset AFLEET_SESSION_ID
         mkdir -p "$project_dir/.claude" "$project_dir/docs"
         source "$CHECK_SCRIPT" 2>/dev/null || true
