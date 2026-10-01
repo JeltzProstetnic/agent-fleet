@@ -97,6 +97,16 @@ stripped-index mapping if you need the tested version.
 
 Require either a word-boundary-anchored pattern or a reviewed match list before any repo-wide replacement, whether by sed/perl or by Edit with `replace_all: true`. Example: `preensão → garra` also turned `compreensão` into `comgarra`. (CFG-638, 2026-09-29)
 
+## 8. In Claude Code's Bash, `grep` silently skips any file with a NUL byte
+
+`grep` there is a shell **function** running the bundled ugrep with `-I` (skip binary files). A
+source file with even one raw NUL byte is classified binary, and `grep` returns **nothing, exit 1,
+no "Binary file matches" line** — indistinguishable from "pattern absent". Measured pdp WSL
+2026-09-30: `risk-showcase/server/src/deliverables/tasks.ts` had 3 raw NULs in a template-literal
+key separator; `grep -n` found nothing, python found the function at line 498, `file(1)` said `data`.
+⇒ A grep miss on a file you know exists is not evidence of absence until you rerun with `grep -a`
+(or `command grep`), or check `file(1)`. pdp fixed the source by writing the separator as `\u0000`.
+
 ## The one-line test
 
 Before trusting a check: **what would this command print if it had looked at nothing?** If that output
