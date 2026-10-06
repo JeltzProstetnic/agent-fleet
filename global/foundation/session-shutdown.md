@@ -53,7 +53,7 @@
 - [ ] Write `docs/pending-<topic>.md` that lets the next session resume this session's work without re-deriving it: what was being done, where it stopped, the next concrete action, and every open question or decision the user must read. Mark it `<!-- Action: await-user-decision -->` and point `## Next Session Task` at it.
 - [ ] Carry every work item the user explicitly ordered this session and did not receive into that same file, in his words — an explicit order is never dropped for being unfinished, out of scope, or superseded by other work.
 - [ ] A session with nothing in flight still writes the handover and says so in one line; `backlog:` may be `none` only in that case.
-- [ ] Write every open decision in the handover as a question with 2–4 concrete options (recommended first), ready to be asked verbatim with AskUserQuestion at session start.
+- [ ] Write every open decision in the handover as a question with 2–4 concrete options (recommended first), each premise citing the file or code that backs it, for the next session to re-verify and ask with AskUserQuestion.
 - [ ] Every credential the next session needs is named by location (vault key, file path), never by value — the handover is pushed with the repo.
 
 ### 9. Closing message
