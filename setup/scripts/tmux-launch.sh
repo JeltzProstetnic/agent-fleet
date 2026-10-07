@@ -19,6 +19,13 @@ SESSION="$1"
 LABEL="$2"
 shift 2
 
+# CFG-742: tmux forbids '.' and ':' in session names — the launch then reads as
+# "session died immediately" with no hint why (seen 2026-10-07 with a name like "job-0.4").
+if [[ "$SESSION" == *[.:]* ]]; then
+    echo "tmux-launch: session name '$SESSION' may not contain '.' or ':' (tmux rejects them) — use e.g. '${SESSION//[.:]/-}'" >&2
+    exit 2
+fi
+
 LOG_PATH=""
 if [[ "${1:-}" == "--log" ]]; then
     LOG_PATH="$2"

@@ -36,6 +36,24 @@ test_two_args_fails() {
 }
 run_test "two args prints usage" test_two_args_fails
 
+# CFG-742: tmux forbids '.' and ':' in session names; the job then "died immediately"
+test_dot_in_name_rejected() {
+    local out rc=0
+    out=$(bash "$TMUX_LAUNCH" "tl-dot-0.4" "dot" "sleep 1" 2>&1) || rc=$?
+    assert_eq "2" "$rc" "dot in name must exit 2" || return 1
+    assert_contains "$out" "may not contain" "message names the problem" || return 1
+    if tmux has-session -t="tl-dot-0.4" 2>/dev/null; then echo "session was created"; return 1; fi
+}
+run_test "session name with a dot is rejected before launch" test_dot_in_name_rejected
+
+test_colon_in_name_rejected() {
+    local out rc=0
+    out=$(bash "$TMUX_LAUNCH" "tl:colon" "colon" "sleep 1" 2>&1) || rc=$?
+    assert_eq "2" "$rc" "colon in name must exit 2" || return 1
+    assert_contains "$out" "may not contain" "message names the problem" || return 1
+}
+run_test "session name with a colon is rejected before launch" test_colon_in_name_rejected
+
 # ── Log Pre-Creation ────────────────────────────────────────────────────────
 
 test_log_precreated() {
