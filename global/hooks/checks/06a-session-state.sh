@@ -3,8 +3,9 @@
 # Checks: 6a.1, 6a.2, 6a.3, 6a.4, 6a.5, 6a.6, 6a.7
 # Shared vars used: CONFIG_REPO, WARNINGS, INBOX_MSG, IDENTITY_MSG, PROJECT_DIR
 #
-# IDENTITY_MSG vs INBOX_MSG (2026-09-17 spill incident): Claude Code writes hook
-# output over ~50K chars to a file and injects only a HEAD preview, so the fields
+# IDENTITY_MSG vs INBOX_MSG (2026-09-17 spill incident): Claude Code writes a SessionStart
+# payload over ~10K chars to a file and injects only a 2 KB HEAD preview (measured
+# 2026-10-08), and config-check.sh's own cap keeps 80% head, so the fields
 # a session cannot start without (HOSTNAME/TIME/PERSONA/SESSION_CONTEXT/HANDOFF/
 # PENDING_FILES) go into IDENTITY_MSG, which config-check.sh places FIRST in the
 # payload. Everything recoverable-by-reading-the-spilled-file stays in INBOX_MSG.

@@ -121,11 +121,10 @@ if [ -d "$_CHECKS_DIR" ]; then
 fi
 
 # ── Output JSON ──
-# Assembly order is LOAD-BEARING (2026-09-17 spill incident): Claude Code saves
-# hook output over ~50K chars to a file and injects only a short HEAD preview
-# (changelog 2.1.89; an unverified report — upstream #94358 — puts the threshold
-# for additionalContext at 10K with a 2K preview). Whatever the exact number, the
-# preview keeps the HEAD, so the identity block leads: a session that loses
+# Assembly order is LOAD-BEARING (2026-09-17 spill incident): Claude Code saves a
+# SessionStart additionalContext over ~10K chars to a file and injects only a 2 KB
+# HEAD preview (measured 2026-10-08, knowledge/hook-behavior.md). Our own cap keeps
+# 80% head / 20% tail, so in both cases the HEAD is what survives, so the identity block leads: a session that loses
 # warnings can still read the spilled file, but a session that does not know what
 # machine it is on cannot start correctly. Identity first, warnings and inbox after.
 SYSTEM_MSG=""
@@ -157,20 +156,34 @@ fi
 #     The encoder below now reads stdin, so that limit no longer applies; the cap is defence in depth.
 #  2. Even when it fits, a 176 KB additionalContext is ~45k tokens injected into every session of
 #     the affected project. Uncapped, fixing (1) alone trades a silent failure for a context bomb.
-#  3. Claude Code SPILLS hook output over 50,000 chars to a file, injecting only a head preview
-#     (changelog 2.1.89) — the previous 60,000 default sat ABOVE that, so our truncation never
-#     fired and the spill did, delivering ~2K of a 60K payload. The cap must keep the hook's raw
-#     JSON stdout (payload + envelope + escape expansion, what CC actually measures) under 50,000:
-#     45,000 leaves ~10% for the envelope and escaping. Overridable via CONFIG_CHECK_MAX_CONTEXT.
+#  3. Claude Code SPILLS a SessionStart additionalContext over ~10,000 chars to a file, injecting
+#     only a 2 KB head preview. Measured 2026-10-08 over 155 transcripts: inline max 9,823 chars,
+#     spilled min 10,019 (knowledge/hook-behavior.md). The earlier 60,000 and 45,000 caps were
+#     built on the changelog's "50K" and sat above it, so 35% of sessions got only the preview.
+#     9,000 + the ~400-char marker stays under 9,500. Overridable via CONFIG_CHECK_MAX_CONTEXT.
 # Truncation drops the MIDDLE: the identity block leads (see assembly above) so the kept head
 # carries it, and the kept tail preserves the later checks' fields (PROJECT_KNOWLEDGE, services).
-_MAX_CTX="${CONFIG_CHECK_MAX_CONTEXT:-45000}"
-if [ -n "$SYSTEM_MSG" ] && [ "${#SYSTEM_MSG}" -gt "$_MAX_CTX" ]; then
+_MAX_CTX="${CONFIG_CHECK_MAX_CONTEXT:-9000}"
+# Budget in BYTES as well as chars: whether CC counts bytes is undecidable from the data,
+# and a CJK-heavy inbox item would triple the byte size (review 2026-10-08, fix A).
+_bytes=0; [ -n "$SYSTEM_MSG" ] && _bytes=$(printf '%s' "$SYSTEM_MSG" | wc -c)
+if [ "$_bytes" -gt "$_MAX_CTX" ]; then
     _total=${#SYSTEM_MSG}
-    _head=$(( _MAX_CTX * 6 / 10 ))
-    _tail=$(( _MAX_CTX * 4 / 10 ))
-    _dropped=$(( _total - _head - _tail ))
-    SYSTEM_MSG="${SYSTEM_MSG:0:$_head} … [TRUNCATED: $_dropped of $_total chars dropped — payload exceeded $_MAX_CTX chars (CONFIG_CHECK_MAX_CONTEXT). Claude Code spills hook output over ~50K chars to a disk file with only a head preview injected, so the cap must stay below that; if startup context ever arrives as a file path + preview, that spill is what happened. Usual cause: cross-project/inbox.md holds too many items for this project; see CFG-515 and CFG-527] … ${SYSTEM_MSG: -$_tail}"
+    # Fix C: keep the whole payload recoverable — the spill left a file, so must we.
+    _FULL="$(dirname "$_SS_LOG")/session-start-payload-$(basename "$PROJECT_DIR").txt"
+    mkdir -p "$(dirname "$_FULL")" 2>/dev/null && printf '%s' "$SYSTEM_MSG" > "$_FULL" 2>/dev/null || _FULL="(could not write)"
+    _budget=$(( _MAX_CTX * _total / _bytes ))
+    _orig="$SYSTEM_MSG"
+    for _try in 1 2 3; do
+        # Fix B: 80/20 — the WARNING block follows identity and was lost under 60/40.
+        _head=$(( _budget * 8 / 10 ))
+        _tail=$(( _budget * 2 / 10 ))
+        _dropped=$(( _total - _head - _tail ))
+        _kept="${_orig:0:$_head}${_orig: -$_tail}"
+        [ "$(printf '%s' "$_kept" | wc -c)" -le "$_MAX_CTX" ] && break
+        _budget=$(( _budget * 9 / 10 ))
+    done
+    SYSTEM_MSG="${_orig:0:$_head} … [TRUNCATED: $_dropped of $_total chars dropped — payload exceeded $_MAX_CTX (CONFIG_CHECK_MAX_CONTEXT). full payload: $_FULL — read it for the dropped middle. Claude Code spills a SessionStart payload over ~10K chars to a disk file with only a 2 KB preview injected, so the cap must stay below that. Usual cause: cross-project/inbox.md holds too many items for this project; see CFG-515, CFG-527, CFG-617] … ${_orig: -$_tail}"
 fi
 
 _EMIT="empty"

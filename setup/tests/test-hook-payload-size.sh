@@ -46,8 +46,8 @@ SYNTH
 # Build a patched hook that runs the REAL 06a-session-state.sh (the product, not a
 # stand-in) after a padding module that inflates INBOX_MSG first — mirroring reality,
 # where 03-inbox-services.sh runs before the identity check does. This is the harness
-# for the identity-first tests: the 2026-09-17 incident showed Claude Code spills hook
-# output over ~50K chars to a file and injects only a HEAD preview, so identity fields
+# for the identity-first tests: the 2026-09-17 incident showed Claude Code spills a
+# SessionStart payload (over ~10K chars, measured 2026-10-08) to a file and injects only a HEAD preview, so identity fields
 # assembled at the TAIL were exactly the ones lost.
 _patched_with_real_identity() {
     local padding_bytes="$1"
@@ -132,9 +132,9 @@ test_normal_payload_is_untouched() {
 run_test "ordinary payload passes through untruncated" test_normal_payload_is_untouched
 
 # ── Identity-first ordering (2026-09-17 spill incident) ─────────────────────
-# Claude Code writes hook output over ~50,000 chars to a file and injects only a
-# short HEAD preview (changelog 2.1.89; a third-party report puts the threshold for
-# additionalContext at 10,000 with a 2,000-char preview — unverified). Either way
+# Claude Code writes SessionStart additionalContext over ~10,000 chars to a file and
+# injects only a 2 KB HEAD preview (measured 2026-10-08 over 155 transcripts: inline max
+# 9,823, spilled min 10,019 — see knowledge/hook-behavior.md). Either way
 # the preview keeps the HEAD, so the fields a session cannot start without must
 # LEAD the payload. These tests assert position, not mere presence — presence is
 # what the older tests checked, and it passed while the fleet was broken.
@@ -143,7 +143,7 @@ _IDENTITY_HEAD_WINDOW=1000   # identity block is ~150-900 chars; 1000 is generou
 
 test_identity_leads_ordinary_payload() {
     local patched output ctx head
-    patched=$(_patched_with_real_identity 10000)   # under any cap — ordering alone
+    patched=$(_patched_with_real_identity 5000)    # under the cap — ordering alone
     output=$(run_hook "$patched")
     ctx=$(extract_additional_context "$output")
     head="${ctx:0:$_IDENTITY_HEAD_WINDOW}"
@@ -173,10 +173,10 @@ test_identity_leads_even_when_truncated() {
 run_test "identity fields lead even a truncated payload" test_identity_leads_even_when_truncated
 
 # ── Cap below the spill threshold ────────────────────────────────────────────
-# The fleet's cap sat at 60,000 — ABOVE the 50,000 spill threshold — so the hook's
-# own truncation never fired and the spill did. The emitted context must stay far
-# enough under 50,000 that the JSON envelope + escaping cannot push the hook's
-# stdout past the threshold either.
+# The cap sat at 60,000, then 45,000 — both ABOVE the real ~10,000-char spill threshold
+# (measured 2026-10-08: inline max 9,823, spilled min 10,019, 155 sessions), so 35% of
+# sessions received only a 2 KB preview. CC measures the joined context text, so the
+# emitted context — marker included — must stay under the largest size seen inline.
 
 test_payload_stays_below_spill_threshold() {
     local patched output ctx ctx_len out_len
@@ -186,19 +186,11 @@ test_payload_stays_below_spill_threshold() {
     ctx_len=${#ctx}
     out_len=${#output}
 
-    if [ "$ctx_len" -gt 46000 ]; then
-        echo "  additionalContext was $ctx_len chars — must stay <= 46000 (spill threshold is ~50000)"
-    fi
-    assert_eq "1" "$([ "$ctx_len" -le 46000 ] && echo 1 || echo 0)" \
-        "emitted context must stay below the CC spill threshold with margin"
-
-    if [ "$out_len" -gt 49000 ]; then
-        echo "  raw hook stdout was $out_len chars — the JSON envelope must stay under 50000"
-    fi
-    assert_eq "1" "$([ "$out_len" -le 49000 ] && echo 1 || echo 0)" \
-        "raw JSON stdout (what CC actually measures) must stay under the spill threshold"
+    echo "  measured: additionalContext $ctx_len chars, raw stdout $out_len chars"
+    assert_eq "1" "$([ "$ctx_len" -le 9800 ] && echo 1 || echo 0)" \
+        "emitted context ($ctx_len chars) must stay <= 9800, under the measured ~10K spill threshold"
 }
-run_test "capped payload stays below the CC 50K spill threshold" test_payload_stays_below_spill_threshold
+run_test "capped payload stays below the measured ~10K spill threshold" test_payload_stays_below_spill_threshold
 
 test_truncation_marker_names_spill_risk() {
     local patched output ctx
@@ -210,6 +202,54 @@ test_truncation_marker_names_spill_risk() {
         "the truncation marker must name the spill-to-disk symptom so a future session recognises it"
 }
 run_test "truncation marker names the spill risk" test_truncation_marker_names_spill_risk
+
+# ── Review fixes 2026-10-08: byte budget, head share, recoverable middle ────
+
+test_multibyte_payload_stays_under_10k_bytes() {
+    # If CC counts BYTES, a CJK/umlaut-heavy payload under 9,000 chars could still spill.
+    local config_repo="$TEST_TMPDIR/config-repo-mb" mock_home="$TEST_TMPDIR/home-mb"
+    local project_dir="$TEST_TMPDIR/project-mb" checks_dir="$TEST_TMPDIR/checks-mb" patched output ctx bytes
+    mkdir -p "$mock_home/.claude" "$project_dir" "$checks_dir"
+    create_mock_config_repo "$config_repo"
+    cat > "$checks_dir/01-synthetic.sh" << 'SYNTH'
+INBOX_MSG="HOSTNAME: TEST-BOX | PERSONA: TestPersona | INBOX TASKS for test: $(for i in $(seq 1 20000); do printf '日'; done)"
+SYNTH
+    patched=$(create_patched_script "$config_repo" "$mock_home" "$project_dir")
+    sed -i "s|^export CONFIG_CHECK_DIR=.*|export CONFIG_CHECK_DIR=\"$checks_dir\"|" "$patched"
+    output=$(run_hook "$patched")
+    ctx=$(extract_additional_context "$output")
+    bytes=$(printf '%s' "$ctx" | wc -c)
+    echo "  measured: ${#ctx} chars, $bytes bytes"
+    assert_eq "1" "$([ "$bytes" -le 9800 ] && echo 1 || echo 0)" "multibyte payload ($bytes bytes) must stay <= 9800 bytes"
+    assert_contains "$ctx" "HOSTNAME: TEST-BOX" "identity survives the byte-scaled cut"
+}
+run_test "multibyte payload is capped by bytes too" test_multibyte_payload_stays_under_10k_bytes
+
+test_truncation_keeps_most_of_the_head() {
+    # The WARNING block follows identity; a 60% head dropped it in 44 of 51 real payloads.
+    local patched output ctx head_len
+    patched=$(_patched_with_payload 200000)
+    output=$(run_hook "$patched")
+    ctx=$(extract_additional_context "$output")
+    head_len=${ctx%% … \[TRUNCATED*}; head_len=${#head_len}
+    echo "  measured: head kept $head_len chars"
+    assert_eq "1" "$([ "$head_len" -ge 7000 ] && echo 1 || echo 0)" "head share must be >= 7000 chars (measured $head_len)"
+}
+run_test "truncation keeps >= 7000 chars of head" test_truncation_keeps_most_of_the_head
+
+test_truncated_middle_is_recoverable() {
+    # The spill at least left a file; truncation must too, and name it in the marker.
+    local patched output ctx path
+    patched=$(_patched_with_payload 200000)
+    output=$(run_hook "$patched")
+    ctx=$(extract_additional_context "$output")
+    path=$(printf '%s' "$ctx" | grep -oE 'full payload: [^ ]+' | head -1 | cut -d' ' -f3)
+    echo "  measured: marker path '$path'"
+    assert_neq "" "$path" "marker names the full-payload file"
+    assert_eq "1" "$([ -f "$path" ] && [ "$(wc -c < "$path")" -ge 200000 ] && echo 1 || echo 0)" \
+        "the named file exists and holds the full untruncated payload"
+}
+run_test "truncated middle is recoverable from a named file" test_truncated_middle_is_recoverable
 
 # ── The mechanism, asserted directly ─────────────────────────────────────────
 
