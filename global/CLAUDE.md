@@ -131,10 +131,6 @@ If hostname doesn't match any pattern, state the hostname and ask. If `CLAUDE.lo
 - Domain catalog: `~/.claude/domains/INDEX.md`
 - **Full project catalog: `~/agent-fleet/registry.md`** — read on demand (project ops, `lsd`, or when user mentions other projects)
 
-## Temporary Rules
-
-- **PLAN MODE BROKEN — use Plan subagent instead.** `EnterPlanMode` hangs during extended thinking (crystallize stream stall, upstream bug #26224/#29712). Use `Task` tool with `subagent_type: "Plan"` for all planning tasks. Daily check: test `EnterPlanMode` → if it completes without hanging, remove this rule and delete `~/.claude/knowledge/plan-mode-issues.md` workaround section.
-
 ## Upstream Dependency Policy
 
 **Daily version check is automated** by the SessionStart hook (Check 13.5). It runs `npm view` once per day (date-gated marker file) and surfaces update availability via `additionalContext`. No Claude action needed — just relay findings.
