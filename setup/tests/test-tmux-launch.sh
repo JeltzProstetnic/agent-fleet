@@ -13,6 +13,18 @@ MOCKEOF
 chmod +x "$MOCK_BIN/gpi"
 export PATH="$MOCK_BIN:$PATH"
 
+# CFG-741: a pass-through systemd-run shim so every test is deterministic regardless of
+# whether this box has a user systemd. It records its argv, then runs what follows `--`.
+cat > "$MOCK_BIN/systemd-run" << 'MOCKEOF'
+#!/usr/bin/env bash
+echo "systemd-run $*" >> "$(dirname "$0")/calls.log"   # next to itself: the pane does not inherit our env
+while [[ $# -gt 0 && "$1" != "--" ]]; do shift; done
+shift
+exec "$@"
+MOCKEOF
+chmod +x "$MOCK_BIN/systemd-run"
+export TMUX_LAUNCH_SYSTEMD_RUN="$MOCK_BIN/systemd-run"
+
 # Helper: kill tmux session if it exists (cleanup)
 kill_session() {
     tmux kill-session -t "$1" 2>/dev/null || true
@@ -392,6 +404,127 @@ test_gpi_success_still_reported() {
     assert_contains "$out" "GPI registered" "a successful registration is still reported" || return 1
 }
 run_test "successful GPI registration is still reported" test_gpi_success_still_reported
+
+# ── Memory cap (CFG-741) ────────────────────────────────────────────────────
+# 2026-10-07: an uncapped fan-out filled 48 GB RAM + 16 GB swap, the kernel never
+# OOM-killed, WSL froze ~40 min. Each job now runs in its own cgroup with MemoryMax.
+
+_meminfo() {   # <total_kB> <avail_kB> — writes a fake /proc/meminfo, prints its path
+    local f="$TEST_TMPDIR/meminfo-$1-$2"
+    printf 'MemTotal:       %s kB\nMemFree:        1 kB\nMemAvailable:   %s kB\n' "$1" "$2" > "$f"
+    echo "$f"
+}
+
+_shim() {   # <name> — private copy of the pass-through shim; prints its path (calls.log beside it)
+    local d="$TEST_TMPDIR/sd-$1"; mkdir -p "$d"; cp "$MOCK_BIN/systemd-run" "$d/"; : > "$d/calls.log"; echo "$d/systemd-run"
+}
+
+_wait_exit_code() {   # <log> — wait up to 10 s for the job's EXIT_CODE line
+    local i; for i in $(seq 1 50); do grep -q 'EXIT_CODE:' "$1" 2>/dev/null && return 0; sleep 0.2; done; return 1
+}
+
+test_mem_default_from_available() {
+    # 48 GiB total, 20 GiB available -> available - 4 GiB = 16 GiB = 16384M
+    local session="tl-mem-def-$$" log="$TEST_TMPDIR/mem-def.log" sd; sd=$(_shim def); local calls="$(dirname "$sd")/calls.log"
+    TMUX_LAUNCH_SYSTEMD_RUN="$sd" TMUX_LAUNCH_MEMINFO="$(_meminfo 50331648 20971520)" \
+        bash "$TMUX_LAUNCH" "$session" "mem" --log "$log" "echo job-ran" >/dev/null 2>&1
+    _wait_exit_code "$log"; kill_session "$session"
+    echo "    measured: $(grep -v -- '-- true' "$calls" | head -1)"
+    assert_file_contains "$calls" "MemoryMax=16384M" "default cap = available - 4 GiB" || return 1
+    assert_file_contains "$calls" "MemorySwapMax=0" "the job may not escape into swap" || return 1
+    assert_file_contains "$log" "job-ran" "the job still runs and logs through the cap" || return 1
+    assert_file_contains "$log" "EXIT_CODE: 0" "exit code still captured" || return 1
+}
+run_test "default memory cap is sized from available memory" test_mem_default_from_available
+
+test_mem_default_ceiling() {
+    # 48 GiB total, 46 GiB available -> min(42 GiB, 75% of 48 = 36 GiB) = 36864M
+    local session="tl-mem-ceil-$$" log="$TEST_TMPDIR/mem-ceil.log" sd; sd=$(_shim ceil); local calls="$(dirname "$sd")/calls.log"
+    TMUX_LAUNCH_SYSTEMD_RUN="$sd" TMUX_LAUNCH_MEMINFO="$(_meminfo 50331648 48234496)" \
+        bash "$TMUX_LAUNCH" "$session" "mem" --log "$log" "true" >/dev/null 2>&1
+    _wait_exit_code "$log"; kill_session "$session"
+    assert_file_contains "$calls" "MemoryMax=36864M" "default cap never exceeds 75% of total" || return 1
+}
+run_test "default memory cap is at most 75% of total" test_mem_default_ceiling
+
+test_mem_explicit_override() {
+    local session="tl-mem-x-$$" log="$TEST_TMPDIR/mem-x.log" sd; sd=$(_shim x); local calls="$(dirname "$sd")/calls.log"
+    TMUX_LAUNCH_SYSTEMD_RUN="$sd" bash "$TMUX_LAUNCH" "$session" "mem" --mem 2G --log "$log" "true" >/dev/null 2>&1
+    _wait_exit_code "$log"; kill_session "$session"
+    assert_file_contains "$calls" "MemoryMax=2G" "--mem sets the cap verbatim" || return 1
+}
+run_test "--mem overrides the default cap" test_mem_explicit_override
+
+test_mem_none_runs_uncapped() {
+    local session="tl-mem-none-$$" log="$TEST_TMPDIR/mem-none.log" sd; sd=$(_shim none); local calls="$(dirname "$sd")/calls.log" out
+    out=$(TMUX_LAUNCH_SYSTEMD_RUN="$sd" bash "$TMUX_LAUNCH" "$session" "mem" --log "$log" --mem none "echo free" 2>&1)
+    _wait_exit_code "$log"; kill_session "$session"
+    assert_eq "" "$(cat "$calls")" "--mem none never calls systemd-run" || return 1
+    assert_not_contains "$out" "uncapped" "an explicit opt-out is not warned about" || return 1
+    assert_file_contains "$log" "free" "job runs" || return 1
+}
+run_test "--mem none runs the job uncapped, silently" test_mem_none_runs_uncapped
+
+test_mem_unavailable_falls_back_with_warning() {
+    local session="tl-mem-nosd-$$" log="$TEST_TMPDIR/mem-nosd.log" out rc=0 bad="$TEST_TMPDIR/badsd"
+    mkdir -p "$bad"; printf '#!/usr/bin/env bash\necho "Failed to connect to bus" >&2\nexit 1\n' > "$bad/systemd-run"; chmod +x "$bad/systemd-run"
+    out=$(TMUX_LAUNCH_SYSTEMD_RUN="$bad/systemd-run" bash "$TMUX_LAUNCH" "$session" "mem" --log "$log" "echo still-ran; sleep 3" 2>&1) || rc=$?
+    _wait_exit_code "$log"; kill_session "$session"
+    assert_eq "0" "$rc" "no user systemd must not fail the launch" || return 1
+    assert_contains "$out" "uncapped" "the fallback is warned about" || return 1
+    assert_file_contains "$log" "still-ran" "the job runs anyway" || return 1
+}
+run_test "no working user systemd: job runs uncapped with a warning" test_mem_unavailable_falls_back_with_warning
+
+test_mem_controller_not_delegated_warns() {
+    # systemd-run --user can succeed while the user manager has no memory controller,
+    # and then MemoryMax is silently not enforced. That must read as uncapped, not capped.
+    local session="tl-mem-nodel-$$" log="$TEST_TMPDIR/mem-nodel.log" out sd ctl="$TEST_TMPDIR/controllers-nodel"
+    sd=$(_shim nodel); echo "cpu io pids" > "$ctl"
+    out=$(TMUX_LAUNCH_SYSTEMD_RUN="$sd" TMUX_LAUNCH_CGROUP_CONTROLLERS="$ctl" \
+          bash "$TMUX_LAUNCH" "$session" "mem" --mem 1G --log "$log" "sleep 3" 2>&1) || true
+    kill_session "$session"
+    assert_contains "$out" "uncapped" "an undelegated memory controller is reported" || return 1
+    assert_file_contains "${log}.meta" "memory_cap: none" "meta does not claim a cap" || return 1
+}
+run_test "memory controller not delegated: reported as uncapped" test_mem_controller_not_delegated_warns
+
+test_mem_invalid_value_rejected() {
+    local rc=0 out
+    out=$(bash "$TMUX_LAUNCH" "tl-mem-bad-$$" "mem" --mem lots "true" 2>&1) || rc=$?
+    assert_eq "2" "$rc" "an unparseable --mem exits 2" || return 1
+    assert_contains "$out" "--mem" "message names the flag" || return 1
+}
+run_test "invalid --mem value is rejected" test_mem_invalid_value_rejected
+
+test_mem_quoting_survives() {
+    # The job command is re-quoted into systemd-run's argv; quotes and $ must survive.
+    local session="tl-mem-q-$$" log="$TEST_TMPDIR/mem-q.log"
+    bash "$TMUX_LAUNCH" "$session" "mem" --mem 1G --log "$log" "x='a b'; echo \"<\$x>\" 'c\$d'" >/dev/null 2>&1
+    _wait_exit_code "$log"; kill_session "$session"
+    assert_file_contains "$log" "<a b> c\\\$d" "quoting and variables survive the wrapper" || return 1
+}
+run_test "job command quoting survives the cgroup wrapper" test_mem_quoting_survives
+
+test_mem_real_cgroup_kills_runaway() {
+    # Product test on a box with a working user systemd: a job that outgrows its cap dies,
+    # the launcher survives. Skipped where systemd-run --user does not work.
+    local real; real=$(command -v -p systemd-run 2>/dev/null || true)
+    [[ -z "$real" ]] && real=$(PATH=/usr/bin:/bin command -v systemd-run 2>/dev/null || true)
+    if [[ -z "$real" ]] || ! timeout 10 "$real" --user --scope -q -p MemoryMax=64M -- true 2>/dev/null; then
+        skip_test "real cgroup cap" "systemd-run --user not usable here"; return 0
+    fi
+    local session="tl-mem-real-$$" log="$TEST_TMPDIR/mem-real.log"
+    TMUX_LAUNCH_SYSTEMD_RUN="$real" bash "$TMUX_LAUNCH" "$session" "mem" --mem 64M --log "$log" \
+        "python3 -c 'b=[bytearray(16*1024*1024) for _ in range(40)]; print(\"survived\")'" >/dev/null 2>&1
+    _wait_exit_code "$log"; kill_session "$session"
+    echo "    measured: $(grep -E 'EXIT_CODE|survived|Killed' "$log" | tr '\n' ' ')"
+    assert_file_contains "$log" "EXIT_CODE:" "the job must have actually run to an exit (not vacuous)" || return 1
+    assert_file_contains "${log}.meta" "memory_cap: 64M" "the applied cap is recorded in the .meta sidecar" || return 1
+    assert_not_contains "$(cat "$log")" "survived" "a 640 MB allocation under a 64M cap must be killed" || return 1
+    assert_not_contains "$(cat "$log")" "EXIT_CODE: 0" "the killed job reports a non-zero exit" || return 1
+}
+run_test "real user cgroup: a job over its cap is killed" test_mem_real_cgroup_kills_runaway
 
 # ── Summary ─────────────────────────────────────────────────────────────────
 

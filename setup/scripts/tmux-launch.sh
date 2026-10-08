@@ -2,8 +2,13 @@
 # tmux-launch.sh — Launch a tmux session with automatic GPI registration.
 # Replaces raw `tmux new-session -d` for long-running ops.
 #
-# Usage: tmux-launch.sh <session-name> "<gpi-label>" "<command>"
-#        tmux-launch.sh <session-name> "<gpi-label>" --log <path> "<command>"
+# Usage: tmux-launch.sh <session-name> "<gpi-label>" [--log <path>] [--mem <SIZE>|none] "<command>"
+#
+# CFG-741: every job runs in its own user cgroup (systemd-run --user --scope) with
+# MemoryMax and MemorySwapMax=0, so a runaway is OOM-killed instead of freezing the box
+# (2026-10-07: an uncapped fan-out filled 48 GB + 16 GB swap, WSL hung ~40 min).
+# Default cap: MemAvailable at launch minus 4 GiB, at most 75% of MemTotal, at least 1 GiB.
+# --mem 16G sets it, --mem none opts out. No working user systemd -> runs uncapped + warning.
 #
 # Example:
 #   tmux-launch.sh chaos-scan "Scanning _chaos" --log /tmp/scan.log "bash scan.sh"
@@ -11,7 +16,7 @@
 set -euo pipefail
 
 if [[ $# -lt 3 ]]; then
-    echo "Usage: tmux-launch.sh <session-name> <gpi-label> [--log <path>] <command>" >&2
+    echo "Usage: tmux-launch.sh <session-name> <gpi-label> [--log <path>] [--mem <SIZE>|none] <command>" >&2
     exit 1
 fi
 
@@ -27,12 +32,36 @@ if [[ "$SESSION" == *[.:]* ]]; then
 fi
 
 LOG_PATH=""
-if [[ "${1:-}" == "--log" ]]; then
-    LOG_PATH="$2"
-    shift 2
+MEM=""
+while [[ $# -gt 1 ]]; do
+    case "$1" in
+        --log) LOG_PATH="$2"; shift 2 ;;
+        --mem) MEM="$2"; shift 2 ;;
+        *) break ;;
+    esac
+done
+
+COMMAND="${1:-}"
+if [[ -z "$COMMAND" ]]; then
+    echo "Usage: tmux-launch.sh <session-name> <gpi-label> [--log <path>] [--mem <SIZE>|none] <command>" >&2
+    exit 1
+fi
+if [[ -n "$MEM" && "$MEM" != none && ! "$MEM" =~ ^[0-9]+[KMGT]?$ ]]; then
+    echo "tmux-launch: --mem '$MEM' is not a size (e.g. 512M, 16G) or 'none'" >&2
+    exit 2
 fi
 
-COMMAND="$1"
+# default_mem_cap — MemAvailable - 4 GiB, capped at 75% of MemTotal, floor 1 GiB, in MiB
+default_mem_cap() {
+    local mi="${TMUX_LAUNCH_MEMINFO:-/proc/meminfo}" total avail cap ceil
+    total=$(awk '/^MemTotal:/ {print $2}' "$mi" 2>/dev/null)
+    avail=$(awk '/^MemAvailable:/ {print $2}' "$mi" 2>/dev/null)
+    [[ -n "$total" && -n "$avail" ]] || return 1
+    cap=$(( avail - 4194304 )); ceil=$(( total * 3 / 4 ))
+    (( cap > ceil )) && cap=$ceil
+    (( cap < 1048576 )) && cap=1048576
+    echo "$(( cap / 1024 ))M"
+}
 
 # Kill existing session with same name
 # `-t=` forces EXACT match. Plain `-t` falls back to PREFIX match, so launching
@@ -69,6 +98,31 @@ precreate_log() {
 
 if [[ -n "$LOG_PATH" ]]; then
     precreate_log "$LOG_PATH" "$SESSION" "$COMMAND"
+fi
+
+# Wrap the job in a memory-capped user scope (CFG-741). The systemd-run path is resolved
+# HERE and embedded: the pane runs in the tmux server's environment, not ours.
+MEM_STATUS=""
+if [[ "$MEM" != none ]]; then
+    _sdrun="${TMUX_LAUNCH_SYSTEMD_RUN:-$(command -v systemd-run 2>/dev/null || true)}"
+    [[ -z "$MEM" ]] && MEM=$(default_mem_cap || true)
+    _probe=(); command -v timeout >/dev/null 2>&1 && _probe=(timeout 10)
+    # systemd-run succeeding is not enough: without a delegated memory controller the
+    # user manager accepts MemoryMax and silently does not enforce it.
+    _uid=$(id -u)
+    _ctl="${TMUX_LAUNCH_CGROUP_CONTROLLERS:-/sys/fs/cgroup/user.slice/user-$_uid.slice/user@$_uid.service/cgroup.controllers}"
+    _delegated=1
+    [[ -r "$_ctl" ]] && ! grep -qw memory "$_ctl" && _delegated=0
+    if [[ -n "$MEM" && -n "$_sdrun" && $_delegated -eq 1 ]] && "${_probe[@]}" "$_sdrun" --user --scope -q -p MemoryMax=1G -- true >/dev/null 2>&1; then
+        COMMAND="$_sdrun --user --scope -q -p MemoryMax=$MEM -p MemorySwapMax=0 -- bash -c $(printf '%q' "$COMMAND")"
+        MEM_STATUS=", memory cap $MEM"
+        [[ -n "$LOG_PATH" ]] && echo "memory_cap: $MEM" >> "${LOG_PATH}.meta"
+    else
+        _why="no working 'systemd-run --user'"; [[ $_delegated -eq 0 ]] && _why="memory controller not delegated to the user manager ($_ctl)"
+        echo "WARNING: tmux-launch: $_why — '$SESSION' runs uncapped (a runaway can exhaust memory)" >&2
+        MEM_STATUS=", uncapped"
+        [[ -n "$LOG_PATH" ]] && echo "memory_cap: none ($_why)" >> "${LOG_PATH}.meta"
+    fi
 fi
 
 # Register with GPI FIRST (the whole point of this wrapper)
@@ -141,4 +195,4 @@ if [[ -f "$_registry" ]]; then
     [[ -n "$_pane_pid" ]] && bash "$_registry" add "$_pane_pid" "tmux:$SESSION" "$COMMAND" 2>/dev/null || true
 fi
 
-echo "tmux '$SESSION' launched ($GPI_STATUS)"
+echo "tmux '$SESSION' launched ($GPI_STATUS$MEM_STATUS)"
