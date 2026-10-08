@@ -18,6 +18,14 @@ else
     touch "$_gate" 2>/dev/null || true
 fi
 
+# Dropbox quota (14 GB) — 2026-09-27 a whole-tree mirror put 33 GB there unnoticed.
+# Silent where there is no Dropbox folder; ~6 s over /mnt/c, hence inside the daily gate.
+_DBX_GUARD="$CONFIG_REPO/dms/scripts/dropbox-budget.sh"
+if [ -f "$_DBX_GUARD" ] && [ -d "${DROPBOX_ROOT:-/mnt/c/Dropbox}" ]; then
+    _dbx_line=$(timeout 15 bash "$_DBX_GUARD" check --quiet 2>/dev/null || true)
+    [ -n "$_dbx_line" ] && WARNINGS="${WARNINGS:+$WARNINGS | }$_dbx_line"
+fi
+
 if [ -f "$_DMS_STATS" ]; then
     # --gaps-only: one awk pass (ms); the full report takes ~40 s and only finished
     # its gap section inside the 5 s by luck of section order (CFG-702).

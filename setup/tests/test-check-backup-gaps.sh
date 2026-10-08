@@ -37,6 +37,8 @@ CATALOG
 _run_check() {   # <config_repo> — prints the WARNINGS the check leaves behind
     (
         CONFIG_REPO="$1"; WARNINGS=""
+        # never scan the real Dropbox from a test
+        DROPBOX_ROOT="${DROPBOX_ROOT:-$TEST_TMPDIR/no-dropbox}"
         SCHED_MARKER_DIR="$TEST_TMPDIR/markers"; mkdir -p "$SCHED_MARKER_DIR"
         source "$CHECK"
         printf '%s' "$WARNINGS"
@@ -74,5 +76,39 @@ test_daily_gate() {
     assert_eq "" "$second" "second run the same day is silent (measured: '${second:0:40}')"
 }
 run_test "check 09: runs once per day" test_daily_gate
+
+# --- Dropbox budget (dropbox-budget.sh) ---
+_dropbox_fixture() {   # <repo> <dropbox_root> <bytes> — repo with the guard + a fake Dropbox
+    local repo="$1" root="$2" bytes="$3"
+    _fixture "$repo"
+    cp "$REPO_ROOT/dms/scripts/dropbox-budget.sh" "$repo/dms/scripts/"
+    mkdir -p "$root/DMS-Sync"
+    head -c "$bytes" /dev/zero > "$root/DMS-Sync/a.pdf"
+}
+
+test_dropbox_over_budget_warns() {
+    local repo="$TEST_TMPDIR/cfg-d" root="$TEST_TMPDIR/dbx-d" out
+    _dropbox_fixture "$repo" "$root" 500
+    out="$(DROPBOX_ROOT="$root" DROPBOX_BUDGET_BYTES=100 _run_check "$repo")"
+    assert_contains "$out" "DROPBOX_OVER_BUDGET" "over-budget Dropbox is surfaced (measured: ${out##*| })"
+    assert_contains "$out" "500 bytes" "warning carries the measured size"
+}
+run_test "check 09: Dropbox over budget is surfaced" test_dropbox_over_budget_warns
+
+test_dropbox_under_budget_silent() {
+    local repo="$TEST_TMPDIR/cfg-e" root="$TEST_TMPDIR/dbx-e" out
+    _dropbox_fixture "$repo" "$root" 50
+    out="$(DROPBOX_ROOT="$root" DROPBOX_BUDGET_BYTES=100 _run_check "$repo")"
+    assert_not_contains "$out" "DROPBOX" "Dropbox within budget adds nothing (measured: '${out:0:60}')"
+}
+run_test "check 09: Dropbox within budget is silent" test_dropbox_under_budget_silent
+
+test_dropbox_absent_silent() {
+    local repo="$TEST_TMPDIR/cfg-f" out
+    _dropbox_fixture "$repo" "$TEST_TMPDIR/dbx-f" 500
+    out="$(DROPBOX_ROOT="$TEST_TMPDIR/no-dropbox-here" DROPBOX_BUDGET_BYTES=100 _run_check "$repo")"
+    assert_not_contains "$out" "DROPBOX" "machine without Dropbox adds nothing (measured: '${out:0:60}')"
+}
+run_test "check 09: machine without Dropbox is silent" test_dropbox_absent_silent
 
 suite_summary

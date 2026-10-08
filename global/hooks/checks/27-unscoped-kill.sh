@@ -37,7 +37,7 @@ ASSIGN = re.compile(r"\b(\w+)=\$\(\s*pgrep\b([^)]*)\)")
 INLINE_SUB = re.compile(r"\bkill\b[^;&|]*\$\(\s*pgrep\b([^)]*)\)")
 INLINE_XARGS = re.compile(r"\bpgrep\b([^|;&]*)\|\s*xargs\s+(?:-\S+\s+)*kill\b")
 def sh_pgrep_kills(lines):
-    """The 2026-09-29 incident idiom: pids=$(pgrep -f PAT); kill $pids — and helpers wrapping it,
+    """The 2026-09-29 incident idiom: pids=$(pgrep -f PAT); kill $pids — and helpers wrapping it,  (kill-scope: ok — prose)
     judged at their call sites. Returns line numbers of unscoped kills."""
     found, pvars, helpers, func = [], {}, set(), None
     for n, line in enumerate(lines, 1):
