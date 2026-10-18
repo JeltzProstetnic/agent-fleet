@@ -345,6 +345,12 @@ test_hook_releases_local_lock() {
     make_project_dir "$proj"
 
     source "$LOCK_SCRIPT"
+    # release_lock without a session id proves ownership by pid == $$, so the lock
+    # must record this shell. Since CFG-723 acquire_lock records the resolved CC
+    # pid instead whenever one resolves — and under a live Claude Code session
+    # ancestry resolves that session's CC — so pin the "no CC resolvable" shape
+    # this test has always modelled (same fixture as test-session-lock.sh).
+    local _CC_SELF_PID=""
     acquire_lock "$proj" "hook-test-session"
 
     assert_file_exists "$proj/.claude/.session-lock" "lock should exist before release"

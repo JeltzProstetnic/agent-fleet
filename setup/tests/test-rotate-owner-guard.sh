@@ -28,8 +28,21 @@ _make_project() {
 EOF
 }
 
+# A lock held by a DIFFERENT live session. Since CFG-723 acquire_lock records the
+# acquirer's resolved CC pid; called from this test process inside a real Claude
+# Code session that is THIS session's own CC, so the "foreign" lock read as ours
+# (check_lock rc 1) and the guard let the rotation through. Record a live pid
+# outside our ancestry instead — the foreign leader's launcher shell, which is
+# what the af flow records (afleet passes its own non-CC pid as self_pid). The
+# sleepers are killed by the EXIT trap.
+_FOREIGN_LOCK_PIDS=()
+_kill_foreign_locks() { local p; for p in "${_FOREIGN_LOCK_PIDS[@]}"; do kill "$p" 2>/dev/null || true; done; }
+trap '_kill_foreign_locks' EXIT
 _make_foreign_lock() {
-    ( source "$LOCK_LIB"; acquire_lock "$1" "af-leader" >/dev/null 2>&1 )
+    local fpid
+    sleep 120 & fpid=$!
+    _FOREIGN_LOCK_PIDS+=("$fpid")
+    ( source "$LOCK_LIB"; acquire_lock "$1" "af-leader" "" "$fpid" >/dev/null 2>&1 )
 }
 
 test_refuses_on_foreign_lock() {

@@ -38,11 +38,32 @@ EOF
     (cd "$config_repo" && git add -A && git commit -m "stubs+lib" >/dev/null 2>&1 && git push origin main >/dev/null 2>&1)
 }
 
-# Create a foreign leader lock owned by a different session id (alive PID).
+# Create a foreign leader lock: a different session id AND a live pid outside our
+# ancestry. Since CFG-723 acquire_lock records the acquirer's resolved CC pid; from
+# this test process inside a real Claude Code session that is THIS session's own
+# CC, so the "foreign" lock was provably ours by ancestry: release_own_lock removed
+# it, and with no marker the fallback then made the follower a leader. The pid
+# recorded here is the foreign leader's launcher shell, which is what the af flow
+# records (afleet passes its own non-CC pid as self_pid). Sleepers die on EXIT.
+_FOREIGN_LOCK_PIDS=()
+_kill_foreign_locks() { local p; for p in "${_FOREIGN_LOCK_PIDS[@]}"; do kill "$p" 2>/dev/null || true; done; }
+trap '_kill_foreign_locks' EXIT
 _make_foreign_lock() {
-    local project_dir="$1" leader_sid="$2"
+    local project_dir="$1" leader_sid="$2" fpid
+    sleep 120 & fpid=$!
+    _FOREIGN_LOCK_PIDS+=("$fpid")
     ( source "$REPO_ROOT/setup/scripts/session-lock.sh"
-      acquire_lock "$project_dir" "$leader_sid" >/dev/null 2>&1 )
+      acquire_lock "$project_dir" "$leader_sid" "" "$fpid" >/dev/null 2>&1 )
+}
+
+# Create a lock THIS session owns: the default acquire path, which records our
+# resolved CC pid (CFG-723) when one resolves and this shell's pid otherwise — in
+# both shapes release_own_lock can prove ownership (ancestry, or the degraded
+# sessionId match).
+_make_own_lock() {
+    local project_dir="$1" sid="$2"
+    ( source "$REPO_ROOT/setup/scripts/session-lock.sh"
+      acquire_lock "$project_dir" "$sid" >/dev/null 2>&1 )
 }
 
 # ── FOLLOWER via marker: skips rotate, leaves the leader lock intact ──────────
@@ -98,7 +119,7 @@ test_leader_marker_rotates() {
     mkdir -p "$mock_home"
     _prep_repo "$config_repo" "$project_dir"
     # Leader owns the lock with a matching id, and the marker says leader.
-    _make_foreign_lock "$project_dir" "af-leader"
+    _make_own_lock "$project_dir" "af-leader"
     printf 'leader\n' > "$project_dir/.claude/.session-role.af-leader"
 
     export ROTATE_LOG="$TEST_TMPDIR/rotate.log"; : > "$ROTATE_LOG"

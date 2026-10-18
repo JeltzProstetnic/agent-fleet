@@ -14,6 +14,13 @@ set -uo pipefail
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 HOOK="${CLOUD_GUARD:-$REPO/global/hooks/cloud-publish-guard.sh}"
 
+# The hook reads two per-installation settings from its environment
+# (CLOUD_PUBLISH_PROTECTED_ORG, CLOUD_PUBLISH_ALTERNATIVES — settings.json "env" on
+# a deployed machine, CFG-700). A Claude Code session running this suite inherits
+# them, so the "unconfigured" message below came back as the configured one.
+# Scrub them: every default case is the hook's own default, and 9/9b set them.
+unset CLOUD_PUBLISH_PROTECTED_ORG CLOUD_PUBLISH_ALTERNATIVES
+
 PASS=0; FAIL=0
 ok()  { PASS=$((PASS+1)); echo "  PASS: $1"; }
 bad() { FAIL=$((FAIL+1)); echo "  FAIL: $1"; }
