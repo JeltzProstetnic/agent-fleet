@@ -85,6 +85,14 @@ if [[ ! -f "$AFK_MARKER" ]]; then
   allow "not AFK"
 fi
 
+# --- 3. Auto mode: CC's classifier gates Bash — no Telegram relay (CFG-768) ---
+# The relay outlived CC's 60 s hook timeout, failed open, and the command ran
+# anyway: prompts reached Telegram that gated nothing. AskUserQuestion is
+# still routed above.
+if [[ "$INPUT" =~ \"permission_mode\"[[:space:]]*:[[:space:]]*\"auto\" ]]; then
+  allow "auto mode"
+fi
+
 COMMAND=$(echo "$INPUT" | python3 -c "import sys,json; print(json.load(sys.stdin).get('tool_input',{}).get('command',''))" 2>/dev/null)
 DESCRIPTION=$(echo "$INPUT" | python3 -c "import sys,json; print(json.load(sys.stdin).get('tool_input',{}).get('description',''))" 2>/dev/null)
 

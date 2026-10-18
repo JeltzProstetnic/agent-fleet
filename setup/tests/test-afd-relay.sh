@@ -1269,6 +1269,48 @@ test_ask_user_question_denied_when_no_afd() {
 }
 run_test "AskUserQuestion: denied when afd CLI missing" test_ask_user_question_denied_when_no_afd
 
+# ── Auto mode: no Bash relay (CFG-768, 2026-10-18) ──────────────────────────
+# CC sends permission_mode in the hook input. In auto mode CC's classifier gates
+# Bash; a Telegram relay on top only produced prompts the 60 s hook timeout
+# abandoned (fail-open), so the command ran anyway and the prompt gated nothing.
+
+test_auto_mode_bash_not_relayed() {
+    setup_mock_home
+    set_afk
+    local json='{"tool_name":"Bash","permission_mode":"auto","tool_input":{"command":"rm -rf /tmp/something"}}'
+    local rc=0
+    run_hook_with "$json" || rc=$?
+    assert_eq "0" "$rc" "auto mode: Bash allowed without relay"
+    local calls
+    calls=$(grep -c '^notify' "$MOCK_AFD_LOG" 2>/dev/null || true)
+    assert_eq "0" "${calls:-0}" "auto mode: no Telegram notify sent (got ${calls:-0})"
+}
+run_test "auto mode: dangerous Bash in AFK is not relayed" test_auto_mode_bash_not_relayed
+
+test_default_mode_bash_still_relayed() {
+    setup_mock_home
+    set_afk
+    local json='{"tool_name":"Bash","permission_mode":"default","tool_input":{"command":"rm -rf /tmp/something"}}'
+    local rc=0
+    run_hook_with "$json" || rc=$?
+    local calls
+    calls=$(grep -c '^notify' "$MOCK_AFD_LOG" 2>/dev/null || true)
+    assert_eq "1" "${calls:-0}" "default mode: relay still sends one notify (got ${calls:-0})"
+}
+run_test "default mode: dangerous Bash in AFK is still relayed" test_default_mode_bash_still_relayed
+
+test_auto_mode_ask_user_question_still_relayed() {
+    setup_mock_home
+    set_afk
+    local json='{"tool_name":"AskUserQuestion","permission_mode":"auto","tool_input":{"question":"Continue?"}}'
+    local rc=0
+    run_hook_with "$json" || rc=$?
+    local calls
+    calls=$(grep -c '^notify' "$MOCK_AFD_LOG" 2>/dev/null || true)
+    assert_eq "1" "${calls:-0}" "auto mode: AskUserQuestion still routed (got ${calls:-0})"
+}
+run_test "auto mode: AskUserQuestion is still relayed" test_auto_mode_ask_user_question_still_relayed
+
 # ── Summary ─────────────────────────────────────────────────────────────────
 
 suite_summary
