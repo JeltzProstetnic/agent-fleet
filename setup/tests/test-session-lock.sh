@@ -1428,6 +1428,10 @@ test_cfg723_unresolved_self_falls_back_to_caller_pid() {
 }
 run_test "CFG-723: an unresolved (empty) self pid still records the caller's pid" test_cfg723_unresolved_self_falls_back_to_caller_pid
 
+# CFG-740 (a daemon-hosted background session of the leader is a follower) lives
+# in test-session-lock-bg-session.sh: this file sits at the 1500-line split
+# threshold (CFG-171), and the shape is its own topic.
+
 # ── Summary ─────────────────────────────────────────────────────────────────
 
 suite_summary

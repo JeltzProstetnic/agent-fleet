@@ -1,5 +1,5 @@
 <!-- updates: (none currently) -->
-<!-- consumed-by: global/hooks/checks/07-environment.sh (Check 31 sends override request), global/CLAUDE.md (conditional loading trigger) -->
+<!-- consumed-by: global/hooks/checks/07c-session-lock.sh (SESSION_LOCKED / SESSION_LOCKED_REMOTE / SESSION_LOCK_UNKNOWN point here), global/hooks/checks/06b-lock-knowledge.sh (SESSION_LOCKED_REMOTE), global/CLAUDE.md (conditional loading trigger) -->
 # Follower Mode
 
 Another session holds the project lock. Run `EnterWorktree` NOW — before any file writes.
@@ -24,6 +24,17 @@ When the lock is held by **another machine** (`SESSION_LOCKED_REMOTE`), the Sess
 - If AFD is running: use `afd_lock_release` + `afd_lock_acquire` instead of local file ops
 
 **Stale remote locks:** If a lock is from a crashed session (hours old, no heartbeat), the user should override. Don't auto-override — always confirm with the user first.
+
+## Nested and Background Sessions (CFG-740)
+
+`SESSION_LOCKED … NESTED` means the lock holder is an **ancestor** of this session's own Claude Code process: this session was started *from* the leader — a nested `claude` run from a Bash tool, or a daemon-hosted background session created by `/background` (`/bg`), `/fork`, or the agents view (`←` at an empty prompt). Measured ancestry (life WSL 2026-10-06): `afleet.sh → script → claude.exe (leader) → claude daemon run → claude --bg-pty-host → claude --session-id <this>`.
+
+Follower **by design**, not a stale lock: the leader is alive, owns the lock, and runs its own SessionEnd (rotation, lock release) when it exits. A `force_release` here hands the lock to a second leader while the first is still alive — the CFG-666 clobber. Work in the worktree, or stop this job and continue in the leader.
+
+Background-session facts (Claude Code 2.1.280, read from the binary and the daemon's own records):
+- `/exit` inside an attached background session only **detaches**; the job, its MCP servers and the transient `claude daemon run` keep running and outlive the leader (reparented to init).
+- End a job with `/stop` inside it, or `claude stop <id>` / `claude agents` (ctrl+x twice) from any shell; `claude attach <id>` re-opens it.
+- While a job stays cwd'd in a project, every later session there is a follower too (`SESSION_LOCKED` with no lock file) until the job is stopped.
 
 ## CLAUDE.md Edits Deferred (CFG-384)
 

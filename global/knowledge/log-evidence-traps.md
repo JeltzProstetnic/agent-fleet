@@ -107,6 +107,10 @@ key separator; `grep -n` found nothing, python found the function at line 498, `
 ⇒ A grep miss on a file you know exists is not evidence of absence until you rerun with `grep -a`
 (or `command grep`), or check `file(1)`. pdp fixed the source by writing the separator as `\u0000`.
 
+## 9. A copy to a case-insensitive target exits 0 and still loses files
+
+A bundle holding both `P1.html` and `p1.html` lost 12 files on the NAS (SMB) and the Shield (NTFS) while `rsync` exited 0 — the second name overwrote the first. Only `md5sum -c` against the source manifest caught it (life 2026-10-08). An exit code is not a copy verification on nas/shield/dropbox; a checksum is. See `knowledge/fms-ops.md` § Backup Tiers.
+
 ## The one-line test
 
 Before trusting a check: **what would this command print if it had looked at nothing?** If that output

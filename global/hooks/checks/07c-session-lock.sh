@@ -23,7 +23,27 @@ if [ -f "$_SESSION_LOCK_LIB" ]; then
     case $_lock_rc in
         2)
             _read_lock "$PWD/.claude/.session-lock" 2>/dev/null
-            WARNINGS="${WARNINGS:+$WARNINGS | }SESSION_LOCKED: Project locked by PID $_LOCK_PID (session $_LOCK_SESSION) on this machine. FOLLOWER — load knowledge/follower-mode.md and follow it."
+            # CFG-740: say WHAT holds the project, not just that it is held. The
+            # verdict stays check_lock's; this only names the shape so the next
+            # agent does not file it as a false follower (life WSL 2026-10-06).
+            #  - Holder pid is an ANCESTOR of this session's own CC: this session
+            #    was started FROM the leader — a nested CC, or a daemon-hosted
+            #    background session (/background, /fork, the agents view). The
+            #    leader is alive and will run its own SessionEnd, so this one is
+            #    a follower by design, not the victim of a stale lock.
+            #  - No lock file at all: a live CC is cwd'd here without one — a
+            #    direct launch, or a background job that outlived its leader.
+            _lock_shape=""
+            _own_cc="$(_cc_self_pid)"
+            if [ -n "$_own_cc" ] && [ -n "$_LOCK_PID" ] && _pid_is_descendant_of "$_own_cc" "$_LOCK_PID"; then
+                _lock_shape=" NESTED: the holder is an ancestor of this session's own Claude Code process — this session was started from the leader (nested CC or daemon-hosted background session), follower by design, not a stale lock (CFG-740)."
+            fi
+            if [ -n "$_LOCK_PID" ]; then
+                _lock_desc="Project locked by PID $_LOCK_PID (session $_LOCK_SESSION) on this machine.${_lock_shape}"
+            else
+                _lock_desc="A live Claude Code session is working in this project with no readable lock file (a direct launch, or a background session that outlived its leader — 'claude agents' lists those)."
+            fi
+            WARNINGS="${WARNINGS:+$WARNINGS | }SESSION_LOCKED: ${_lock_desc} FOLLOWER — load knowledge/follower-mode.md and follow it."
             # CFG-452 Phase 2: another live session holds this project → follower.
             # Persist the role so SessionEnd skips shared-state mutation.
             write_role "$PWD" follower "${CC_SESSION_ID:-}" "${AFLEET_SESSION_ID:-}" 2>/dev/null || true

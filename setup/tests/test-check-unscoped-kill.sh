@@ -136,6 +136,21 @@ test_real_incident_file_is_flagged() {
 }
 run_test "check 27: the real pre-fix incident script is flagged (opt-in)" test_real_incident_file_is_flagged
 
+# CFG-735 bundle: the check's own source quotes the incident idiom in a docstring
+# (`pids=$(pgrep -f PAT); kill $pids`, line 40) and flagged ITSELF whenever this config repo
+# was the project — UNSCOPED_KILL at every session start, 2026-09-29. The line carries the
+# `kill-scope: ok` marker since 2026-10-08; measured without it the check reports
+# `scripts/27-unscoped-kill.sh:40`. This pins the check silent on its own source.
+test_check_is_silent_on_its_own_source() {
+    local patched; patched=$(_uk_setup)
+    _uk_track scripts/27-unscoped-kill.sh < "$REPO_ROOT/global/hooks/checks/27-unscoped-kill.sh"
+    local output
+    output=$(run_hook "$patched")
+    echo "    measured UNSCOPED_KILL field: '$(_uk_field "$output")'"
+    assert_not_contains "$output" "UNSCOPED_KILL" "the kill idiom quoted in the check's own docstring is prose, not a finding"
+}
+run_test "check 27: the check's own source (incident idiom quoted in a docstring) is silent" test_check_is_silent_on_its_own_source
+
 test_listing_is_capped() {
     local patched; patched=$(_uk_setup)
     { echo '#!/usr/bin/env bash'; for i in $(seq 1 8); do echo "pkill -f worker$i"; done; } | _uk_track scripts/many.sh

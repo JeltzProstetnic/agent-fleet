@@ -80,6 +80,12 @@ Approved 2026-09-17. Source: a life-management project session, 2026-09-15.
 
 Cards that carry no `<a href>` (Vue click handlers) still lead somewhere: click each card the page offers, record the URL the browser actually lands on, and read the date plus a verbatim excerpt from that article page. Never mine a hidden SEO sitemap or slug-match headlines — both are stale and attach wrong URLs. Honest UA, sandboxed headless Chromium, ≥2 s pacing. Reference implementation: `tools/observe_render_clicks.mjs` in the competitor-monitoring project (50 items across 6 pages, 0 off-site, 2026-09-29).
 
+## Austrian law: the RIS OGD API answers plain curl, the web pages do not
+
+`NormDokument.wxe` pages do not deliver the norm text to curl. The RIS OGD API v2.6 does, and returns the **current** version if you pin the date:
+`https://data.bka.gv.at/ris/api/v2.6/Bundesrecht?Applikation=BrKons&Gesetzesnummer=<NR>&Abschnitt.Von=<P>&Abschnitt.Bis=<P>&Abschnitt.Typ=Paragraph&Fassung.FassungVom=<YYYY-MM-DD>`
+(Landesrecht: `/Landesrecht?Applikation=LrKons&Bundesland.SucheInVorarlberg=true&Gesetzesnummer=<NR>&Fassung.FassungVom=…&DokumenteProSeite=OneHundred`). Without `Fassung.FassungVom` historical versions are mixed into the result. Full recipe: `~/life/knowledge/legal/at-sozialrecht-referenz.md` (life 2026-10-08).
+
 ## Scope
 
 Applies to any project that fetches and parses third-party pages — competitor/news monitoring,

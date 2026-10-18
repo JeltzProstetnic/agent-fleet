@@ -48,6 +48,21 @@ case "$CMD" in
     grep\ *|rg\ *|ag\ *|ack\ *|cat\ *|less\ *|head\ *|tail\ *|awk\ *|sed\ *) exit 0 ;;
 esac
 
+# CFG-735: prose is data, not execution — pkill-guard's CFG-731 pre-pass, shared through
+# lib-prose-strip.sh. Heredoc bodies fed to a non-shell interpreter and the quoted values of
+# message-like flags (-m, --body, …) are dropped before the scan: a python heredoc whose
+# string literals only NAMED kill idioms was refused as if it would signal six unrelated host
+# processes (2026-09-29). Lib not deployed, or no python3 → the raw command is scanned
+# (over-block, the safe failure) — never a kill that slips through.
+source "$(dirname "${BASH_SOURCE[0]}")/lib-prose-strip.sh" 2>/dev/null || true
+if type strip_prose_from_command &>/dev/null; then
+    _stripped=$(strip_prose_from_command "$CMD") && CMD="$_stripped"
+    case "$CMD" in
+        *kill*) ;;
+        *) exit 0 ;;
+    esac
+fi
+
 _REG="${CC_LAUNCH_REGISTRY_LIB:-}"
 if [ -z "$_REG" ]; then
     for _c in "$HOME/cfg-agent-fleet/setup/scripts/launch-registry.sh" \
