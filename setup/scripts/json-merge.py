@@ -6,6 +6,7 @@ Usage: python3 json-merge.py <base> <live> <override>
 - hooks, statusLine, spinnerTipsEnabled, enabledPlugins: base wins (authoritative)
 - env: live preserved, base merged on top (secrets survive, new vars added)
 - permissions.allow: union of both (deduped)
+- permissions.defaultMode: base wins when base sets it (CFG-756)
 - live-only keys (effortLevel, etc.): preserved
 - __HOME__ in base is substituted with $HOME from environment
 
@@ -72,6 +73,10 @@ def main():
     base_perms = set(base.get('permissions', {}).get('allow', []))
     result['permissions'] = live.get('permissions', {})
     result['permissions']['allow'] = sorted(live_perms | base_perms)
+    # permissions.defaultMode: base is authoritative (CFG-756 — CC 2.1.284+
+    # silently defaults to AUTO when unset, so the fleet pins it explicitly)
+    if 'defaultMode' in base.get('permissions', {}):
+        result['permissions']['defaultMode'] = base['permissions']['defaultMode']
 
     # These sections: base is authoritative (latest hooks, structure)
     for key in ['hooks', 'statusLine', 'spinnerTipsEnabled', 'enabledPlugins']:
