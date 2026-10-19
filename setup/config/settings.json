@@ -119,6 +119,15 @@
         "hooks": [
           {
             "type": "command",
+            "command": "bash ~/.claude/hooks/safe-run.sh inbox-watch.sh"
+          }
+        ]
+      },
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
             "command": "bash ~/.claude/hooks/safe-run.sh afk-deactivate.sh"
           }
         ]
