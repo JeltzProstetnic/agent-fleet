@@ -42,7 +42,12 @@ print('\n'.join(out))" 2>/dev/null)
     echo "AFK mode: routing question to Telegram..." >&2
     NL=$'\n'
     TAG="$ME"; declare -F afd_short_name >/dev/null && TAG=$(afd_short_name "$ME")
-    MSG="[$ME] Question from Claude (AFK):${NL}${NL}${QUESTION}${NL}${NL}Reply with your answer as plain text (start with @$TAG if more than one session is waiting). Reply d to decline."
+    if [[ -n "$TAG" ]]; then
+        HOW="start with @$TAG if more than one session is waiting"
+    else
+        HOW="reply untagged; no @tag routes to this project"
+    fi
+    MSG="[$ME] Question from Claude (AFK):${NL}${NL}${QUESTION}${NL}${NL}Reply with your answer as plain text ($HOW). Reply d to decline."
     RESULT=$("$AFD_CLI" notify all "$MSG" --channel telegram --type permission --priority high 2>&1)
     NOTIF_ID=$(echo "$RESULT" | grep -oE '#[0-9]+' | sed 's/^#//')
     if [[ -z "$NOTIF_ID" ]]; then
@@ -57,8 +62,16 @@ print('\n'.join(out))" 2>/dev/null)
     # Only a message NEWER than the question can answer it (ids share one sequence).
     # While waiting, a marker lets any session route an untagged reply here.
     MSG_DIR="${AFD_MSG_DIR:-$HOME/.afd-msgs}"
-    mkdir -p "$MSG_DIR/.waiting" 2>/dev/null && echo "$NOTIF_ID" > "$MSG_DIR/.waiting/$ME"
-    trap 'rm -f "$MSG_DIR/.waiting/$ME"' EXIT
+    # Marker = "<relay pid> <question id>": other hooks tell a live relay from a dead
+    # one's leftover by the pid. The EXIT trap removes it only while it is still ours
+    # (a second session of this project may have taken it over).
+    MARKER="$MSG_DIR/.waiting/$ME"
+    mkdir -p "$MSG_DIR/.waiting" 2>/dev/null && echo "$$ $NOTIF_ID" > "$MARKER"
+    trap '[[ "$(cut -d" " -f1 "$MARKER" 2>/dev/null)" == "$$" ]] && rm -f "$MARKER"' EXIT
+    # The Claude Code process this question belongs to: when it is gone (Esc, /exit,
+    # crash) nobody can receive the answer, so stop instead of eating the next reply.
+    CC_PID="${AFD_RELAY_PARENT_PID:-}"
+    [[ -z "$CC_PID" ]] && declare -F afd_claude_pid >/dev/null && CC_PID=$(afd_claude_pid)
     WAIT=${AFD_AFK_TIMEOUT:-3600}
     # End 30 s early: the settings.json hook timeout (3720) must never fire first,
     # because a killed hook fails OPEN.
@@ -66,7 +79,11 @@ print('\n'.join(out))" 2>/dev/null)
     DEADLINE=$(( $(date +%s) + WAIT ))
     ANSWER=""
     while (( $(date +%s) < DEADLINE )); do
-        # CFG-772(b): MG back at the keyboard ('afk off') releases the wait at once.
+        if [[ -n "$CC_PID" ]] && ! kill -0 "$CC_PID" 2>/dev/null; then
+            echo "Claude Code is gone; the Telegram question was abandoned." >&2
+            exit 2
+        fi
+        # CFG-772(b): the user back at the keyboard ('afk off') releases the wait at once.
         if [[ ! -f "$AFK_MARKER" ]]; then
             echo "AFK was switched off while this question waited for a Telegram answer. The user is back at the console: ask the question again now." >&2
             exit 2

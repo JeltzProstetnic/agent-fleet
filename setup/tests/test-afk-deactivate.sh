@@ -151,7 +151,7 @@ run_test "message addressed to this project needs no triage" test_tagged_message
 test_waiting_question_keeps_its_answer() {
     setup_env
     mkdir -p "$AFD_MSG_DIR/.waiting"
-    echo 900 > "$AFD_MSG_DIR/.waiting/cfg-agent-fleet"
+    echo "$$ 900" > "$AFD_MSG_DIR/.waiting/cfg-agent-fleet"
     printf '%s\n' '{"id":901,"message":"@cfg 1","timestamp":"2026-10-20T00:01","persona":"Bot"}' > "$HOME/pending.jsonl"
     run_prompt "hi"
     assert_not_contains "$OUT" "@cfg 1" "the answer is not injected here (out: $OUT)"
@@ -228,5 +228,29 @@ test_stale_foreign_queue_is_reported() {
     assert_contains "$OUT" "@otherproj: #379" "naming project and message (out: $OUT)"
 }
 run_test "undelivered queue of another project is reported on a prompt" test_stale_foreign_queue_is_reported
+
+
+# Review finding (2026-10-20): the server tags EVERY message with a persona (default bot
+# = the default persona); only a non-default persona asks for a persona switch.
+test_default_persona_no_switch() {
+    setup_env
+    printf '%s\n' '{"id":43,"message":"@cfg-agent-fleet hi","timestamp":"t","persona":"Main"}' > "$HOME/pending.jsonl"
+    local json; json=$(python3 -c 'import json,sys; print(json.dumps({"prompt":"x","cwd":sys.argv[1]}))' "$PROJ")
+    OUT=$(printf '%s' "$json" | AFD_DEFAULT_PERSONA=Main bash "$HOOK" 2>&1)
+    assert_not_contains "$OUT" "ACTION:" "default persona: no switch instruction (out: $OUT)"
+    assert_contains "$OUT" "(Main channel) @cfg-agent-fleet hi" "still labelled with its channel"
+    assert_contains "$OUT" 'afd notify all "[cfg-agent-fleet] your reply" --channel telegram' "tagged default reply"
+}
+run_test "default persona channel asks for no persona switch" test_default_persona_no_switch
+
+test_other_persona_untagged_reply() {
+    setup_env
+    printf '%s\n' '{"id":44,"message":"@cfg-agent-fleet hey","timestamp":"t","persona":"Nova"}' > "$HOME/pending.jsonl"
+    local json; json=$(python3 -c 'import json,sys; print(json.dumps({"prompt":"x","cwd":sys.argv[1]}))' "$PROJ")
+    OUT=$(printf '%s' "$json" | AFD_DEFAULT_PERSONA=Main bash "$HOOK" 2>&1)
+    assert_contains "$OUT" "ACTION:" "another persona: switch instruction"
+    assert_contains "$OUT" 'afd notify all "<your reply>" --channel telegram --persona Nova' "persona reply carries no project prefix (out: $OUT)"
+}
+run_test "other persona channel: switch, untagged persona reply" test_other_persona_untagged_reply
 
 suite_summary

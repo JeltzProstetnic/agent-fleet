@@ -26,17 +26,8 @@ SID="nosession"; CWD="$PWD"
 [[ "$INPUT" =~ \"cwd\"[[:space:]]*:[[:space:]]*\"([^\"]+)\" ]] && CWD="${BASH_REMATCH[1]}"
 ME=$(afd_project_of "$CWD" 2>/dev/null || basename "$CWD")
 
-# The Claude Code process this waiter belongs to: nearest ancestor named claude*.
-claude_pid() {
-    local p=$PPID c
-    while [[ -n "$p" && "$p" -gt 1 ]]; do
-        c=$(cat "/proc/$p/comm" 2>/dev/null) || return 1
-        [[ "$c" == claude* ]] && { echo "$p"; return 0; }
-        p=$(awk '{print $4}' "/proc/$p/stat" 2>/dev/null)
-    done
-    return 1
-}
-PARENT="${AFD_IDLE_PARENT_PID:-$(claude_pid)}"
+# The Claude Code process this waiter belongs to (lib-afd-msg.sh).
+PARENT="${AFD_IDLE_PARENT_PID:-$(afd_claude_pid)}"
 [[ -n "$PARENT" ]] || exit 0
 
 DIR=$(_afd_msg_dir)

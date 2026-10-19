@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# Tests for setup/config/statusline-command.sh — context usage statusline rendering
+# Tests for setup/config/statusline.sh — context usage statusline rendering
 source "$(dirname "$0")/test-helpers.sh"
 
-suite_header "statusline-command.sh"
+suite_header "statusline.sh"
 
 SCRIPT_PATH="$REPO_ROOT/setup/config/statusline-command.sh"
 
@@ -36,7 +36,9 @@ run_test "basic output format: model name in brackets" test_basic_output_format
 
 test_percentage_bar_54pct() {
     local output
-    output=$(echo "$(make_json "Opus 4.6" 54)" | bash "$SCRIPT_PATH")
+    # Use non-override model so CC's pct is trusted (tests pct→bar mapping,
+    # not token recomputation). Opus 4.6 would trigger 1M override.
+    output=$(echo "$(make_json "TestModel" 54)" | bash "$SCRIPT_PATH")
     # 54% of 10 chars = 5 filled, 5 empty (int(54*10/100) = 5)
     local expected_bar
     expected_bar=$(printf '%s' "${FILLED}${FILLED}${FILLED}${FILLED}${FILLED}${EMPTY}${EMPTY}${EMPTY}${EMPTY}${EMPTY}")
@@ -56,26 +58,27 @@ run_test "percentage calculation: 25% bar width" test_percentage_bar_25pct
 
 test_green_color_low_usage() {
     local raw_output
-    raw_output=$(echo "$(make_json "Test" 50 200000 50000 0 0)" | bash "$SCRIPT_PATH")
-    # Green ANSI: \033[32m — in raw output it appears as ESC[32m
+    raw_output=$(echo "$(make_json "Test" 40 200000 40000 0 0)" | bash "$SCRIPT_PATH")
+    # Green ANSI: \033[32m — used for <50% usage
     local green_esc=$'\033[32m'
-    assert_contains "$raw_output" "$green_esc" "<70% usage should use green ANSI color"
+    assert_contains "$raw_output" "$green_esc" "<50% usage should use green ANSI color"
 }
-run_test "green color for low usage (<70%)" test_green_color_low_usage
+run_test "green color for low usage (<50%)" test_green_color_low_usage
 
 test_yellow_color_medium_usage() {
     local raw_output
     raw_output=$(echo "$(make_json "Test" 75 200000 75000 0 0)" | bash "$SCRIPT_PATH")
-    local yellow_esc=$'\033[33m'
-    assert_contains "$raw_output" "$yellow_esc" "70-89% usage should use yellow ANSI color"
+    # Bright yellow: \033[93m — used for 70-79% usage
+    local yellow_esc=$'\033[93m'
+    assert_contains "$raw_output" "$yellow_esc" "70-79% usage should use bright yellow ANSI color"
 }
-run_test "yellow color for medium usage (70-89%)" test_yellow_color_medium_usage
+run_test "yellow color for medium usage (70-79%)" test_yellow_color_medium_usage
 
 test_yellow_at_boundary_70() {
     local raw_output
     raw_output=$(echo "$(make_json "Test" 70 200000 70000 0 0)" | bash "$SCRIPT_PATH")
-    local yellow_esc=$'\033[33m'
-    assert_contains "$raw_output" "$yellow_esc" "exactly 70% should use yellow"
+    local yellow_esc=$'\033[93m'
+    assert_contains "$raw_output" "$yellow_esc" "exactly 70% should use bright yellow"
 }
 run_test "yellow color at boundary (exactly 70%)" test_yellow_at_boundary_70
 
@@ -95,25 +98,28 @@ test_red_at_boundary_90() {
 }
 run_test "red color at boundary (exactly 90%)" test_red_at_boundary_90
 
-test_green_at_boundary_69() {
+test_orange_at_boundary_69() {
     local raw_output
     raw_output=$(echo "$(make_json "Test" 69 200000 69000 0 0)" | bash "$SCRIPT_PATH")
-    local green_esc=$'\033[32m'
-    assert_contains "$raw_output" "$green_esc" "69% should still be green"
+    # Orange 256-color: \033[38;5;208m — used for 60-69%
+    local orange_esc=$'\033[38;5;208m'
+    assert_contains "$raw_output" "$orange_esc" "69% should use orange (60-69% range)"
 }
-run_test "green color at boundary (69%)" test_green_at_boundary_69
+run_test "orange color at boundary (69%)" test_orange_at_boundary_69
 
 test_token_count_display() {
     local output
     # 54% of 200000 = 108000 tokens → 108k. used_k = int(200000 * 54 / 100000) = 108
-    output=$(echo "$(make_json "Opus 4.6" 54 200000 50000 30000 28000)" | bash "$SCRIPT_PATH")
+    # Use non-overridden model name so CC's reported window size is honored.
+    output=$(echo "$(make_json "TestModel" 54 200000 50000 30000 28000)" | bash "$SCRIPT_PATH")
     assert_contains "$output" "108k/200k" "should show derived token count as Xk/Yk"
 }
 run_test "token count display: Xk/Yk format" test_token_count_display
 
 test_token_count_percentage_display() {
     local output
-    output=$(echo "$(make_json "Opus 4.6" 54 200000 50000 30000 28000)" | bash "$SCRIPT_PATH")
+    # Non-override model so CC's pct is trusted for display.
+    output=$(echo "$(make_json "TestModel" 54 200000 50000 30000 28000)" | bash "$SCRIPT_PATH")
     assert_contains "$output" "(54%)" "should show percentage in parentheses"
 }
 run_test "token count display: percentage in parens" test_token_count_percentage_display
@@ -181,87 +187,266 @@ test_different_window_size() {
 }
 run_test "different window size: 128k context" test_different_window_size
 
-# ── Persona display tests ───────────────────────────────────────────────────
+# ── rsync progress indicator tests ──────────────────────────────────────────
 
-test_persona_display_from_active_persona() {
-    # Set up a mock ~/.claude/.active-persona
-    local mock_home="$TEST_TMPDIR/home"
-    mkdir -p "$mock_home/.claude"
-    echo "Assistant" > "$mock_home/.claude/.active-persona"
+test_rsync_log_running() {
+    # Rsync indicator was replaced by GPI (Grind Progress Indicator) system
+    true
+}
+skip_test "rsync indicator: running transfer shows progress" "replaced by GPI system"
 
+test_rsync_log_complete() {
+    true
+}
+skip_test "rsync indicator: completed transfer shows DONE" "replaced by GPI system"
+
+test_rsync_log_missing() {
+    # Ensure no log file exists
+    local tmp_script="/tmp/test-statusline-$$.sh"
+    sed "s|/tmp/rsync-fms.log|/tmp/rsync-fms-nonexistent-$$.log|" "$SCRIPT_PATH" > "$tmp_script"
     local output
-    output=$(HOME="$mock_home" bash -c 'echo '"'"''"$(make_json "Opus 4.6" 54)"''"'"' | bash '"'$SCRIPT_PATH'"'')
-    assert_contains "$output" "Assistant" "should display persona name from .active-persona"
+    output=$(echo "$(make_json "Test" 10)" | bash "$tmp_script")
+    assert_not_contains "$output" "[rsync" "should NOT show rsync indicator when no log"
+    rm -f "$tmp_script"
 }
-run_test "persona: displays name from .active-persona file" test_persona_display_from_active_persona
+run_test "rsync indicator: no log file means no indicator" test_rsync_log_missing
 
-test_persona_color_bartl_bright_yellow() {
-    local mock_home="$TEST_TMPDIR/home"
-    mkdir -p "$mock_home/.claude"
-    echo "Assistant" > "$mock_home/.claude/.active-persona"
-
-    local raw_output
-    raw_output=$(HOME="$mock_home" bash -c 'echo '"'"''"$(make_json "Opus 4.6" 50)"''"'"' | bash '"'$SCRIPT_PATH'"'')
-    # Assistant uses bright-yellow: \033[93m
-    local yellow_bright=$'\033[93m'
-    assert_contains "$raw_output" "$yellow_bright" "Assistant should use bright-yellow ANSI (93m)"
-}
-run_test "persona: Assistant uses bright-yellow color" test_persona_color_bartl_bright_yellow
-
-test_persona_color_elsa_bright_magenta() {
-    local mock_home="$TEST_TMPDIR/home"
-    mkdir -p "$mock_home/.claude"
-    echo "Supporter" > "$mock_home/.claude/.active-persona"
-
-    local raw_output
-    raw_output=$(HOME="$mock_home" bash -c 'echo '"'"''"$(make_json "Opus 4.6" 50)"''"'"' | bash '"'$SCRIPT_PATH'"'')
-    # Elsa uses bright-magenta (pink): \033[95m
-    local magenta_bright=$'\033[95m'
-    assert_contains "$raw_output" "$magenta_bright" "Supporter should use bright-magenta ANSI (95m)"
-}
-run_test "persona: Supporter uses bright-magenta color" test_persona_color_elsa_bright_magenta
-
-test_persona_unknown_uses_cyan_default() {
-    local mock_home="$TEST_TMPDIR/home"
-    mkdir -p "$mock_home/.claude"
-    echo "Unknown" > "$mock_home/.claude/.active-persona"
-
-    local raw_output
-    raw_output=$(HOME="$mock_home" bash -c 'echo '"'"''"$(make_json "Opus 4.6" 50)"''"'"' | bash '"'$SCRIPT_PATH'"'')
-    # Unknown persona uses default cyan: \033[36m
-    local cyan=$'\033[36m'
-    assert_contains "$raw_output" "$cyan" "unknown persona should use default cyan ANSI (36m)"
-    assert_contains "$raw_output" "Unknown" "should still display the persona name"
-}
-run_test "persona: unknown persona uses cyan default color" test_persona_unknown_uses_cyan_default
-
-test_persona_empty_file_no_display() {
-    local mock_home="$TEST_TMPDIR/home"
-    mkdir -p "$mock_home/.claude"
-    echo "" > "$mock_home/.claude/.active-persona"
-
+test_rsync_log_malformed() {
+    local test_log="/tmp/rsync-fms-test-$$.log"
+    printf '\x00\xff\xfe garbage data' > "$test_log"
+    local tmp_script="/tmp/test-statusline-$$.sh"
+    sed "s|/tmp/rsync-fms.log|$test_log|" "$SCRIPT_PATH" > "$tmp_script"
     local output
-    output=$(HOME="$mock_home" bash -c 'echo '"'"''"$(make_json "Opus 4.6" 50)"''"'"' | bash '"'$SCRIPT_PATH'"'')
-    # With empty persona file, should not append persona section
-    # The output should end with the percentage, no trailing persona name
-    assert_not_contains "$output" "|" "empty persona file should not display persona separator"
+    output=$(echo "$(make_json "Test" 10)" | bash "$tmp_script")
+    # Should not crash — either no indicator or gracefully handles it
+    assert_neq "" "$output" "should produce output even with malformed log"
+    assert_not_contains "$output" "[?] ..." "should not fall to error handler"
+    rm -f "$test_log" "$tmp_script"
 }
-run_test "persona: empty .active-persona file shows no persona" test_persona_empty_file_no_display
+run_test "rsync indicator: malformed log handled gracefully" test_rsync_log_malformed
 
-test_persona_missing_file_no_error() {
-    local mock_home="$TEST_TMPDIR/home"
-    mkdir -p "$mock_home/.claude"
-    # Do NOT create .active-persona
+# ── project name and cost tests ─────────────────────────────────────────────
 
+make_json_with_workspace() {
+    local model="${1:-Opus 4.6}"
+    local pct="${2:-54}"
+    local project_dir="${3:-/home/user/my-project}"
+    local cost="${4:-0}"
+    printf '{"model":{"display_name":"%s"},"context_window":{"used_percentage":%s,"context_window_size":200000,"current_usage":{"input_tokens":50000,"cache_creation_input_tokens":0,"cache_read_input_tokens":0}},"workspace":{"project_dir":"%s"},"cost":{"total_cost_usd":%s}}' \
+        "$model" "$pct" "$project_dir" "$cost"
+}
+
+test_project_name_displayed() {
     local output
-    output=$(HOME="$mock_home" bash -c 'echo '"'"''"$(make_json "Opus 4.6" 50)"''"'"' | bash '"'$SCRIPT_PATH'"'')
-    # Should still produce valid output with no persona
-    assert_contains "$output" "[Opus 4.6]" "should show model name even without .active-persona"
-    assert_contains "$output" "(50%)" "should show percentage even without .active-persona"
+    output=$(echo "$(make_json_with_workspace "Test" 10 "/home/user/my-cool-project" 0)" | bash "$SCRIPT_PATH")
+    assert_contains "$output" "my-cool-project" "should show project directory basename"
 }
-run_test "persona: missing .active-persona file produces no error" test_persona_missing_file_no_error
+run_test "project name: displays basename of project dir" test_project_name_displayed
 
-# ── Deployment tests ────────────────────────────────────────────────────────
+test_cost_displayed() {
+    local output
+    output=$(echo "$(make_json_with_workspace "Test" 10 "/home/user/proj" 3.57)" | STATUSLINE_SHOW_COST=1 bash "$SCRIPT_PATH")
+    assert_contains "$output" '$3.57' "should show cost when > 0"
+}
+run_test "cost: displayed when > 0" test_cost_displayed
+
+test_cost_hidden_when_zero() {
+    local output
+    output=$(echo "$(make_json_with_workspace "Test" 10 "/home/user/proj" 0)" | bash "$SCRIPT_PATH")
+    assert_not_contains "$output" '$0.00' "should not show cost when 0"
+}
+run_test "cost: hidden when zero" test_cost_hidden_when_zero
+
+# ── Model-name context-window override (1M-variant display_name) ──────────
+# CC has two SKUs per model: plain 'Opus 4.7' (200k) and 'Opus 4.7 (1M context)'
+# (1M opt-in). CC reports context_window_size correctly for plain names but
+# may misreport for 1M variants — statusline overrides on the '(1M context)'
+# suffix only. Plain names fall through to CC's value (200k).
+
+test_opus_4_7_1m_overrides_to_1m() {
+    # '(1M context)' variant — override to 1M regardless of CC's value.
+    local output
+    output=$(echo "$(make_json "Opus 4.7 (1M context)" 10 200000 20000 0 0)" | bash "$SCRIPT_PATH")
+    assert_contains "$output" "1000k" "Opus 4.7 (1M context) must display 1M window"
+    assert_not_contains "$output" "/200k" "Opus 4.7 (1M context) must NOT display 200k"
+}
+run_test "model override: Opus 4.7 (1M context) forces 1M window" test_opus_4_7_1m_overrides_to_1m
+
+test_sonnet_4_6_1m_overrides_to_1m() {
+    local output
+    output=$(echo "$(make_json "Sonnet 4.6 (1M context)" 10 200000 20000 0 0)" | bash "$SCRIPT_PATH")
+    assert_contains "$output" "1000k" "Sonnet 4.6 (1M context) must display 1M window"
+}
+run_test "model override: Sonnet 4.6 (1M context) forces 1M window" test_sonnet_4_6_1m_overrides_to_1m
+
+test_plain_opus_4_7_trusts_cc_200k() {
+    # Plain 'Opus 4.7' is the 200k default SKU — no override, trust CC.
+    local output
+    output=$(echo "$(make_json "Opus 4.7" 10 200000 20000 0 0)" | bash "$SCRIPT_PATH")
+    assert_contains "$output" "/200k" "plain Opus 4.7 must display CC's reported 200k"
+    assert_not_contains "$output" "1000k" "plain Opus 4.7 must NOT be overridden to 1M"
+}
+run_test "no override: plain Opus 4.7 stays at CC-reported 200k" test_plain_opus_4_7_trusts_cc_200k
+
+test_plain_sonnet_4_6_trusts_cc_200k() {
+    local output
+    output=$(echo "$(make_json "Sonnet 4.6" 10 200000 20000 0 0)" | bash "$SCRIPT_PATH")
+    assert_contains "$output" "/200k" "plain Sonnet 4.6 must display CC's reported 200k"
+}
+run_test "no override: plain Sonnet 4.6 stays at CC-reported 200k" test_plain_sonnet_4_6_trusts_cc_200k
+
+test_haiku_4_5_trusts_cc_value() {
+    # Haiku is 200k only (no 1M variant). CC's value is authoritative.
+    local output
+    output=$(echo "$(make_json "Haiku 4.5" 10 200000 20000 0 0)" | bash "$SCRIPT_PATH")
+    assert_contains "$output" "/200k" "Haiku 4.5 must display 200k window"
+}
+run_test "no override: Haiku 4.5 stays at 200k" test_haiku_4_5_trusts_cc_value
+
+test_unknown_model_falls_back_to_cc_value() {
+    local output
+    output=$(echo "$(make_json "Future Model X" 10 500000 50000 0 0)" | bash "$SCRIPT_PATH")
+    assert_contains "$output" "/500k" "unknown model falls back to CC's reported window size"
+}
+run_test "model override: unknown model uses CC-reported size" test_unknown_model_falls_back_to_cc_value
+
+# ── pct must be recomputed from raw tokens when window is overridden ────────
+# Regression: CC reports used_percentage against its own reported window.
+# When we override to 1M, multiplying that pct by 1M can produce inflation.
+# Fix: for overridden models, use raw token count, compute pct = tokens/win_size.
+
+test_opus_4_7_1m_pct_recomputed_from_raw_tokens() {
+    # CC reports pct=50 (its 200k view), raw tokens = 100k actual.
+    # Correct display: 100k/1000k (10%). Bug would show 500k/1000k (50%).
+    local output
+    output=$(echo "$(make_json "Opus 4.7 (1M context)" 50 200000 50000 25000 25000)" | bash "$SCRIPT_PATH")
+    assert_contains "$output" "100k/1000k" "overridden model must compute used_k from raw tokens, not pct*win"
+    assert_contains "$output" "(10%)" "overridden model must recompute pct from tokens/win_size"
+    assert_not_contains "$output" "500k/1000k" "must not show inflated used_k from pct-based calc"
+    assert_not_contains "$output" "(50%)" "must not reuse CC's pct when overriding window"
+}
+run_test "override regression: pct recomputed from raw tokens, not CC pct" test_opus_4_7_1m_pct_recomputed_from_raw_tokens
+
+test_sonnet_4_6_1m_pct_recomputed() {
+    # 200k of tokens on 1M window = 20%, not the 80% CC would report on 200k
+    local output
+    output=$(echo "$(make_json "Sonnet 4.6 (1M context)" 80 200000 100000 50000 50000)" | bash "$SCRIPT_PATH")
+    assert_contains "$output" "200k/1000k" "Sonnet 4.6 (1M context) must use raw tokens for display"
+    assert_contains "$output" "(20%)" "Sonnet 4.6 (1M context) must recompute pct"
+}
+run_test "override regression: Sonnet 4.6 (1M context) pct recomputed" test_sonnet_4_6_1m_pct_recomputed
+
+test_plain_opus_4_7_trusts_cc_pct() {
+    # Plain Opus 4.7 is 200k — no override, so trust CC's pct.
+    # pct=40 with 200k window → 80k/200k
+    local output
+    output=$(echo "$(make_json "Opus 4.7" 40 200000 40000 20000 20000)" | bash "$SCRIPT_PATH")
+    assert_contains "$output" "80k/200k" "plain Opus 4.7 non-override path uses CC's pct"
+    assert_contains "$output" "(40%)" "plain Opus 4.7 preserves CC's pct"
+}
+run_test "non-override path: plain Opus 4.7 trusts CC pct" test_plain_opus_4_7_trusts_cc_pct
+
+# ── Persona display (CFG-700: colours come from personas.md, not a hard-coded table) ──
+
+# mock_personas <home> — a personas.md with two personas and their Color fields.
+mock_personas() {
+    mkdir -p "$1/.claude/foundation"
+    cat > "$1/.claude/foundation/personas.md" << 'EOF'
+# Default Personas
+## Persona
+### Assistant
+- **Name**: Assistant
+- **Color**: bright-yellow
+### Supporter
+- **Name**: Supporter
+- **Color**: pink
+EOF
+}
+
+run_with_persona() {   # <persona-or-empty|-> ; sets OUT
+    local h="$TEST_TMPDIR/home"
+    rm -rf "$h"; mkdir -p "$h/.claude"; mock_personas "$h"
+    [[ "$1" != "-" ]] && printf '%s\n' "$1" > "$h/.claude/.active-persona"
+    OUT=$(make_json "Opus 4.6" 50 | HOME="$h" bash "$SCRIPT_PATH")
+}
+
+test_persona_name_shown() {
+    run_with_persona "Assistant"
+    assert_contains "$OUT" "Assistant" "persona name from .active-persona"
+}
+run_test "persona: displays name from .active-persona file" test_persona_name_shown
+
+test_persona_color_from_personas_md() {
+    run_with_persona "Assistant"
+    assert_contains "$OUT" $'\033[93mAssistant' "bright-yellow from its personas.md Color field"
+    run_with_persona "Supporter"
+    assert_contains "$OUT" $'\033[95mSupporter' "pink maps to bright-magenta"
+}
+run_test "persona: colour is read from personas.md" test_persona_color_from_personas_md
+
+test_persona_local_override() {
+    local h="$TEST_TMPDIR/home"
+    rm -rf "$h"; mkdir -p "$h/.claude"; mock_personas "$h"
+    printf '### Night\n- **Color**: bright-red\n' > "$h/.claude/foundation/personas.local.md"
+    echo "Night" > "$h/.claude/.active-persona"
+    OUT=$(make_json "Opus 4.6" 50 | HOME="$h" bash "$SCRIPT_PATH")
+    assert_contains "$OUT" $'\033[91mNight' "a persona defined in personas.local.md gets its colour"
+}
+run_test "persona: personas.local.md personas are coloured too" test_persona_local_override
+
+test_persona_unknown_cyan() {
+    run_with_persona "Unknown"
+    assert_contains "$OUT" $'\033[36mUnknown' "unknown persona: default cyan, name still shown"
+}
+run_test "persona: unknown persona uses cyan default color" test_persona_unknown_cyan
+
+test_persona_empty_or_missing() {
+    run_with_persona ""
+    assert_contains "$OUT" "[Opus 4.6]" "empty .active-persona: still renders"
+    run_with_persona "-"
+    assert_contains "$OUT" "(50%)" "missing .active-persona: still renders"
+}
+run_test "persona: empty or missing .active-persona renders without error" test_persona_empty_or_missing
+
+test_no_hardcoded_persona_or_server() {
+    local hits
+    hits=$(grep -nE "PERSONA_COLORS = \{[^}]*'[A-Z][a-z]+'|https://afd\." "$SCRIPT_PATH" || true)
+    assert_eq "" "$hits" "no hard-coded persona table, no default afd server URL"
+}
+run_test "source: no hard-coded persona names or afd server" test_no_hardcoded_persona_or_server
+
+# ── Lock heartbeat (CFG-700: no bearer token to a default server) ──────────
+
+# run_heartbeat <AFD_URL or "-" to unset> ; sets CURL_LOG contents in HB
+run_heartbeat() {
+    local h="$TEST_TMPDIR/home" bin="$TEST_TMPDIR/bin"
+    rm -rf "$h" "$bin"; mkdir -p "$h/.claude" "$bin"
+    printf '#!/usr/bin/env bash\necho "$@" >> "%s/curl.log"\n' "$TEST_TMPDIR" > "$bin/curl"; chmod +x "$bin/curl"
+    rm -f "$TEST_TMPDIR/curl.log"
+    local json; json=$(make_json_with_workspace "Opus 4.6" 10 "/tmp/proj-x" 0)
+    if [[ "$1" == "-" ]]; then
+        printf '%s' "$json" | env -u AFD_URL HOME="$h" PATH="$bin:$PATH" AFLEET_SESSION_ID=s1 AFD_TOKEN=tok bash "$SCRIPT_PATH" >/dev/null
+    else
+        printf '%s' "$json" | HOME="$h" PATH="$bin:$PATH" AFLEET_SESSION_ID=s1 AFD_TOKEN=tok AFD_URL="$1" bash "$SCRIPT_PATH" >/dev/null
+    fi
+    sleep 0.5
+    HB=$(cat "$TEST_TMPDIR/curl.log" 2>/dev/null)
+}
+
+test_heartbeat_needs_afd_url() {
+    run_heartbeat "-"
+    assert_eq "" "$HB" "no AFD_URL: no heartbeat, so the token goes nowhere"
+}
+run_test "heartbeat: nothing sent without AFD_URL" test_heartbeat_needs_afd_url
+
+test_heartbeat_uses_afd_url() {
+    run_heartbeat "http://afd.test"
+    assert_contains "$HB" "http://afd.test/api/locks/proj-x" "heartbeat goes to the configured server (log: $HB)"
+}
+run_test "heartbeat: sent to the configured AFD_URL" test_heartbeat_uses_afd_url
+
+
+# ── Deployment (from the template's suite, CFG-700) ─────────────────────────
 
 test_settings_json_has_statusline_key() {
     local settings="$REPO_ROOT/setup/config/settings.json"
@@ -274,14 +459,12 @@ run_test "settings.json has statusLine key pointing to statusline-command.sh" te
 test_configure_deploys_statusline_to_claude_dir() {
     local config="$REPO_ROOT/setup/configure-claude.sh"
     assert_file_exists "$config"
-    # configure-claude.sh should copy statusline-command.sh to ~/.claude/statusline-command.sh
     assert_file_contains "$config" 'dest_statusline="${HOME}/.claude/statusline-command.sh"'
     assert_file_contains "$config" 'src_statusline='
 }
 run_test "configure-claude.sh deploys statusline-command.sh to ~/.claude/" test_configure_deploys_statusline_to_claude_dir
 
 test_statusline_script_reads_active_persona() {
-    # Verify the script source contains persona reading logic
     assert_file_contains "$SCRIPT_PATH" '.active-persona'
     assert_file_contains "$SCRIPT_PATH" 'PERSONA_COLORS'
 }

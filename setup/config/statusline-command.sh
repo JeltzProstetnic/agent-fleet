@@ -7,10 +7,45 @@ input=$(cat)
 python3 -c "
 import json, sys, os
 
-# Persona colors (ANSI) — must match personas.md Color field
-PERSONA_COLORS = {
-    'Assistant': '\033[93m',   # bright-yellow
-    'Supporter': '\033[95m',   # bright-magenta (pink)
+# Persona colors (ANSI), read from the Color field of each '### <Name>' block in
+# foundation/personas.md and personas.local.md, so any configured persona is coloured.
+COLOR_ANSI = {
+    'black': '\033[30m', 'red': '\033[31m', 'green': '\033[32m', 'yellow': '\033[33m',
+    'blue': '\033[34m', 'magenta': '\033[35m', 'cyan': '\033[36m', 'white': '\033[37m',
+    'bright-red': '\033[91m', 'bright-green': '\033[92m', 'bright-yellow': '\033[93m',
+    'bright-blue': '\033[94m', 'bright-magenta': '\033[95m', 'pink': '\033[95m',
+    'bright-cyan': '\033[96m', 'bright-white': '\033[97m', 'orange': '\033[38;5;208m',
+}
+def load_persona_colors():
+    colors, base = {}, os.path.expanduser('~/.claude/foundation')
+    for fn in ('personas.md', 'personas.local.md'):
+        name = None
+        try:
+            lines = open(os.path.join(base, fn)).read().splitlines()
+        except Exception:
+            continue
+        for line in lines:
+            t = line.strip()
+            if t.startswith('### '):
+                name = t[4:].strip()
+            elif name and t.startswith('- **Color**:'):
+                c = t.split(':', 1)[1].strip().lower()
+                if c in COLOR_ANSI:
+                    colors[name] = COLOR_ANSI[c]
+    return colors
+PERSONA_COLORS = load_persona_colors()
+
+# Model → context-window override. CC has two SKUs per model: the 200k
+# default (e.g., 'Opus 4.7') and the 1M opt-in variant (display_name
+# 'Opus 4.7 (1M context)', model ID '...[1m]'). Plain names are 200k —
+# trust CC's reported value there. Only override when CC's value looks
+# wrong for the 1M variants.
+MODEL_WINDOWS = {
+    'Opus 5 (1M context)':     1000000,
+    'Opus 4.7 (1M context)':   1000000,
+    'Opus 4.6 (1M context)':   1000000,
+    'Sonnet 4.6 (1M context)': 1000000,
+    'Sonnet 4.5 (1M context)': 1000000,
 }
 
 try:
@@ -18,12 +53,27 @@ try:
     model = d.get('model', {}).get('display_name', '?')
     cw = d.get('context_window') or {}
     pct = cw.get('used_percentage') or 0
-    win_size = cw.get('context_window_size') or 1000000
+    win_override = MODEL_WINDOWS.get(model)
+    # Local-model mode (afleet CFG-506). CC reports the alias as the model name and
+    # no context_window_size, so the fallback below would size a 16k session against
+    # 1,000,000 and show it as 2% used when it is nearly exhausted. afleet exports the
+    # PINNED context from local-models.conf — that is the only trustworthy number.
+    _lm = os.environ.get('AFLEET_LOCAL_MODEL') or ''
+    _lctx = os.environ.get('AFLEET_LOCAL_CTX') or ''
+    if _lm:
+        model = 'LOCAL ' + _lm
+        if _lctx.isdigit() and int(_lctx) > 0:
+            win_override = int(_lctx)
+    win_size = win_override or cw.get('context_window_size') or 1000000
     cu = cw.get('current_usage') or {}
     input_tokens = (cu.get('input_tokens') or 0) + (cu.get('cache_creation_input_tokens') or 0) + (cu.get('cache_read_input_tokens') or 0)
-    # Prefer used_percentage (CC's own calc). Only fall back to token-based if
-    # used_percentage is truly 0 AND tokens exist — never mix methods mid-session.
-    if pct > 0:
+    # When overriding CC's window size, CC's used_percentage is computed against
+    # its (wrong) reported window — scaling it by our win_size inflates by
+    # win_size/cc_reported_size. Always recompute from raw tokens on override.
+    if win_override is not None and input_tokens > 0:
+        used_k = input_tokens // 1000
+        pct = (input_tokens / win_size) * 100
+    elif pct > 0:
         used_k = int(win_size * pct / 100000)
     elif input_tokens > 0:
         used_k = input_tokens // 1000
@@ -242,12 +292,13 @@ try:
         except Exception:
             pass
 
-    # Send heartbeat to AFD server if session lock is active
+    # Send heartbeat to AFD server if session lock is active (CFG-101)
     session_id = os.environ.get('AFLEET_SESSION_ID', '')
     afd_token = os.environ.get('AFD_TOKEN', '')
     if session_id and afd_token and project != '?':
         try:
             import subprocess
+            # No default server: a bearer token goes only where AFD_URL points.
             afd_url = os.environ.get('AFD_URL', '')
             if afd_url:
                 subprocess.Popen(
@@ -261,13 +312,31 @@ try:
         except Exception:
             pass
 
-    # Write context budget sidecar for agent self-awareness
-    sidecar_path = os.environ.get('CONTEXT_BUDGET_PATH', os.path.expanduser('~/.claude/.context-budget.json'))
-    try:
-        import json as j2
-        j2.dump({'pct': pct_int, 'remaining': 100 - pct_int, 'size': win_size, 'used_k': used_k}, open(sidecar_path, 'w'))
-    except Exception:
-        pass
+    # Write context budget sidecar for agent self-awareness.
+    # Keyed by session id (CFG-458): a single shared path is last-writer-wins
+    # across concurrent sessions, so the hook would inject another session's
+    # numbers. No sidecar at all is better than someone else's.
+    cc_session = d.get('session_id') or ''
+    sidecar_dir = os.environ.get('CONTEXT_BUDGET_DIR', os.path.expanduser('~/.claude'))
+    sidecar_path = os.environ.get('CONTEXT_BUDGET_PATH', '')
+    if not sidecar_path and cc_session:
+        sidecar_path = os.path.join(sidecar_dir, '.context-budget-' + cc_session + '.json')
+    if sidecar_path:
+        try:
+            import json as j2, glob as _glob, time as _time
+            # Prune sidecars from dead sessions — only on this session's first
+            # write, so the scan costs nothing on subsequent statusline refreshes.
+            if not os.path.exists(sidecar_path):
+                cutoff = _time.time() - 2 * 86400
+                for old in _glob.glob(os.path.join(sidecar_dir, '.context-budget-*.json')):
+                    try:
+                        if os.path.getmtime(old) < cutoff:
+                            os.remove(old)
+                    except Exception:
+                        pass
+            j2.dump({'pct': pct_int, 'remaining': 100 - pct_int, 'size': win_size, 'used_k': used_k}, open(sidecar_path, 'w'))
+        except Exception:
+            pass
 
     sys.stdout.write(f'{project_str} [{model}] {c}{bar} {used_k}k/{total_k}k ({pct_int}%){r}{cost_str}{persona_str}{afk_str}{gpi_str}\n')
 except Exception:

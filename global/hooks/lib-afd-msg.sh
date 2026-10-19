@@ -62,21 +62,38 @@ _afd_resolve_target() {
 }
 
 # afd_short_name <project> — the shortest prefix (3+ chars) that _afd_resolve_target
-# maps back to <project>, for the "@<tag>" hint in a Telegram question; else <project>.
+# maps back to <project>, for the "@<tag>" hint in a Telegram question; empty when no
+# tag routes to <project> (it is not under AFD_PROJECT_ROOTS).
 afd_short_name() {
     local p="$1" n
+    [[ "$(_afd_resolve_target "$p")" == "$p" ]] || return 0   # no tag routes here
     for (( n = 3; n < ${#p}; n++ )); do
         [[ "$(_afd_resolve_target "${p:0:n}")" == "$p" ]] && { echo "${p:0:n}"; return; }
     done
     echo "$p"
 }
 
-# _afd_single_waiter — the project waiting on a Telegram question, if exactly one.
+# _afd_marker_live <marker> — 0 while the relay that wrote it ("<pid> <question id>")
+# is alive. A dead relay's marker (SIGKILL skips its EXIT trap) is removed here.
+_afd_marker_live() {
+    local pid
+    pid=$(cut -d' ' -f1 "$1" 2>/dev/null)
+    [[ "$pid" =~ ^[0-9]+$ ]] && kill -0 "$pid" 2>/dev/null && return 0
+    rm -f "$1"
+    return 1
+}
+
+# _afd_single_waiter — the project waiting on a Telegram question, if exactly one
+# live relay is waiting.
 _afd_single_waiter() {
-    local w="$(_afd_msg_dir)/.waiting" files
+    local w="$(_afd_msg_dir)/.waiting" f live=""
     [[ -d "$w" ]] || return 0
-    files=$(ls -1 "$w" 2>/dev/null)
-    [[ -n "$files" && $(wc -l <<< "$files") -eq 1 ]] && echo "$files"
+    for f in "$w"/*; do
+        [[ -f "$f" ]] && _afd_marker_live "$f" && live="$live$(basename "$f")"$'\n'
+    done
+    live="${live%$'\n'}"
+    [[ -n "$live" && $(wc -l <<< "$live") -eq 1 ]] && echo "$live"
+    return 0
 }
 
 # _afd_afk_switch <on|off> — set or clear the AFK flag from Telegram, logged.
@@ -126,13 +143,24 @@ afd_route_messages() {
 
 # afd_question_waiting <me> — true while <me>'s AskUserQuestion relay waits for a
 # Telegram answer. The relay then owns the queue: any other consumer taking from it
-# could eat the answer and leave the relay blocked (2026-10-20, #406/#408). A marker
-# older than the relay's longest wait (3720 s) is a leftover of a killed relay.
+# could eat the answer and leave the relay blocked (2026-10-20, #406/#408). Liveness
+# comes from the relay pid in the marker, so a killed relay never silences a project.
 afd_question_waiting() {
     local m
     m="$(_afd_msg_dir)/.waiting/$1"
-    [[ -n "$1" && -f "$m" ]] || return 1
-    (( $(date +%s) - $(stat -c %Y "$m" 2>/dev/null || echo 0) < 3720 ))
+    [[ -n "$1" && -f "$m" ]] && _afd_marker_live "$m"
+}
+
+# afd_claude_pid — the Claude Code process this hook runs under: the nearest
+# ancestor whose command name starts with "claude". Empty when there is none.
+afd_claude_pid() {
+    local p=$PPID c
+    while [[ -n "$p" && "$p" -gt 1 ]]; do
+        c=$(cat "/proc/$p/comm" 2>/dev/null) || return 1
+        [[ "$c" == claude* ]] && { echo "$p"; return 0; }
+        p=$(awk '{print $4}' "/proc/$p/stat" 2>/dev/null)
+    done
+    return 1
 }
 
 # afd_take_messages <me> — print and remove this project's queued lines.

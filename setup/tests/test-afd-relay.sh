@@ -1376,7 +1376,7 @@ test_ask_takes_untagged_reply_while_waiting() {
     mock_afd_with_messages
     local proj="$TEST_TMPDIR/Alpha"; mkdir -p "$proj"; git -C "$proj" init -q
     # An untagged reply consumed by ANOTHER session must reach the single waiting session.
-    mkdir -p "$AFD_MSG_DIR/.waiting"; echo 70 > "$AFD_MSG_DIR/.waiting/alpha"
+    mkdir -p "$AFD_MSG_DIR/.waiting"; echo "$$ 70" > "$AFD_MSG_DIR/.waiting/alpha"
     ( source "$REPO_ROOT/global/hooks/lib-afd-msg.sh"
       printf '%s\n' '{"id":81,"message":"add","timestamp":"t","persona":"Bot"}' > "$MOCK_HOME/pending.jsonl"
       HOME="$MOCK_HOME" afd_route_messages "config-repo" >/dev/null )
@@ -1449,5 +1449,58 @@ test_relay_silent_without_queues() {
     assert_eq "" "$HOOK_STDOUT" "no queues: empty stdout (fast path)"
 }
 run_test "relay: no queues, no output" test_relay_silent_without_queues
+
+
+# Review finding (2026-10-20): the marker names the relay's pid so a dead relay's marker
+# can be told apart, and a relay whose Claude Code process is gone stops waiting.
+test_ask_marker_records_relay_pid() {
+    setup_mock_home
+    set_afk
+    local proj="$TEST_TMPDIR/Alpha"; mkdir -p "$proj"; git -C "$proj" init -q
+    set_mock_afd << 'MOCK'
+#!/usr/bin/env bash
+echo "$@" >> "$MOCK_AFD_LOG"
+case "$1" in
+  notify) echo "Notification #95 sent to all" ;;
+  poll) cat "$AFD_MSG_DIR/.waiting/alpha" > "$HOME/marker.seen" 2>/dev/null; echo "fine" ;;
+esac
+exit 0
+MOCK
+    run_hook_with "$(ask_json "$proj")" || true
+    local m; m=$(cat "$MOCK_HOME/marker.seen" 2>/dev/null)
+    assert_contains "$m" " 95" "marker carries the question id (marker: $m)"
+    [[ "${m%% *}" =~ ^[0-9]+$ ]] && r=0 || r=1
+    assert_eq "0" "$r" "marker starts with the relay pid (marker: $m)"
+}
+run_test "AskUserQuestion: waiting marker records the relay pid" test_ask_marker_records_relay_pid
+
+test_ask_stops_when_cc_gone() {
+    setup_mock_home
+    set_afk
+    local proj="$TEST_TMPDIR/Alpha"; mkdir -p "$proj"; git -C "$proj" init -q
+    set_mock_afd << 'MOCK'
+#!/usr/bin/env bash
+case "$1" in notify) echo "Notification #96 sent to all" ;; esac
+exit 0
+MOCK
+    local dead; sleep 0 & dead=$!; wait "$dead"
+    local rc=0 t0=$SECONDS
+    HOOK_AFK_TIMEOUT=30 run_hook_with "$(ask_json "$proj")" env AFD_RELAY_PARENT_PID="$dead" AFD_AFK_POLL_INTERVAL=1 || rc=$?
+    assert_eq "2" "$rc" "the relay stops (rc=$rc)"
+    [[ $(( SECONDS - t0 )) -le 10 ]] && r=0 || r=1
+    assert_eq "0" "$r" "within seconds, not at the timeout (took $(( SECONDS - t0 ))s)"
+    assert_file_not_exists "$AFD_MSG_DIR/.waiting/alpha" "and leaves no marker"
+}
+run_test "AskUserQuestion: relay stops when its Claude Code process is gone" test_ask_stops_when_cc_gone
+
+test_ask_hint_untagged_when_unroutable() {
+    setup_mock_home
+    set_afk
+    local proj="$TEST_TMPDIR/deep/NotUnderRoots"; mkdir -p "$proj"; git -C "$proj" init -q
+    local json; json=$(printf '{"tool_name":"AskUserQuestion","cwd":"%s","tool_input":{"question":"Which?"}}' "$proj")
+    run_hook_with "$json" env -u AFD_PROJECT_ROOTS AFD_AFK_POLL_INTERVAL=1 || true
+    assert_file_not_contains "$MOCK_AFD_LOG" "start with @notunderroots" "no tag advertised that would not route"
+}
+run_test "AskUserQuestion: no tag hint when the project does not route" test_ask_hint_untagged_when_unroutable
 
 suite_summary

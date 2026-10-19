@@ -16,14 +16,11 @@ _sched_lib="$_sched_config_repo/setup/scripts/sched-lib.sh"
 [[ -f "$_sched_lib" ]] || return 0 2>/dev/null || exit 0
 source "$_sched_lib"
 
-# Detect machine from HOSTNAME
-# Override: set SCHED_MACHINE in your machine overlay or env
+# Machine name = SCHED_MACHINE, set per machine in a settings overlay
+# (setup/config/machines/<name>/settings.json env). No hostname table here: it
+# published real hostnames downstream and drifted from the overlay names.
 _sched_detect_machine() {
-    # If already set (e.g., by machine overlay), use it
-    [[ -n "${SCHED_MACHINE:-}" ]] && echo "$SCHED_MACHINE" && return 0
-    # Users: add hostname→machine mapping in your CLAUDE.md identity table
-    # and customize this function in setup/config/machines/<name>/tasks.sh
-    echo ""
+    echo "${SCHED_MACHINE:-}"
 }
 
 # Detect project from PWD

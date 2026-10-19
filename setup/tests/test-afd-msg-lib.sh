@@ -132,7 +132,7 @@ run_test "routing reports the projects it queued messages for" test_route_report
 
 test_untagged_goes_to_single_waiter() {
     setup_env
-    mkdir -p "$AFD_MSG_DIR/.waiting"; echo 3 > "$AFD_MSG_DIR/.waiting/alpha"
+    mkdir -p "$AFD_MSG_DIR/.waiting"; echo "$$ 3" > "$AFD_MSG_DIR/.waiting/alpha"
     pending '{"id":10,"message":"yes","timestamp":"t","persona":"Bot"}'
     afd_route_messages "config-repo" >/dev/null
     local got; got=$(afd_take_messages "alpha")
@@ -142,7 +142,7 @@ run_test "untagged message goes to the single waiting project" test_untagged_goe
 
 test_untagged_two_waiters_stays() {
     setup_env
-    mkdir -p "$AFD_MSG_DIR/.waiting"; echo 3 > "$AFD_MSG_DIR/.waiting/alpha"; echo 4 > "$AFD_MSG_DIR/.waiting/beta"
+    mkdir -p "$AFD_MSG_DIR/.waiting"; echo "$$ 3" > "$AFD_MSG_DIR/.waiting/alpha"; echo "$$ 4" > "$AFD_MSG_DIR/.waiting/beta"
     pending '{"id":11,"message":"yes","timestamp":"t","persona":"Bot"}'
     afd_route_messages "config-repo" >/dev/null
     local got; got=$(afd_take_messages "config-repo")
@@ -248,16 +248,21 @@ test_question_waiting() {
     setup_env
     afd_question_waiting alpha && r=0 || r=1
     assert_eq "1" "$r" "no marker: not waiting"
-    mkdir -p "$AFD_MSG_DIR/.waiting"; echo 7 > "$AFD_MSG_DIR/.waiting/alpha"
+    mkdir -p "$AFD_MSG_DIR/.waiting"; echo "$$ 7" > "$AFD_MSG_DIR/.waiting/alpha"
     afd_question_waiting alpha && r=0 || r=1
-    assert_eq "0" "$r" "fresh marker: waiting"
+    assert_eq "0" "$r" "marker of a live relay: waiting"
     afd_question_waiting beta && r=0 || r=1
     assert_eq "1" "$r" "another project's marker does not count"
-    touch -d '-2 hours' "$AFD_MSG_DIR/.waiting/alpha"
+    local dead; sleep 0 & dead=$!; wait "$dead"
+    echo "$dead 7" > "$AFD_MSG_DIR/.waiting/alpha"
     afd_question_waiting alpha && r=0 || r=1
-    assert_eq "1" "$r" "a marker older than the relay's longest wait is a leftover"
+    assert_eq "1" "$r" "a dead relay's marker is a leftover"
+    assert_file_not_exists "$AFD_MSG_DIR/.waiting/alpha" "and is removed where it is found"
+    echo "7" > "$AFD_MSG_DIR/.waiting/alpha"
+    afd_question_waiting alpha && r=0 || r=1
+    assert_eq "1" "$r" "a marker without a pid is a leftover"
 }
-run_test "question waiting: fresh marker only, per project" test_question_waiting
+run_test "question waiting: only a live relay's marker counts" test_question_waiting
 
 # 2026-10-20 user request: "I should not have to type the whole project name, just what the af
 # matcher would also accept" — the question text suggests the shortest tag that routes.
@@ -266,11 +271,30 @@ test_short_name() {
     assert_eq "con" "$(afd_short_name config-repo)" "shortest unique prefix, at least 3 chars"
     assert_eq "gam" "$(afd_short_name gamma-radar)" "unique prefix"
     assert_eq "bet" "$(afd_short_name beta)" "3 chars is the floor"
-    assert_eq "abc" "$(AFD_PROJECT_ROOTS=$HOME afd_short_name abc)" "a 3-char name stays whole"
+    mkdir -p "$HOME/abc"
+    assert_eq "abc" "$(afd_short_name abc)" "a 3-char name stays whole"
     mkdir -p "$HOME/conflux"
     assert_eq "confi" "$(afd_short_name config-repo)" "grows past a shared prefix (conflux)"
     assert_eq "config-repo" "$(_afd_resolve_target "$(afd_short_name config-repo)")" "the suggested tag routes back to the project"
 }
 run_test "short name: shortest prefix that still routes here" test_short_name
+
+
+# Review finding (2026-10-20): a dead relay's marker kept attracting untagged replies.
+test_single_waiter_ignores_dead_marker() {
+    setup_env
+    local dead; sleep 0 & dead=$!; wait "$dead"
+    mkdir -p "$AFD_MSG_DIR/.waiting"; echo "$dead 3" > "$AFD_MSG_DIR/.waiting/alpha"
+    pending '{"id":12,"message":"yes","timestamp":"t","persona":"Bot"}'
+    afd_route_messages "config-repo" >/dev/null
+    assert_contains "$(afd_take_messages "config-repo")" '"yes"' "a dead waiter does not receive untagged replies"
+}
+run_test "untagged reply skips a dead waiter" test_single_waiter_ignores_dead_marker
+
+test_short_name_unroutable() {
+    setup_env
+    assert_eq "" "$(afd_short_name not-a-known-project)" "no tag that routes: empty"
+}
+run_test "short name: empty when the project does not route" test_short_name_unroutable
 
 suite_summary

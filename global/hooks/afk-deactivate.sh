@@ -68,7 +68,8 @@ if [[ -x "$AFD_CLI" ]]; then
 
     # Persona-agnostic: the channel a message arrived on is read from the message
     # itself, never hardcoded, so this works with whatever personas are configured
-    # in foundation/personas.md.
+    # in foundation/personas.md. The server tags EVERY message with its bot's persona;
+    # only one other than AFD_DEFAULT_PERSONA asks the model to switch persona.
     while IFS= read -r line; do
       msg=$(echo "$line" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('message',''))" 2>/dev/null)
       ts=$(echo "$line" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('timestamp','')[:16])" 2>/dev/null)
@@ -77,7 +78,7 @@ if [[ -x "$AFD_CLI" ]]; then
         [[ "$msg" == @* ]] || HAS_UNTAGGED=true
         if [[ -n "$persona" ]]; then
           COLLECTED="${COLLECTED}[$ts] ($persona channel) $msg"$'\n'
-          LAST_PERSONA="$persona"
+          [[ "$persona" != "${AFD_DEFAULT_PERSONA:-}" ]] && LAST_PERSONA="$persona"
         else
           COLLECTED="${COLLECTED}[$ts] $msg"$'\n'
         fi
@@ -90,7 +91,7 @@ if [[ -x "$AFD_CLI" ]]; then
       echo "$COLLECTED"
       if [[ -n "$LAST_PERSONA" ]]; then
         echo "ACTION: These arrived on the '$LAST_PERSONA' persona channel. Reply as that persona, then switch back."
-        echo "Send reply: afd notify all \"[$ME] <your reply>\" --channel telegram --persona $LAST_PERSONA"
+        echo "Send reply: afd notify all \"<your reply>\" --channel telegram --persona $LAST_PERSONA"
       else
         echo "Reply via: afd notify all \"[$ME] your reply\" --channel telegram"
       fi

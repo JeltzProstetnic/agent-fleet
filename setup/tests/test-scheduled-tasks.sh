@@ -513,4 +513,38 @@ test_prompted_not_due_same_day() {
 }
 run_test "prompted task not re-warned same day" test_prompted_not_due_same_day
 
+
+# ── Check 19 machine detection (CFG-700) ─────────────────────────────────────
+# The machine comes from SCHED_MACHINE (set per machine in a settings overlay), never
+# from a hostname table in the hook — that table published hostnames downstream.
+
+CHECK19="$REPO_ROOT/global/hooks/checks/19-scheduled-tasks.sh"
+_load_detect() { eval "$(sed -n '/^_sched_detect_machine()/,/^}/p' "$CHECK19")"; }
+
+test_check19_uses_sched_machine() {
+    _load_detect
+    assert_eq "deck-x" "$(SCHED_MACHINE=deck-x _sched_detect_machine)" "SCHED_MACHINE wins"
+    assert_eq "" "$(env -u SCHED_MACHINE HOSTNAME=DESKTOP-ABC bash -c "$(declare -f _sched_detect_machine); _sched_detect_machine")" "no SCHED_MACHINE: empty, whatever the hostname"
+}
+run_test "check 19: machine comes from SCHED_MACHINE only" test_check19_uses_sched_machine
+
+test_check19_no_hostnames() {
+    local hits
+    hits=$(grep -nE 'DESKTOP-|srv[0-9]|jupiter|fedora\*|nuc\*|\$user" == "' "$CHECK19" || true)
+    assert_eq "" "$hits" "no hostname or username table in check 19"
+}
+run_test "check 19: no hostname table" test_check19_no_hostnames
+
+test_overlays_name_their_machine() {
+    local d m got bad=""
+    for d in "$REPO_ROOT"/setup/config/machines/*/; do
+        [[ -d "$d" ]] || continue
+        m=$(basename "$d")
+        got=$(python3 -c "import json,sys; print(json.load(open(sys.argv[1])).get('env',{}).get('SCHED_MACHINE',''))" "$d/settings.json" 2>/dev/null)
+        [[ "$got" == "$m" ]] || bad="$bad $m(got:'${got}')"
+    done
+    assert_eq "" "$bad" "every machine overlay sets env.SCHED_MACHINE to its own name"
+}
+run_test "machine overlays: each sets SCHED_MACHINE to its directory name" test_overlays_name_their_machine
+
 suite_summary

@@ -80,7 +80,7 @@ run_test "another project's message is routed, not delivered here" test_foreign_
 test_waiting_question_owns_the_queue() {
     setup_env
     mkdir -p "$AFD_MSG_DIR/.waiting"
-    echo 900 > "$AFD_MSG_DIR/.waiting/proj-a"
+    echo "$$ 900" > "$AFD_MSG_DIR/.waiting/proj-a"
     echo '{"id":901,"message":"@proj-a 1","timestamp":"t","persona":"Bot"}' > "$HOME/pending.jsonl"
     run_waiter s1 "$HOME/proj-a"
     assert_eq "0" "$RC" "no wake while this project's question waits (ends at max wait)"
@@ -91,7 +91,7 @@ run_test "a waiting AskUserQuestion relay owns the project's queue" test_waiting
 test_resumes_after_question_answered() {
     setup_env
     mkdir -p "$AFD_MSG_DIR/.waiting"
-    echo 900 > "$AFD_MSG_DIR/.waiting/proj-a"
+    echo "$$ 900" > "$AFD_MSG_DIR/.waiting/proj-a"
     echo '{"id":902,"message":"@proj-a later","timestamp":"t","persona":"Bot"}' > "$AFD_MSG_DIR/proj-a.jsonl"
     ( sleep 2; rm -f "$AFD_MSG_DIR/.waiting/proj-a" ) &
     run_waiter s1 "$HOME/proj-a"
