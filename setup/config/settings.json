@@ -274,6 +274,19 @@
           }
         ]
       }
+    ],
+    "Stop": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash ~/.claude/hooks/safe-run.sh afd-idle-wake.sh",
+            "asyncRewake": true,
+            "timeout": 43260
+          }
+        ]
+      }
     ]
   },
   "statusLine": {
