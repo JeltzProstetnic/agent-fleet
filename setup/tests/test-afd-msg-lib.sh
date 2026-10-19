@@ -13,6 +13,7 @@ suite_header "lib-afd-msg.sh (Telegram message routing per project)"
 setup_env() {
     export HOME="$TEST_TMPDIR/home"
     export AFD_MSG_DIR="$HOME/.afd-msgs"
+    unset AFD_PROJECT_ROOTS   # the live settings env must not leak into the sandbox
     mkdir -p "$HOME/.local/bin"
     MOCK_AFD="$HOME/.local/bin/afd"
     # Mock: `afd messages` prints whatever is in $HOME/pending.jsonl once, then empties it.
@@ -158,5 +159,35 @@ test_project_of_worktree() {
     assert_eq "config-repo" "$got" "a worktree resolves to its main repo (got: $got)"
 }
 run_test "project name of a git worktree is the main repo" test_project_of_worktree
+
+
+test_telegram_afk_on() {
+    setup_env
+    pending '{"id":20,"message":"afk","timestamp":"t","persona":"Bot"}'
+    local out; out=$(afd_route_messages "config-repo")
+    assert_file_exists "$HOME/.afd-afk" "a Telegram 'afk' switches AFK on"
+    assert_contains "$out" "afk:on" "routing reports it (got: $out)"
+    assert_eq "" "$(afd_take_messages "config-repo")" "the command is not queued as a message"
+}
+run_test "Telegram 'afk' switches AFK on" test_telegram_afk_on
+
+test_telegram_afk_off() {
+    setup_env
+    touch "$HOME/.afd-afk"
+    pending '{"id":21,"message":"AFK off","timestamp":"t","persona":"Bot"}'
+    local out; out=$(afd_route_messages "config-repo")
+    assert_file_not_exists "$HOME/.afd-afk" "a Telegram 'afk off' switches AFK off"
+    assert_contains "$out" "afk:off" "routing reports it (got: $out)"
+}
+run_test "Telegram 'afk off' switches AFK off" test_telegram_afk_off
+
+test_telegram_afk_in_sentence_is_a_message() {
+    setup_env
+    pending '{"id":22,"message":"is afk working now?","timestamp":"t","persona":"Bot"}'
+    afd_route_messages "config-repo" >/dev/null
+    assert_file_not_exists "$HOME/.afd-afk" "'afk' inside a sentence is not a command"
+    assert_contains "$(afd_take_messages "config-repo")" "is afk working" "it is delivered as a message"
+}
+run_test "'afk' inside a sentence is an ordinary message" test_telegram_afk_in_sentence_is_a_message
 
 suite_summary

@@ -11,6 +11,8 @@
 #                        exactly one is (marker $AFD_MSG_DIR/.waiting/<project>),
 #                        else the consumer
 #   - unknown `@name` → the consumer, text intact (e.g. a bot mention)
+#   - a message that is only `afk` / `afk on` / `afk off` (optionally after an
+#     @tag) switches the global AFK flag instead of being queued
 #
 # Queue: $AFD_MSG_DIR/<project>.jsonl (default ~/.afd-msgs), one `afd messages`
 # JSON line per message. Project = lowercased name of the main git repo of a dir.
@@ -67,10 +69,22 @@ _afd_single_waiter() {
     [[ -n "$files" && $(wc -l <<< "$files") -eq 1 ]] && echo "$files"
 }
 
+# _afd_afk_switch <on|off> — set or clear the AFK flag from Telegram, logged.
+_afd_afk_switch() {
+    if [[ "$1" == on ]]; then
+        date -Iseconds > "$HOME/.afd-afk" 2>/dev/null
+    else
+        rm -f "$HOME/.afd-afk"
+    fi
+    mkdir -p "$HOME/.claude/logs" 2>/dev/null
+    echo "$(date +%Y-%m-%dT%H:%M:%S%z) afk-$1 by=telegram" >> "$HOME/.claude/logs/afk.log" 2>/dev/null
+}
+
 # afd_route_messages <me> — consume pending messages, file each into its queue.
-# Prints every OTHER project it queued messages for, once each.
+# Prints "afk:on"/"afk:off" for a Telegram AFK switch, then every OTHER project
+# it queued messages for, once each.
 afd_route_messages() {
-    local me="$1" cli="$HOME/.local/bin/afd" dir line text target waiter raw foreign=""
+    local me="$1" cli="$HOME/.local/bin/afd" dir line text target waiter raw foreign="" cmd status=""
     [[ -x "$cli" && -n "$me" ]] || return 0
     dir=$(_afd_msg_dir)
     raw=$(timeout -k 2 3 "$cli" messages 2>/dev/null) || true
@@ -80,6 +94,11 @@ afd_route_messages() {
     while IFS= read -r line; do
         [[ -n "$line" ]] || continue
         text=$(printf '%s' "$line" | python3 -c "import sys,json; print(json.load(sys.stdin).get('message',''))" 2>/dev/null)
+        cmd=$(printf '%s' "$text" | sed -E 's/^@[A-Za-z0-9_.-]+[[:space:]]*//; s/^[[:space:]]+//; s/[[:space:]!.]+$//' | tr '[:upper:]' '[:lower:]')
+        case "$cmd" in
+            afk|"afk on") _afd_afk_switch on;  status="afk:on";  continue ;;
+            "afk off")    _afd_afk_switch off; status="afk:off"; continue ;;
+        esac
         target=""
         if [[ "$text" =~ ^@([A-Za-z0-9_.-]+) ]]; then
             target=$(_afd_resolve_target "$(printf '%s' "${BASH_REMATCH[1]}" | tr '[:upper:]' '[:lower:]')")
@@ -90,6 +109,7 @@ afd_route_messages() {
         printf '%s\n' "$line" >> "$dir/$target.jsonl"
         [[ "$target" != "$me" && " $foreign " != *" $target "* ]] && foreign="$foreign $target"
     done <<< "$raw"
+    [[ -n "$status" ]] && echo "$status"
     for target in $foreign; do echo "$target"; done
     return 0
 }

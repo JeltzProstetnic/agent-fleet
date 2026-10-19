@@ -1256,6 +1256,7 @@ run_test "auto mode: AskUserQuestion is still relayed" test_auto_mode_ask_user_q
 # Mock afd: notify -> #77; poll -> no response; messages -> $HOME/pending.jsonl once.
 mock_afd_with_messages() {
     export AFD_MSG_DIR="$MOCK_HOME/.afd-msgs" AFD_AFK_POLL_INTERVAL=0
+    unset AFD_PROJECT_ROOTS   # the live settings env must not leak into the sandbox
     set_mock_afd << 'MOCK'
 #!/usr/bin/env bash
 echo "$@" >> "$MOCK_AFD_LOG"
