@@ -207,73 +207,20 @@ test_afk_marker_triggers_approval() {
 }
 run_test "AFK marker present: dangerous command triggers approval" test_afk_marker_triggers_approval
 
-# ── Secondary AFK deactivation ──────────────────────────────────────────────
+# ── No secondary AFK deactivation (CFG-770, 2026-10-18) ─────────────────────
+# AFK stays on through console typing until the user says "afk off".
+# A user-active marker newer than the flag no longer ends AFK.
 
-test_user_active_deactivates_afk() {
+test_user_active_does_not_deactivate_afk() {
     setup_mock_home
     set_afk
     set_user_active
-    # Both markers exist, user-active is newer → AFK should deactivate
-    local json
-    json=$(make_json "Bash" "rm -rf /tmp/something")
     local rc=0
-    run_hook_with "$json" || rc=$?
-    assert_eq "0" "$rc" "command should be allowed after AFK deactivation"
-    # Both markers should be removed
-    assert_file_not_exists "$MOCK_HOME/.afd-afk" "AFK marker should be removed"
-    assert_file_not_exists "$MOCK_HOME/.afd-user-active" "user-active marker should be removed"
+    run_hook_with "$(make_json "Bash" "rm -rf /tmp/something")" || rc=$?
+    assert_file_exists "$MOCK_HOME/.afd-afk" "AFK flag survives a newer user-active marker"
+    assert_file_contains "$MOCK_AFD_LOG" "notify" "the command still goes through approval"
 }
-run_test "user-active marker deactivates AFK (secondary deactivation)" test_user_active_deactivates_afk
-
-test_user_active_older_than_afk_stays_afk() {
-    setup_mock_home
-    # Create user-active FIRST (older)
-    touch "$MOCK_HOME/.afd-user-active"
-    sleep 0.05
-    # Then create AFK marker (newer)
-    touch "$MOCK_HOME/.afd-afk"
-    # user-active is older than afk → AFK stays active
-    local json
-    json=$(make_json "Bash" "rm -rf /tmp/something")
-    local rc=0
-    run_hook_with "$json" || rc=$?
-    # Should go through approval (mock approves → exit 0)
-    assert_eq "0" "$rc"
-    # AFK marker should still exist
-    assert_file_exists "$MOCK_HOME/.afd-afk" "AFK marker should remain (user-active is older)"
-    # afd should have been called for approval
-    assert_file_exists "$MOCK_AFD_LOG" "afd should have been called"
-}
-run_test "user-active older than AFK marker: stays AFK" test_user_active_older_than_afk_stays_afk
-
-test_user_active_without_afk_noop() {
-    setup_mock_home
-    # Only user-active marker, no AFK → nothing to deactivate
-    touch "$MOCK_HOME/.afd-user-active"
-    local json
-    json=$(make_json "Bash" "rm -rf /tmp/something")
-    local rc=0
-    run_hook_with "$json" || rc=$?
-    assert_eq "0" "$rc" "should allow command when not AFK"
-    # user-active marker should remain (only removed during deactivation)
-    assert_file_exists "$MOCK_HOME/.afd-user-active" "user-active should remain when no AFK"
-}
-run_test "user-active without AFK marker: no-op deactivation" test_user_active_without_afk_noop
-
-test_afk_deactivation_then_no_approval() {
-    setup_mock_home
-    set_afk
-    set_user_active
-    # After deactivation, no approval should happen even for dangerous commands
-    local json
-    json=$(make_json "Bash" "rm -rf /tmp/something")
-    local rc=0
-    run_hook_with "$json" || rc=$?
-    assert_eq "0" "$rc"
-    # afd should NOT be called — deactivation short-circuits
-    assert_file_not_exists "$MOCK_AFD_LOG" "no afd call after deactivation"
-}
-run_test "AFK deactivation skips approval entirely" test_afk_deactivation_then_no_approval
+run_test "user-active marker does not end AFK (only 'afk off' does)" test_user_active_does_not_deactivate_afk
 
 # ── Safe command allowlisting ────────────────────────────────────────────────
 
@@ -973,7 +920,7 @@ MOCK_EOF
 
     local poll_call
     poll_call=$(grep "poll" "$MOCK_AFD_LOG" | head -1)
-    assert_contains "$poll_call" "120" "poll should use custom timeout value"
+    assert_contains "$poll_call" "--timeout 90" "poll waits the custom value minus the 30 s safety margin (call: $poll_call)"
 }
 run_test "poll uses AFD_AFK_TIMEOUT env var" test_poll_uses_custom_timeout
 
@@ -1000,7 +947,7 @@ MOCK_EOF
 
     local poll_call
     poll_call=$(grep "poll" "$MOCK_AFD_LOG" | head -1)
-    assert_contains "$poll_call" "3600" "poll should use default 3600 timeout"
+    assert_contains "$poll_call" "--timeout 3570" "poll waits 3600 s minus the 30 s safety margin (call: $poll_call)"
 }
 run_test "poll uses default 3600 timeout when env var unset" test_poll_default_timeout
 
@@ -1125,18 +1072,6 @@ run_test "edge case: env var prefix prevents safe match" test_env_var_prefixed_s
 
 # ── Stderr messages ─────────────────────────────────────────────────────────
 
-test_stderr_afk_deactivation_message() {
-    setup_mock_home
-    set_afk
-    set_user_active
-    local json
-    json=$(make_json "Bash" "rm -rf /tmp/foo")
-    local rc=0
-    run_hook_with "$json" || rc=$?
-    assert_contains "$HOOK_STDERR" "AFK mode deactivated" "should report AFK deactivation on stderr"
-}
-run_test "stderr: AFK deactivation message" test_stderr_afk_deactivation_message
-
 test_stderr_requesting_approval_message() {
     setup_mock_home
     set_afk
@@ -1226,16 +1161,18 @@ MOCK
     local json='{"tool_name":"AskUserQuestion","tool_input":{"question":"What branch should I deploy to?"}}'
     local rc=0
     run_hook_with "$json" || rc=$?
-    assert_eq "0" "$rc" "should allow with injected answer"
+    # CFG-768: the answer goes back to the model as the block reason (exit 2 +
+    # stderr). The old updatedInput:{question:<answer>} overwrote the question
+    # with the answer and is validated as tool input from CC 2.1.300.
+    assert_eq "2" "$rc" "answer is handed to the model via exit 2"
     # Verify the question was sent to Telegram
     assert_file_exists "$MOCK_HOME/.afd-calls.log"
     assert_file_contains "$MOCK_HOME/.afd-calls.log" "notify"
     assert_file_contains "$MOCK_HOME/.afd-calls.log" "What branch should I deploy to?"
     # CFG-708: the question must go to Telegram, not the default 'all' broadcast
     assert_file_contains "$MOCK_HOME/.afd-calls.log" "--channel telegram"
-    # Verify updatedInput is in stdout
-    assert_contains "$HOOK_STDOUT" "updatedInput"
-    assert_contains "$HOOK_STDOUT" "What branch? Use main"
+    assert_contains "$HOOK_STDERR" "What branch? Use main"
+    assert_contains "$HOOK_STDERR" "answered via Telegram"
 }
 run_test "AskUserQuestion: routed to Telegram when AFK" test_ask_user_question_routed_to_telegram_when_afk
 
@@ -1311,6 +1248,140 @@ test_auto_mode_ask_user_question_still_relayed() {
 }
 run_test "auto mode: AskUserQuestion is still relayed" test_auto_mode_ask_user_question_still_relayed
 
+# ── AskUserQuestion: free-text Telegram answers (CFG-768, 2026-10-18) ───────
+# The server only links a 4-letter code or "d" to a pending notification; free
+# text becomes a plain message that `afd messages` hands to whoever polls first.
+# The waiting hook must take its answer from the message queue itself.
+
+# Mock afd: notify -> #77; poll -> no response; messages -> $HOME/pending.jsonl once.
+mock_afd_with_messages() {
+    export AFD_MSG_DIR="$MOCK_HOME/.afd-msgs" AFD_AFK_POLL_INTERVAL=0
+    set_mock_afd << 'MOCK'
+#!/usr/bin/env bash
+echo "$@" >> "$MOCK_AFD_LOG"
+case "$1" in
+  notify) echo "Notification #77 sent to all" ;;
+  poll) exit 1 ;;
+  messages) [[ -f "$HOME/pending.jsonl" ]] && { cat "$HOME/pending.jsonl"; rm -f "$HOME/pending.jsonl"; } ;;
+esac
+exit 0
+MOCK
+}
+
+ask_json() { # ask_json <cwd>
+    python3 -c 'import json,sys; print(json.dumps({"tool_name":"AskUserQuestion","cwd":sys.argv[1],"tool_input":{"questions":[{"question":"Add the caveat to P4?","header":"P4","multiSelect":False,"options":[{"label":"Add","description":"x"},{"label":"Skip","description":"y"}]}]}}))' "$1"
+}
+
+test_ask_free_text_answer() {
+    setup_mock_home
+    set_afk
+    mock_afd_with_messages
+    local proj="$TEST_TMPDIR/Alpha"; mkdir -p "$proj"; git -C "$proj" init -q
+    printf '%s\n' '{"id":90,"message":"@alpha add","timestamp":"t","persona":"Bot"}' > "$MOCK_HOME/pending.jsonl"
+    local rc=0
+    run_hook_with "$(ask_json "$proj")" || rc=$?
+    assert_eq "2" "$rc" "answer handed back via exit 2 (rc=$rc)"
+    assert_contains "$HOOK_STDERR" '"add"' "free-text answer reaches the model, @prefix stripped (stderr: $HOOK_STDERR)"
+}
+run_test "AskUserQuestion: free-text Telegram reply is taken as the answer" test_ask_free_text_answer
+
+test_ask_ignores_other_projects_message() {
+    setup_mock_home
+    set_afk
+    mock_afd_with_messages
+    local proj="$TEST_TMPDIR/Alpha"; mkdir -p "$proj"; git -C "$proj" init -q
+    mkdir -p "$MOCK_HOME/beta"
+    printf '%s\n' '{"id":91,"message":"@beta hello","timestamp":"t","persona":"Bot"}' > "$MOCK_HOME/pending.jsonl"
+    local rc=0
+    HOOK_AFK_TIMEOUT=1 run_hook_with "$(ask_json "$proj")" || rc=$?
+    assert_not_contains "$HOOK_STDERR" "hello" "another project's message is not an answer (stderr: $HOOK_STDERR)"
+    assert_file_contains "$MOCK_HOME/.afd-msgs/beta.jsonl" "@beta hello" "it is queued for its project instead"
+}
+run_test "AskUserQuestion: a message for another project is not the answer" test_ask_ignores_other_projects_message
+
+test_ask_sends_current_schema_question() {
+    setup_mock_home
+    set_afk
+    mock_afd_with_messages
+    local proj="$TEST_TMPDIR/Alpha"; mkdir -p "$proj"; git -C "$proj" init -q
+    printf '%s\n' '{"id":92,"message":"skip","timestamp":"t","persona":"Bot"}' > "$MOCK_HOME/pending.jsonl"
+    run_hook_with "$(ask_json "$proj")" || true
+    assert_file_contains "$MOCK_AFD_LOG" "Add the caveat to P4?" "questions[] text is sent (current CC schema)"
+    assert_file_contains "$MOCK_AFD_LOG" "Skip" "option labels are sent"
+    assert_file_contains "$MOCK_AFD_LOG" "[alpha]" "the asking project is named"
+}
+run_test "AskUserQuestion: current questions[] schema and project are sent" test_ask_sends_current_schema_question
+
+
 # ── Summary ─────────────────────────────────────────────────────────────────
+
+
+test_ask_ignores_stale_queued_message() {
+    setup_mock_home
+    set_afk
+    mock_afd_with_messages
+    local proj="$TEST_TMPDIR/Alpha"; mkdir -p "$proj"; git -C "$proj" init -q
+    mkdir -p "$AFD_MSG_DIR"
+    printf '%s\n' '{"id":5,"message":"old chatter","timestamp":"t","persona":"Bot"}' > "$AFD_MSG_DIR/alpha.jsonl"
+    printf '%s\n' '{"id":80,"message":"skip","timestamp":"t","persona":"Bot"}' > "$MOCK_HOME/pending.jsonl"
+    local rc=0
+    run_hook_with "$(ask_json "$proj")" || rc=$?
+    assert_contains "$HOOK_STDERR" '"skip"' "only a message newer than the question answers it (stderr: $HOOK_STDERR)"
+    assert_file_contains "$AFD_MSG_DIR/alpha.jsonl" "old chatter" "the older message stays queued"
+}
+run_test "AskUserQuestion: a message older than the question is not its answer" test_ask_ignores_stale_queued_message
+
+test_ask_takes_untagged_reply_while_waiting() {
+    setup_mock_home
+    set_afk
+    mock_afd_with_messages
+    local proj="$TEST_TMPDIR/Alpha"; mkdir -p "$proj"; git -C "$proj" init -q
+    # An untagged reply consumed by ANOTHER session must reach the single waiting session.
+    mkdir -p "$AFD_MSG_DIR/.waiting"; echo 70 > "$AFD_MSG_DIR/.waiting/alpha"
+    ( source "$REPO_ROOT/global/hooks/lib-afd-msg.sh"
+      printf '%s\n' '{"id":81,"message":"add","timestamp":"t","persona":"Bot"}' > "$MOCK_HOME/pending.jsonl"
+      HOME="$MOCK_HOME" afd_route_messages "config-repo" >/dev/null )
+    assert_file_contains "$AFD_MSG_DIR/alpha.jsonl" '"add"' "untagged reply routed to the waiting project"
+}
+run_test "untagged reply goes to the single session waiting on a question" test_ask_takes_untagged_reply_while_waiting
+
+test_ask_declined_with_d() {
+    setup_mock_home
+    set_afk
+    set_mock_afd << 'MOCK'
+#!/usr/bin/env bash
+echo "$@" >> "$MOCK_AFD_LOG"
+case "$1" in notify) echo "Notification #78 sent to all" ;; poll) echo denied ;; esac
+exit 0
+MOCK
+    local rc=0
+    run_hook_with '{"tool_name":"AskUserQuestion","tool_input":{"question":"Go?"}}' || rc=$?
+    assert_eq "2" "$rc" "declined question blocks (rc=$rc)"
+    assert_contains "$HOOK_STDERR" "declined" "the model is told the user declined"
+}
+run_test "AskUserQuestion: 'd' on Telegram declines" test_ask_declined_with_d
+
+test_ask_waiting_marker_removed() {
+    setup_mock_home
+    set_afk
+    mock_afd_with_messages
+    local proj="$TEST_TMPDIR/Alpha"; mkdir -p "$proj"; git -C "$proj" init -q
+    printf '%s\n' '{"id":93,"message":"ok","timestamp":"t","persona":"Bot"}' > "$MOCK_HOME/pending.jsonl"
+    run_hook_with "$(ask_json "$proj")" || true
+    assert_file_not_exists "$AFD_MSG_DIR/.waiting/alpha" "waiting marker removed after the answer"
+}
+run_test "AskUserQuestion: waiting marker is cleaned up" test_ask_waiting_marker_removed
+
+test_settings_timeout_exceeds_hook_wait() {
+    local got
+    got=$(python3 -c "
+import json
+s = json.load(open('$REPO_ROOT/setup/config/settings.json'))
+t = [h.get('timeout', 0) for g in s['hooks'].get('PreToolUse', []) for h in g['hooks'] if 'afd-relay.sh' in h['command']]
+print(min(t) if t else 0)")
+    [[ "$got" -ge 3660 ]] && ok=0 || ok=1
+    assert_eq "0" "$ok" "every afd-relay registration outlasts the 3600 s wait by >= 60 s (min timeout: $got)"
+}
+run_test "settings: afd-relay hook timeout outlasts its own wait" test_settings_timeout_exceeds_hook_wait
 
 suite_summary

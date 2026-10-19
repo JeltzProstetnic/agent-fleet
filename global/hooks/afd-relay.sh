@@ -24,10 +24,24 @@ if [[ "$INPUT" == *'"tool_name":"AskUserQuestion"'* || "$INPUT" == *'"tool_name"
         echo "AFK mode active but afd CLI not found — cannot route question" >&2
         exit 2
     fi
-    QUESTION=$(echo "$INPUT" | python3 -c "import sys,json; print(json.load(sys.stdin).get('tool_input',{}).get('question',''))" 2>/dev/null)
+    source "$(dirname "${BASH_SOURCE[0]}")/lib-afd-msg.sh" 2>/dev/null || true
+    CWD=$(echo "$INPUT" | python3 -c "import sys,json; print(json.load(sys.stdin).get('cwd',''))" 2>/dev/null)
+    ME=$(afd_project_of "${CWD:-$PWD}" 2>/dev/null || basename "${CWD:-$PWD}")
+    # Current CC schema is tool_input.questions[]; the old single 'question' field is kept as a fallback.
+    QUESTION=$(echo "$INPUT" | python3 -c "
+import sys, json
+t = json.load(sys.stdin).get('tool_input', {})
+out = []
+for q in t.get('questions') or []:
+    out.append(q.get('question', ''))
+    for i, o in enumerate(q.get('options') or [], 1):
+        out.append(f'  {i}) {o.get(\"label\", \"\")}')
+if not out and t.get('question'):
+    out.append(t['question'])
+print('\n'.join(out))" 2>/dev/null)
     echo "AFK mode: routing question to Telegram..." >&2
     NL=$'\n'
-    MSG="Question from Claude (AFK):${NL}${NL}${QUESTION}${NL}${NL}Reply with your answer."
+    MSG="[$ME] Question from Claude (AFK):${NL}${NL}${QUESTION}${NL}${NL}Reply with your answer as plain text (start with @$ME if more than one session is waiting). Reply d to decline."
     RESULT=$("$AFD_CLI" notify all "$MSG" --channel telegram --type permission --priority high 2>&1)
     NOTIF_ID=$(echo "$RESULT" | grep -oE '#[0-9]+' | sed 's/^#//')
     if [[ -z "$NOTIF_ID" ]]; then
@@ -35,15 +49,53 @@ if [[ "$INPUT" == *'"tool_name":"AskUserQuestion"'* || "$INPUT" == *'"tool_name"
         exit 2
     fi
     echo "Waiting for answer (#$NOTIF_ID)..." >&2
-    ANSWER=$("$AFD_CLI" poll "$NOTIF_ID" --timeout ${AFD_AFK_TIMEOUT:-3600} 2>&1)
-    if [[ $? -ne 0 || -z "$ANSWER" ]]; then
-        echo "No answer received (timeout). Blocking." >&2
+    # CFG-768: free text never reaches the notification's response (the server links
+    # only a 4-letter code or "d"); it arrives as a plain message, so take it from
+    # this project's message queue. "d" still arrives through the notification.
+    # Only a message NEWER than the question can answer it (ids share one sequence).
+    # While waiting, a marker lets any session route an untagged reply here.
+    MSG_DIR="${AFD_MSG_DIR:-$HOME/.afd-msgs}"
+    mkdir -p "$MSG_DIR/.waiting" 2>/dev/null && echo "$NOTIF_ID" > "$MSG_DIR/.waiting/$ME"
+    trap 'rm -f "$MSG_DIR/.waiting/$ME"' EXIT
+    WAIT=${AFD_AFK_TIMEOUT:-3600}
+    # End 30 s early: the settings.json hook timeout (3720) must never fire first,
+    # because a killed hook fails OPEN.
+    (( WAIT > 60 )) && WAIT=$(( WAIT - 30 ))
+    DEADLINE=$(( $(date +%s) + WAIT ))
+    ANSWER=""
+    while (( $(date +%s) < DEADLINE )); do
+        R=$(timeout -k 2 15 "$AFD_CLI" poll "$NOTIF_ID" --timeout 1 2>/dev/null) || R=""
+        if [[ "$R" == "denied" ]]; then
+            echo "The user declined to answer this question via Telegram (AFK). Do not ask again; continue without it." >&2
+            exit 2
+        elif [[ -n "$R" ]]; then
+            ANSWER="$R"; break
+        fi
+        if declare -F afd_route_messages >/dev/null; then
+            afd_route_messages "$ME" >/dev/null
+            QUEUED=$(afd_take_messages "$ME")
+            KEEP=""
+            while IFS= read -r line; do
+                [[ -n "$line" ]] || continue
+                if [[ -z "$ANSWER" ]] && (( $(afd_message_id "$line") > NOTIF_ID )); then
+                    ANSWER=$(afd_message_text "$line")
+                    [[ -n "$ANSWER" ]] && continue
+                fi
+                KEEP="$KEEP$line"$'\n'
+            done <<< "$QUEUED"
+            [[ -n "$KEEP" ]] && printf '%s' "$KEEP" >> "$MSG_DIR/$ME.jsonl"
+            [[ -n "$ANSWER" ]] && break
+        fi
+        sleep "${AFD_AFK_POLL_INTERVAL:-5}"
+    done
+    if [[ -z "$ANSWER" ]]; then
+        echo "No answer received via Telegram (timeout). Ask again when the user is back." >&2
         exit 2
     fi
-    # Return updatedInput with the user's answer injected as the question response
-    printf '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"allow","updatedInput":{"question":"%s"}}}' \
-        "$(echo "$ANSWER" | python3 -c "import sys,json; print(json.dumps(sys.stdin.read().strip())[1:-1])" 2>/dev/null)"
-    exit 0
+    # Hand the answer to the model as the block reason: version-proof, unlike
+    # rewriting the tool input (validated as tool input from CC 2.1.300).
+    echo "The user answered via Telegram (AFK): \"$ANSWER\" — treat this as the user's answer to your question and continue; do not ask it again." >&2
+    exit 2
 fi
 
 # Non-Bash tools: exit 0 with no output (CC treats empty stdout + exit 0 as hook_success)
@@ -54,7 +106,6 @@ fi
 # --- From here on, we know it's a Bash tool call ---
 
 AFK_MARKER="$HOME/.afd-afk"
-USER_ACTIVE_MARKER="$HOME/.afd-user-active"
 AFD_CLI="${HOME}/.local/bin/afd"
 
 # Allow: exit 0 with no stdout (CC treats empty stdout + exit 0 as hook_success)
@@ -69,16 +120,8 @@ deny() {
   exit 2
 }
 
-# --- 1. Secondary AFK deactivation ---
-# UserPromptSubmit doesn't fire for interrupt messages during agent execution.
-# If user typed something (marker written by afk-deactivate.sh), deactivate AFK here.
-if [[ -f "$AFK_MARKER" && -f "$USER_ACTIVE_MARKER" ]]; then
-  if [[ "$USER_ACTIVE_MARKER" -nt "$AFK_MARKER" ]]; then
-    rm -f "$AFK_MARKER" "$USER_ACTIVE_MARKER"
-    echo "AFK mode deactivated (user returned)." >&2
-    allow "AFK deactivated"
-  fi
-fi
+# --- 1. No secondary deactivation: AFK stays on until the user says "afk off"
+# (CFG-770, 2026-10-18), which afk-deactivate.sh handles. ---
 
 # --- 2. AFK permission approval (only when AFK marker exists) ---
 if [[ ! -f "$AFK_MARKER" ]]; then
@@ -139,7 +182,8 @@ fi
 echo "Waiting for approval (#$NOTIF_ID)..." >&2
 
 # Poll for response (default 1 hour)
-RESPONSE=$("$AFD_CLI" poll "$NOTIF_ID" --timeout ${AFD_AFK_TIMEOUT:-3600} 2>&1)
+# Hard-bounded below the settings.json hook timeout (3720): a killed hook fails OPEN.
+RESPONSE=$(timeout -k 5 "${AFD_AFK_TIMEOUT:-3600}" "$AFD_CLI" poll "$NOTIF_ID" --timeout $(( ${AFD_AFK_TIMEOUT:-3600} > 60 ? ${AFD_AFK_TIMEOUT:-3600} - 30 : ${AFD_AFK_TIMEOUT:-3600} )) 2>&1)
 EXIT_CODE=$?
 
 if [[ $EXIT_CODE -eq 0 && "$RESPONSE" == "approved" ]]; then
