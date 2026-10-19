@@ -1311,6 +1311,22 @@ ask_json() { # ask_json <cwd>
     python3 -c 'import json,sys; print(json.dumps({"tool_name":"AskUserQuestion","cwd":sys.argv[1],"tool_input":{"questions":[{"question":"Add the caveat to P4?","header":"P4","multiSelect":False,"options":[{"label":"Add","description":"x"},{"label":"Skip","description":"y"}]}]}}))' "$1"
 }
 
+# CFG-773: the answer goes back through updatedInput.answers with permissionDecision
+# allow, so CC shows it as the user's answer instead of "PreToolUse hook error".
+ask_answer() { # ask_answer <question text> — the answer for it in $HOOK_STDOUT
+    printf '%s' "$HOOK_STDOUT" | python3 -c 'import json,sys; d=json.load(sys.stdin)["hookSpecificOutput"]; print(d["updatedInput"]["answers"].get(sys.argv[1],"")) if d.get("permissionDecision")=="allow" else print("")' "$1" 2>/dev/null
+}
+ask2_json() { # two questions
+    python3 -c 'import json,sys; print(json.dumps({"tool_name":"AskUserQuestion","cwd":sys.argv[1],"tool_input":{"questions":[{"question":"Q one?","header":"A","multiSelect":False,"options":[{"label":"A1","description":"x"},{"label":"A2","description":"y"}]},{"question":"Q two?","header":"B","multiSelect":False,"options":[{"label":"B1","description":"x"},{"label":"B2","description":"y"},{"label":"B3","description":"z"}]}]}}))' "$1"
+}
+ask_reply() { # ask_reply <json-builder> <message> — run the relay with one queued reply
+    setup_mock_home; set_afk; mock_afd_with_messages
+    local proj="$TEST_TMPDIR/Alpha"; mkdir -p "$proj"; git -C "$proj" init -q
+    python3 -c 'import json,sys; print(json.dumps({"id":97,"message":sys.argv[1],"timestamp":"t","persona":"Bot"}))' "$2" > "$MOCK_HOME/pending.jsonl"
+    ASK_RC=0
+    run_hook_with "$($1 "$proj")" || ASK_RC=$?
+}
+
 test_ask_free_text_answer() {
     setup_mock_home
     set_afk
@@ -1319,10 +1335,44 @@ test_ask_free_text_answer() {
     printf '%s\n' '{"id":90,"message":"@alpha add","timestamp":"t","persona":"Bot"}' > "$MOCK_HOME/pending.jsonl"
     local rc=0
     run_hook_with "$(ask_json "$proj")" || rc=$?
-    assert_eq "2" "$rc" "answer handed back via exit 2 (rc=$rc)"
-    assert_contains "$HOOK_STDERR" '"add"' "free-text answer reaches the model, @prefix stripped (stderr: $HOOK_STDERR)"
+    assert_eq "0" "$rc" "answer delivered as an allowed tool call, not a hook error (rc=$rc)"
+    assert_eq "Add" "$(ask_answer "Add the caveat to P4?")" "a reply matching an option label (any case) becomes that label, @prefix stripped (stdout: $HOOK_STDOUT)"
 }
 run_test "AskUserQuestion: free-text Telegram reply is taken as the answer" test_ask_free_text_answer
+
+test_ask_digit_maps_to_label() {
+    ask_reply ask_json "@alpha 2"
+    assert_eq "0" "$ASK_RC" "allowed"
+    assert_eq "Skip" "$(ask_answer "Add the caveat to P4?")" "digit N = option N's label"
+    assert_contains "$HOOK_STDOUT" '"questions"' "the original questions are passed through"
+}
+run_test "AskUserQuestion: a digit reply becomes that option's label" test_ask_digit_maps_to_label
+
+test_ask_free_text_other() {
+    ask_reply ask_json "@alpha only after the review"
+    assert_eq "only after the review" "$(ask_answer "Add the caveat to P4?")" "free text is passed as an 'Other' answer"
+}
+run_test "AskUserQuestion: free text becomes an Other answer" test_ask_free_text_other
+
+test_ask_multi_digits() {
+    ask_reply ask2_json "@alpha 2 3"
+    assert_eq "A2" "$(ask_answer "Q one?")" "first digit answers the first question"
+    assert_eq "B3" "$(ask_answer "Q two?")" "second digit answers the second"
+}
+run_test "AskUserQuestion: one digit per question maps each" test_ask_multi_digits
+
+test_ask_multi_unmappable_falls_back() {
+    ask_reply ask2_json "@alpha yes to both"
+    assert_eq "2" "$ASK_RC" "cannot map one reply to two questions: old exit-2 delivery"
+    assert_contains "$HOOK_STDERR" "yes to both" "with the reply text"
+}
+run_test "AskUserQuestion: an unmappable multi-question reply falls back to exit 2" test_ask_multi_unmappable_falls_back
+
+test_ask_digit_out_of_range_is_text() {
+    ask_reply ask_json "@alpha 7"
+    assert_eq "7" "$(ask_answer "Add the caveat to P4?")" "a digit with no such option stays literal text"
+}
+run_test "AskUserQuestion: out-of-range digit stays literal" test_ask_digit_out_of_range_is_text
 
 test_ask_ignores_other_projects_message() {
     setup_mock_home
@@ -1365,7 +1415,7 @@ test_ask_ignores_stale_queued_message() {
     printf '%s\n' '{"id":80,"message":"skip","timestamp":"t","persona":"Bot"}' > "$MOCK_HOME/pending.jsonl"
     local rc=0
     run_hook_with "$(ask_json "$proj")" || rc=$?
-    assert_contains "$HOOK_STDERR" '"skip"' "only a message newer than the question answers it (stderr: $HOOK_STDERR)"
+    assert_eq "Skip" "$(ask_answer "Add the caveat to P4?")" "only a message newer than the question answers it (stdout: $HOOK_STDOUT)"
     assert_file_contains "$AFD_MSG_DIR/alpha.jsonl" "old chatter" "the older message stays queued"
 }
 run_test "AskUserQuestion: a message older than the question is not its answer" test_ask_ignores_stale_queued_message

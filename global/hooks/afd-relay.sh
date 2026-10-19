@@ -116,8 +116,38 @@ print('\n'.join(out))" 2>/dev/null)
         echo "No answer received via Telegram (timeout). Ask again when the user is back." >&2
         exit 2
     fi
-    # Hand the answer to the model as the block reason: version-proof, unlike
-    # rewriting the tool input (validated as tool input from CC 2.1.300).
+    # CFG-773: answer the tool itself — updatedInput.answers + allow — so CC shows the
+    # user's answer instead of "PreToolUse hook error". A digit picks that option, a
+    # reply matching a label (any case) is that label, anything else is free text; with
+    # several questions the reply must be one token per question. Unmappable → the
+    # block-reason delivery below, which works on every CC version.
+    MAPPED=$(printf '%s' "$INPUT" | ANSWER="$ANSWER" python3 -c '
+import json, os, sys
+t = json.load(sys.stdin).get("tool_input", {})
+qs, a = t.get("questions") or [], os.environ["ANSWER"].strip()
+def pick(q, tok):
+    opts = [o.get("label", "") for o in q.get("options") or []]
+    if tok.isdigit() and 1 <= int(tok) <= len(opts):
+        return opts[int(tok) - 1]
+    for o in opts:
+        if o.lower() == tok.lower():
+            return o
+    return tok
+if not qs or not a:
+    sys.exit(1)
+if len(qs) == 1:
+    answers = {qs[0]["question"]: pick(qs[0], a)}
+else:
+    toks = a.split()
+    if len(toks) != len(qs):
+        sys.exit(1)
+    answers = {q["question"]: pick(q, tok) for q, tok in zip(qs, toks)}
+out = dict(t, answers=answers)
+print(json.dumps({"hookSpecificOutput": {"hookEventName": "PreToolUse",
+      "permissionDecision": "allow",
+      "permissionDecisionReason": "Answered via Telegram (AFK)",
+      "updatedInput": out}}))' 2>/dev/null) && [[ -n "$MAPPED" ]] && { printf '%s\n' "$MAPPED"; exit 0; }
+    # Fallback: hand the answer to the model as the block reason.
     echo "The user answered via Telegram (AFK): \"$ANSWER\" — treat this as the user's answer to your question and continue; do not ask it again." >&2
     exit 2
 fi
