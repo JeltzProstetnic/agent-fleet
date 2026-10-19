@@ -150,7 +150,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash ~/.claude/hooks/safe-run.sh afd-relay.sh"
+            "command": "bash ~/.claude/hooks/safe-run.sh afd-relay.sh",
+            "timeout": 3720
           }
         ]
       },
