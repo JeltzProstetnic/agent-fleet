@@ -1410,4 +1410,31 @@ print(min(t) if t else 0)")
 }
 run_test "settings: afd-relay hook timeout outlasts its own wait" test_settings_timeout_exceeds_hook_wait
 
+# CFG-776: busy sessions see the hint too (PreToolUse fires on every tool call),
+# as additionalContext JSON — plain PreToolUse stdout never reaches the model.
+test_relay_reports_stale_foreign_queue() {
+    setup_mock_home
+    mkdir -p "$MOCK_HOME/.afd-msgs"
+    echo '{"id":379,"message":"@aiware hi","timestamp":"t","persona":"Bot"}' > "$MOCK_HOME/.afd-msgs/aiware.jsonl"
+    touch -d '-2 minutes' "$MOCK_HOME/.afd-msgs/aiware.jsonl"
+    local json='{"tool_name":"Read","session_id":"s1","cwd":"/tmp/proj","tool_input":{"file_path":"/x"}}'
+    local rc=0
+    AFD_MSG_DIR="$MOCK_HOME/.afd-msgs" run_hook_with "$json" || rc=$?
+    assert_eq "0" "$rc" "the tool call is still allowed"
+    local ctx
+    ctx=$(printf '%s' "$HOOK_STDOUT" | python3 -c "import sys,json; print(json.load(sys.stdin)['hookSpecificOutput']['additionalContext'])" 2>/dev/null)
+    assert_contains "$ctx" "@aiware: #379" "additionalContext names the stuck queue (stdout: $HOOK_STDOUT)"
+}
+run_test "relay: undelivered foreign queue reported as additionalContext" test_relay_reports_stale_foreign_queue
+
+test_relay_silent_without_queues() {
+    setup_mock_home
+    local json='{"tool_name":"Read","session_id":"s1","cwd":"/tmp/proj","tool_input":{"file_path":"/x"}}'
+    local rc=0
+    AFD_MSG_DIR="$MOCK_HOME/.afd-msgs" run_hook_with "$json" || rc=$?
+    assert_eq "0" "$rc" "allowed"
+    assert_eq "" "$HOOK_STDOUT" "no queues: empty stdout (fast path)"
+}
+run_test "relay: no queues, no output" test_relay_silent_without_queues
+
 suite_summary

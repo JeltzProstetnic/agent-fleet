@@ -190,4 +190,58 @@ test_telegram_afk_in_sentence_is_a_message() {
 }
 run_test "'afk' inside a sentence is an ordinary message" test_telegram_afk_in_sentence_is_a_message
 
+# ── CFG-776: an idle session never drains its queue; another session must wake it ──
+# 2026-10-19: MG's @aiware messages sat 10+ min in aiware.jsonl because aiware was
+# idle and the session that routed them was blocked in an AFK wait loop.
+
+queue_for() {  # queue_for <project> <age e.g. '-2 minutes'|now> <id>...
+    local p="$1" age="$2"; shift 2
+    mkdir -p "$AFD_MSG_DIR"
+    for id in "$@"; do
+        printf '{"id":%s,"message":"@%s hi","timestamp":"t","persona":"Bot"}\n' "$id" "$p" >> "$AFD_MSG_DIR/$p.jsonl"
+    done
+    [[ "$age" == now ]] || touch -d "$age" "$AFD_MSG_DIR/$p.jsonl"
+}
+
+test_wake_hint_names_stale_foreign_queue() {
+    setup_env
+    queue_for alpha '-2 minutes' 379 381
+    local got; got=$(afd_wake_hint "config-repo" "sess-1")
+    assert_contains "$got" "alpha" "the stale project is named (got: $got)"
+    assert_contains "$got" "SendMessage" "the hint says how to wake it (got: $got)"
+    assert_contains "$got" "379" "the waiting message ids are named (got: $got)"
+}
+run_test "wake hint: a foreign queue undelivered > threshold is named" test_wake_hint_names_stale_foreign_queue
+
+test_wake_hint_silent_for_fresh_queue() {
+    setup_env
+    queue_for alpha now 5
+    assert_eq "" "$(afd_wake_hint "config-repo" "sess-1")" "a just-filed message gets time to be picked up"
+}
+run_test "wake hint: silent for a queue younger than the threshold" test_wake_hint_silent_for_fresh_queue
+
+test_wake_hint_ignores_own_queue() {
+    setup_env
+    queue_for config-repo '-2 minutes' 6
+    assert_eq "" "$(afd_wake_hint "config-repo" "sess-1")" "a session is not told to wake itself"
+}
+run_test "wake hint: own queue is not reported" test_wake_hint_ignores_own_queue
+
+test_wake_hint_once_per_session_per_message() {
+    setup_env
+    queue_for alpha '-2 minutes' 7
+    afd_wake_hint "config-repo" "sess-1" >/dev/null
+    assert_eq "" "$(afd_wake_hint "config-repo" "sess-1")" "the same session is told about a message once"
+    assert_contains "$(afd_wake_hint "config-repo" "sess-2")" "alpha" "another session is still told"
+    queue_for alpha '-2 minutes' 8
+    assert_contains "$(afd_wake_hint "config-repo" "sess-1")" "8" "a NEW message is reported again"
+}
+run_test "wake hint: once per session per message, new messages re-hint" test_wake_hint_once_per_session_per_message
+
+test_wake_hint_silent_without_queues() {
+    setup_env
+    assert_eq "" "$(afd_wake_hint "config-repo" "sess-1")" "no queues, no output"
+}
+run_test "wake hint: silent when nothing is queued" test_wake_hint_silent_without_queues
+
 suite_summary
