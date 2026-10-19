@@ -1176,6 +1176,19 @@ MOCK
 }
 run_test "AskUserQuestion: routed to Telegram when AFK" test_ask_user_question_routed_to_telegram_when_afk
 
+# 2026-10-20: the hint named the full project; suggest the short tag that routes.
+test_ask_user_question_hint_uses_short_tag() {
+    setup_mock_home
+    touch "$MOCK_HOME/.afd-afk"
+    mkdir -p "$MOCK_HOME/config-repo" "$MOCK_HOME/other"
+    git -C "$MOCK_HOME/config-repo" init -q
+    local json
+    json=$(printf '{"tool_name":"AskUserQuestion","cwd":"%s","tool_input":{"question":"Which?"}}' "$MOCK_HOME/config-repo")
+    run_hook_with "$json" env -u AFD_PROJECT_ROOTS AFD_AFK_POLL_INTERVAL=1 || true
+    assert_file_contains "$MOCK_AFD_LOG" "start with @con " "the hint names the shortest routing tag"
+}
+run_test "AskUserQuestion: Telegram hint uses the short project tag" test_ask_user_question_hint_uses_short_tag
+
 test_ask_user_question_denied_on_timeout() {
     setup_mock_home
     touch "$MOCK_HOME/.afd-afk"

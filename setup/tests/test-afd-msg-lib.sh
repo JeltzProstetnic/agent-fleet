@@ -244,4 +244,33 @@ test_wake_hint_silent_without_queues() {
 }
 run_test "wake hint: silent when nothing is queued" test_wake_hint_silent_without_queues
 
+test_question_waiting() {
+    setup_env
+    afd_question_waiting alpha && r=0 || r=1
+    assert_eq "1" "$r" "no marker: not waiting"
+    mkdir -p "$AFD_MSG_DIR/.waiting"; echo 7 > "$AFD_MSG_DIR/.waiting/alpha"
+    afd_question_waiting alpha && r=0 || r=1
+    assert_eq "0" "$r" "fresh marker: waiting"
+    afd_question_waiting beta && r=0 || r=1
+    assert_eq "1" "$r" "another project's marker does not count"
+    touch -d '-2 hours' "$AFD_MSG_DIR/.waiting/alpha"
+    afd_question_waiting alpha && r=0 || r=1
+    assert_eq "1" "$r" "a marker older than the relay's longest wait is a leftover"
+}
+run_test "question waiting: fresh marker only, per project" test_question_waiting
+
+# 2026-10-20 user request: "I should not have to type the whole project name, just what the af
+# matcher would also accept" — the question text suggests the shortest tag that routes.
+test_short_name() {
+    setup_env
+    assert_eq "con" "$(afd_short_name config-repo)" "shortest unique prefix, at least 3 chars"
+    assert_eq "gam" "$(afd_short_name gamma-radar)" "unique prefix"
+    assert_eq "bet" "$(afd_short_name beta)" "3 chars is the floor"
+    assert_eq "abc" "$(AFD_PROJECT_ROOTS=$HOME afd_short_name abc)" "a 3-char name stays whole"
+    mkdir -p "$HOME/conflux"
+    assert_eq "confi" "$(afd_short_name config-repo)" "grows past a shared prefix (conflux)"
+    assert_eq "config-repo" "$(_afd_resolve_target "$(afd_short_name config-repo)")" "the suggested tag routes back to the project"
+}
+run_test "short name: shortest prefix that still routes here" test_short_name
+
 suite_summary

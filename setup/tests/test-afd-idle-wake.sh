@@ -74,6 +74,33 @@ test_foreign_message_does_not_wake() {
 }
 run_test "another project's message is routed, not delivered here" test_foreign_message_does_not_wake
 
+# 2026-10-20: the previous turn's waiter is still alive while this turn's AskUserQuestion
+# relay waits, and it took the Telegram answer from the shared queue first — the relay
+# never saw it and stayed blocked (#406/#408). A waiting question owns the queue.
+test_waiting_question_owns_the_queue() {
+    setup_env
+    mkdir -p "$AFD_MSG_DIR/.waiting"
+    echo 900 > "$AFD_MSG_DIR/.waiting/proj-a"
+    echo '{"id":901,"message":"@proj-a 1","timestamp":"t","persona":"Bot"}' > "$HOME/pending.jsonl"
+    run_waiter s1 "$HOME/proj-a"
+    assert_eq "0" "$RC" "no wake while this project's question waits (ends at max wait)"
+    assert_contains "$(cat "$AFD_MSG_DIR/proj-a.jsonl" 2>/dev/null)" "@proj-a 1" "the answer stays queued for the waiting relay"
+}
+run_test "a waiting AskUserQuestion relay owns the project's queue" test_waiting_question_owns_the_queue
+
+test_resumes_after_question_answered() {
+    setup_env
+    mkdir -p "$AFD_MSG_DIR/.waiting"
+    echo 900 > "$AFD_MSG_DIR/.waiting/proj-a"
+    echo '{"id":902,"message":"@proj-a later","timestamp":"t","persona":"Bot"}' > "$AFD_MSG_DIR/proj-a.jsonl"
+    ( sleep 2; rm -f "$AFD_MSG_DIR/.waiting/proj-a" ) &
+    run_waiter s1 "$HOME/proj-a"
+    wait
+    assert_eq "2" "$RC" "once the question is gone the waiter delivers again"
+    assert_contains "$ERR" "later" "with the queued text"
+}
+run_test "the waiter resumes delivery once the question is answered" test_resumes_after_question_answered
+
 test_newer_waiter_supersedes() {
     setup_env
     export AFD_IDLE_MAX=30

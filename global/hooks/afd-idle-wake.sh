@@ -51,6 +51,8 @@ while (( $(date +%s) < DEADLINE )); do
     kill -0 "$PARENT" 2>/dev/null || exit 0
     [[ "$(cat "$PIDFILE" 2>/dev/null)" == "$$" ]] || exit 0
     afd_route_messages "$ME" >/dev/null 2>&1
+    # A waiting AskUserQuestion relay owns this project's queue (2026-10-20, #406/#408).
+    if afd_question_waiting "$ME"; then sleep "$POLL"; continue; fi
     MESSAGES=$(afd_take_messages "$ME")
     if [[ -n "$MESSAGES" ]]; then
         rm -f "$PIDFILE"

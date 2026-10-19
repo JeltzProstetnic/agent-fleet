@@ -61,6 +61,16 @@ _afd_resolve_target() {
     [[ -n "$matches" && $(wc -l <<< "$matches") -eq 1 ]] && echo "$matches"
 }
 
+# afd_short_name <project> — the shortest prefix (3+ chars) that _afd_resolve_target
+# maps back to <project>, for the "@<tag>" hint in a Telegram question; else <project>.
+afd_short_name() {
+    local p="$1" n
+    for (( n = 3; n < ${#p}; n++ )); do
+        [[ "$(_afd_resolve_target "${p:0:n}")" == "$p" ]] && { echo "${p:0:n}"; return; }
+    done
+    echo "$p"
+}
+
 # _afd_single_waiter — the project waiting on a Telegram question, if exactly one.
 _afd_single_waiter() {
     local w="$(_afd_msg_dir)/.waiting" files
@@ -114,7 +124,19 @@ afd_route_messages() {
     return 0
 }
 
+# afd_question_waiting <me> — true while <me>'s AskUserQuestion relay waits for a
+# Telegram answer. The relay then owns the queue: any other consumer taking from it
+# could eat the answer and leave the relay blocked (2026-10-20, #406/#408). A marker
+# older than the relay's longest wait (3720 s) is a leftover of a killed relay.
+afd_question_waiting() {
+    local m
+    m="$(_afd_msg_dir)/.waiting/$1"
+    [[ -n "$1" && -f "$m" ]] || return 1
+    (( $(date +%s) - $(stat -c %Y "$m" 2>/dev/null || echo 0) < 3720 ))
+}
+
 # afd_take_messages <me> — print and remove this project's queued lines.
+# Consumers other than the waiting relay check afd_question_waiting first.
 afd_take_messages() {
     local me="$1" dir q tmp
     [[ -n "$me" ]] || return 0

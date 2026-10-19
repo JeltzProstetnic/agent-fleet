@@ -41,7 +41,8 @@ if not out and t.get('question'):
 print('\n'.join(out))" 2>/dev/null)
     echo "AFK mode: routing question to Telegram..." >&2
     NL=$'\n'
-    MSG="[$ME] Question from Claude (AFK):${NL}${NL}${QUESTION}${NL}${NL}Reply with your answer as plain text (start with @$ME if more than one session is waiting). Reply d to decline."
+    TAG="$ME"; declare -F afd_short_name >/dev/null && TAG=$(afd_short_name "$ME")
+    MSG="[$ME] Question from Claude (AFK):${NL}${NL}${QUESTION}${NL}${NL}Reply with your answer as plain text (start with @$TAG if more than one session is waiting). Reply d to decline."
     RESULT=$("$AFD_CLI" notify all "$MSG" --channel telegram --type permission --priority high 2>&1)
     NOTIF_ID=$(echo "$RESULT" | grep -oE '#[0-9]+' | sed 's/^#//')
     if [[ -z "$NOTIF_ID" ]]; then
