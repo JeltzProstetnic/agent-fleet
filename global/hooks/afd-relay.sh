@@ -45,7 +45,8 @@ print('\n'.join(out))" 2>/dev/null)
     RESULT=$("$AFD_CLI" notify all "$MSG" --channel telegram --type permission --priority high 2>&1)
     NOTIF_ID=$(echo "$RESULT" | grep -oE '#[0-9]+' | sed 's/^#//')
     if [[ -z "$NOTIF_ID" ]]; then
-        echo "Failed to route question to Telegram" >&2
+        # CFG-772: the server now answers 502 when Telegram rejects the message.
+        echo "Failed to route question to Telegram (${RESULT:-no output}). The user did NOT receive it; tell them in the console and ask again later." >&2
         exit 2
     fi
     echo "Waiting for answer (#$NOTIF_ID)..." >&2
@@ -64,6 +65,11 @@ print('\n'.join(out))" 2>/dev/null)
     DEADLINE=$(( $(date +%s) + WAIT ))
     ANSWER=""
     while (( $(date +%s) < DEADLINE )); do
+        # CFG-772(b): MG back at the keyboard ('afk off') releases the wait at once.
+        if [[ ! -f "$AFK_MARKER" ]]; then
+            echo "AFK was switched off while this question waited for a Telegram answer. The user is back at the console: ask the question again now." >&2
+            exit 2
+        fi
         R=$(timeout -k 2 15 "$AFD_CLI" poll "$NOTIF_ID" --timeout 1 2>/dev/null) || R=""
         if [[ "$R" == "denied" ]]; then
             echo "The user declined to answer this question via Telegram (AFK). Do not ask again; continue without it." >&2

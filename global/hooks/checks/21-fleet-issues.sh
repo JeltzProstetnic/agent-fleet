@@ -96,4 +96,11 @@ print('%d open — %s' % (len(issues), '; '.join(parts[:6])))
 
 [ -n "$_fi_summary" ] || return 0 2>/dev/null || true
 
-WARNINGS="${WARNINGS:+$WARNINGS | }FLEET_ISSUES: ${_fi_summary} on ${_FI_REPO}. Answer or close anything flagged above before other work — an unanswered report is the channel failing, not the reporter."
+# The act-first instruction belongs to unanswered reports only; on answered-but-open
+# issues it read as an order with nothing to do (2026-10-19).
+if [[ "$_fi_summary" == *"no reply"* ]]; then
+    _fi_tail="Answer or close anything flagged above before other work — an unanswered report is the channel failing, not the reporter."
+else
+    _fi_tail="All have replies; nothing to answer — close them when resolved."
+fi
+WARNINGS="${WARNINGS:+$WARNINGS | }FLEET_ISSUES: ${_fi_summary} on ${_FI_REPO}. ${_fi_tail}"

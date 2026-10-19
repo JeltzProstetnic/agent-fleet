@@ -101,7 +101,7 @@ fi
 #   when user reports a real-time failure; agent loads knowledge/live-issue-capture.md.
 # stdin was consumed at the top of this script — reuse the captured payload.
 if [[ -n "$_hook_input" ]]; then
-    _user_msg=$(printf '%s' "$_hook_input" | python3 -c "import sys,json; print(json.load(sys.stdin).get('message',''))" 2>/dev/null) || true
+    _user_msg=$(printf '%s' "$_hook_input" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('prompt') or d.get('message',''))" 2>/dev/null) || true  # CC sends .prompt
     if [[ "$_user_msg" =~ (^|[[:space:]])(lrn|LRN)($|[[:space:]]) ]]; then
         OUTPUT="${OUTPUT:+$OUTPUT | }LRN_TRIGGERED: Invoke the lrn skill via Skill tool. Load SKILL.md + references/known-faulty-patterns.md before responding."
     fi

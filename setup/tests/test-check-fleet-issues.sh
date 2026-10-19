@@ -84,6 +84,7 @@ test_unanswered_issue_is_named() {
     assert_contains "$out" "#6" "must name the issue number"
     assert_contains "$out" "29d" "must state how long it has waited"
     assert_contains "$out" "no reply" "an issue with zero comments must be called out as unanswered"
+    assert_contains "$out" "before other work" "an unanswered issue keeps the act-first instruction"
 }
 run_test "names an open issue that nobody has replied to" test_unanswered_issue_is_named
 
@@ -94,6 +95,9 @@ test_answered_issue_is_counted_not_flagged() {
 
     assert_contains "$out" "1 open" "an answered issue still counts toward the open total"
     assert_not_contains "$out" "no reply" "an issue with comments must not be reported as unanswered"
+    # 2026-10-19: five answered issues still produced "Answer or close ... before other work",
+    # which read as an order with nothing to do. The imperative belongs to unanswered issues only.
+    assert_not_contains "$out" "before other work" "all answered: no instruction to act first (got: $out)"
 }
 run_test "an answered issue counts but is not flagged" test_answered_issue_is_counted_not_flagged
 

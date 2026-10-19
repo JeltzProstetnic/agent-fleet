@@ -1195,6 +1195,31 @@ MOCK
 }
 run_test "AskUserQuestion: denied on poll timeout" test_ask_user_question_denied_on_timeout
 
+# CFG-772(b): 'afk off' while a question waits must release the session at once,
+# instead of leaving it blocked until the hour runs out.
+test_ask_user_question_released_on_afk_off() {
+    setup_mock_home
+    touch "$MOCK_HOME/.afd-afk"
+    cat > "$MOCK_AFD" << 'MOCK'
+#!/usr/bin/env bash
+if [[ "$1" == "notify" ]]; then echo "Notification sent #42"; fi
+exit 0
+MOCK
+    chmod +x "$MOCK_AFD"
+    ( sleep 1; rm -f "$MOCK_HOME/.afd-afk" ) &
+    local json='{"tool_name":"AskUserQuestion","tool_input":{"question":"Continue?"}}'
+    local rc=0 t0=$SECONDS
+    HOOK_AFK_TIMEOUT=30 AFD_AFK_POLL_INTERVAL=1 run_hook_with "$json" || rc=$?
+    local took=$(( SECONDS - t0 ))
+    wait
+    assert_eq "2" "$rc" "released question returns control to the model"
+    [[ $took -le 6 ]] && ok=0 || ok=1
+    assert_eq "0" "$ok" "released within 6 s of 'afk off' (took ${took}s)"
+    [[ "$HOOK_STDERR" == *"ask"* && "$HOOK_STDERR" == *"AFK"* ]] && ok=0 || ok=1
+    assert_eq "0" "$ok" "tells the model to ask again in the console (stderr: ${HOOK_STDERR##*$'\n'})"
+}
+run_test "AskUserQuestion: released when AFK is switched off mid-wait" test_ask_user_question_released_on_afk_off
+
 test_ask_user_question_denied_when_no_afd() {
     setup_mock_home
     touch "$MOCK_HOME/.afd-afk"
