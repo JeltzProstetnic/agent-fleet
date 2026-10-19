@@ -104,7 +104,22 @@ print('\n'.join(out))" 2>/dev/null)
     exit 2
 fi
 
-# Non-Bash tools: exit 0 with no output (CC treats empty stdout + exit 0 as hook_success)
+# CFG-776: a BUSY session (tool calls, no prompts) also reports another project's
+# undelivered Telegram queue, so an idle target gets woken. PreToolUse stdout only
+# reaches the model as hookSpecificOutput.additionalContext. Fast path: no queue
+# files → nothing sourced, no python.
+if compgen -G "${AFD_MSG_DIR:-$HOME/.afd-msgs}/*.jsonl" >/dev/null 2>&1; then
+    source "$(dirname "${BASH_SOURCE[0]}")/lib-afd-msg.sh" 2>/dev/null || true
+    if declare -F afd_wake_hint >/dev/null; then
+        _SID=""; _CWD=""
+        [[ "$INPUT" =~ \"session_id\"[[:space:]]*:[[:space:]]*\"([^\"]+)\" ]] && _SID="${BASH_REMATCH[1]}"
+        [[ "$INPUT" =~ \"cwd\"[[:space:]]*:[[:space:]]*\"([^\"]+)\" ]] && _CWD="${BASH_REMATCH[1]}"
+        _HINT=$(afd_wake_hint "$(afd_project_of "${_CWD:-$PWD}" 2>/dev/null || basename "${_CWD:-$PWD}")" "$_SID")
+        [[ -n "$_HINT" ]] && python3 -c 'import json,sys; print(json.dumps({"hookSpecificOutput":{"hookEventName":"PreToolUse","additionalContext":sys.argv[1]}}))' "$_HINT"
+    fi
+fi
+
+# Non-Bash tools: exit 0 (CC treats exit 0 without a decision as hook_success)
 if [[ "$INPUT" != *'"tool_name":"Bash"'* && "$INPUT" != *'"tool_name": "Bash"'* ]]; then
     exit 0
 fi

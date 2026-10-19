@@ -141,3 +141,37 @@ import sys, json
 try: print(int(json.load(sys.stdin).get('id', 0)))
 except Exception: print(0)" 2>/dev/null
 }
+
+# afd_wake_hint <me> <session_id> — CFG-776. A session drains its queue only on its
+# own next prompt, so a message filed for an IDLE session waits forever unless some
+# other session wakes it (2026-10-19: MG's @aiware messages sat 10+ min). Hooks
+# cannot call SendMessage, so every hook that sees the model prints this hint: one
+# line naming each OTHER project whose queue has been undelivered for longer than
+# AFD_WAKE_AFTER seconds (default 30), at most once per session per message id.
+# Fast path: no queue files → no output, no python.
+afd_wake_hint() {
+    local me="$1" sid="${2:-nosession}" dir q p after now told ids new out=""
+    dir=$(_afd_msg_dir)
+    compgen -G "$dir/*.jsonl" >/dev/null || return 0
+    after="${AFD_WAKE_AFTER:-30}"; now=$(date +%s)
+    told="$dir/.told/${sid//[^A-Za-z0-9_-]/_}"
+    for q in "$dir"/*.jsonl; do
+        p=$(basename "$q" .jsonl)
+        [[ "$p" == "$me" || ! -s "$q" ]] && continue
+        (( now - $(stat -c %Y "$q" 2>/dev/null || echo "$now") >= after )) || continue
+        ids=$(python3 -c "
+import sys, json
+for l in open(sys.argv[1]):
+    try: print(int(json.loads(l).get('id', 0)))
+    except Exception: pass" "$q" 2>/dev/null)
+        new=""
+        for id in $ids; do
+            grep -qx "$p:$id" "$told" 2>/dev/null && continue
+            new="$new #$id"
+            mkdir -p "$dir/.told" && echo "$p:$id" >> "$told"
+        done
+        [[ -n "$new" ]] && out="$out @$p:$new;"
+    done
+    [[ -n "$out" ]] || return 0
+    echo "TELEGRAM_UNDELIVERED (CFG-776):${out%;} — Telegram message(s) from MG are queued for another project whose session has not picked them up (it is probably idle; a session drains its queue only on its next prompt). Do not act on them. Run ListAgents and SendMessage each named project's session: \"Telegram message(s) are queued for you; your prompt hook delivers them.\" If no such session is live, tell MG: afd notify all \"[$me] @<project> has no live session; your message waits for its next start\" --channel telegram"
+}
