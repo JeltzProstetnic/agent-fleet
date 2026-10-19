@@ -241,6 +241,15 @@
             "command": "bash ~/.claude/hooks/safe-run.sh cloud-publish-guard.sh"
           }
         ]
+      },
+      {
+        "matcher": "mcp__.*|WebSearch|WebFetch",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash ~/.claude/hooks/safe-run.sh point-of-action-knowledge.sh"
+          }
+        ]
       }
     ],
     "PostToolUse": [
