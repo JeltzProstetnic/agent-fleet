@@ -99,6 +99,8 @@ CTX="$(echo "$OUT" | jq -r '.hookSpecificOutput.additionalContext' 2>/dev/null)"
 assert_has "playwright ctx: snapshot vs screenshot" "browser_snapshot"        "$CTX"
 assert_has "playwright ctx: Chromium drift"         "Chromium"                "$CTX"
 assert_has "playwright ctx: KB pointer"             "dev-browser-ops.md"      "$CTX"
+assert_has "playwright ctx: vault login via /dev/shm bridge" "/dev/shm"     "$CTX"
+assert_has "playwright ctx: never browser_type a password" "never browser_type a password" "$CTX"
 
 # 13. Playwright browser_snapshot shares browser-automation → deduped in same session
 OUT=$(run '{"session_id":"splay","tool_name":"mcp__playwright__browser_snapshot","tool_input":{}}')
