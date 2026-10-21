@@ -308,6 +308,23 @@ test_allow_active_persona_allowlist_via_bash() {
     expect_allow 'printf "%s" X | tee ~/.claude/.active-persona >/dev/null'
 }
 
+test_allow_last_audit_date_via_bash() {  # CFG-796
+    make_fixture
+    expect_allow 'date +%Y-%m-%d > ~/.claude/.last-audit-date'
+}
+
+# Fable review 2026-10-21 (G1): a symlink planted at an allow-listed path turned every
+# later write "to the marker" into a write to CLAUDE.md. Allow-list = plain files only.
+test_block_symlink_at_allowlisted_path() {
+    make_fixture
+    expect_block 'ln -sf ~/.claude/CLAUDE.md ~/.claude/.last-audit-date' ".last-audit-date" || return 1
+    expect_block 'ln -sf ~/.claude/CLAUDE.md ~/.claude/.active-persona' ".active-persona" || return 1
+    ln -s "$MOCK_HOME/.claude/CLAUDE.md" "$MOCK_HOME/.claude/.last-audit-date"
+    expect_block 'echo rule > ~/.claude/.last-audit-date' ".last-audit-date" || return 1
+    rm "$MOCK_HOME/.claude/.last-audit-date"; mkdir "$MOCK_HOME/.claude/.last-audit-date"
+    expect_block 'echo x > ~/.claude/.last-audit-date' ".last-audit-date"
+}
+
 test_allow_everything_from_cfg_project() {
     make_fixture
     expect_allow 'echo x > ~/.claude/CLAUDE.md' "$CFG" || return 1
@@ -404,6 +421,8 @@ run_test "ALLOW: every write command with a local target" test_allow_local_targe
 run_test "ALLOW: git apply / patch / checkout outside global/" test_allow_git_apply_patch_outside_global
 run_test "ALLOW: subshell cd does not leak" test_allow_subshell_cd_is_scoped
 run_test "ALLOW: .active-persona allowlist holds for Bash too" test_allow_active_persona_allowlist_via_bash
+run_test "ALLOW: CFG-796 .last-audit-date allowlist holds for Bash" test_allow_last_audit_date_via_bash
+run_test "BLOCK: symlink/dir at an allow-listed path (Fable G1)" test_block_symlink_at_allowlisted_path
 run_test "ALLOW: everything from the cfg project itself" test_allow_everything_from_cfg_project
 run_test "ALLOW: script invocations are not parsed" test_allow_sanctioned_scripts_are_not_parsed
 run_test "ALLOW: unresolvable targets are skipped, not guessed" test_allow_unresolvable_targets_under_block

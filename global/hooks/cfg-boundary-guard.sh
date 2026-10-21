@@ -79,14 +79,19 @@ fi
 # Allowlist: runtime state files that any project may write
 CROSS_PROJECT_ALLOWLIST=(
     "$CLAUDE_DIR.active-persona"
+    "$CLAUDE_DIR.last-audit-date"   # lrn step 7 marker, written from every project (CFG-796)
 )
 
-# _owned PATH → 0 when PATH (absolute, ~ already expanded) is cfg-owned and not
+# _owned PATH [HOW] → 0 when PATH (absolute, ~ already expanded) is cfg-owned and not
 # allowlisted. The owned dirs themselves count (cp INTO ~/.claude is a write there).
+# The allowlist covers plain-file writes only: a symlink or directory at the path, or an
+# `ln`/`mkdir` creating one, stays blocked — a planted symlink carried every later
+# "marker" write into CLAUDE.md (Fable review 2026-10-21).
 _owned() {
-    local p="$1" a
+    local p="$1" how="${2:-}" a
     [[ "$p" == "$CLAUDE_DIR"* || "$p" == "${CLAUDE_DIR%/}" \
     || "$p" == "$CFG_GLOBAL"* || "$p" == "${CFG_GLOBAL%/}" ]] || return 1
+    [[ -L "$p" || -d "$p" || "$how" == ln* || "$how" == mkdir* || "$how" == "install -d" ]] && return 0
     for a in "${CROSS_PROJECT_ALLOWLIST[@]}"; do
         [[ "$p" == "$a" ]] && return 1
     done
@@ -136,7 +141,7 @@ if ! type _scan_text &>/dev/null; then
 fi
 
 # The scanner's callback: one call per resolved write target.
-_on_write_target() { _owned "$1" && _block "$1" "$2"; return 0; }
+_on_write_target() { _owned "$1" "$2" && _block "$1" "$2"; return 0; }
 
 _CWD="$_PROJECT"
 _scan_text "$CMD"

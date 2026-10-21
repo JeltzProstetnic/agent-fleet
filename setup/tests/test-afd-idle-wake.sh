@@ -141,6 +141,88 @@ test_no_afd_cli_is_silent() {
 }
 run_test "no afd CLI: exits at once" test_no_afd_cli_is_silent
 
+# --- CFG-797: a new cross-project inbox item wakes the idle session, but only while its
+# context use is under 45 % of its window (owner decision 2026-10-21). Unknown budget → no wake.
+setup_inbox() {
+    setup_env
+    CFG="$TEST_TMPDIR/cfg"
+    rm -rf "$CFG"; mkdir -p "$CFG/setup/scripts" "$CFG/cross-project/inbox"
+    cp "$REPO_ROOT/setup/scripts/inbox-file.sh" "$REPO_ROOT/setup/scripts/inbox-lib.sh" "$CFG/setup/scripts/"
+    export INBOX_REPO="$CFG" CONFIG_REPO="$CFG"
+    mkdir -p "$HOME/.claude"
+}
+budget() { # budget <sid> <pct> <size>
+    printf '{"pct": %s, "remaining": %s, "size": %s, "used_k": %s}' \
+        "$2" "$((100 - $2))" "$3" "$(( $3 * $2 / 100000 ))" > "$HOME/.claude/.context-budget-$1.json"
+}
+file_item() { bash "$CFG/setup/scripts/inbox-file.sh" --project "$1" --type work --body "$2" >/dev/null 2>&1; }
+
+test_inbox_item_wakes_under_threshold() {
+    setup_inbox; budget s1 20 1000000
+    ( sleep 2; file_item proj-a "rebuild the widget" ) &
+    run_waiter s1 "$HOME/proj-a"
+    wait
+    assert_eq "2" "$RC" "a new inbox item wakes the idle session at 20 %"
+    assert_contains "$ERR" "INBOX_PENDING" "framed like the prompt hook's signal"
+    assert_contains "$ERR" "proj-a.md" "names the inbox file to read"
+    [[ "$ERR" != *"rebuild the widget"* ]] && ok=0 || ok=1
+    assert_eq "0" "$ok" "item bodies (written by other sessions) are not injected — Fable F1"
+    [[ $TOOK -le 5 ]] && ok=0 || ok=1
+    assert_eq "0" "$ok" "woken within a few seconds of filing (took ${TOOK}s)"
+}
+run_test "CFG-797: new inbox item wakes an idle session under 45 %" test_inbox_item_wakes_under_threshold
+
+test_inbox_threshold_is_share_of_window() {
+    setup_inbox; budget s1 40 200000          # 80k of a 200k window: under 45 %
+    ( sleep 2; file_item proj-a "small window item" ) &
+    run_waiter s1 "$HOME/proj-a"; wait
+    assert_eq "2" "$RC" "40 % of a 200k window wakes (relative, not absolute 450k)"
+}
+run_test "CFG-797: threshold is 45 % of the window" test_inbox_threshold_is_share_of_window
+
+test_inbox_at_or_over_threshold_no_wake() {
+    setup_inbox; budget s1 45 1000000
+    ( sleep 2; file_item proj-a "too full" ) &
+    run_waiter s1 "$HOME/proj-a"; wait
+    assert_eq "0" "$RC" "45 % (450k of 1M) does not wake — strictly below only"
+}
+run_test "CFG-797: at/over 45 % the item waits for the next prompt" test_inbox_at_or_over_threshold_no_wake
+
+test_inbox_unknown_budget_no_wake() {
+    setup_inbox
+    ( sleep 2; file_item proj-a "no sidecar" ) &
+    run_waiter s1 "$HOME/proj-a"; wait
+    assert_eq "0" "$RC" "no budget sidecar: no wake"
+}
+run_test "CFG-797: unknown context use → no wake" test_inbox_unknown_budget_no_wake
+
+test_inbox_existing_item_no_wake() {
+    setup_inbox; budget s1 20 1000000
+    file_item proj-a "already there at turn end"
+    run_waiter s1 "$HOME/proj-a"
+    assert_eq "0" "$RC" "items open when the turn ended do not wake (the session saw them)"
+}
+run_test "CFG-797: items already open at turn end do not wake" test_inbox_existing_item_no_wake
+
+test_inbox_foreign_item_no_wake() {
+    setup_inbox; budget s1 20 1000000
+    ( sleep 2; file_item proj-b "for b only" ) &
+    run_waiter s1 "$HOME/proj-a"; wait
+    assert_eq "0" "$RC" "another project's item does not wake this session"
+}
+run_test "CFG-797: another project's inbox item does not wake" test_inbox_foreign_item_no_wake
+
+# Fable F6: the next turn's waiter rebaselines, so one item cannot wake twice.
+test_inbox_same_item_wakes_once() {
+    setup_inbox; budget s1 20 1000000
+    ( sleep 2; file_item proj-a "wake me once" ) &
+    run_waiter s1 "$HOME/proj-a"; wait
+    assert_eq "2" "$RC" "first waiter wakes" || return 1
+    run_waiter s1 "$HOME/proj-a"
+    assert_eq "0" "$RC" "the next waiter, item still open, does not wake again"
+}
+run_test "CFG-797: an undispatched item wakes only once" test_inbox_same_item_wakes_once
+
 test_settings_registers_async_rewake_stop_hook() {
     local got
     got=$(python3 -c "

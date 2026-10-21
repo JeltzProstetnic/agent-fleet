@@ -124,6 +124,27 @@ test_allows_active_persona_write_from_other_project() {
     assert_eq "0" "$rc" "Should allow .active-persona write from any project"
 }
 
+# CFG-796: lrn step 7 writes ~/.claude/.last-audit-date from every project (owner decision 2026-10-21).
+test_allows_last_audit_date_write_from_other_project() {
+    local mock_home="$TEST_TMPDIR/home"
+    mkdir -p "$mock_home/.claude" "$mock_home/cfg-agent-fleet" "$TEST_TMPDIR/sample-project"
+    touch "$mock_home/cfg-agent-fleet/sync.sh"
+
+    local output rc=0
+    output=$(run_guard "Write" "$mock_home/.claude/.last-audit-date" "$TEST_TMPDIR/sample-project" "$mock_home") || rc=$?
+    assert_eq "0" "$rc" "Should allow .last-audit-date write from any project"
+    rc=0
+    output=$(run_guard "Write" "$mock_home/.claude/.last-audit-date.bak" "$TEST_TMPDIR/sample-project" "$mock_home") || rc=$?
+    assert_neq "0" "$rc" "exact path only: a sibling name stays blocked"
+    # Fable G1: a planted symlink must not carry the write into CLAUDE.md.
+    echo personal > "$mock_home/.claude/CLAUDE.md"
+    ln -sf "$mock_home/.claude/CLAUDE.md" "$mock_home/.claude/.last-audit-date"
+    rc=0
+    output=$(run_guard "Write" "$mock_home/.claude/.last-audit-date" "$TEST_TMPDIR/sample-project" "$mock_home") || rc=$?
+    assert_neq "0" "$rc" "a symlink at the allow-listed path is blocked"
+    rm -f "$mock_home/.claude/.last-audit-date"
+}
+
 test_still_blocks_other_dotfiles_from_other_project() {
     local mock_home="$TEST_TMPDIR/home"
     mkdir -p "$mock_home/.claude" "$mock_home/cfg-agent-fleet" "$TEST_TMPDIR/social"
@@ -145,4 +166,5 @@ run_test "ignores non-Write/Edit tools" test_ignores_non_write_tools
 run_test "blocks Write to ~/cfg-agent-fleet/global/ from other project" test_blocks_write_to_cfg_global
 run_test "allows cfg-agent-fleet Write to own global/" test_allows_cfg_project_write_to_own_global
 run_test "allows .active-persona write from non-cfg project" test_allows_active_persona_write_from_other_project
+run_test "CFG-796: allows .last-audit-date write from non-cfg project" test_allows_last_audit_date_write_from_other_project
 run_test "still blocks other dotfiles from non-cfg project" test_still_blocks_other_dotfiles_from_other_project
