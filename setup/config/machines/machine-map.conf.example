@@ -1,0 +1,16 @@
+# Machine overlay map — copy to machine-map.conf and list your own machines.
+#
+# Each line: <host-glob>[:<user-glob>] <overlay>
+#   host-glob  shell glob matched against the hostname (DESKTOP-*, my-laptop, srv-??)
+#   user-glob  optional; the line only matches when the login user also matches
+#   overlay    a directory under setup/config/machines/ holding that machine's overrides
+# First matching line wins. '#' starts a comment. No match → no overlay (base config only).
+#
+# One-shell override without editing this file:  FLEET_MACHINE=<overlay> bash sync.sh deploy
+# Logic too complex for globs? Define local_machine_map <host> <user> in sync.local.sh;
+# it is consulted when no line here matches.
+
+my-desktop-*        wsl
+my-laptop:me        fedora-home
+my-laptop:work-me   office
+my-vps              vps

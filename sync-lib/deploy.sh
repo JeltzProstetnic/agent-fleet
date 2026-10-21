@@ -2,9 +2,10 @@
 # sync-lib/deploy.sh — Deploy command: push config from repo to live locations
 # Sourced by sync.sh. Do not run directly.
 #
-# Provides: cmd_deploy, deploy_settings, deploy_hooks, deploy_afd,
-#           deploy_afleet, deploy_aliases, deploy_project_rules,
-#           deploy_rosters, check_settings_health, apply_project_icons
+# Provides: cmd_deploy, deploy_settings, deploy_hooks, deploy_skills,
+#           deploy_agents, deploy_afd, deploy_afleet, deploy_repro, deploy_aliases,
+#           deploy_project_rules, deploy_rosters, check_settings_health,
+#           apply_project_icons
 #
 # Requires: SCRIPT_DIR, GLOBAL_DIR, PROJECTS_DIR, CLAUDE_HOME, PLATFORM,
 #           log_info, log_warn, log_error (from sync.sh)
@@ -69,6 +70,9 @@ cmd_deploy() {
     # Deploy custom skills to cc-mirror config (where CC actually reads them)
     deploy_skills
 
+    # Deploy custom agent definitions to cc-mirror config (CFG-438)
+    deploy_agents
+
     # Apply project folder icons (platform-appropriate)
     apply_project_icons
 
@@ -95,6 +99,12 @@ cmd_deploy() {
 
     # afleet launcher
     deploy_afleet
+
+    # `repro` shortcut (SteamOS only)
+    deploy_repro
+
+    # Clear stale sync-failed marker on successful deploy
+    rm -f "$SCRIPT_DIR/.sync-failed"
 
     log_info "Deploy complete."
 }
@@ -129,6 +139,14 @@ deploy_settings() {
 
     local render_script="$SCRIPT_DIR/setup/scripts/render-template.sh"
 
+    # No cc-mirror config dir (fresh box, non-mirror install): writing would fail and,
+    # under `set -e`, truncate cmd_deploy. Warn and leave settings alone.
+    if [[ ! -d "$(dirname "$live")" ]]; then
+        log_warn "No Claude Code config dir at $(dirname "$live") — skipping settings deploy"
+        [[ "$effective_base" != "$settings_base" ]] && rm -f "$effective_base"
+        return 0
+    fi
+
     if [[ ! -f "$live" ]]; then
         # First deploy — render template and write
         log_info "First-time settings deploy → $live"
@@ -152,8 +170,15 @@ deploy_settings() {
     # Clean up temp overlay file if created
     [[ "$effective_base" != "$settings_base" ]] && rm -f "$effective_base"
 
-    # Validate the output is valid JSON before replacing
-    if python3 -c "import json; json.load(open('${live}.tmp'))" 2>/dev/null; then
+    # Validate: valid JSON + no test-path contamination in env vars
+    local _py_live_tmp
+    _py_live_tmp=$(_to_native_path "${live}.tmp")
+    if python3 -c "import json; json.load(open('$_py_live_tmp'))" 2>/dev/null; then
+        if grep -qE '/tmp/cfgtest|/tmp/pytest|/tmp/bats' "${live}.tmp" 2>/dev/null; then
+            rm -f "${live}.tmp"
+            log_warn "Settings merge contains test paths — aborting deploy to prevent env contamination"
+            return
+        fi
         mv "${live}.tmp" "$live"
         log_info "Deployed settings.json → $live (merged: base hooks/structure + live secrets)"
     else
@@ -173,15 +198,48 @@ deploy_skills() {
         local skill_name
         skill_name=$(basename "$skill_dir")
         local target="$skills_dst/$skill_name"
+        # A machine may already have the skill symlinked straight back into the repo.
+        # Source and destination are then the SAME directory, `cp` fails with "are the
+        # same file", and under sync.sh's `set -euo pipefail` that aborts the ENTIRE
+        # deploy here — everything after deploy_skills (deploy_settings included) silently
+        # never runs, leaving new hooks on disk but wired into nothing. Some bash builds
+        # carry on past the failure, so it can reproduce on the target and not on the box
+        # you fix it from: assert the absence of the error, not the exit code.
+        if [ -e "$target" ] && [ "$(readlink -f "$target")" = "$(readlink -f "${skill_dir%/}")" ]; then
+            deployed=$((deployed + 1))
+            continue
+        fi
         mkdir -p "$target"
         cp -r "$skill_dir"* "$target/"
         deployed=$((deployed + 1))
     done
     [ "$deployed" -gt 0 ] && log_info "Deployed $deployed custom skill(s) to $skills_dst"
+    # Never end on a failing test: with no skills at all, `[ 0 -gt 0 ]` is this function's
+    # last command, so it would return 1 and set -e would abort the deploy on a machine
+    # that simply has none.
+    return 0
+}
+
+# Deploy custom agent definitions (markdown with frontmatter) from global/agents/
+# to the dir Claude Code actually reads user-level agents from ($CLAUDE_CONFIG_DIR/agents/,
+# which is ~/.cc-mirror/mclaude/config/agents/ under mclaude). Flat *.md files, one per agent.
+# No orphan cleanup: the agents dir may hold user-placed agents we must not delete.
+deploy_agents() {
+    local agents_src="$SCRIPT_DIR/global/agents"
+    local agents_dst="${CLAUDE_CONFIG_DIR:-$HOME/.claude}/agents"
+    [ -d "$agents_src" ] || return 0
+    local deployed=0
+    for agent_file in "$agents_src"/*.md; do
+        [ -f "$agent_file" ] || continue
+        mkdir -p "$agents_dst"
+        cp "$agent_file" "$agents_dst/$(basename "$agent_file")"
+        deployed=$((deployed + 1))
+    done
+    [ "$deployed" -gt 0 ] && log_info "Deployed $deployed custom agent(s) to $agents_dst"
 }
 
 deploy_hooks() {
-    local managed_header="# MANAGED — DO NOT EDIT. Source: ~/cfg-agent-fleet/global/hooks/"
+    local managed_header="# MANAGED — DO NOT EDIT. Source: $SCRIPT_DIR/global/hooks/"
     mkdir -p "$CLAUDE_HOME/hooks"
     for hook in "$GLOBAL_DIR/hooks/"*.sh; do
         [ -f "$hook" ] || continue
@@ -216,6 +274,16 @@ deploy_hooks() {
             chmod 555 "$CLAUDE_HOME/hooks/$subdir_name/$f_base"
             log_info "Deployed hook: $subdir_name/$f_base"
         done
+        # Clean orphaned hooks: remove deployed files that no longer exist in repo
+        for deployed in "$CLAUDE_HOME/hooks/$subdir_name/"*.sh; do
+            [ -f "$deployed" ] || continue
+            local d_base
+            d_base=$(basename "$deployed")
+            if [ ! -f "$subdir$d_base" ]; then
+                rm -f "$deployed"
+                log_info "Removed orphaned hook: $subdir_name/$d_base"
+            fi
+        done
     done
 }
 
@@ -228,7 +296,7 @@ deploy_afd() {
     mkdir -p "$HOME/.local/bin" "$HOME/.local/lib"
 
     if [ -f "$afd_dir/client/afd" ]; then
-        cp "$afd_dir/client/afd" "$HOME/.local/bin/afd"
+        cp --remove-destination "$afd_dir/client/afd" "$HOME/.local/bin/afd"
         chmod +x "$HOME/.local/bin/afd"
         log_info "Deployed: afd client → ~/.local/bin/"
     fi
@@ -237,6 +305,25 @@ deploy_afd() {
         cp "$afd_dir/lib/afd-lib.sh" "$HOME/.local/lib/afd-lib.sh"
         log_info "Deployed: afd-lib.sh → ~/.local/lib/"
     fi
+}
+
+# deploy_repro — SteamOS only: ~/.local/bin/repro → setup/reprovision-steamos.sh, so an OS
+# update is repaired by typing `repro` from any folder. Never replaces an
+# unrelated `repro`; OS_RELEASE_FILE overrides /etc/os-release for tests.
+deploy_repro() {
+    local src="$SCRIPT_DIR/setup/reprovision-steamos.sh" dst="$HOME/.local/bin/repro"
+    local os_release="${OS_RELEASE_FILE:-/etc/os-release}"
+    grep -qiE '^ID(_LIKE)?=.*(steamos|holo)' "$os_release" 2>/dev/null || return 0
+    [ -f "$src" ] || return 0
+    mkdir -p "$HOME/.local/bin"
+    if [ -e "$dst" ] || [ -L "$dst" ]; then
+        if [ "$(readlink -f "$dst" 2>/dev/null)" != "$(readlink -f "$src")" ]; then
+            log_warn "Skipped 'repro' shortcut: an unrelated repro exists at $dst"
+            return 0
+        fi
+    fi
+    _link_file "$src" "$dst"
+    log_info "Deployed: repro → reprovision-steamos.sh (~/.local/bin/)"
 }
 
 deploy_afleet() {
@@ -250,18 +337,18 @@ deploy_afleet() {
     # Prefer wrapper (CFG-256: copied, survives repo corruption)
     if [ -f "$wrapper_src" ]; then
         # Remove symlink if present (cp writes through symlinks)
-        [ -L "$HOME/.local/bin/afleet" ] && rm "$HOME/.local/bin/afleet"
+        _check_linked "$HOME/.local/bin/afleet" && rm "$HOME/.local/bin/afleet"
         cp "$wrapper_src" "$HOME/.local/bin/afleet"
         chmod +x "$HOME/.local/bin/afleet"
         log_info "Deployed: afleet-wrapper → ~/.local/bin/afleet (copied)"
     elif [ -f "$afleet_src" ]; then
-        ln -sf "$afleet_src" "$HOME/.local/bin/afleet"
-        log_info "Deployed: afleet → ~/.local/bin/ (symlink fallback)"
+        _link_file "$afleet_src" "$HOME/.local/bin/afleet"
+        log_info "Deployed: afleet → ~/.local/bin/ (linked)"
     fi
 
     if [ -f "$nav_src" ]; then
-        ln -sf "$nav_src" "$HOME/.local/bin/afleet-nav"
-        log_info "Deployed: afleet-nav → ~/.local/bin/ (symlink)"
+        _link_file "$nav_src" "$HOME/.local/bin/afleet-nav"
+        log_info "Deployed: afleet-nav → ~/.local/bin/ (linked)"
     fi
 
     # Deploy .desktop file on KDE/GNOME (not WSL, not VPS)
@@ -270,10 +357,22 @@ deploy_afleet() {
         log_info "Deployed: afleet.desktop → ~/.local/share/applications/"
     fi
 
-    # Deploy 'af' shortcut (symlink to afleet)
-    if [ -x "$HOME/.local/bin/afleet" ] && [ ! -e "$HOME/.local/bin/af" ]; then
-        ln -sf "$HOME/.local/bin/afleet" "$HOME/.local/bin/af"
-        log_info "Deployed: af → afleet (symlink)"
+    # Deploy 'af' shortcut (CFG-507). Through install_af_shortcut (setup/lib.sh) — the same
+    # guard install.sh uses — so it never clobbers or shadows an unrelated `af`. This runs in
+    # `sync.sh setup` BEFORE install.sh's own af block and on every SessionEnd deploy; an
+    # unguarded link here made the installer's guard dead. lib.sh is sourced in a subshell
+    # so its set -e and log_* stay out of sync.sh.
+    if [ -x "$HOME/.local/bin/afleet" ]; then
+        local af_copy_src="$wrapper_src" af_conflict=""
+        [ -f "$af_copy_src" ] || af_copy_src="$afleet_src"
+        if af_conflict=$( source "$SCRIPT_DIR/setup/lib.sh" >/dev/null 2>&1 \
+                && install_af_shortcut "$af_copy_src" "$HOME/.local/bin/af" ); then
+            log_info "Deployed: af → afleet (standard fleet shortcut)"
+        elif [ -n "$af_conflict" ]; then
+            log_warn "Skipped 'af' shortcut: an unrelated 'af' exists at $af_conflict — use 'afleet'"
+        else
+            log_warn "Skipped 'af' shortcut: could not load setup/lib.sh"
+        fi
     fi
 
     # Deploy Windows .bat bridge (WSL only)

@@ -89,7 +89,7 @@ result and rolls back on failure:
 
   bash ~/cfg-agent-fleet/setup/scripts/cc-update.sh --version <x.y.z>
 
-Run it from a plain shell AFTER `/exit` — never inside a session. It guards on
+Run it from a plain shell AFTER `end` — never inside a session. It guards on
 CLAUDE_CONFIG_DIR and will refuse; that refusal is the point (docs/decisions.md:329).
 
 Read-only cc-mirror verbs (list, doctor, tasks, --help) are not blocked.
