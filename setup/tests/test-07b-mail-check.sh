@@ -38,7 +38,7 @@ EOF
 }
 
 # A mail-check script that prints two JSON lines (one message per line), like
-# the real ones do; it ignores its arguments (--since 24).
+# the real ones do; it ignores its arguments (--project <name>).
 _mk_mail_script() {   # <path>
     mkdir -p "$(dirname "$1")"
     printf '#!/usr/bin/env bash\nprintf '"'"'{"subject":"Invoice 42"}\\n{"subject":"Hello"}\\n'"'"'\n' > "$1"
@@ -49,7 +49,7 @@ test_named_script_discovered_and_tagged() {
     local cr="$TEST_TMPDIR/cr" out
     _mk_mail_script "$cr/setup/scripts/acme-mail-check.sh"
     out="$(_run_7b3 "$cr")"
-    assert_eq "ACME_MAIL: 2 message(s) in last 24h: Invoice 42; Hello" "$out" \
+    assert_eq "ACME_MAIL: 2 message(s) waiting: Invoice 42; Hello" "$out" \
         "acme-mail-check.sh is found by pattern and tagged ACME_MAIL (measured: '$out')"
 }
 run_test "7b.3: <name>-mail-check.sh is discovered and tagged <NAME>_MAIL" test_named_script_discovered_and_tagged
@@ -58,7 +58,7 @@ test_plain_script_gets_plain_tag() {
     local cr="$TEST_TMPDIR/cr" out
     _mk_mail_script "$cr/setup/scripts/mail-check.sh"
     out="$(_run_7b3 "$cr")"
-    assert_eq "MAIL: 2 message(s) in last 24h: Invoice 42; Hello" "$out" \
+    assert_eq "MAIL: 2 message(s) waiting: Invoice 42; Hello" "$out" \
         "mail-check.sh (the unprefixed default) is tagged MAIL (measured: '$out')"
 }
 run_test "7b.3: mail-check.sh is tagged MAIL" test_plain_script_gets_plain_tag
@@ -72,7 +72,7 @@ test_env_override_beats_discovery() {
     # ...and an explicit script outside the scanned directory.
     _mk_mail_script "$TEST_TMPDIR/elsewhere/ops-mail-check.sh"
     out="$(MAIL_CHECK_SCRIPT="$TEST_TMPDIR/elsewhere/ops-mail-check.sh" _run_7b3 "$cr")"
-    assert_eq "OPS_MAIL: 2 message(s) in last 24h: Invoice 42; Hello" "$out" \
+    assert_eq "OPS_MAIL: 2 message(s) waiting: Invoice 42; Hello" "$out" \
         "MAIL_CHECK_SCRIPT wins over discovery and the tag follows ITS name (measured: '$out')"
 }
 run_test "7b.3: MAIL_CHECK_SCRIPT overrides discovery" test_env_override_beats_discovery
@@ -81,7 +81,7 @@ test_tag_override() {
     local cr="$TEST_TMPDIR/cr" out
     _mk_mail_script "$cr/setup/scripts/acme-mail-check.sh"
     out="$(MAIL_CHECK_TAG="CUSTOM" _run_7b3 "$cr")"
-    assert_eq "CUSTOM: 2 message(s) in last 24h: Invoice 42; Hello" "$out" \
+    assert_eq "CUSTOM: 2 message(s) waiting: Invoice 42; Hello" "$out" \
         "MAIL_CHECK_TAG overrides the derived tag (measured: '$out')"
 }
 run_test "7b.3: MAIL_CHECK_TAG overrides the derived tag" test_tag_override
@@ -103,5 +103,23 @@ test_empty_output_is_silent() {
     assert_eq "" "$out" "a script that prints nothing injects nothing (measured: '$out')"
 }
 run_test "7b.3: a mail-check script with no messages → no injection" test_empty_output_is_silent
+
+# CFG-795: the check reads a QUEUE, not a time window — it must pass the project
+# (so each session sees only its own items) and must NOT pass --since.
+test_passes_project_not_since() {
+    local cr="$TEST_TMPDIR/cr-args"
+    mkdir -p "$cr/setup/scripts"
+    cat > "$cr/setup/scripts/acme-mail-check.sh" <<STUB
+#!/usr/bin/env bash
+echo "\$*" > "$TEST_TMPDIR/args.txt"
+echo '{"subject":"x"}'
+STUB
+    chmod +x "$cr/setup/scripts/acme-mail-check.sh"
+    _run_7b3 "$cr" >/dev/null
+    local args; args=$(cat "$TEST_TMPDIR/args.txt" 2>/dev/null)
+    assert_contains "$args" "--project proj" "07b passes the current project (measured args: '$args')"
+    assert_not_contains "$args" "--since" "07b passes no time window (measured args: '$args')"
+}
+run_test "7b.3: passes --project <dir name>, never --since (CFG-795)" test_passes_project_not_since
 
 suite_summary

@@ -79,16 +79,18 @@ if [ ${#_doc_missing[@]} -gt 0 ]; then
     WARNINGS="${WARNINGS:+$WARNINGS | }doc coherence: $_doc_count file(s) missing <!-- updates: --> header: $_doc_list"
 fi
 
-# Check 7b.3: Email check — surface recent labeled emails at startup (optional)
+# Check 7b.3: Email check — surface the unprocessed labeled-mail QUEUE at startup (optional)
 # Data-driven (CFG-676): the first setup/scripts/*mail-check.sh is used, MAIL_CHECK_SCRIPT
 # overrides; the tag comes from the name (`acme-mail-check.sh` → ACME_MAIL:, `mail-check.sh`
-# → MAIL:), MAIL_CHECK_TAG overrides. Script takes `--since <hours>`, prints one JSON object per line.
+# → MAIL:), MAIL_CHECK_TAG overrides. Script takes `--project <name>` (only items routed to this
+# project; a script may ignore it) and prints one JSON object per line. No time window (CFG-795):
+# processed mail is removed from the label, so the label itself is the queue.
 MAIL_CHECK_SCRIPT="${MAIL_CHECK_SCRIPT:-$(ls "$CONFIG_REPO"/setup/scripts/*mail-check.sh 2>/dev/null | head -1)}"
 if [ -n "$MAIL_CHECK_SCRIPT" ] && [ -f "$MAIL_CHECK_SCRIPT" ]; then
     _mcs_tag="$(basename "$MAIL_CHECK_SCRIPT" .sh)"; _mcs_tag="${_mcs_tag%mail-check}"; _mcs_tag="${_mcs_tag%-}"
     if [ -n "$_mcs_tag" ]; then _mcs_tag="$(printf '%s' "$_mcs_tag" | tr 'a-z.-' 'A-Z__')_MAIL"; else _mcs_tag="MAIL"; fi
     MAIL_CHECK_TAG="${MAIL_CHECK_TAG:-$_mcs_tag}"
-    MAIL_OUTPUT=$(timeout 10 bash "$MAIL_CHECK_SCRIPT" --since 24 2>/dev/null || true)
+    MAIL_OUTPUT=$(timeout 20 bash "$MAIL_CHECK_SCRIPT" --project "$(basename "${PROJECT_DIR:-$PWD}")" 2>/dev/null || true)
     if [ -n "$MAIL_OUTPUT" ]; then
         MAIL_SUBJECTS=$(echo "$MAIL_OUTPUT" | python3 -c "
 import json,sys
@@ -96,7 +98,7 @@ def s(l):
     try: return json.loads(l).get('subject','?')
     except Exception: return None
 m=[x for x in map(s,sys.stdin) if x is not None]
-if m: print(f'{sys.argv[1]}: {len(m)} message(s) in last 24h: ' + '; '.join(m))
+if m: print(f'{sys.argv[1]}: {len(m)} message(s) waiting: ' + '; '.join(m))
 " "$MAIL_CHECK_TAG" 2>/dev/null || true)
         if [ -n "$MAIL_SUBJECTS" ]; then
             INBOX_MSG="${INBOX_MSG:+$INBOX_MSG | }$MAIL_SUBJECTS"
