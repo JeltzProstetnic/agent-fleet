@@ -723,6 +723,32 @@ test_gh8_behind_report_and_deploy_intact() {
 }
 run_test "gh-8: behind path keeps report, pull, and CFG-208 deploy with rotation dirt" test_gh8_behind_report_and_deploy_intact
 
+# CFG-700 step 7: a pull that only touches sync-lib/ (the modular sync.sh's modules) must
+# auto-deploy too — before this, a sync-lib fix sat undeployed until the next SessionEnd.
+test_sync_lib_pull_auto_deploys() {
+    _mk_rotation_repo "$TEST_TMPDIR/repo" "$TEST_TMPDIR/remote.git"
+    git clone "$TEST_TMPDIR/remote.git" "$TEST_TMPDIR/other" --quiet 2>/dev/null
+    (
+        cd "$TEST_TMPDIR/other"
+        git config user.email "test@test.com"
+        git config user.name "Test"
+        mkdir -p sync-lib
+        echo "deploy() { :; }" > sync-lib/deploy.sh
+        git add sync-lib/deploy.sh
+        git commit -m "sync-lib change" >/dev/null 2>&1
+        git push --quiet 2>/dev/null
+    )
+    printf '#!/usr/bin/env bash\n[ "$1" = deploy ] && touch .deploy-marker\nexit 0\n' \
+        > "$TEST_TMPDIR/repo/sync.sh"
+    chmod +x "$TEST_TMPDIR/repo/sync.sh"
+    local out rc=0
+    out=$(cd "$TEST_TMPDIR/repo" && bash "$SYNC_SCRIPT" --pull 2>&1) || rc=$?
+    assert_eq "0" "$rc" "pull succeeds (out: $out)" || return 1
+    assert_file_exists "$TEST_TMPDIR/repo/.deploy-marker" \
+        "a pulled sync-lib/ change triggers the CFG-208 auto-deploy"
+}
+run_test "CFG-700: pulled sync-lib/ change triggers auto-deploy" test_sync_lib_pull_auto_deploys
+
 # Refuted attempt, point 2: rotation dirt conflicting with an incoming commit
 # must never be auto-committed (git add on an unmerged path would mark it
 # resolved WITH the conflict markers still inside). Originally this also pinned

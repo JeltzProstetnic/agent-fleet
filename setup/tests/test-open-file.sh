@@ -260,6 +260,27 @@ else
     fail "CFG-681: the launch path reports what it launched (silent success invites a second run)"
 fi
 
+# ── CFG-784: a DIRECTORY opens in the file manager (hand-off folders) ─────────
+mkdir -p "$_tmp/handoff dir"
+_out="$(OPEN_FILE_DRY=1 OPEN_FILE_MACHINE=wsl bash "$HELPER" "$_tmp/handoff dir" 2>&1)"
+if printf '%s' "$_out" | grep -q 'would open with folder'; then
+    pass "a directory is dispatched to the file manager on wsl"
+else
+    fail "a directory was not dispatched as a folder: $_out"
+fi
+_out="$(OPEN_FILE_DRY=1 OPEN_FILE_MACHINE=xdg-desktop bash "$HELPER" "$_tmp/handoff dir" 2>&1)"
+if printf '%s' "$_out" | grep -q 'would open with folder'; then
+    pass "a directory is dispatched to the file manager on a Linux desktop"
+else
+    fail "xdg-desktop directory dispatch wrong: $_out"
+fi
+_out="$(OPEN_FILE_DRY=1 OPEN_FILE_MACHINE=headless bash "$HELPER" "$_tmp/handoff dir" 2>&1)"
+if printf '%s' "$_out" | grep -q 'path-only'; then
+    pass "a directory degrades to its path on a headless box"
+else
+    fail "headless directory should be path-only: $_out"
+fi
+
 echo "── Summary ──"
 echo "  Total:   $((PASSED + FAILED))"
 echo "  Passed:  $PASSED"

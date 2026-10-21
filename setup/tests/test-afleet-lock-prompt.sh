@@ -607,4 +607,41 @@ EOF
 }
 run_test "cleanup prompt does not block under a real tty (CFG-474)" test_prompt_does_not_block_under_a_real_tty
 
+# ── CFG-788: a dry run leaves NO lock behind (local or afd) ──────────────────
+# Measured 2026-10-20: AFLEET_DRY_RUN=1 took the afd lock + the local .session-lock and
+# never released either, so the next REAL launch saw "another session is working here".
+
+test_dry_run_releases_locks() {
+    local pair env home
+    pair=$(build_env); env="${pair%|*}"; home="${pair#*|}"
+    local project="$home/alpha"
+    init_project "$project"
+    mkdir -p "$env/afd/lib"
+    cat > "$env/afd/lib/afd-lib.sh" <<'STUB'
+afd_lock_acquire() { echo "acquire $1" >> "$AFD_STUB_RECORD"; return 0; }
+afd_lock_release() { echo "release $1" >> "$AFD_STUB_RECORD"; return 0; }
+STUB
+    local record="$TEST_TMPDIR/afd-calls"; : > "$record"
+    CONFIG_REPO="$env" HOME="$home" PATH="$home/.local/bin:$PATH" \
+        AFD_TOKEN="stub-token" AFD_STUB_RECORD="$record" AFLEET_DRY_RUN=1 \
+        bash "$SCRIPT" alpha </dev/null >/dev/null 2>&1 || true
+    assert_file_not_exists "$project/.claude/.session-lock" "dry run leaves no local .session-lock" || return 1
+    assert_file_contains "$record" "acquire alpha" "precondition: the dry run exercised the afd lock path" || return 1
+    assert_file_contains "$record" "release alpha" "dry run releases the afd lock it took"
+}
+run_test "CFG-788: AFLEET_DRY_RUN=1 releases the local and afd locks it took" test_dry_run_releases_locks
+
+test_dry_run_flag() {
+    local pair env home
+    pair=$(build_env); env="${pair%|*}"; home="${pair#*|}"
+    local project="$home/alpha"
+    init_project "$project"
+    local out
+    out=$(CONFIG_REPO="$env" HOME="$home" PATH="$home/.local/bin:$PATH" \
+        bash "$SCRIPT" --dry-run alpha </dev/null 2>&1)
+    assert_contains "$out" "DRY_RUN: would cd to $project" "--dry-run is accepted as a flag" || return 1
+    assert_file_not_exists "$project/.claude/.session-lock" "--dry-run leaves no local lock"
+}
+run_test "CFG-788: --dry-run flag works like AFLEET_DRY_RUN=1" test_dry_run_flag
+
 suite_summary

@@ -356,6 +356,23 @@ fi
 
 rm -rf "$_fx_dir"
 
+# ══════════════════════════════════════════════════════════════════════════════
+# CFG-798 (life 2026-10-21): a target with no trailing newline swallowed the new item
+# ══════════════════════════════════════════════════════════════════════════════
+echo ""
+echo "=== CFG-798: appending to a file that lacks a trailing newline ==="
+_nl_dir="$(mktemp -d)"
+printf '# Inbox — cfg-agent-fleet\n- [ ] older item\n<!-- trailing comment, no newline -->' > "$_nl_dir/inbox.md"
+bash "$HELPER" --project cfg-agent-fleet --type fact --body "newline guard probe" \
+    --inbox "$_nl_dir/inbox.md" >/dev/null 2>&1
+_last=$(tail -1 "$_nl_dir/inbox.md")
+if [[ "$_last" == "- [ ] "*"newline guard probe" ]] && grep -qx '<!-- trailing comment, no newline -->' "$_nl_dir/inbox.md"; then
+    pass "CFG-798: the new item starts its own line; the comment line is left intact"
+else
+    fail "CFG-798: item glued onto the previous line (last line: $_last)"
+fi
+rm -rf "$_nl_dir"
+
 if [ "$TESTS_FAILED" -gt 0 ]; then
     echo "  Failed:  $TESTS_FAILED"
     echo -e "$FAIL_DETAILS"

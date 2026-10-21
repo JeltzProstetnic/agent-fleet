@@ -92,4 +92,22 @@ run_test "replace dir: symlink mode backs up real dir" test_replace_backs_up_sym
 run_test "replace dir: copy mode backs up real dir" test_replace_backs_up_copy_mode
 run_test "replace dir: copy mode skips identical copy" test_copy_mode_identical_copy_not_rebacked
 
+# CFG-700 step 7: deploy_afd replaces the client portably (no GNU-only cp flag)
+test_deploy_afd_replaces_readonly_client() {
+    (
+        local repo="$TEST_TMPDIR/afdrepo" home="$TEST_TMPDIR/afdhome"
+        mkdir -p "$repo/afd/client" "$home/.local/bin"
+        printf '#!/bin/sh\necho new\n' > "$repo/afd/client/afd"
+        printf '#!/bin/sh\necho old\n' > "$home/.local/bin/afd"; chmod 555 "$home/.local/bin/afd"
+        HOME="$home"; SCRIPT_DIR="$repo"
+        log_info() { :; }; log_warn() { :; }
+        source <(sed -n '/^deploy_afd()/,/^}/p' "$REPO_ROOT/sync-lib/deploy.sh")
+        deploy_afd >/dev/null 2>&1
+        assert_file_contains "$home/.local/bin/afd" "echo new" "existing read-only afd is replaced" || return 1
+        [[ -x "$home/.local/bin/afd" ]] || { echo "    afd not executable"; return 1; }
+        assert_file_not_contains "$REPO_ROOT/sync-lib/deploy.sh" "remove-destination" "no GNU-only cp flag (BSD/macOS)"
+    )
+}
+run_test "deploy_afd replaces a read-only client without GNU-only cp flags" test_deploy_afd_replaces_readonly_client
+
 suite_summary

@@ -499,6 +499,7 @@ resolve_project() {
                 echo "                      Hand a file to another project (copy + inbox item + commit)"
                 exit 0 ;;
             --list|-l) MODE="list"; shift ;;
+            --dry-run) DRY_RUN=1; shift ;;
             --pick|-p|--dash|-d) SHOW_PICKER=true; shift ;;
             --all) PICKER_ALL=1; shift ;;
             # Model submenu. Exact-literal patterns, so `-m` never swallows `-mcp`.
@@ -688,9 +689,24 @@ pre_launch_sync() {
 # ── launch_mclaude — mclaude detection, TweakCC, banner, exec ───────────────
 # Reads globals: DRY_RUN, TARGET_DIR, TARGET_NAME
 # Sets globals: MCLAUDE_EXIT
+# CFG-788: a dry run walks the real lock path (the lock-prompt tests depend on that) but
+# must not leave the locks behind — a leaked lock blocked the next real launch with
+# "another session is working here".
+afleet_release_dry_run_locks() {
+    # release_lock without a session id removes the lock only when its recorded PID is
+    # THIS process — the dry run just wrote it, so that is the proof of ownership.
+    if type release_lock &>/dev/null; then
+        release_lock "$TARGET_DIR" >/dev/null 2>&1 || true
+    fi
+    if type afd_lock_release &>/dev/null && [[ -n "${AFD_TOKEN:-}" ]]; then
+        afd_lock_release "$TARGET_NAME" >/dev/null 2>&1 || true
+    fi
+}
+
 launch_mclaude() {
     if [[ "$DRY_RUN" == "1" ]]; then
         echo "DRY_RUN: would cd to $TARGET_DIR and exec mclaude"
+        afleet_release_dry_run_locks
         exit 0
     fi
 

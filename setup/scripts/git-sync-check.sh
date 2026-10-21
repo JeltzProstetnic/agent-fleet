@@ -469,7 +469,7 @@ if [ "$BEHIND" -gt 0 ]; then
     if [ "$PULL_OK" = true ] && [ "$POP_FAILED" = true ]; then
       echo "Auto-deploy SKIPPED — the tree has conflict markers; run 'bash sync.sh deploy' after resolving."
     elif [ "$PULL_OK" = true ]; then
-      DEPLOY_SENSITIVE_PREFIXES="global/hooks/ global/knowledge/ global/reference/ global/foundation/ global/domains/ setup/config/ setup/scripts/"
+      DEPLOY_SENSITIVE_PREFIXES="global/hooks/ global/knowledge/ global/reference/ global/foundation/ global/domains/ setup/config/ setup/scripts/ sync-lib/ sync.sh"
       CHANGED_FILES=$(git diff --name-only "$PRE_PULL_HEAD" HEAD 2>/dev/null || true)
       NEEDS_DEPLOY=false
 

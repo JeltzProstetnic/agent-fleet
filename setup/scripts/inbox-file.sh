@@ -166,6 +166,11 @@ if [ "$_ceiling" -gt 0 ] 2>/dev/null && [ "$_open" -ge "$_ceiling" ]; then
     _over=1
 fi
 
+# CFG-798: a target whose last line has no newline (seen: a trailing <!-- comment -->) would
+# get the item glued onto that line, hidden from every sweep. Terminate it first.
+if [ -s "$INBOX" ] && [ -n "$(tail -c 1 "$INBOX")" ]; then
+    printf '\n' >> "$INBOX" || die "could not append to $INBOX"
+fi
 printf '%s: %s\n' "$_head" "$BODY" >> "$INBOX" || die "could not append to $INBOX"
 
 # ── Verify what was actually written (lrn 2026-09-23, owner-approved) ────────────────────

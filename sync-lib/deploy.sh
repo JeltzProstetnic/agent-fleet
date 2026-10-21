@@ -296,7 +296,9 @@ deploy_afd() {
     mkdir -p "$HOME/.local/bin" "$HOME/.local/lib"
 
     if [ -f "$afd_dir/client/afd" ]; then
-        cp --remove-destination "$afd_dir/client/afd" "$HOME/.local/bin/afd"
+        # rm + cp, not the GNU-only cp flag that unlinks the target (BSD/macOS lack it; a running
+        # afd binary is replaced by unlinking first, never written in place)
+        rm -f "$HOME/.local/bin/afd" && cp "$afd_dir/client/afd" "$HOME/.local/bin/afd"
         chmod +x "$HOME/.local/bin/afd"
         log_info "Deployed: afd client → ~/.local/bin/"
     fi

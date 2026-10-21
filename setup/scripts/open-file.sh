@@ -113,7 +113,13 @@ _win_stage() {
     stage="${OPEN_FILE_WIN_STAGE:-/mnt/c/temp/cc-open}"
     mkdir -p "$stage" 2>/dev/null || return 1
     base="$(basename "$src")"
-    cp -f "$src" "$stage/$base" 2>/dev/null || return 1
+    if [ -d "$src" ]; then
+        # A hand-off folder (CFG-784): replace any earlier staged copy of the same folder.
+        rm -rf "${stage:?}/$base" 2>/dev/null
+        cp -rf "$src" "$stage/$base" 2>/dev/null || return 1
+    else
+        cp -f "$src" "$stage/$base" 2>/dev/null || return 1
+    fi
     printf '%s' "$stage/$base"
 }
 
@@ -174,6 +180,23 @@ _machine="$(_detect_machine)"
 _rc=0
 
 for _path in "$@"; do
+    # CFG-784: a directory opens in the file manager (Explorer on WSL, xdg-open on a
+    # Linux desktop) — the output rule stages hand-offs in a folder and opens it.
+    if [ -d "$_path" ]; then
+        _abs="$(cd "$_path" && pwd)"
+        if [ "$_machine" = "headless" ]; then
+            echo "open-file: path-only on '$_machine' — $(_reason_for "$_machine"):"
+            echo "  $_abs"
+        elif [ -n "${OPEN_FILE_DRY:-}" ]; then
+            echo "open-file: [dry] would open with folder: $_abs"
+        else
+            case "$_machine" in
+                wsl)         _launch_wsl folder "$_abs" || _rc=1 ;;
+                xdg-desktop) xdg-open "$_abs" >/dev/null 2>&1 & ;;
+            esac
+        fi
+        continue
+    fi
     if [ ! -f "$_path" ]; then
         echo "open-file: no such file: $_path" >&2
         _rc=1
