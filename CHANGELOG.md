@@ -2,6 +2,24 @@
 
 All notable changes to Agent Fleet are documented here. This follows [Keep a Changelog](https://keepachangelog.com/) conventions.
 
+## [Unreleased]
+
+**Modular `sync.sh` lands downstream (GH#2/GH#3).** The template now runs the same `sync.sh` dispatcher and `sync-lib/` modules as the reference fleet instead of its 1055-line monolith.
+
+### Changed
+- `sync.sh` is a dispatcher over `sync-lib/{common,check,pre-deploy,deploy,setup,recover,status}.sh`; `sync.sh deploy` writes the live Claude Code `settings.json` (`deploy_settings`) on every run, as the SessionEnd hook expects.
+- Machine overlays are selected from data, not code: copy `setup/config/machines/machine-map.conf.example` to `machine-map.conf` and list `<host-glob>[:<user>] <overlay>` lines. `FLEET_MACHINE=<overlay>` overrides for one shell; `local_machine_map` in `sync.local.sh` is the fallback hook.
+- Deployed hooks' `# MANAGED` header names the repo they were actually deployed from.
+- `sync.sh setup` arms the repo's `.githooks/` guard through `setup/scripts/ensure-githooks.sh`, and backs up a real `~/.claude/<dir>` before replacing it in copy mode too (no more `rm -rf` of unbacked content on symlink-less Windows).
+
+### Fixed
+- `sync.sh check` checked zero files (manifest parser returned `path|hash`); it now diffs every "Must Be Identical" row.
+- `deploy_settings` no longer aborts the whole deploy under `set -e` when the cc-mirror config directory does not exist yet — it warns and skips.
+
+### Removed
+- `sync.sh stamp` and the hash columns' role: drift is detected by direct diff; `template-sync-manifest.md` is documentation.
+- `sync.sh collect` (use `sync.sh recover --emergency`).
+
 ## [1.2] — 2026-06-10
 
 **Fable 5 / Claude Code 2.1.170 support.** Documentation and installer awareness for the Opus 4.8 default and the selectable Fable 5 preview flagship. (Note: changelog entries between 0.8 and 1.2 are not yet backfilled.)

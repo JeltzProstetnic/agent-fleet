@@ -432,11 +432,11 @@ agent-fleet/
 |---------|-------------|
 | `bash sync.sh setup` | Run once per computer. Creates symlinks, installs hooks. |
 | `bash sync.sh deploy` | Push config changes to live locations. Safe to repeat. |
-| `bash sync.sh collect` | Pull changes from live locations back into the repo. |
+| `bash sync.sh recover --emergency` | One-time rescue of unsaved edits made directly in deployed files (the repo is otherwise the only authority). |
+| `bash sync.sh edit <hook>` | Open a hook's repo source for editing (deployed hooks are read-only). |
 | `bash sync.sh status` | Health check -- shows what's linked, what's out of sync. |
 | `bash sync.sh check` | Aggregated drift/staleness check across all propagation chains. |
 | `bash sync.sh check-template` | Pre-publish validation (scans for personal data leaks). |
-| `bash sync.sh stamp` | Refresh manifest hashes after template sync. |
 | `bash sync.sh mobile-deploy` | Create read-only mobile snapshot repo. |
 | `bash sync.sh mobile-collect` | Merge outbox tasks from mobile back to inbox. |
 
@@ -485,7 +485,7 @@ Add your own: copy `global/domains/_template/`, edit it, reference it from your 
 | harness | 14 | Test runner itself |
 | rotate-session | 31 | Session archival, history rotation, template parsing |
 | git-sync-check | 15 | Remote detection, fast-forward, divergence handling |
-| sync | 24 | Deploy, collect, symlinks, hook copying |
+| sync | 42 | Deploy, recover, symlinks, hook copying, drift check |
 | persona | 6 | Persona file parsing, switching logic |
 | lsd-refresh | 9 | Dashboard cache generation, backlog scanning |
 | statusline | 27 | Context meter, persona display, color coding |

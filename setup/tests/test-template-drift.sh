@@ -32,21 +32,14 @@ compute_crc32() {
 # ── Template drift detection ─────────────────────────────────────────────────
 
 test_drift_detects_changed_file() {
-    # Set up a mock repo with a tracked file
-    mkdir -p "$TEST_TMPDIR/repo"
-    echo "original content" > "$TEST_TMPDIR/repo/test-file.sh"
-    local original_hash
-    original_hash=$(compute_crc32 "$TEST_TMPDIR/repo/test-file.sh")
-
-    # Create manifest with the original hash
-    create_mock_manifest "$TEST_TMPDIR/repo" "test-file.sh" "$original_hash"
-
-    # Modify the file (hash will no longer match)
+    # Drift is a direct diff (CFG-700: no hashes) — personal copy vs template copy.
+    mkdir -p "$TEST_TMPDIR/repo" "$TEST_TMPDIR/tpl"
+    echo "original content" > "$TEST_TMPDIR/tpl/test-file.sh"
     echo "modified content" > "$TEST_TMPDIR/repo/test-file.sh"
+    create_mock_manifest "$TEST_TMPDIR/repo" "test-file.sh" "-"
 
-    # Run the check subcommand — should report drift
     local out rc=0
-    out=$(bash "$SYNC_SCRIPT" check --repo-root "$TEST_TMPDIR/repo" 2>&1) || rc=$?
+    out=$(bash "$SYNC_SCRIPT" check --repo-root "$TEST_TMPDIR/repo" --template-dir "$TEST_TMPDIR/tpl" 2>&1) || rc=$?
     assert_contains "$out" "test-file.sh"
     assert_contains "$out" "drifted"
 }
@@ -138,17 +131,13 @@ test_check_subcommand_runs() {
 run_test "check subcommand runs without crashing" test_check_subcommand_runs
 
 test_check_reports_template_drift() {
-    mkdir -p "$TEST_TMPDIR/repo"
-    echo "original" > "$TEST_TMPDIR/repo/test.sh"
-    local hash
-    hash=$(compute_crc32 "$TEST_TMPDIR/repo/test.sh")
-    create_mock_manifest "$TEST_TMPDIR/repo" "test.sh" "$hash"
-
-    # Modify the file
+    mkdir -p "$TEST_TMPDIR/repo" "$TEST_TMPDIR/tpl"
+    echo "original" > "$TEST_TMPDIR/tpl/test.sh"
     echo "changed" > "$TEST_TMPDIR/repo/test.sh"
+    create_mock_manifest "$TEST_TMPDIR/repo" "test.sh" "-"
 
     local out
-    out=$(bash "$SYNC_SCRIPT" check --repo-root "$TEST_TMPDIR/repo" 2>&1)
+    out=$(bash "$SYNC_SCRIPT" check --repo-root "$TEST_TMPDIR/repo" --template-dir "$TEST_TMPDIR/tpl" 2>&1)
     assert_contains "$out" "drifted"
     assert_contains "$out" "issue(s) found"
 }
