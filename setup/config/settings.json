@@ -243,6 +243,15 @@
         ]
       },
       {
+        "matcher": "mcp__playwright__browser_evaluate|mcp__playwright__browser_run_code_unsafe",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash ~/.claude/hooks/safe-run.sh playwright-value-guard.sh"
+          }
+        ]
+      },
+      {
         "matcher": "Artifact",
         "hooks": [
           {
