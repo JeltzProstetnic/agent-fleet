@@ -9,14 +9,29 @@ source "$(dirname "$0")/test-helpers.sh"
 suite_header "deploy_repro (repro → reprovision-steamos.sh on SteamOS)"
 
 # $1 = os-release content to present (ID line decides SteamOS vs not)
+# Fixture repo (CFG-700): the real reprovision-steamos.sh is personal-only, so the suite
+# deploys from a stub and runs identically in the template. FIXTURE_NO_SUBJECT=1 omits it.
+fixture_repo() {
+    local f="$TEST_TMPDIR/fixture-repo"
+    mkdir -p "$f/setup" "$f/global"
+    if [[ "${FIXTURE_NO_SUBJECT:-}" == 1 ]]; then
+        rm -f "$f/setup/reprovision-steamos.sh"
+    else
+        printf '#!/usr/bin/env bash\necho stub\n' > "$f/setup/reprovision-steamos.sh"
+        chmod +x "$f/setup/reprovision-steamos.sh"
+    fi
+    echo "$f"
+}
+
 run_deploy_repro() {
     local os_id="${1:-steamos}"
+    local fx; fx=$(fixture_repo)
     mkdir -p "$TEST_TMPDIR/home/.local/bin"
     printf 'NAME="Test"\nID=%s\n' "$os_id" > "$TEST_TMPDIR/os-release"
     (
         export HOME="$TEST_TMPDIR/home"
         OS_RELEASE_FILE="$TEST_TMPDIR/os-release"
-        SCRIPT_DIR="$REPO_ROOT"; GLOBAL_DIR="$REPO_ROOT/global"; PLATFORM=linux
+        SCRIPT_DIR="$fx"; GLOBAL_DIR="$fx/global"; PLATFORM=linux
         log_info()  { echo "[INFO] $*"; }
         log_warn()  { echo "[WARN] $*"; }
         log_error() { echo "[ERROR] $*"; }
@@ -38,7 +53,7 @@ resolve_repro_from_elsewhere() {
 
 test_steamos_gets_repro() {
     run_deploy_repro steamos
-    assert_eq "$(readlink -f "$REPO_ROOT/setup/reprovision-steamos.sh")" "$(resolve_repro_from_elsewhere)" \
+    assert_eq "$(readlink -f "$TEST_TMPDIR/fixture-repo/setup/reprovision-steamos.sh")" "$(resolve_repro_from_elsewhere)" \
         "repro resolves to reprovision-steamos.sh from any folder" || return 1
     [[ -x "$TEST_TMPDIR/home/.local/bin/repro" ]] || { echo "    repro is not executable"; return 1; }
 }
@@ -65,10 +80,18 @@ run_test "an unrelated repro at the target is left alone (with a warning)" test_
 test_redeploy_is_idempotent() {
     run_deploy_repro steamos
     run_deploy_repro steamos
-    assert_eq "$(readlink -f "$REPO_ROOT/setup/reprovision-steamos.sh")" "$(resolve_repro_from_elsewhere)" || return 1
+    assert_eq "$(readlink -f "$TEST_TMPDIR/fixture-repo/setup/reprovision-steamos.sh")" "$(resolve_repro_from_elsewhere)" || return 1
     assert_file_not_contains "$TEST_TMPDIR/deploy.log" "Skipped 'repro'"
 }
 run_test "re-deploy keeps our own repro link" test_redeploy_is_idempotent
+
+test_absent_subject_deploys_nothing() {
+    FIXTURE_NO_SUBJECT=1 run_deploy_repro steamos
+    local r="$TEST_TMPDIR/home/.local/bin/repro"
+    [[ ! -e "$r" && ! -L "$r" ]] || { echo "    repro deployed although reprovision-steamos.sh is absent"; return 1; }
+    assert_file_not_contains "$TEST_TMPDIR/deploy.log" "ERROR"
+}
+run_test "SteamOS without reprovision-steamos.sh: nothing deployed, no error" test_absent_subject_deploys_nothing
 
 test_wired_into_deploy_and_setup() {
     assert_file_contains "$REPO_ROOT/sync-lib/deploy.sh" "^    deploy_repro$" || return 1
