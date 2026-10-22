@@ -156,11 +156,18 @@ launch_session() {
     if [[ -n "$log_path" ]]; then
         # Capture real exit code via PIPESTATUS before tee masks it
         "${TMUX_CMD[@]}" new-session -d -s "$session" \
-            "($command) 2>&1 | tee -a $log_path; _rc=\${PIPESTATUS[0]}; echo \"EXIT_CODE: \$_rc\" >> $log_path"
+            "($command) 2>&1 | tee -a $log_path; _rc=\${PIPESTATUS[0]}; echo \"EXIT_CODE: \$_rc\" >> $log_path$GPI_DONE"
     else
-        "${TMUX_CMD[@]}" new-session -d -s "$session" "$command"
+        "${TMUX_CMD[@]}" new-session -d -s "$session" "($command)$GPI_DONE"
     fi
 }
+
+# Mark the GPI op done when the command exits, or finished jobs linger in the statusline
+# (2026-10-22: "[KC passkey suite ..." after the job had ended). gpi is resolved now, by absolute
+# path, because the tmux server's PATH need not contain it.
+GPI_BIN=$(command -v gpi 2>/dev/null || true)
+GPI_DONE=""
+[[ -n "$GPI_BIN" ]] && GPI_DONE="; $(printf '%q' "$GPI_BIN") done $(printf '%q' "$SESSION") >/dev/null 2>&1"
 
 launch_session "$SESSION" "$COMMAND" "$LOG_PATH"
 

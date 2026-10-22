@@ -193,6 +193,19 @@ test_clear_group_selective() {
 }
 run_test "clear --group removes only that group" test_clear_group_selective
 
+# 2026-10-22 (infrastructure lrn): `gpi clear <id>` silently fell through to "clear all" and wiped
+# other sessions' operations. An id is not a clear selector: refuse it and touch nothing.
+test_clear_refuses_positional_id() {
+    gpi start op1 "mine"
+    gpi start op2 "someone else's"
+    local rc=0
+    gpi clear op1 >/dev/null 2>&1 || rc=$?
+    assert_neq "0" "$rc" "clear <id> must fail" || return 1
+    assert_neq "null" "$(gpi_field '.ops["op1"]')" "op1 must survive a refused clear" || return 1
+    assert_neq "null" "$(gpi_field '.ops["op2"]')" "op2 must survive a refused clear"
+}
+run_test "clear <id> is refused and clears nothing" test_clear_refuses_positional_id
+
 test_status_readable() {
     gpi start op1 "copying" --pct 45 --group backup --seq 2/5
     # pct via start isn't supported, use update

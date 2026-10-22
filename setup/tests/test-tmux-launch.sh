@@ -257,6 +257,26 @@ MOCKEOF
 }
 run_test "GPI registration called on launch" test_gpi_called
 
+# 2026-10-22 (infrastructure lrn): finished jobs lingered in the statusline ("[KC passkey suite ...")
+# because nothing marked them done — only "EXIT_CODE: N" went into the log. The job must call
+# `gpi done <session>` itself when its command exits, with and without --log.
+_gpi_done_case() {
+    local session="$1"; shift
+    local mock_dir="$TEST_TMPDIR/mockbin-done-$session" call_log="$TEST_TMPDIR/gpi-done-$session.log"
+    mkdir -p "$mock_dir"
+    printf '#!/usr/bin/env bash\necho "gpi $*" >> %q\n' "$call_log" > "$mock_dir/gpi"
+    chmod +x "$mock_dir/gpi"
+    PATH="$mock_dir:$PATH" bash "$TMUX_LAUNCH" "$session" "done test" "$@" "true" >/dev/null 2>&1
+    local i
+    for i in $(seq 50); do grep -q "^gpi done $session\$" "$call_log" 2>/dev/null && break; sleep 0.1; done
+    assert_file_contains "$call_log" "gpi done $session" "finished job must mark its GPI op done" || return 1
+    kill_session "$session"
+}
+test_gpi_done_on_exit_with_log() { _gpi_done_case "tl-done-log-$$" --log "$TEST_TMPDIR/done.log"; }
+test_gpi_done_on_exit_without_log() { _gpi_done_case "tl-done-nolog-$$"; }
+run_test "finished job marks GPI done (with --log)" test_gpi_done_on_exit_with_log
+run_test "finished job marks GPI done (no --log)" test_gpi_done_on_exit_without_log
+
 # ── Session-name prefix matching (CFG-616 family) ───────────────────────────
 # tmux resolves `-t name` by exact match, then PREFIX match. Measured on WSL
 # 2026-09-17: with a live session `zztest2`, `tmux kill-session -t zztest`

@@ -181,7 +181,8 @@ cmd_clear() {
         case "$1" in
             --group) group="$2"; shift 2 ;;
             --all) all=true; shift ;;
-            *) shift ;;
+            *) echo "gpi clear: unknown argument '$1' (use: clear | clear --all | clear --group <g>; finish one op with: done <id>)" >&2
+               return 2 ;;
         esac
     done
 
