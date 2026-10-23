@@ -330,6 +330,67 @@ test_no_color_support() {
 }
 run_test "respects NO_COLOR=1 environment variable" test_no_color_support
 
+# ── ensure_dashboard_cache_fresh (CFG-816) ──────────────────────────────────
+# First-run onboarding writes registry.md but never regenerates dashboard-cache.md,
+# so the picker showed an empty list on a fresh install (Mac, 2026-10-23).
+
+_mk_refresh_stub() {
+    local repo="$1"
+    mkdir -p "$repo/setup/scripts" "$repo/cross-project"
+    cat > "$repo/setup/scripts/lsd-refresh.sh" << 'EOF'
+#!/usr/bin/env bash
+echo called >> "$(dirname "$0")/../../refresh.calls"
+EOF
+}
+
+test_refresh_when_cache_missing() {
+    local repo="$TEST_TMPDIR/fresh1"
+    _mk_refresh_stub "$repo"
+    echo "| x | P1 |" > "$repo/registry.md"
+    source_lib_and_run "$repo/registry.md" "$repo/cross-project/dashboard-cache.md" "$repo" ensure_dashboard_cache_fresh
+    assert_file_exists "$repo/refresh.calls" "lsd-refresh must run when the cache is missing"
+}
+run_test "refreshes the dashboard cache when it is missing" test_refresh_when_cache_missing
+
+test_refresh_when_registry_newer() {
+    local repo="$TEST_TMPDIR/fresh2"
+    _mk_refresh_stub "$repo"
+    echo "cache" > "$repo/cross-project/dashboard-cache.md"
+    touch -d '2 hours ago' "$repo/cross-project/dashboard-cache.md"
+    echo "| x | P1 |" > "$repo/registry.md"
+    source_lib_and_run "$repo/registry.md" "$repo/cross-project/dashboard-cache.md" "$repo" ensure_dashboard_cache_fresh
+    assert_file_exists "$repo/refresh.calls" "lsd-refresh must run when registry.md is newer than the cache"
+}
+run_test "refreshes the dashboard cache when registry.md is newer" test_refresh_when_registry_newer
+
+test_no_refresh_when_cache_current() {
+    local repo="$TEST_TMPDIR/fresh3"
+    _mk_refresh_stub "$repo"
+    echo "| x | P1 |" > "$repo/registry.md"
+    touch -d '2 hours ago' "$repo/registry.md"
+    echo "cache" > "$repo/cross-project/dashboard-cache.md"
+    source_lib_and_run "$repo/registry.md" "$repo/cross-project/dashboard-cache.md" "$repo" ensure_dashboard_cache_fresh
+    if [[ -f "$repo/refresh.calls" ]]; then
+        echo "lsd-refresh ran although the cache is newer than registry.md"; return 1
+    fi
+}
+run_test "does not refresh when the cache is newer than registry.md" test_no_refresh_when_cache_current
+
+test_no_refresh_without_registry() {
+    local repo="$TEST_TMPDIR/fresh4"
+    _mk_refresh_stub "$repo"
+    source_lib_and_run "$repo/registry.md" "$repo/cross-project/dashboard-cache.md" "$repo" ensure_dashboard_cache_fresh
+    if [[ -f "$repo/refresh.calls" ]]; then
+        echo "lsd-refresh ran with no registry.md"; return 1
+    fi
+}
+run_test "does nothing when there is no registry.md" test_no_refresh_without_registry
+
+test_picker_calls_freshness_check() {
+    assert_file_contains "$REPO_ROOT/setup/scripts/afleet.sh" "ensure_dashboard_cache_fresh" "run_picker must refresh a stale cache"
+}
+run_test "afleet.sh picker calls ensure_dashboard_cache_fresh" test_picker_calls_freshness_check
+
 # ── Summary ──────────────────────────────────────────────────────────────────
 
 suite_summary

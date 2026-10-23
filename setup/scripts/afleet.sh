@@ -83,6 +83,7 @@ fi
 # ── Interactive picker ───────────────────────────────────────────────────────
 run_picker() {
     local show_all=0
+    ensure_dashboard_cache_fresh
 
     while true; do
         local cache_data

@@ -96,6 +96,19 @@ EOF
     ' "$REGISTRY"
 }
 
+# ── Dashboard cache freshness (CFG-816) ──────────────────────────────────────
+# The picker reads dashboard-cache.md, not registry.md. First-run onboarding writes
+# registry.md and never regenerates the cache, so a fresh install showed an empty
+# picker. Regenerate when the cache is missing or older than the registry.
+ensure_dashboard_cache_fresh() {
+    [[ -f "$REGISTRY" ]] || return 0
+    if [[ ! -f "$DASHBOARD_CACHE" || "$REGISTRY" -nt "$DASHBOARD_CACHE" ]]; then
+        local refresh="$CONFIG_REPO/setup/scripts/lsd-refresh.sh"
+        [[ -f "$refresh" ]] && bash "$refresh" >/dev/null 2>&1 || true
+    fi
+    return 0
+}
+
 # ── Dashboard cache parsing ──────────────────────────────────────────────────
 # Output: name|priority|parent|path|type|tasks|size|p1names|lastdone
 parse_dashboard_cache() {
