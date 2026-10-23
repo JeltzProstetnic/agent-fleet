@@ -86,6 +86,10 @@ Cards that carry no `<a href>` (Vue click handlers) still lead somewhere: click 
 `https://data.bka.gv.at/ris/api/v2.6/Bundesrecht?Applikation=BrKons&Gesetzesnummer=<NR>&Abschnitt.Von=<P>&Abschnitt.Bis=<P>&Abschnitt.Typ=Paragraph&Fassung.FassungVom=<YYYY-MM-DD>`
 (Landesrecht: `/Landesrecht?Applikation=LrKons&Bundesland.SucheInVorarlberg=true&Gesetzesnummer=<NR>&Fassung.FassungVom=…&DokumenteProSeite=OneHundred`). Without `Fassung.FassungVom` historical versions are mixed into the result. Full recipe: `~/life/knowledge/legal/at-sozialrecht-referenz.md` (life 2026-10-08).
 
+## Wikimedia needs a User-Agent
+
+The Commons API and `upload.wikimedia.org` answer a request with no User-Agent with a non-JSON error body, which a JSON parser reports as a parse failure rather than a refusal. Pass `curl -A '<tool>/1.0 (<contact>)'` (measured 2026-10-21).
+
 ## Scope
 
 Applies to any project that fetches and parses third-party pages — competitor/news monitoring,
