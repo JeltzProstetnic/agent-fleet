@@ -71,13 +71,35 @@ new_inbox_items() {
 # its pidfile, or that session is left with no waiter (Fable F2).
 release_pidfile() { [[ "$(cat "$PIDFILE" 2>/dev/null)" == "$$" ]] && rm -f "$PIDFILE"; }
 
+# CFG-806: Claude Code is still alive while its SessionEnd hooks run (/exit, /clear — up to
+# CLAUDE_CODE_SESSIONEND_HOOKS_TIMEOUT_MS), so an exit 2 in that window opens a new turn in a
+# session the user has already left. config-auto-sync.sh marks the session as ending with
+# this file and sends us SIGTERM before it does anything else; from then on nothing wakes
+# the model, and a Telegram message already taken goes back to the project queue for the
+# next session's prompt hook. A marker older than this waiter is an earlier life of the
+# same session id (a resumed session) and is cleared, not obeyed.
+ENDING="$DIR/.idle/${SID//[^A-Za-z0-9_-]/_}.ending"
+rm -f "$ENDING" 2>/dev/null
+MESSAGES=""
+session_ending() { [[ -f "$ENDING" ]]; }
+stop_quietly() {
+    [[ -n "$MESSAGES" ]] && printf '%s\n' "$MESSAGES" >> "$DIR/$ME.jsonl" 2>/dev/null
+    release_pidfile
+    exit 0
+}
+trap stop_quietly TERM
+# sleep in the background so SIGTERM is acted on at once, not after the poll interval.
+nap() { sleep "$POLL" & wait $! 2>/dev/null; }
+
 while (( $(date +%s) < DEADLINE )); do
     kill -0 "$PARENT" 2>/dev/null || exit 0
+    session_ending && stop_quietly
     [[ "$(cat "$PIDFILE" 2>/dev/null)" == "$$" ]] || exit 0
     NEW_ITEMS=$(new_inbox_items)
     if [[ -n "$NEW_ITEMS" ]]; then
         PCT=$(context_pct)
         if [[ -n "$PCT" ]] && (( PCT < ${AFD_IDLE_INBOX_PCT:-45} )); then
+            session_ending && stop_quietly
             release_pidfile
             # Count + path only, like inbox-watch.sh: item bodies come from other sessions
             # and must not reach the model unread as part of a wake frame (Fable F1).
@@ -89,9 +111,11 @@ while (( $(date +%s) < DEADLINE )); do
     fi
     afd_route_messages "$ME" >/dev/null 2>&1
     # A waiting AskUserQuestion relay owns this project's queue (2026-10-20, #406/#408).
-    if afd_question_waiting "$ME"; then sleep "$POLL"; continue; fi
+    if afd_question_waiting "$ME"; then nap; continue; fi
+    session_ending && stop_quietly
     MESSAGES=$(afd_take_messages "$ME")
     if [[ -n "$MESSAGES" ]]; then
+        session_ending && stop_quietly   # marked between the check and the take: requeue, no wake
         release_pidfile
         {
             echo "=== Telegram message(s) for this project (woke this idle session, CFG-777) ==="
@@ -108,7 +132,7 @@ print('[%s] %s %s' % (str(d.get('timestamp', ''))[:16], ch, d.get('message', '')
         } >&2
         exit 2
     fi
-    sleep "$POLL"
+    nap
 done
 release_pidfile
 exit 0

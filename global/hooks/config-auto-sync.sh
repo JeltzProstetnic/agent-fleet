@@ -37,6 +37,37 @@ ORIGINAL_DIR="$(pwd)"
 _shutdown_progress() { printf '  \033[38;5;243m%s\033[0m\n' "$1" >&2; }
 _shutdown_done() { printf '  \033[38;5;243mShutdown complete.\033[0m\n' >&2; }
 
+# This hook's stdin JSON carries the Claude Code session id. It binds lock ownership in
+# Phase -1 (CFG-452: an inherited AFLEET_SESSION_ID does not prove ownership, this id
+# does) and names this session's idle waiter in Phase -4. Empty on any failure.
+_CC_SID=""
+source "$(dirname "${BASH_SOURCE[0]}")/lib-hook-stdin.sh" 2>/dev/null || true
+if command -v read_cc_session_id >/dev/null 2>&1; then
+    _CC_SID="$(read_cc_session_id)"
+fi
+
+# --- Phase -4: silence this session's idle waiter (CFG-806) — before anything else ---
+# afd-idle-wake.sh (Stop hook, asyncRewake, CFG-777/797) polls for up to 12 h and exits 2
+# to wake the model on a Telegram message or a new inbox item. Claude Code is still alive
+# while this hook runs (/exit, /clear — up to CLAUDE_CODE_SESSIONEND_HOOKS_TIMEOUT_MS), so a
+# wake now would open a new turn in a session the user has already left. Mark the session
+# as ending (the waiter checks the marker before every wake and leaves every message for
+# the next session) and signal the waiter — but only a pid that really is an
+# afd-idle-wake.sh: a pidfile left by a killed waiter may name a reused pid.
+_silence_idle_waiter() {
+    local dir="${AFD_MSG_DIR:-$HOME/.afd-msgs}/.idle" key pid
+    [ -n "$_CC_SID" ] && [ -d "$dir" ] || return 0
+    key="${_CC_SID//[^A-Za-z0-9_-]/_}"
+    : > "$dir/$key.ending" 2>/dev/null || true
+    pid="$(cat "$dir/$key.pid" 2>/dev/null)"
+    if [[ "$pid" =~ ^[0-9]+$ ]] && ps -o args= -p "$pid" 2>/dev/null | grep -q 'afd-idle-wake'; then
+        kill -TERM "$pid" 2>/dev/null || true
+    fi
+    # A marker outlives its waiter only when the waiter was already gone; keep the dir clean.
+    find "$dir" -maxdepth 1 -name '*.ending' -mmin +120 -delete 2>/dev/null || true
+}
+_silence_idle_waiter
+
 # --- Phase -3: expire artifact-publish consent (SCI-34) ---
 # cloud-publish-guard.sh unblocks publishing while <project>/.claude/.artifact-consent
 # exists. That consent is per-SESSION by design: a marker surviving into tomorrow means
@@ -75,12 +106,8 @@ _LOCKFILE="$ORIGINAL_DIR/.claude/.session-lock"
 _LOCK_SID="${AFLEET_SESSION_ID:-}"
 # The lock may be bound to this CC session id (stamped at SessionStart). A
 # matching cc id proves ownership for release — an inherited AFLEET_SESSION_ID
-# does not. Read the cc id from this hook's stdin JSON; empty on any failure.
-_CC_SID=""
-source "$(dirname "${BASH_SOURCE[0]}")/lib-hook-stdin.sh" 2>/dev/null || true
-if command -v read_cc_session_id >/dev/null 2>&1; then
-    _CC_SID="$(read_cc_session_id)"
-fi
+# does not. _CC_SID was read from this hook's stdin JSON above (Phase -4); stdin
+# is consumed, so it is read exactly once.
 
 _SESSION_ROLE=""
 _LOCK_PRESENT=0; [ -f "$_LOCKFILE" ] && _LOCK_PRESENT=1

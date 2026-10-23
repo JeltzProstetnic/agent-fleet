@@ -223,6 +223,89 @@ test_inbox_same_item_wakes_once() {
 }
 run_test "CFG-797: an undispatched item wakes only once" test_inbox_same_item_wakes_once
 
+# --- CFG-806: a session that is shutting down must not be woken. Claude Code is still
+# alive while its SessionEnd hooks run (up to CLAUDE_CODE_SESSIONEND_HOOKS_TIMEOUT_MS), so an
+# exit 2 in that window opens a new turn in a session the user has already left. The
+# SessionEnd hook marks the session as ending ($AFD_MSG_DIR/.idle/<sid>.ending) and sends
+# the waiter SIGTERM; the waiter honours both and leaves every message where the next
+# session's prompt hook finds it.
+ending_file() { echo "$AFD_MSG_DIR/.idle/$1.ending"; }
+
+# start_waiter <sid> <cwd> — in the background; wait_rc collects RC (exit code or "none").
+start_waiter() {
+    BG_RC_FILE="$TEST_TMPDIR/rc.$1"; BG_ERR_FILE="$TEST_TMPDIR/err.$1"
+    rm -f "$BG_RC_FILE"; : > "$BG_ERR_FILE"
+    ( stop_json "$1" "$2" | bash "$HOOK" 2>"$BG_ERR_FILE" >/dev/null; echo $? > "$BG_RC_FILE" ) &
+    BG_PID=$!
+}
+wait_rc() { # wait_rc <max-seconds>
+    local t0=$SECONDS
+    while [[ ! -s "$BG_RC_FILE" ]] && (( SECONDS - t0 < $1 )); do sleep 0.2; done
+    RC=$(cat "$BG_RC_FILE" 2>/dev/null || echo none); TOOK=$(( SECONDS - t0 ))
+    if [[ "$RC" == none ]]; then   # still running: do not let a red test hang the suite
+        local p; p=$(cat "$AFD_MSG_DIR/.idle/"*.pid 2>/dev/null); [[ -n "$p" ]] && kill "$p" 2>/dev/null
+        kill "$BG_PID" 2>/dev/null
+    fi
+    wait "$BG_PID" 2>/dev/null || true
+}
+
+test_ending_marker_blocks_inbox_wake() {
+    setup_inbox; budget s1 20 1000000
+    export AFD_IDLE_MAX=30
+    start_waiter s1 "$HOME/proj-a"
+    sleep 1.5
+    : > "$(ending_file s1)"
+    file_item proj-a "filed while the session shuts down"
+    wait_rc 8
+    assert_eq "0" "$RC" "session marked ending: a new inbox item does not wake (exit 0, not 2)"
+    [[ $TOOK -le 5 ]] && ok=0 || ok=1
+    assert_eq "0" "$ok" "the waiter stops within a poll of the marker (took ${TOOK}s)"
+    assert_eq "" "$(cat "$BG_ERR_FILE")" "nothing is printed for the model to read"
+}
+run_test "CFG-806: the ending marker blocks an inbox wake" test_ending_marker_blocks_inbox_wake
+
+test_ending_marker_keeps_telegram_queued() {
+    setup_env; export AFD_IDLE_MAX=30
+    start_waiter s1 "$HOME/proj-a"
+    sleep 1.5
+    : > "$(ending_file s1)"
+    echo '{"id":806,"message":"@proj-a sent during /exit","timestamp":"t","persona":"Bot"}' > "$HOME/pending.jsonl"
+    wait_rc 8
+    assert_eq "0" "$RC" "session marked ending: a Telegram message does not wake"
+    assert_eq "" "$(cat "$BG_ERR_FILE")" "and is not printed"
+    assert_contains "$(cat "$AFD_MSG_DIR/proj-a.jsonl" "$HOME/pending.jsonl" 2>/dev/null)" "sent during /exit" \
+        "the message is not lost: it waits (queued or unconsumed) for the next session's prompt hook"
+}
+run_test "CFG-806: the ending marker leaves a Telegram message for the next session" test_ending_marker_keeps_telegram_queued
+
+test_sigterm_stops_quietly_and_promptly() {
+    setup_env; export AFD_IDLE_MAX=60 AFD_IDLE_POLL=20
+    start_waiter s1 "$HOME/proj-a"
+    sleep 1.5
+    local wpid; wpid=$(cat "$AFD_MSG_DIR/.idle/s1.pid" 2>/dev/null)
+    assert_neq "" "$wpid" "the waiter wrote its pidfile" || { wait_rc 1; return 1; }
+    local t0=$SECONDS
+    kill -TERM "$wpid"
+    wait_rc 10
+    local took=$(( SECONDS - t0 ))
+    assert_eq "0" "$RC" "SIGTERM from the SessionEnd hook ends the waiter with exit 0 (not 143)"
+    [[ $took -le 3 ]] && ok=0 || ok=1
+    assert_eq "0" "$ok" "even mid-poll (poll 20 s) it stops at once (took ${took}s)"
+    assert_eq "" "$(cat "$BG_ERR_FILE")" "no stderr, so safe-run has nothing to pass through"
+    assert_file_not_exists "$AFD_MSG_DIR/.idle/s1.pid" "its pidfile is released"
+}
+run_test "CFG-806: SIGTERM stops the waiter quietly and at once" test_sigterm_stops_quietly_and_promptly
+
+test_stale_marker_is_ignored() {
+    setup_env
+    mkdir -p "$AFD_MSG_DIR/.idle"; : > "$(ending_file s1)"   # left by an earlier life of session s1 (/resume)
+    ( sleep 2; echo '{"id":807,"message":"@proj-a still awake","timestamp":"t","persona":"Bot"}' > "$HOME/pending.jsonl" ) &
+    run_waiter s1 "$HOME/proj-a"; wait
+    assert_eq "2" "$RC" "a marker older than this waiter does not silence a resumed session"
+    assert_file_not_exists "$(ending_file s1)" "the stale marker is cleared at start"
+}
+run_test "CFG-806: a marker older than the waiter is cleared, not obeyed" test_stale_marker_is_ignored
+
 test_settings_registers_async_rewake_stop_hook() {
     local got
     got=$(python3 -c "
