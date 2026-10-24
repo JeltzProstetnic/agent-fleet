@@ -270,8 +270,11 @@ test_build_display_list_tier_grouping() {
     assert_contains "$output" "2|my-config|" "cfg should get number 2"
     assert_contains "$output" "3|project-beta|" "project-beta should get number 3"
 
-    # project-zeta is P1 child of P2 project-delta — promoted to P1 tier with own number
-    assert_contains "$output" "4|project-zeta|" "project-zeta should be promoted with number 4"
+    # project-zeta is P1 child of P2 project-delta — stays nested under its parent
+    local zeta_row
+    zeta_row=$(echo "$output" | awk -F'|' '$2 == "project-zeta" {print $1 "|" $7 "|" $8}')
+    assert_contains "$zeta_row" "|1|project-delta" "project-zeta should be nested under project-delta"
+    assert_not_contains "$zeta_row" "4|" "project-zeta should not be promoted to number 4"
 
     # Children of P1 parents get letters
     assert_contains "$output" "a|project-epsilon|" "project-epsilon should get letter a"
@@ -428,10 +431,13 @@ test_promoted_child_has_parent_suffix() {
     local output
     output=$(echo "$display_list" | COLUMNS=100 render_picker 2>/dev/null)
 
-    # project-zeta is promoted from project-delta — should show parent hint
-    assert_contains "$output" "project-delta" "promoted child project-zeta should reference parent project-delta"
+    # project-zeta (P1) is nested under project-delta (P2): its row must follow the parent's row
+    local delta_line zeta_line
+    delta_line=$(echo "$output" | grep -n "project-delta" | head -1 | cut -d: -f1)
+    zeta_line=$(echo "$output" | grep -n "project-zeta" | head -1 | cut -d: -f1)
+    assert_eq "1" "$(( zeta_line > delta_line ))" "nested child project-zeta (line $zeta_line) should render below parent project-delta (line $delta_line)"
 }
-run_test "promoted children show parent reference in display" test_promoted_child_has_parent_suffix
+run_test "a child that outranks its parent renders below the parent" test_promoted_child_has_parent_suffix
 
 # ── Summary ──────────────────────────────────────────────────────────────────
 

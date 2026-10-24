@@ -144,8 +144,8 @@ parse_dashboard_cache() {
 # Output: label|name|type|tasks|size|priority|is_child|parent|path|p1names
 # Algorithm:
 #   - Parents at their own priority get numbers (1, 2, 3...)
-#   - Children whose priority >= parent priority stay nested, get letters (a, b, c...)
-#   - Children whose priority < parent priority get promoted with own number + parent suffix
+#   - Children stay nested under their parent, get letters (a, b, c...), whatever their priority
+#   - Children whose parent is hidden (P4/P5 without show-all) get their own number + parent suffix
 #   - P4-P5 excluded unless PICKER_SHOW_ALL=1
 build_display_list() {
     local show_all="${PICKER_SHOW_ALL:-0}"
@@ -191,25 +191,22 @@ build_display_list() {
                 echo "${num}|${name}|${types[$i]}|${tasks_arr[$i]}|${sizes[$i]}|${prio}|0|—|${paths[$i]}|${p1names_arr[$i]}"
                 ((num++)) || true
 
-                # Find children of this parent that stay nested (child prio >= parent prio number)
-                local parent_prio_num="${prio#P}"
+                # Children always nest under their parent, whatever their own priority
                 for ((j=0; j<total; j++)); do
                     [[ -n "${processed[$j]:-}" ]] && continue
                     [[ "${parents[$j]}" != "$name" ]] && continue
                     local child_prio_num="${prios[$j]#P}"
-                    if [[ "$child_prio_num" -ge "$parent_prio_num" ]]; then
-                        [[ "$show_all" != "1" && "$child_prio_num" -ge 4 ]] && continue
-                        processed[$j]=1
-                        local letter="${letters:$letter_idx:1}"
-                        ((letter_idx++)) || true
-                        # Use parent's priority for display tier grouping
-                        echo "${letter}|${names[$j]}|${types[$j]}|${tasks_arr[$j]}|${sizes[$j]}|${prio}|1|${name}|${paths[$j]}|${p1names_arr[$j]}"
-                    fi
+                    [[ "$show_all" != "1" && "$child_prio_num" -ge 4 ]] && continue
+                    processed[$j]=1
+                    local letter="${letters:$letter_idx:1}"
+                    ((letter_idx++)) || true
+                    # Use parent's priority for display tier grouping
+                    echo "${letter}|${names[$j]}|${types[$j]}|${tasks_arr[$j]}|${sizes[$j]}|${prio}|1|${name}|${paths[$j]}|${p1names_arr[$j]}"
                 done
             fi
         done
 
-        # Promoted children: child priority is at this tier but parent is at a lower-priority tier
+        # Promoted children: only those whose parent is not shown (parent tier P4/P5 hidden)
         for ((i=0; i<total; i++)); do
             [[ -n "${processed[$i]:-}" ]] && continue
             local name="${names[$i]}"
@@ -228,7 +225,7 @@ build_display_list() {
             local parent_prio_num="${parent_prio#P}"
             local child_prio_num="${prio#P}"
 
-            if [[ "$child_prio_num" -lt "$parent_prio_num" ]]; then
+            if [[ "$child_prio_num" -lt "$parent_prio_num" && "$show_all" != "1" && "$parent_prio_num" -ge 4 ]]; then
                 tier_has_items=true
                 processed[$i]=1
                 # Promoted child — gets a number, type shows "(parent)"

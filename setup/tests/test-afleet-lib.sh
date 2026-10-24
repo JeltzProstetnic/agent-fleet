@@ -219,6 +219,56 @@ EOF
 }
 run_test "build_display_list assigns letters to children" test_build_display_list_children_get_letters
 
+test_build_display_list_higher_prio_child_stays_nested() {
+    # A child outranking its parent (P1 child under a P2 parent) must stay
+    # nested under the parent, not be promoted to its own number.
+    local cache="$TEST_TMPDIR/dashboard-cache.md"
+    cat > "$cache" << 'EOF'
+| Project | Priority | Parent | Path | Type | Tasks | Size | Machines | P1 Names | Last Done |
+|---------|----------|--------|------|------|-------|------|----------|----------|-----------|
+| parent | P2 | — | `~/parent` | meta | 3/12 | 1M | all | — | 2026-04-10 |
+| urgent | P1 | parent | `~/urgent` | code | 1/5 | 500K | wsl | U-1 | 2026-04-09 |
+EOF
+
+    local output
+    output=$(source_lib_and_run "/dev/null" "$cache" "$TEST_TMPDIR" bash -c '
+        export NO_COLOR=1
+        export REGISTRY="/dev/null"
+        export DASHBOARD_CACHE="'"$cache"'"
+        export CONFIG_REPO="'"$TEST_TMPDIR"'"
+        source "'"$SCRIPT"'"
+        parse_dashboard_cache | build_display_list
+    ')
+
+    assert_contains "$output" "a|urgent|code|" "higher-priority child should be nested as 'a'"
+    assert_eq "1|parent" "$(echo "$output" | sed -n '1p' | cut -d'|' -f1,2)" "parent should be row 1"
+}
+run_test "build_display_list nests a child that outranks its parent" test_build_display_list_higher_prio_child_stays_nested
+
+test_build_display_list_child_of_hidden_parent_promoted() {
+    # A P1 child whose parent is P4 (hidden by default) must still be listed.
+    local cache="$TEST_TMPDIR/dashboard-cache.md"
+    cat > "$cache" << 'EOF'
+| Project | Priority | Parent | Path | Type | Tasks | Size | Machines | P1 Names | Last Done |
+|---------|----------|--------|------|------|-------|------|----------|----------|-----------|
+| dormant | P4 | — | `~/dormant` | meta | 0/1 | 1M | all | — | 2026-04-10 |
+| urgent | P1 | dormant | `~/urgent` | code | 1/5 | 500K | wsl | U-1 | 2026-04-09 |
+EOF
+
+    local output
+    output=$(source_lib_and_run "/dev/null" "$cache" "$TEST_TMPDIR" bash -c '
+        export NO_COLOR=1
+        export REGISTRY="/dev/null"
+        export DASHBOARD_CACHE="'"$cache"'"
+        export CONFIG_REPO="'"$TEST_TMPDIR"'"
+        source "'"$SCRIPT"'"
+        parse_dashboard_cache | build_display_list
+    ')
+
+    assert_contains "$output" "1|urgent|code (dormant)|" "child of a hidden parent should be promoted"
+}
+run_test "build_display_list promotes a child whose parent tier is hidden" test_build_display_list_child_of_hidden_parent_promoted
+
 test_build_display_list_excludes_p4p5() {
     local cache="$TEST_TMPDIR/dashboard-cache.md"
     cat > "$cache" << 'EOF'
