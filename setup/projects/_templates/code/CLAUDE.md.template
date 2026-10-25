@@ -1,0 +1,57 @@
+<!-- agent-fleet-managed: DO NOT run /init — this file is configured by agent-fleet -->
+# {{PROJECT_NAME}}
+
+{{PROJECT_DESCRIPTION}}
+
+## Knowledge Loading
+
+| Domain | Files | Load when... |
+|--------|-------|-------------|
+| Software Development | `~/.claude/domains/software-development/tdd-protocol.md` | Writing or modifying code |
+
+## Key Files
+
+| File | Purpose |
+|------|---------|
+| `session-context.md` | Current session state — **read first** |
+| `backlog.md` | Full prioritized backlog — read when active TODOs are done |
+
+## Development
+
+| What | Command |
+|------|---------|
+| Run tests | `{{TEST_COMMAND}}` |
+| Lint | `{{LINT_COMMAND}}` |
+| Build | `{{BUILD_COMMAND}}` |
+
+**TDD only:** Write failing tests first, then implement. No code without tests.
+
+## Project Structure
+
+| Directory | Contents |
+|-----------|----------|
+| `src/` | Source code |
+| `tests/` | Test files |
+| `docs/` | Documentation, session log |
+| `scripts/` | Build/deploy scripts |
+| `tmp/` | Throwaway artifacts (gitignored) |
+
+## Git Rules
+
+- Feature branches for non-trivial changes
+- Commit messages describe the "why"
+- Run tests before committing
+
+## Active Roster
+
+| Agent Type | Use When |
+|-----------|----------|
+| general-purpose | Multi-file refactoring, complex features |
+| Explore | Codebase navigation, dependency analysis |
+| Plan | Architecture decisions, implementation planning |
+
+## Cross-Project References
+
+| File | Purpose |
+|------|---------|
+| `~/cfg-agent-fleet/cross-project/inbox.md` | Cross-project tasks |

@@ -1,0 +1,47 @@
+<!-- agent-fleet-managed: DO NOT run /init — this file is configured by agent-fleet -->
+# {{PROJECT_NAME}}
+
+{{PROJECT_DESCRIPTION}}
+
+## Knowledge Loading
+
+| Domain | Files | Load when... |
+|--------|-------|-------------|
+| Life Management | `~/life/knowledge/relationships.md` | People context needed |
+
+## Key Files
+
+| File | Purpose |
+|------|---------|
+| `session-context.md` | Current session state — **read first** |
+| `backlog.md` | Full prioritized backlog — read when active TODOs are done |
+| `knowledge/people.md` | Key contacts and stakeholders |
+| `data/` | Source data, reports, analysis inputs |
+
+## Process Analysis
+
+- Map current state before proposing changes
+- Document findings in `docs/` with clear rationale
+- Track decisions in `docs/decisions.md`
+- Regulatory/compliance items flagged explicitly
+
+## Active Roster
+
+| Agent Type | Use When |
+|-----------|----------|
+| general-purpose | Research, document drafting, analysis |
+| Explore | Data exploration, document search |
+| Plan | Process mapping, strategy planning |
+
+## Communication Rules
+
+- Check people KB before external outreach
+- Email drafts → Gmail MCP
+- Corporate content stays in this project (corporate content boundary rule)
+
+## Cross-Project References
+
+| File | Purpose |
+|------|---------|
+| `~/cfg-agent-fleet/cross-project/contacts.md` | Contact status tracking |
+| `~/cfg-agent-fleet/cross-project/inbox.md` | Cross-project tasks |

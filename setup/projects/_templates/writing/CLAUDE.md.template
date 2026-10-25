@@ -1,0 +1,72 @@
+<!-- agent-fleet-managed: DO NOT run /init — this file is configured by agent-fleet -->
+# {{PROJECT_NAME}}
+
+{{PROJECT_DESCRIPTION}}
+
+## Knowledge Loading
+
+| Domain | Files | Load when... |
+|--------|-------|-------------|
+| Publications | `~/.claude/domains/publications/publication-workflow.md` | Authoring, editing, or building any manuscript |
+| Publications (TDA) | `~/.claude/domains/publications/test-driven-authoring.md` | Modifying build scripts or .md→.tex pipeline |
+
+## Key Files
+
+| File | Purpose |
+|------|---------|
+| `session-context.md` | Current session state — **read first** |
+| `backlog.md` | Full prioritized backlog — read when active TODOs are done |
+| `docs/session-log.md` | Full session archive — append-only |
+| `references.md` | Master reference list (if academic) |
+
+## Project Structure
+
+| Directory | Contents |
+|-----------|----------|
+| `manuscript/` | Main manuscript source files (.md) |
+| `figures/` | Diagrams, images, renders |
+| `docs/` | Session log, outreach plans, notes |
+| `scripts/` | Build scripts, push scripts, tooling |
+| `tmp/` | Build output, test files, drafts (gitignored) |
+| `drafts/` | Content awaiting user action (tracked) |
+
+## Build Infrastructure
+
+| What | Command |
+|------|---------|
+| Build PDF | `python3 scripts/build_pdf.py` |
+| Content tests | `pytest scripts/test_content.py -v` |
+
+**Build direction: `.md` → `.tex` → `.pdf`** — never edit `.tex` directly.
+
+## Git & Push
+
+- Commit work products immediately — never leave manuscripts uncommitted across sessions
+- Use descriptive commit messages that reference what changed in the manuscript
+- If dual-remote (public filtered + private full): use a push script, never push tmp/ or session files to public
+
+## Delivery Rules
+
+- **Manual process kits**: For submissions or uploads, create `tmp/<process-name>/` with all needed files
+- **PDF builds**: Always open the LaTeX/build output, not intermediate renders
+
+## Active Roster
+
+| Agent Type | Use When |
+|-----------|----------|
+| general-purpose | Research, multi-file edits, correspondence |
+| Explore | Finding references, cross-file search |
+| Plan | Outline planning, structure decisions |
+
+## Communication Rules
+
+- Check contacts/communications log before drafting outreach
+- Email drafts → Gmail MCP, never text files
+- Hedge presumptions about recipients
+
+## Cross-Project References
+
+| File | Purpose |
+|------|---------|
+| `~/cfg-agent-fleet/cross-project/contacts.md` | Contact status tracking |
+| `~/cfg-agent-fleet/cross-project/inbox.md` | Cross-project tasks |

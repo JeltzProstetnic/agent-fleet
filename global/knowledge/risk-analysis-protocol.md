@@ -56,6 +56,10 @@ After the risk subagent returns an acceptable assessment:
 
 **sync.sh self-modification:** Editing sync.sh while a deploy is running can corrupt the deploy mid-flight. Always edit in the repo, never the deployed copy.
 
+## Smoke Test Requirement
+
+Risk analysis for Tier 1 script changes must include an empirical smoke test of the exact proposed command before writing the clearance file — code review alone is insufficient.
+
 ## Bypass Policy
 
 Never bypass risk-gate.sh by removing the hook. If the hook is blocking legitimate work:

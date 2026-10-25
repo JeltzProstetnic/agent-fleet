@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 100" width="400" height="100" role="img" aria-label="Agent Fleet">
+  <title>Agent Fleet</title>
+  <!-- PLACEHOLDER MARK — replace this file during onboarding with your own logo.
+       Keep the 4:1 viewBox so it drops into the document header and slide
+       master without changing any geometry. See ../README.md. -->
+
+  <!-- fleet glyph: three craft in formation, one leading -->
+  <g fill="none" stroke="#12707F" stroke-width="5" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M22 66 L46 22 L70 66" />
+    <path d="M6 78 L24 78" opacity="0.55" />
+    <path d="M68 78 L86 78" opacity="0.55" />
+  </g>
+  <circle cx="46" cy="22" r="9" fill="#4F9D3A" />
+  <circle cx="22" cy="66" r="7" fill="#12707F" />
+  <circle cx="70" cy="66" r="7" fill="#12707F" />
+
+  <!-- wordmark -->
+  <text x="108" y="52" font-family="-apple-system, 'Segoe UI', Roboto, 'Liberation Sans', Helvetica, Arial, sans-serif"
+        font-size="34" font-weight="700" letter-spacing="1.5" fill="#0A3D46">AGENT</text>
+  <text x="108" y="84" font-family="-apple-system, 'Segoe UI', Roboto, 'Liberation Sans', Helvetica, Arial, sans-serif"
+        font-size="34" font-weight="300" letter-spacing="6" fill="#12707F">FLEET</text>
+</svg>

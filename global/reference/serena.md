@@ -60,8 +60,8 @@
 
 | Field | Value |
 |-------|-------|
-| **Package** | `serena-mcp-server` (via `uvx` from git) |
-| **Command** | `uvx --from git+https://github.com/oraios/serena serena-mcp-server --context claude-code` |
+| **Package** | `serena` (via `uvx` from git, package `serena-agent`) |
+| **Command** | `uvx --from git+https://github.com/oraios/serena serena start-mcp-server --context claude-code` |
 | **Config location** | `~/.cc-mirror/mclaude/config/.mcp.json` (server name: `serena`) |
 | **Global config** | `~/.serena/serena_config.yml` — deployed by `configure-claude.sh` |
 | **Auth** | None (local tool) |

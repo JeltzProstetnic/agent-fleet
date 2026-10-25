@@ -1,0 +1,50 @@
+#!/usr/bin/env bash
+# .githooks/pre-commit — refuse an oversized commit (agent-fleet project template, CFG-490).
+#
+# A manual `git add -A` at shutdown once staged 46,964 untracked tmp files into a single
+# commit, caught before push by luck alone (2026-06-25). Nothing that size is ever
+# an accident worth keeping, so more than 150 staged paths stops the commit and says where
+# they are. A deliberate bulk commit (an import, a vendored tree) passes with
+#   ALLOW_BIG_COMMIT=1 git commit …
+# Armed by `core.hooksPath=.githooks` (setup/scripts/ensure-githooks.sh).
+
+LIMIT=150
+[ "${ALLOW_BIG_COMMIT:-0}" = "1" ] && exit 0
+
+# Deletions are not counted: removing paths from the index (`git rm -r --cached tmp/`, the
+# cleanup check 25 recommends) cannot commit a throwaway pile.
+_staged=$(git diff --cached --name-only --diff-filter=d 2>/dev/null)
+[ -n "$_staged" ] || exit 0
+
+# Concluding a merge, cherry-pick or revert stages what the OTHER side changed; that was
+# committed (and gated) there. Count only what is staged beyond it — a stray `git add -A`
+# during conflict resolution is still caught.
+_theirs=""
+if git rev-parse -q --verify MERGE_HEAD >/dev/null 2>&1; then
+    _theirs=$(for _h in $(cat "$(git rev-parse --git-path MERGE_HEAD)" 2>/dev/null); do
+                  git diff --name-only "HEAD...$_h" 2>/dev/null; done)
+else
+    for _ref in CHERRY_PICK_HEAD REVERT_HEAD; do
+        git rev-parse -q --verify "$_ref" >/dev/null 2>&1 || continue
+        _theirs=$(git diff --name-only "$_ref^" "$_ref" 2>/dev/null); break
+    done
+fi
+if [ -n "$_theirs" ]; then
+    _staged=$(printf '%s\n' "$_staged" | grep -vxF -f <(printf '%s\n' "$_theirs") || true)
+    [ -n "$_staged" ] || exit 0
+fi
+_n=$(printf '%s\n' "$_staged" | wc -l | tr -d ' ')
+[ "$_n" -le "$LIMIT" ] && exit 0
+
+{
+    echo "BLOCKED (commit-size guard): this commit stages $_n files (limit $LIMIT)."
+    echo "Where they are:"
+    printf '%s\n' "$_staged" | awk -F/ '{ print (NF > 1 ? $1 "/" : $1) }' | sort | uniq -c | sort -rn | head -5 \
+        | awk '{ printf "  %6d  %s\n", $1, $2 }'
+    echo ""
+    echo "If this is a stray \`git add -A\` (tmp/, build output, a data dump): unstage that directory"
+    echo "  git reset -q -- <dir>/    — then gitignore it. (Path-limited: a bare \`git reset\`"
+    echo "  in the middle of a merge would throw the merge away.)"
+    echo "If the size is deliberate: ALLOW_BIG_COMMIT=1 git commit …"
+} >&2
+exit 1

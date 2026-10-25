@@ -19,7 +19,7 @@ Deploys 4 Opus subagents across 3 phases to audit the entire agent fleet system 
 - Routine post-session checks (use P1)
 - Single-project investigations (use P2 or P3)
 - Quick "did the deploy work?" verification (use P1)
-- When context budget is >60% used (agents need room — recommend `/clear` first)
+- When context budget is >60% used (agents need room — recommend `cls` first)
 
 ## How It Works
 
@@ -70,7 +70,7 @@ Feed ALL prior findings. Agent produces:
 ## Dos and Don'ts
 
 **Do:**
-- Run `/clear` before starting if context budget >50%
+- Run `cls` before starting if context budget >50%
 - Include prior audit findings in Phase 2/3 prompts (avoid re-discovery)
 - Let agents run in background — they take 5-10 min each
 - Commit fixes from the current session BEFORE launching agents (they read repo state)
