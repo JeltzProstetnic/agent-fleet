@@ -441,6 +441,67 @@ test_picker_calls_freshness_check() {
 }
 run_test "afleet.sh picker calls ensure_dashboard_cache_fresh" test_picker_calls_freshness_check
 
+# ── afleet_project_preflight (CFG-817) ──────────────────────────────────────
+# A project set up by hand (no new-project.sh) still gets its MCP choice
+# pre-decided before launch; a missing CLAUDE.md or tmp/ ignore only warns.
+
+_preflight_fixture() {
+    PF="$TEST_TMPDIR/pf"; rm -rf "$PF"; mkdir -p "$PF/home/proj/.claude" "$PF/cfg/setup/scripts"
+    cat > "$PF/registry.md" << 'REG'
+| Project | Priority | Parent | Path | GitHub Remote | Machines | Type | Phase | Notes |
+|---------|----------|--------|------|--------------|----------|------|-------|-------|
+| proj | P2 | — | `~/proj` | | wsl | business + writing | new | n |
+REG
+    # Stub new-project.sh: records its arguments and writes a choice like the real one.
+    cat > "$PF/cfg/setup/scripts/new-project.sh" << 'STUB'
+#!/usr/bin/env bash
+echo "$*" > "$(dirname "$0")/np-args"
+p=""; while [[ $# -gt 0 ]]; do [[ "$1" == "--path" ]] && p="$2"; shift; done
+echo '{"enabledMcpjsonServers":["github"],"disabledMcpjsonServers":["serena"]}' > "$p/.claude/settings.local.json"
+STUB
+}
+
+test_preflight_decides_missing_mcp() {
+    _preflight_fixture
+    local err
+    err=$(source_lib_and_run "$PF/registry.md" /dev/null "$PF/cfg" afleet_project_preflight "$PF/home/proj" proj 2>&1 >/dev/null)
+    assert_file_contains "$PF/cfg/setup/scripts/np-args" "--mcp-only" "calls new-project.sh in --mcp-only mode"
+    assert_file_contains "$PF/cfg/setup/scripts/np-args" "--type business + writing" "passes the registry type"
+    assert_contains "$err" "MCP" "says it set the MCP choice"
+}
+run_test "preflight: missing MCP choice is pre-decided via new-project.sh --mcp-only" test_preflight_decides_missing_mcp
+
+test_preflight_keeps_existing_mcp() {
+    _preflight_fixture
+    echo '{"enabledMcpjsonServers":["twitter"]}' > "$PF/home/proj/.claude/settings.local.json"
+    printf 'tmp/\n' > "$PF/home/proj/.gitignore"; echo x > "$PF/home/proj/CLAUDE.md"
+    local err
+    err=$(source_lib_and_run "$PF/registry.md" /dev/null "$PF/cfg" afleet_project_preflight "$PF/home/proj" proj 2>&1 >/dev/null)
+    assert_eq "no" "$([[ -f "$PF/cfg/setup/scripts/np-args" ]] && echo yes || echo no)" "new-project.sh not called"
+    assert_eq '["twitter"]' "$(jq -c .enabledMcpjsonServers "$PF/home/proj/.claude/settings.local.json")" "existing choice untouched"
+    assert_eq "" "$err" "a ready project is silent"
+}
+run_test "preflight: existing MCP choice untouched, ready project silent" test_preflight_keeps_existing_mcp
+
+test_preflight_warns_but_returns_zero() {
+    _preflight_fixture
+    echo '{"enabledMcpjsonServers":[]}' > "$PF/home/proj/.claude/settings.local.json"
+    local err rc=0
+    err=$(source_lib_and_run "$PF/registry.md" /dev/null "$PF/cfg" afleet_project_preflight "$PF/home/proj" proj 2>&1 >/dev/null) || rc=$?
+    assert_eq "0" "$rc" "warnings never stop the launch"
+    assert_contains "$err" "CLAUDE.md" "warns about the missing CLAUDE.md"
+    assert_contains "$err" "tmp/" "warns about the missing tmp/ ignore"
+    echo x > "$PF/home/proj/.claude/CLAUDE.md"; printf '/tmp/\n' > "$PF/home/proj/.gitignore"
+    err=$(source_lib_and_run "$PF/registry.md" /dev/null "$PF/cfg" afleet_project_preflight "$PF/home/proj" proj 2>&1 >/dev/null)
+    assert_eq "" "$err" ".claude/CLAUDE.md and /tmp/ count as present"
+}
+run_test "preflight: missing CLAUDE.md / tmp/ ignore warn, launch continues" test_preflight_warns_but_returns_zero
+
+test_afleet_calls_preflight() {
+    assert_file_contains "$REPO_ROOT/setup/scripts/afleet.sh" 'afleet_project_preflight "$TARGET_DIR" "$TARGET_NAME"' "pre_launch_sync runs the preflight"
+}
+run_test "afleet.sh runs the preflight before launch" test_afleet_calls_preflight
+
 # ── Summary ──────────────────────────────────────────────────────────────────
 
 suite_summary

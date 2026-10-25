@@ -680,6 +680,10 @@ pre_launch_sync() {
     # Creates inbox entries routed by @project-name tags. 0 LLM tokens.
     type telegram_inbox_check &>/dev/null && { telegram_inbox_check || true; }
 
+    # ── Project preflight (CFG-817) ──────────────────────────────────────────
+    # A hand-made project gets its MCP choice pre-decided; other gaps only warn.
+    type afleet_project_preflight &>/dev/null && afleet_project_preflight "$TARGET_DIR" "$TARGET_NAME"
+
     # ── Acquire session lock (CFG-101) ───────────────────────────────────────
     # Non-zero return = user chose quit OR worktree creation failed.
     # Either way we do NOT launch CC. This is deliberate — the old

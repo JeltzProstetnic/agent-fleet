@@ -444,6 +444,29 @@ resolve_selection() {
     return 1
 }
 
+# ── afleet_project_preflight — CFG-817 ──────────────────────────────────────
+# A project set up by hand (no new-project.sh) still gets its MCP server choice
+# pre-decided from its registry type, so Claude Code's approval dialog does not
+# open with every ~/.mcp.json server checked. A missing CLAUDE.md or tmp/ ignore
+# only warns. Never touches an existing choice; always returns 0.
+afleet_project_preflight() {
+    local dir="$1" name="$2" s="$1/.claude/settings.local.json" type np
+    if ! jq -e 'has("enabledMcpjsonServers") or has("disabledMcpjsonServers")' "$s" >/dev/null 2>&1; then
+        type=$(awk -F'|' -v n="$name" 'tolower($2) ~ "^[[:space:]]*" tolower(n) "[[:space:]]*$" {gsub(/^[[:space:]]+|[[:space:]]+$/, "", $8); print $8; exit}' "$REGISTRY" 2>/dev/null)
+        np="$CONFIG_REPO/setup/scripts/new-project.sh"
+        if [[ -f "$np" ]] && bash "$np" --name "$name" --path "$dir" --type "${type:-default}" --mcp-only >/dev/null 2>&1; then
+            echo "  $name: no MCP server choice was recorded — set the '${type:-default}' defaults" >&2
+        else
+            echo "  Warning: $name has no MCP server choice and it could not be set — expect the all-servers approval dialog" >&2
+        fi
+    fi
+    [[ -f "$dir/CLAUDE.md" || -f "$dir/.claude/CLAUDE.md" ]] \
+        || echo "  Warning: $name has no CLAUDE.md — run setup/scripts/new-project.sh" >&2
+    grep -qxE '/?tmp/?(\*)?' "$dir/.gitignore" 2>/dev/null \
+        || echo "  Warning: $name does not gitignore tmp/" >&2
+    return 0
+}
+
 # ── Telegram-to-inbox (CFG-238) ─────────────────────────────────────────────
 # Check AFD for unprocessed Telegram messages and create inbox entries.
 # Called pre-launch (0 LLM tokens). Messages with @project-name tags are

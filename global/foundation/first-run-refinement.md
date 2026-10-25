@@ -123,7 +123,7 @@ Process whatever the user chose from the menu above. For each:
 
 **Persona:** Write to `global/foundation/personas.md`. Ask for persona names if they want custom ones, otherwise use defaults (e.g., "Gears" + "Soft" for Workhorse + Empath). Briefly explain what they chose and mention they can change anytime.
 
-**Project:** Create directory, initialize with `project-setup.md` template, add to `registry.md`. Walk through any project-specific setup.
+**Project:** Create directory, initialize with `project-setup.md` template, add to `registry.md`, then run its `new-project.sh` step — that gives the project its MCP choice, `.gitignore` and its type's knowledge. Walk through any project-specific setup.
 
 **Scan (X/Z):** Run infrastructure scan (step 2c above). Present findings, suggest projects based on what you find.
 
