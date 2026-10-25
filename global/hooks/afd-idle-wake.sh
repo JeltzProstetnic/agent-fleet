@@ -125,6 +125,7 @@ while (( $(date +%s) < DEADLINE )); do
 import sys, json
 d = json.loads(sys.stdin.read())
 ch = '(persona: %s)' % d['persona'] if d.get('persona') else ''
+if d.get('redirected'): ch += ' (redirected here by the user, CFG-779)'
 print('[%s] %s %s' % (str(d.get('timestamp', ''))[:16], ch, d.get('message', '')))" 2>/dev/null
             done <<< "$MESSAGES"
             echo "Reply via: afd notify all \"[$ME] your reply\" --channel telegram"

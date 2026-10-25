@@ -7,9 +7,9 @@
 # session while the project it named sat blocked on its question). Every consumer therefore files each
 # message into a per-project queue, and each session takes only its own:
 #   - `@<project> …`  → that project (a unique name prefix works: `@cfg`)
-#   - untagged        → the single project waiting on a Telegram question, if
-#                        exactly one is (marker $AFD_MSG_DIR/.waiting/<project>),
-#                        else the consumer
+#   - untagged        → the shared pool while any relay waits on a Telegram question
+#                        (marker $AFD_MSG_DIR/.waiting/<project>, CFG-779: the waiting
+#                        relays claim from it, lib-afd-pool.sh), else the consumer
 #   - unknown `@name` → the consumer, text intact (e.g. a bot mention)
 #   - a message that is only `afk` / `afk on` / `afk off` (optionally after an
 #     @tag) switches the global AFK flag instead of being queued
@@ -22,9 +22,14 @@
 # reach a session on another; that needs a server-side project filter (CFG-770).
 
 [[ "${_LIB_AFD_MSG_LOADED:-}" == "true" ]] && return 0
-_LIB_AFD_MSG_LOADED="true"
 
 _afd_msg_dir() { echo "${AFD_MSG_DIR:-$HOME/.afd-msgs}"; }
+
+# Pool, claims and locked queue operations (CFG-779/781); every function here that
+# writes a queue goes through its lock. The load guard is set only once this succeeded,
+# so a failed load does not poison the next attempt in the same shell.
+source "$(dirname "${BASH_SOURCE[0]}")/lib-afd-pool.sh" || return 1
+_LIB_AFD_MSG_LOADED="true"
 
 # afd_project_of <dir> — lowercased name of the MAIN git repo containing <dir>
 # (a worktree resolves to its main repo), else of <dir> itself.
@@ -73,26 +78,34 @@ afd_short_name() {
     echo "$p"
 }
 
+# afd_marker_write <marker> <content> — write a waiting marker atomically (dot-prefixed temp
+# file in the same dir, then rename): no reader ever sees it empty or half-written.
+afd_marker_write() {
+    local tmp; tmp="$(dirname "$1")/.$(basename "$1").tmp.$$"
+    printf '%s\n' "$2" > "$tmp" 2>/dev/null && mv -f "$tmp" "$1" 2>/dev/null
+}
+
 # _afd_marker_live <marker> — 0 while the relay that wrote it ("<pid> <question id>")
-# is alive. A dead relay's marker (SIGKILL skips its EXIT trap) is removed here.
+# is alive. A dead relay's marker (SIGKILL skips its EXIT trap) is removed here. An EMPTY
+# marker is not live but is never deleted: a truncating rewrite once let a reader delete a
+# live relay's marker and demote it to non-waiter (review 2026-10-25).
 _afd_marker_live() {
     local pid
     pid=$(cut -d' ' -f1 "$1" 2>/dev/null)
+    [[ -n "$pid" ]] || return 1
     [[ "$pid" =~ ^[0-9]+$ ]] && kill -0 "$pid" 2>/dev/null && return 0
     rm -f "$1"
     return 1
 }
 
-# _afd_single_waiter — the project waiting on a Telegram question, if exactly one
-# live relay is waiting.
-_afd_single_waiter() {
-    local w="$(_afd_msg_dir)/.waiting" f live=""
+# _afd_live_waiters — every project whose relay is waiting on a Telegram question, one
+# per line (dead relays' markers are removed on the way).
+_afd_live_waiters() {
+    local w="$(_afd_msg_dir)/.waiting" f
     [[ -d "$w" ]] || return 0
     for f in "$w"/*; do
-        [[ -f "$f" ]] && _afd_marker_live "$f" && live="$live$(basename "$f")"$'\n'
+        [[ -f "$f" ]] && _afd_marker_live "$f" && basename "$f"
     done
-    live="${live%$'\n'}"
-    [[ -n "$live" && $(wc -l <<< "$live") -eq 1 ]] && echo "$live"
     return 0
 }
 
@@ -109,15 +122,15 @@ _afd_afk_switch() {
 
 # afd_route_messages <me> — consume pending messages, file each into its queue.
 # Prints "afk:on"/"afk:off" for a Telegram AFK switch, then every OTHER project
-# it queued messages for, once each.
+# it queued messages for, once each (the pool is not a project and is not printed).
 afd_route_messages() {
-    local me="$1" cli="$HOME/.local/bin/afd" dir line text target waiter raw foreign="" cmd status=""
+    local me="$1" cli="$HOME/.local/bin/afd" dir line text target waiters raw foreign="" cmd status="" bare
     [[ -x "$cli" && -n "$me" ]] || return 0
     dir=$(_afd_msg_dir)
     raw=$(timeout -k 2 3 "$cli" messages 2>/dev/null) || true
     [[ -n "$raw" ]] || return 0
     mkdir -p "$dir"
-    waiter=$(_afd_single_waiter)
+    waiters=$(_afd_live_waiters)
     while IFS= read -r line; do
         [[ -n "$line" ]] || continue
         text=$(printf '%s' "$line" | python3 -c "import sys,json; print(json.load(sys.stdin).get('message',''))" 2>/dev/null)
@@ -126,14 +139,18 @@ afd_route_messages() {
             afk|"afk on") _afd_afk_switch on;  status="afk:on";  continue ;;
             "afk off")    _afd_afk_switch off; status="afk:off"; continue ;;
         esac
-        target=""
-        if [[ "$text" =~ ^@([A-Za-z0-9_.-]+) ]]; then
+        # A bare "@project" (nothing, or only a "#number", after the tag) while a relay waits
+        # is a redirect verdict for that relay's ask-back, not a message for the project: it
+        # is pooled too.
+        target=""; bare=false
+        [[ "$cmd" =~ ^(#[0-9]+[[:space:]]*)*$ ]] && bare=true
+        if [[ "$text" =~ ^@([A-Za-z0-9_.-]+) ]] && { ! $bare || [[ -z "$waiters" ]]; }; then
             target=$(_afd_resolve_target "$(printf '%s' "${BASH_REMATCH[1]}" | tr '[:upper:]' '[:lower:]')")
-        elif [[ -n "$waiter" ]]; then
-            target="$waiter"
+        elif [[ -n "$waiters" ]]; then
+            afd_pool_add "$line"; continue   # a waiting relay claims it (CFG-779)
         fi
         target="${target:-$me}"
-        printf '%s\n' "$line" >> "$dir/$target.jsonl"
+        _afd_locked _afd_append_line "$dir/$target.jsonl" "$line"
         [[ "$target" != "$me" && " $foreign " != *" $target "* ]] && foreign="$foreign $target"
     done <<< "$raw"
     [[ -n "$status" ]] && echo "$status"
@@ -163,17 +180,22 @@ afd_claude_pid() {
     return 1
 }
 
-# afd_take_messages <me> — print and remove this project's queued lines.
-# Consumers other than the waiting relay check afd_question_waiting first.
+# afd_take_messages <me> — print and remove this project's queued lines, plus the untagged
+# pool once no relay waits any more (zero waiters: untagged belongs to the consumer, as it
+# did before the pool), or the pooled lines every live waiter has already rejected.
+# Consumers other than the waiting relay check afd_question_waiting first; the relay itself
+# peeks and deletes by id (lib-afd-ask.sh) and never takes.
 afd_take_messages() {
-    local me="$1" dir q tmp
+    local me="$1" live
     [[ -n "$me" ]] || return 0
-    dir=$(_afd_msg_dir); q="$dir/$me.jsonl"
-    [[ -s "$q" ]] || return 0
-    tmp="$q.taking.$$"
-    mv -f "$q" "$tmp" 2>/dev/null || return 0   # atomic: a concurrent append lands in a new file
-    cat "$tmp"
-    rm -f "$tmp"
+    _afd_locked _afd_take_file "$(_afd_msg_dir)/$me.jsonl"
+    live=$(_afd_live_waiters)
+    if [[ -z "$live" ]]; then
+        _afd_locked _afd_take_file "$(_afd_pool_file)"
+    else
+        _afd_locked _afd_pool_take_rejected "$live"
+    fi
+    return 0
 }
 
 # afd_message_text <json line> — the message text with a leading @<project> stripped.

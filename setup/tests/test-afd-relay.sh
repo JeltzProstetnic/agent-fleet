@@ -1425,14 +1425,16 @@ test_ask_takes_untagged_reply_while_waiting() {
     set_afk
     mock_afd_with_messages
     local proj="$TEST_TMPDIR/Alpha"; mkdir -p "$proj"; git -C "$proj" init -q
-    # An untagged reply consumed by ANOTHER session must reach the single waiting session.
+    # An untagged reply consumed by ANOTHER session must reach the waiting relay: it is pooled
+    # for the relay to claim (CFG-779; test-afd-relay-handshake.sh covers the claim).
     mkdir -p "$AFD_MSG_DIR/.waiting"; echo "$$ 70" > "$AFD_MSG_DIR/.waiting/alpha"
     ( source "$REPO_ROOT/global/hooks/lib-afd-msg.sh"
       printf '%s\n' '{"id":81,"message":"add","timestamp":"t","persona":"Bot"}' > "$MOCK_HOME/pending.jsonl"
       HOME="$MOCK_HOME" afd_route_messages "config-repo" >/dev/null )
-    assert_file_contains "$AFD_MSG_DIR/alpha.jsonl" '"add"' "untagged reply routed to the waiting project"
+    assert_file_contains "$AFD_MSG_DIR/.untagged.jsonl" '"add"' "untagged reply pooled for the waiting relay"
+    assert_file_not_exists "$AFD_MSG_DIR/config-repo.jsonl" "not kept by the consumer"
 }
-run_test "untagged reply goes to the single session waiting on a question" test_ask_takes_untagged_reply_while_waiting
+run_test "untagged reply is pooled for the session waiting on a question" test_ask_takes_untagged_reply_while_waiting
 
 test_ask_declined_with_d() {
     setup_mock_home

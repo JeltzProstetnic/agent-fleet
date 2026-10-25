@@ -130,25 +130,248 @@ test_route_reports_foreign_targets() {
 }
 run_test "routing reports the projects it queued messages for" test_route_reports_foreign_targets
 
-test_untagged_goes_to_single_waiter() {
+# CFG-779 (2026-10-24): with two sessions waiting, an untagged answer fell to the consumer,
+# which took it as its own. Untagged lines now go to a shared pool while any relay waits;
+# the waiting relays claim from it (lib-afd-pool.sh). The waiter's own queue is for @tags.
+POOL() { echo "$AFD_MSG_DIR/.untagged.jsonl"; }
+
+test_untagged_pooled_for_single_waiter() {
     setup_env
     mkdir -p "$AFD_MSG_DIR/.waiting"; echo "$$ 3" > "$AFD_MSG_DIR/.waiting/alpha"
     pending '{"id":10,"message":"yes","timestamp":"t","persona":"Bot"}'
     afd_route_messages "config-repo" >/dev/null
-    local got; got=$(afd_take_messages "alpha")
-    assert_contains "$got" '"yes"' "untagged reply goes to the one waiting project (got: $got)"
+    assert_file_contains "$(POOL)" '"yes"' "untagged reply goes to the pool while a relay waits"
+    assert_file_contains "$(POOL)" '"pooled": *[0-9]' "with the time it was pooled (tier-2 grace runs from it)"
+    assert_file_not_exists "$AFD_MSG_DIR/alpha.jsonl" "not straight into the waiter's queue"
+    assert_file_not_exists "$AFD_MSG_DIR/config-repo.jsonl" "and not to the consumer"
 }
-run_test "untagged message goes to the single waiting project" test_untagged_goes_to_single_waiter
+run_test "untagged message with one waiting project goes to the pool" test_untagged_pooled_for_single_waiter
 
-test_untagged_two_waiters_stays() {
+test_untagged_two_waiters_pooled() {
     setup_env
     mkdir -p "$AFD_MSG_DIR/.waiting"; echo "$$ 3" > "$AFD_MSG_DIR/.waiting/alpha"; echo "$$ 4" > "$AFD_MSG_DIR/.waiting/beta"
     pending '{"id":11,"message":"yes","timestamp":"t","persona":"Bot"}'
     afd_route_messages "config-repo" >/dev/null
-    local got; got=$(afd_take_messages "config-repo")
-    assert_contains "$got" '"yes"' "ambiguous: two waiters, untagged stays with the consumer (got: $got)"
+    assert_file_contains "$(POOL)" '"yes"' "two waiters: the untagged reply is pooled, not taken by the consumer"
+    assert_eq "" "$(afd_take_messages "config-repo")" "the consumer gets nothing while relays wait (the 2026-10-24 defect)"
 }
-run_test "untagged message with two waiting projects stays with the consumer" test_untagged_two_waiters_stays
+run_test "untagged message with two waiting projects goes to the pool" test_untagged_two_waiters_pooled
+
+test_bare_tag_is_a_verdict_while_waiting() {
+    setup_env
+    mkdir -p "$AFD_MSG_DIR/.waiting"; echo "$$ 3 claimed 10 11" > "$AFD_MSG_DIR/.waiting/alpha"
+    pending '{"id":12,"message":"@beta","timestamp":"t","persona":"Bot"}' '{"id":13,"message":"@beta do this","timestamp":"t","persona":"Bot"}'
+    afd_route_messages "config-repo" >/dev/null
+    assert_file_contains "$(POOL)" '"@beta"' "a bare @project while a relay waits is its redirect verdict: pooled"
+    assert_file_not_contains "$AFD_MSG_DIR/beta.jsonl" '"@beta"' "not an (empty) message for beta"
+    assert_file_contains "$AFD_MSG_DIR/beta.jsonl" '"@beta do this"' "a tag with text is still a message for beta"
+    pending '{"id":15,"message":"@beta #11","timestamp":"t","persona":"Bot"}'
+    afd_route_messages "config-repo" >/dev/null
+    assert_file_contains "$(POOL)" '"@beta #11"' "a tag followed only by a #number is a targeted redirect verdict: pooled too (review MAJOR 3)"
+    rm -f "$AFD_MSG_DIR/.waiting/alpha"
+    pending '{"id":14,"message":"@beta","timestamp":"t","persona":"Bot"}'
+    afd_route_messages "config-repo" >/dev/null
+    assert_file_contains "$AFD_MSG_DIR/beta.jsonl" '"id":14' "with no relay waiting a bare @project goes to that project, as before"
+}
+run_test "a bare @project is pooled as a verdict only while a relay waits" test_bare_tag_is_a_verdict_while_waiting
+
+test_pool_drained_only_when_no_waiter() {
+    setup_env
+    mkdir -p "$AFD_MSG_DIR/.waiting"; echo "$$ 3" > "$AFD_MSG_DIR/.waiting/alpha"
+    pending '{"id":12,"message":"chat","timestamp":"t","persona":"Bot"}'
+    afd_route_messages "config-repo" >/dev/null
+    assert_eq "" "$(afd_take_messages "beta")" "a consumer never drains the pool while a relay waits"
+    rm -f "$AFD_MSG_DIR/.waiting/alpha"
+    assert_contains "$(afd_take_messages "beta")" '"chat"' "with no waiter left, the next consumer takes the pool (zero waiters = consumer, as before)"
+    assert_file_not_exists "$(POOL)" "and the pool is emptied"
+}
+run_test "pool: drained by a consumer only when no relay waits" test_pool_drained_only_when_no_waiter
+
+test_claim_is_atomic() {
+    setup_env
+    mkdir -p "$AFD_MSG_DIR"
+    local i rc1 rc2 t=0
+    # Two live claimers race for the same id; each passes its own pid and stays alive a while.
+    ( afd_claim 50 alpha "$BASHPID"; echo $? > "$TEST_TMPDIR/rc1"; sleep 2 ) &
+    ( afd_claim 50 beta "$BASHPID"; echo $? > "$TEST_TMPDIR/rc2"; sleep 2 ) &
+    while [[ ! -s "$TEST_TMPDIR/rc1" || ! -s "$TEST_TMPDIR/rc2" ]] && (( t++ < 50 )); do sleep 0.1; done
+    rc1=$(cat "$TEST_TMPDIR/rc1"); rc2=$(cat "$TEST_TMPDIR/rc2")
+    assert_eq "1" "$(( (rc1 == 0) + (rc2 == 0) ))" "exactly one of two concurrent claimers wins (rc1=$rc1 rc2=$rc2)"
+    assert_file_exists "$AFD_MSG_DIR/.claims/50/owner" "the claim records its owner"
+    afd_claim 50 gamma "$$" && i=0 || i=1
+    assert_eq "1" "$i" "a third claimer is refused while the owner is alive"
+    wait
+}
+run_test "claim: two concurrent claimers, exactly one wins" test_claim_is_atomic
+
+test_claim_reaps_dead_owner() {
+    setup_env
+    local dead; sleep 0 & dead=$!; wait "$dead"
+    mkdir -p "$AFD_MSG_DIR/.claims/51"; echo "$dead alpha" > "$AFD_MSG_DIR/.claims/51/owner"
+    afd_claim 51 beta "$$" && r=0 || r=1
+    assert_eq "0" "$r" "a dead relay's claim is reaped and taken over"
+    assert_eq "$$ beta" "$(cat "$AFD_MSG_DIR/.claims/51/owner")" "the new owner is recorded"
+    afd_claim 51 beta "$$" && r=0 || r=1
+    assert_eq "0" "$r" "re-claiming one's own claim succeeds"
+    afd_release_claim 51 "$dead"
+    assert_dir_exists "$AFD_MSG_DIR/.claims/51" "release by a non-owner is ignored"
+    afd_release_claim 51 "$$"
+    [[ -d "$AFD_MSG_DIR/.claims/51" ]] && r=1 || r=0
+    assert_eq "0" "$r" "the owner's release removes the claim"
+}
+run_test "claim: a dead owner's claim is reaped; only the owner releases" test_claim_reaps_dead_owner
+
+test_queue_peek_and_delete_by_id() {
+    setup_env
+    mkdir -p "$AFD_MSG_DIR"
+    local q="$AFD_MSG_DIR/alpha.jsonl"
+    printf '%s\n' '{"id":5,"message":"old","timestamp":"t"}' '{"id":70,"message":"@alpha a","timestamp":"t"}' \
+                  '{"id":71,"message":"@alpha b","timestamp":"t"}' > "$q"
+    assert_contains "$(afd_queue_first_after "$q" 60)" '"@alpha a"' "peek: the first line newer than the question"
+    assert_eq "" "$(afd_queue_first_after "$q" 71)" "peek: nothing newer"
+    afd_queue_delete "$q" 70
+    assert_file_not_contains "$q" '"@alpha a"' "delete by id removes only that line"
+    assert_file_contains "$q" '"old"' "older lines stay in place (no take-and-requeue, CFG-781)"
+    assert_file_contains "$q" '"@alpha b"' "newer lines stay too"
+    assert_eq "2" "$(wc -l < "$q" | tr -d ' ')" "exactly one line gone"
+}
+run_test "queue: peek first-after-id and delete by id leave the rest in place" test_queue_peek_and_delete_by_id
+
+test_pool_reject_and_redirect() {
+    setup_env
+    mkdir -p "$AFD_MSG_DIR"
+    printf '%s\n' '{"id":80,"message":"maybe","timestamp":"t","pooled":1}' '{"id":81,"message":"other","timestamp":"t","pooled":1}' > "$(POOL)"
+    afd_pool_reject 80 institute
+    assert_file_contains "$(POOL)" '"rejected": *\["institute"\]' "reject marks the line with the project that said n"
+    afd_pool_reject 80 gamma
+    assert_file_contains "$(POOL)" '"institute", *"gamma"' "a second rejection is appended"
+    afd_pool_redirect 80 alpha
+    assert_file_not_contains "$(POOL)" '"maybe"' "redirect removes the line from the pool"
+    assert_file_contains "$(POOL)" '"other"' "the other pool line is untouched"
+    assert_file_contains "$AFD_MSG_DIR/alpha.jsonl" '"maybe"' "and files it into the target's queue"
+    assert_file_contains "$AFD_MSG_DIR/alpha.jsonl" '"redirected": *true' "flagged redirected, so the target skips its own ask-back"
+    assert_file_not_contains "$AFD_MSG_DIR/alpha.jsonl" '"rejected"' "the rejections do not travel with it"
+}
+run_test "pool: reject marks, redirect re-files with the redirected flag" test_pool_reject_and_redirect
+
+test_locked_ops_lose_nothing() {
+    setup_env
+    mkdir -p "$AFD_MSG_DIR"
+    local q="$AFD_MSG_DIR/alpha.jsonl" i n
+    # Appends race deletes: 40 appends in one process while another deletes every even id.
+    for i in $(seq 1 40); do printf '{"id":%s,"message":"m%s"}\n' "$i" "$i" >> "$q"; done
+    ( for i in $(seq 41 80); do _afd_locked _afd_append_line "$q" "{\"id\":$i,\"message\":\"m$i\"}"; done ) &
+    ( for i in $(seq 2 2 40); do afd_queue_delete "$q" "$i"; done ) &
+    wait
+    n=$(wc -l < "$q" | tr -d ' ')
+    assert_eq "60" "$n" "40 appends and 20 deletes under the lock: 60 lines, none lost or duplicated (got $n)"
+    for i in 1 39 41 80; do assert_file_contains "$q" "\"m$i\"" "line m$i present"; done
+    assert_file_not_contains "$q" '"m40"' "deleted lines are gone"
+}
+run_test "lock: concurrent appends and deletes lose nothing" test_locked_ops_lose_nothing
+
+test_lock_survives_killed_holder() {
+    setup_env
+    mkdir -p "$AFD_MSG_DIR"
+    local q="$AFD_MSG_DIR/alpha.jsonl"
+    printf '%s\n' '{"id":1,"message":"keep"}' > "$q"
+    # A real mid-hold kill: the holder owns the only descriptor on the lock (its sleep has fd 9
+    # closed), so SIGKILL must free the lock at once — no fallback wait, no stale lock file.
+    ( exec 9>>"$AFD_MSG_DIR/.lock"; flock 9; sleep 31.7 9>&- ) & local holder=$!
+    sleep 0.3
+    kill -9 "$holder"; wait "$holder" 2>/dev/null || true
+    local t0=$SECONDS
+    afd_queue_delete "$q" 999
+    local took=$(( SECONDS - t0 ))
+    assert_eq "0" "$(( took > 1 ))" "the lock is free the moment its holder dies (took ${took}s, no 3 s fallback)"
+    assert_file_contains "$q" '"keep"' "the queue is intact after the kill (nothing was mid-flight outside the file)"
+    assert_eq "" "$(ls "$AFD_MSG_DIR"/*.tmp "$AFD_MSG_DIR"/*.taking.* 2>/dev/null)" "no half-written temp file is left behind"
+    pkill -f 'sleep 31.7' 2>/dev/null || true
+}
+run_test "lock: a killed holder releases the lock; the file is never outside itself" test_lock_survives_killed_holder
+
+# ── Fable review 2026-10-25 (MERGE-AFTER-FIXES) ──────────────────────────────
+
+# MAJOR 2: a wedged lock made _afd_locked skip the operation, and a server-consumed line
+# (already acknowledged, never resent) vanished. Wait a little, then do it unlocked.
+test_wedged_lock_never_drops_a_line() {
+    setup_env
+    mkdir -p "$AFD_MSG_DIR"
+    ( exec 9>>"$AFD_MSG_DIR/.lock"; flock 9; sleep 9.3 9>&- ) & local holder=$!
+    sleep 0.3
+    local t0=$SECONDS
+    afd_pool_add '{"id":200,"message":"must not vanish"}'
+    _afd_locked _afd_append_line "$AFD_MSG_DIR/alpha.jsonl" '{"id":201,"message":"@alpha must not vanish"}'
+    local took=$(( SECONDS - t0 ))
+    assert_file_contains "$(POOL)" '"must not vanish"' "a wedged lock never drops a pooled line: the add falls back to an unlocked append"
+    assert_file_contains "$AFD_MSG_DIR/alpha.jsonl" '"@alpha must not vanish"' "same for a queue append"
+    [[ $took -ge 2 && $took -le 7 ]] && r=0 || r=1
+    assert_eq "0" "$r" "each op waits ~3 s for the lock, no more (both took ${took}s; the lock was held 9.3 s)"
+    kill "$holder" 2>/dev/null; wait "$holder" 2>/dev/null || true
+    pkill -f 'sleep 9.3' 2>/dev/null || true
+}
+run_test "lock: a wedged lock delays an append by 3 s but never drops it" test_wedged_lock_never_drops_a_line
+
+# Second review pass, A4: an append that fell back to unlocked (lock wedged > 3 s) landed in
+# the file a slow rewriter had already parsed; its later os.replace dropped the line. The
+# rewriter now re-appends whatever reached the old inode after it parsed.
+test_slow_rewrite_keeps_a_fallback_append() {
+    setup_env
+    mkdir -p "$AFD_MSG_DIR"
+    local q="$AFD_MSG_DIR/alpha.jsonl"
+    printf '%s\n' '{"id":1,"message":"keep"}' '{"id":2,"message":"drop me"}' > "$q"
+    _AFD_REWRITE_DELAY=5 afd_queue_delete "$q" 2 & local rewriter=$!   # holds the lock ~5 s before replacing
+    sleep 0.5
+    _afd_locked _afd_append_line "$q" '{"id":3,"message":"appended during wedge"}'
+    wait "$rewriter"
+    assert_eq "2" "$(grep -c . "$q")" "the deleted line is gone and the fallback append survives (got: $(tr '\n' ' ' < "$q"))"
+    assert_file_contains "$q" '"appended during wedge"' "the line appended while the rewrite stalled is still there"
+    assert_file_not_contains "$q" '"drop me"' "and the delete happened"
+}
+run_test "lock: a rewrite that finishes after a fallback append keeps the appended line" test_slow_rewrite_keeps_a_fallback_append
+
+# MINOR 4: the marker was rewritten with a truncating `echo >`, and a reader that caught it
+# empty deleted it — a live relay demoted to non-waiter, the original bug. Markers are
+# written via temp file + rename, and an empty marker is never deleted.
+test_empty_marker_is_never_deleted() {
+    setup_env
+    mkdir -p "$AFD_MSG_DIR/.waiting"; : > "$AFD_MSG_DIR/.waiting/zeta"
+    _afd_marker_live "$AFD_MSG_DIR/.waiting/zeta" && r=0 || r=1
+    assert_eq "1" "$r" "an empty marker is not a live waiter"
+    assert_file_exists "$AFD_MSG_DIR/.waiting/zeta" "but it is never deleted"
+    afd_marker_write "$AFD_MSG_DIR/.waiting/alpha" "$$ 7 claimed 10 11"
+    assert_eq "$$ 7 claimed 10 11" "$(cat "$AFD_MSG_DIR/.waiting/alpha")" "afd_marker_write writes the whole marker"
+    assert_eq "alpha zeta" "$(ls "$AFD_MSG_DIR/.waiting" | tr '\n' ' ' | sed 's/ $//')" "through a temp file that is renamed away (none left)"
+    afd_question_waiting alpha && r=0 || r=1
+    assert_eq "0" "$r" "and the marker is live"
+}
+run_test "marker: written atomically; an empty marker is never deleted" test_empty_marker_is_never_deleted
+
+# MINOR 8: the load guard was set before `source lib-afd-pool.sh || return 1`, so a failed
+# first load poisoned every later one in the same shell.
+test_lib_guard_set_only_after_pool_lib_loads() {
+    setup_env
+    local d="$TEST_TMPDIR/libs"; mkdir -p "$d"; cp "$LIB" "$d/"
+    local out
+    out=$(bash -c 'source "$1/lib-afd-msg.sh" 2>/dev/null; echo "rc=$? loaded=${_LIB_AFD_MSG_LOADED:-no}"; cp "$2" "$1/"; source "$1/lib-afd-msg.sh" && declare -F afd_claim >/dev/null && echo retry-ok' _ "$d" "$REPO_ROOT/global/hooks/lib-afd-pool.sh")
+    assert_contains "$out" "rc=1 loaded=no" "a failed pool-lib source leaves the msg lib unloaded (out: $out)"
+    assert_contains "$out" "retry-ok" "so the next source, pool lib present, loads everything"
+}
+run_test "lib: the load guard is set only once the pool lib loaded" test_lib_guard_set_only_after_pool_lib_loads
+
+# MINOR 9: a pooled line every live waiter said n to waited until the last relay exited.
+test_pool_line_rejected_by_all_waiters_goes_to_consumer() {
+    setup_env
+    mkdir -p "$AFD_MSG_DIR/.waiting"; echo "$$ 3" > "$AFD_MSG_DIR/.waiting/alpha"; echo "$$ 4" > "$AFD_MSG_DIR/.waiting/beta"
+    printf '%s\n' '{"id":80,"message":"maybe","pooled":1,"rejected":["alpha","beta"]}' \
+                  '{"id":81,"message":"still open","pooled":1,"rejected":["alpha"]}' > "$(POOL)"
+    local got; got=$(afd_take_messages gamma)
+    assert_contains "$got" '"maybe"' "a line every live waiter rejected reaches the consumer (got: $got)"
+    assert_not_contains "$got" '"still open"' "a line some waiter has not judged does not"
+    assert_file_contains "$(POOL)" '"still open"' "it stays pooled"
+    assert_file_not_contains "$(POOL)" '"maybe"' "and the delivered line is gone from the pool"
+}
+run_test "pool: a line rejected by every live waiter goes to the consumer" test_pool_line_rejected_by_all_waiters_goes_to_consumer
 
 test_project_of_worktree() {
     setup_env

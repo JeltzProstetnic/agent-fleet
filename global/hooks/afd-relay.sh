@@ -24,7 +24,14 @@ if [[ "$INPUT" == *'"tool_name":"AskUserQuestion"'* || "$INPUT" == *'"tool_name"
         echo "AFK mode active but afd CLI not found — cannot route question" >&2
         exit 2
     fi
-    source "$(dirname "${BASH_SOURCE[0]}")/lib-afd-msg.sh" 2>/dev/null || true
+    # lib-afd-ask.sh (answer handshake, CFG-779) pulls in lib-afd-msg.sh and lib-afd-scan.sh.
+    # Without it a free-text Telegram answer could never be read, so fail fast to the console
+    # instead of sending a question and waiting an hour for nothing.
+    source "$(dirname "${BASH_SOURCE[0]}")/lib-afd-ask.sh" 2>/dev/null || true
+    if ! declare -F afd_ask_step >/dev/null; then
+        echo "AFK mode active but lib-afd-ask.sh (the Telegram answer reader) cannot load next to afd-relay.sh; the question was NOT sent. Ask in the console." >&2
+        exit 2
+    fi
     CWD=$(echo "$INPUT" | python3 -c "import sys,json; print(json.load(sys.stdin).get('cwd',''))" 2>/dev/null)
     ME=$(afd_project_of "${CWD:-$PWD}" 2>/dev/null || basename "${CWD:-$PWD}")
     # Current CC schema is tool_input.questions[]; the old single 'question' field is kept as a fallback.
@@ -57,17 +64,28 @@ print('\n'.join(out))" 2>/dev/null)
     fi
     echo "Waiting for answer (#$NOTIF_ID)..." >&2
     # CFG-768: free text never reaches the notification's response (the server links
-    # only a 4-letter code or "d"); it arrives as a plain message, so take it from
-    # this project's message queue. "d" still arrives through the notification.
-    # Only a message NEWER than the question can answer it (ids share one sequence).
-    # While waiting, a marker lets any session route an untagged reply here.
+    # only a 4-letter code or "d"); it arrives as a plain message. A tagged or redirected
+    # line comes from this project's queue; an untagged one is claimed from the shared
+    # pool, with an ask-back when another relay waits too (lib-afd-ask.sh, CFG-779).
+    # "d" still arrives through the notification. Only a message NEWER than the question
+    # can answer it (ids share one sequence).
     MSG_DIR="${AFD_MSG_DIR:-$HOME/.afd-msgs}"
-    # Marker = "<relay pid> <question id>": other hooks tell a live relay from a dead
-    # one's leftover by the pid. The EXIT trap removes it only while it is still ours
-    # (a second session of this project may have taken it over).
+    # Marker = "<relay pid> <question id>" (+ "claimed <M> <C>" during an ask-back): other
+    # hooks tell a live relay from a dead one's leftover by the pid, and leave untagged
+    # lines to it. The EXIT trap removes it only while it is still ours (a second session
+    # of this project may have taken it over) and drops any claim this relay holds.
     MARKER="$MSG_DIR/.waiting/$ME"
-    mkdir -p "$MSG_DIR/.waiting" 2>/dev/null && echo "$$ $NOTIF_ID" > "$MARKER"
-    trap '[[ "$(cut -d" " -f1 "$MARKER" 2>/dev/null)" == "$$" ]] && rm -f "$MARKER"' EXIT
+    mkdir -p "$MSG_DIR/.waiting" 2>/dev/null
+    if declare -F afd_marker_write >/dev/null; then
+        afd_marker_write "$MARKER" "$$ $NOTIF_ID"     # atomic: never seen empty
+    else
+        echo "$$ $NOTIF_ID" > "$MARKER"
+    fi
+    if declare -F afd_ask_cleanup >/dev/null; then
+        trap 'afd_ask_cleanup' EXIT
+    else
+        trap '[[ "$(cut -d" " -f1 "$MARKER" 2>/dev/null)" == "$$" ]] && rm -f "$MARKER"' EXIT
+    fi
     # The Claude Code process this question belongs to: when it is gone (Esc, /exit,
     # crash) nobody can receive the answer, so stop instead of eating the next reply.
     CC_PID="${AFD_RELAY_PARENT_PID:-}"
@@ -77,7 +95,8 @@ print('\n'.join(out))" 2>/dev/null)
     # because a killed hook fails OPEN.
     (( WAIT > 60 )) && WAIT=$(( WAIT - 30 ))
     DEADLINE=$(( $(date +%s) + WAIT ))
-    ANSWER=""
+    ANSWER=""; ANSWER_ID=""; ANSWER_HOW=""
+    declare -F afd_ask_begin >/dev/null && afd_ask_begin
     while (( $(date +%s) < DEADLINE )); do
         if [[ -n "$CC_PID" ]] && ! kill -0 "$CC_PID" 2>/dev/null; then
             echo "Claude Code is gone; the Telegram question was abandoned." >&2
@@ -95,20 +114,12 @@ print('\n'.join(out))" 2>/dev/null)
         elif [[ -n "$R" ]]; then
             ANSWER="$R"; break
         fi
-        if declare -F afd_route_messages >/dev/null; then
+        # The queue is peeked in place and the answer deleted by id (CFG-781): a kill
+        # between two steps leaves every line inside some file, and older lines stay
+        # queued for the next prompt hook instead of being requeued every cycle.
+        if declare -F afd_ask_step >/dev/null; then
             afd_route_messages "$ME" >/dev/null
-            QUEUED=$(afd_take_messages "$ME")
-            KEEP=""
-            while IFS= read -r line; do
-                [[ -n "$line" ]] || continue
-                if [[ -z "$ANSWER" ]] && (( $(afd_message_id "$line") > NOTIF_ID )); then
-                    ANSWER=$(afd_message_text "$line")
-                    [[ -n "$ANSWER" ]] && continue
-                fi
-                KEEP="$KEEP$line"$'\n'
-            done <<< "$QUEUED"
-            [[ -n "$KEEP" ]] && printf '%s' "$KEEP" >> "$MSG_DIR/$ME.jsonl"
-            [[ -n "$ANSWER" ]] && break
+            afd_ask_step && break
         fi
         sleep "${AFD_AFK_POLL_INTERVAL:-5}"
     done
@@ -116,37 +127,15 @@ print('\n'.join(out))" 2>/dev/null)
         echo "No answer received via Telegram (timeout). Ask again when the user is back." >&2
         exit 2
     fi
+    # CFG-779, design point 2: after a confirmed or redirected answer the session tells
+    # Telegram "[proj] working on #M", so the user knows it is running again.
+    declare -F afd_ask_confirm >/dev/null && afd_ask_confirm
     # CFG-773: answer the tool itself — updatedInput.answers + allow — so CC shows the
-    # user's answer instead of "PreToolUse hook error". A digit picks that option, a
-    # reply matching a label (any case) is that label, anything else is free text; with
-    # several questions the reply must be one token per question. Unmappable → the
+    # user's answer instead of "PreToolUse hook error" (afd_ask_map). Unmappable → the
     # block-reason delivery below, which works on every CC version.
-    MAPPED=$(printf '%s' "$INPUT" | ANSWER="$ANSWER" python3 -c '
-import json, os, sys
-t = json.load(sys.stdin).get("tool_input", {})
-qs, a = t.get("questions") or [], os.environ["ANSWER"].strip()
-def pick(q, tok):
-    opts = [o.get("label", "") for o in q.get("options") or []]
-    if tok.isdigit() and 1 <= int(tok) <= len(opts):
-        return opts[int(tok) - 1]
-    for o in opts:
-        if o.lower() == tok.lower():
-            return o
-    return tok
-if not qs or not a:
-    sys.exit(1)
-if len(qs) == 1:
-    answers = {qs[0]["question"]: pick(qs[0], a)}
-else:
-    toks = a.split()
-    if len(toks) != len(qs):
-        sys.exit(1)
-    answers = {q["question"]: pick(q, tok) for q, tok in zip(qs, toks)}
-out = dict(t, answers=answers)
-print(json.dumps({"hookSpecificOutput": {"hookEventName": "PreToolUse",
-      "permissionDecision": "allow",
-      "permissionDecisionReason": "Answered via Telegram (AFK)",
-      "updatedInput": out}}))' 2>/dev/null) && [[ -n "$MAPPED" ]] && { printf '%s\n' "$MAPPED"; exit 0; }
+    if declare -F afd_ask_map >/dev/null; then
+        MAPPED=$(afd_ask_map "$INPUT" "$ANSWER") && [[ -n "$MAPPED" ]] && { printf '%s\n' "$MAPPED"; exit 0; }
+    fi
     # Fallback: hand the answer to the model as the block reason.
     echo "The user answered via Telegram (AFK): \"$ANSWER\" — treat this as the user's answer to your question and continue; do not ask it again." >&2
     exit 2

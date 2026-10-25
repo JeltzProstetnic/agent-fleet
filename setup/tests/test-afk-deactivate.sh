@@ -159,6 +159,43 @@ test_waiting_question_keeps_its_answer() {
 }
 run_test "a waiting question keeps its answer in the queue" test_waiting_question_keeps_its_answer
 
+# CFG-779: untagged lines are pooled while any relay waits and claimed by the relays; the
+# prompt hook leaves the pool alone until no relay waits. A line the user redirected here
+# through an ask-back is addressed to this project and needs no triage note.
+test_pool_left_to_waiting_relay() {
+    setup_env
+    mkdir -p "$AFD_MSG_DIR/.waiting"; echo "$$ 900" > "$AFD_MSG_DIR/.waiting/otherproj"
+    printf '%s\n' '{"id":902,"message":"maybe","timestamp":"t","persona":"Bot","pooled":1}' > "$AFD_MSG_DIR/.untagged.jsonl"
+    printf '%s\n' '{"id":903,"message":"for anyone","timestamp":"t","persona":"Bot"}' > "$HOME/pending.jsonl"
+    run_prompt "hi"
+    assert_not_contains "$OUT" "maybe" "a pooled untagged line is not injected while a relay waits (out: $OUT)"
+    assert_not_contains "$OUT" "for anyone" "a fresh untagged message is pooled, not taken by this consumer"
+    assert_file_contains "$AFD_MSG_DIR/.untagged.jsonl" '"maybe"' "the pool keeps the old line"
+    assert_file_contains "$AFD_MSG_DIR/.untagged.jsonl" '"for anyone"' "and the new one"
+}
+run_test "CFG-779: the pool is left to the waiting relay" test_pool_left_to_waiting_relay
+
+test_pool_delivered_when_free() {
+    setup_env
+    mkdir -p "$AFD_MSG_DIR"
+    printf '%s\n' '{"id":904,"message":"left over","timestamp":"t","persona":"Bot","pooled":1}' > "$AFD_MSG_DIR/.untagged.jsonl"
+    run_prompt "hi"
+    assert_contains "$OUT" "left over" "with no relay waiting the pool goes to the consumer (out: $OUT)"
+    assert_contains "$OUT" "not addressed" "with the triage note, as for any untagged message"
+}
+run_test "CFG-779: a pool nobody waits on is delivered with the triage note" test_pool_delivered_when_free
+
+test_redirected_line_needs_no_triage() {
+    setup_env
+    mkdir -p "$AFD_MSG_DIR"
+    printf '%s\n' '{"id":905,"message":"1 and maybe 2","timestamp":"t","persona":"Bot","redirected":true}' > "$AFD_MSG_DIR/cfg-agent-fleet.jsonl"
+    run_prompt "hi"
+    assert_contains "$OUT" "1 and maybe 2" "a line the user redirected here is injected (out: $OUT)"
+    assert_contains "$OUT" "redirected" "and labelled as redirected here"
+    assert_not_contains "$OUT" "not addressed" "no triage note: the user already routed it here"
+}
+run_test "CFG-779: a redirected line is delivered without the triage note" test_redirected_line_needs_no_triage
+
 # CFG-700: the hook ships to other fleets — the user's name comes from the env, the
 # persona from the message, and nothing personal is hard-coded.
 test_header_names_configured_user() {

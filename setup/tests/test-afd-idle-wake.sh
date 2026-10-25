@@ -101,6 +101,40 @@ test_resumes_after_question_answered() {
 }
 run_test "the waiter resumes delivery once the question is answered" test_resumes_after_question_answered
 
+# CFG-779: untagged lines are pooled while any relay waits; the relays claim from the pool
+# (lib-afd-pool.sh), so an idle waiter must leave it alone. A line MG redirected to this
+# project through an ask-back sits in its own queue and is delivered like any other.
+test_pool_not_drained_while_a_relay_waits() {
+    setup_env
+    mkdir -p "$AFD_MSG_DIR/.waiting"; echo "$$ 900" > "$AFD_MSG_DIR/.waiting/proj-b"   # another project's relay
+    echo '{"id":903,"message":"maybe","timestamp":"t","persona":"Bot","pooled":1}' > "$AFD_MSG_DIR/.untagged.jsonl"
+    run_waiter s1 "$HOME/proj-a"
+    assert_eq "0" "$RC" "a pooled untagged line never wakes a session while any relay waits (ends at max wait)"
+    assert_file_contains "$AFD_MSG_DIR/.untagged.jsonl" '"maybe"' "it stays pooled for the relay to claim"
+}
+run_test "CFG-779: the pool is not drained while a relay waits" test_pool_not_drained_while_a_relay_waits
+
+test_pool_drained_when_no_relay_waits() {
+    setup_env
+    mkdir -p "$AFD_MSG_DIR"
+    echo '{"id":904,"message":"left over","timestamp":"t","persona":"Bot","pooled":1}' > "$AFD_MSG_DIR/.untagged.jsonl"
+    run_waiter s1 "$HOME/proj-a"
+    assert_eq "2" "$RC" "with no relay waiting, a pooled line wakes the next idle session (zero waiters = consumer)"
+    assert_contains "$ERR" "left over" "with its text (stderr: $ERR)"
+}
+run_test "CFG-779: a pool nobody waits on wakes the next idle session" test_pool_drained_when_no_relay_waits
+
+test_redirected_line_delivered() {
+    setup_env
+    mkdir -p "$AFD_MSG_DIR/.waiting"; echo "$$ 900" > "$AFD_MSG_DIR/.waiting/proj-b"
+    echo '{"id":905,"message":"1 and maybe 2","timestamp":"t","persona":"Bot","redirected":true}' > "$AFD_MSG_DIR/proj-a.jsonl"
+    run_waiter s1 "$HOME/proj-a"
+    assert_eq "2" "$RC" "a line the user redirected here wakes this session even while another relay waits"
+    assert_contains "$ERR" "1 and maybe 2" "with its text (stderr: $ERR)"
+    assert_contains "$ERR" "redirected" "and says the user redirected it here"
+}
+run_test "CFG-779: a redirected line is delivered and labelled" test_redirected_line_delivered
+
 test_newer_waiter_supersedes() {
     setup_env
     export AFD_IDLE_MAX=30

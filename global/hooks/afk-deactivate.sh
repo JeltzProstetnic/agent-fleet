@@ -70,17 +70,20 @@ if [[ -x "$AFD_CLI" ]]; then
     # itself, never hardcoded, so this works with whatever personas are configured
     # in foundation/personas.md. The server tags EVERY message with its bot's persona;
     # only one other than AFD_DEFAULT_PERSONA asks the model to switch persona.
+    # A line the user redirected here through an ask-back (CFG-779) is addressed to
+    # this project: labelled, and exempt from the untagged triage note.
     while IFS= read -r line; do
       msg=$(echo "$line" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('message',''))" 2>/dev/null)
       ts=$(echo "$line" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('timestamp','')[:16])" 2>/dev/null)
       persona=$(echo "$line" | python3 -c "import sys,json; print(json.load(sys.stdin).get('persona','') or '')" 2>/dev/null)
+      redirected=$(echo "$line" | python3 -c "import sys,json; print('(redirected here by the user) ' if json.load(sys.stdin).get('redirected') else '')" 2>/dev/null)
       if [[ -n "$msg" ]]; then
-        [[ "$msg" == @* ]] || HAS_UNTAGGED=true
+        [[ "$msg" == @* || -n "$redirected" ]] || HAS_UNTAGGED=true
         if [[ -n "$persona" ]]; then
-          COLLECTED="${COLLECTED}[$ts] ($persona channel) $msg"$'\n'
+          COLLECTED="${COLLECTED}[$ts] ($persona channel) $redirected$msg"$'\n'
           [[ "$persona" != "${AFD_DEFAULT_PERSONA:-}" ]] && LAST_PERSONA="$persona"
         else
-          COLLECTED="${COLLECTED}[$ts] $msg"$'\n'
+          COLLECTED="${COLLECTED}[$ts] $redirected$msg"$'\n'
         fi
       fi
     done <<< "$MESSAGES"
