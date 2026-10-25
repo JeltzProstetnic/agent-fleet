@@ -125,6 +125,10 @@ If hostname doesn't match any pattern, state the hostname and ask. If `CLAUDE.lo
    | systemd service memory alarm, suspected leak, OOM post-mortem, container memory limit | `knowledge/systemd-memory-accounting.md` |
    | Writing, revising or briefing any human-facing text longer than a few lines | `knowledge/prose-register.md` |
    | Building or reviewing any slide deck / `.pptx` | `knowledge/presentation-design.md` |
+   | Producing any DOCX / PDF / PPTX deliverable | `knowledge/office-templates.md` |
+   | Regulatory audit simulation (FDA, TÜV, ISO 13485), academic peer review, multi-domain audit personas | `knowledge/audit-domains.md` |
+   | Publishing a book on Amazon KDP; designing or reviewing a book cover | `knowledge/kdp-publishing.md`, `knowledge/cover-design.md` |
+   | Building papers, books or PDFs (LaTeX/pandoc pipelines, fonts, PDF verification, DOI deposits) | `domains/publications/publication-build.md` |
    | Test isolation, live service leak, env var prod default, conftest guard | `knowledge/test-isolation-guards.md` |
    | PGlite bootstrap, IndexedDB idempotency, PGlite-in-vitest, Recharts mock | `knowledge/pglite-bootstrap.md` |
 

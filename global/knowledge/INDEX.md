@@ -43,6 +43,10 @@ Conditionally loaded files containing operational knowledge for specific tools a
 | `systemd-memory-accounting.md` | systemd service memory alarm, suspected leak, OOM post-mortem, container memo… | The trap, Measurement that established it, Diagnostic recipe |
 | `prose-register.md` | Writing, revising or briefing any human-facing text longer than a few lines | AI-tell lists, structural slop, sliding-window rhythm budget, claim fidelity |
 | `print-production.md` | Preparing a print interior or cover for a printer / print-on-demand | Ink limits, bleed, what the press does to the file |
+| `kdp-publishing.md` | Publishing a paperback, hardcover or ebook on Amazon KDP | Trim/spine/cover math, barcode zone, metadata and upload traps |
+| `cover-design.md` | Designing or reviewing a book cover | Genre conventions, title legibility, positioning |
+| `office-templates.md` | Producing any DOCX / PDF / PPTX deliverable | Fleet office template: palette, fonts, logo, builders |
+| `audit-domains.md` | Regulatory audit simulation, academic peer review, multi-domain audit personas | Meta-pattern, domain catalog D1-D6, cross-domain principles |
 | `presentation-design.md` | Building or reviewing any slide deck / `.pptx` | ≤7 words per slide, deck-vs-companion-document, tooling reality, image-cap-safe render verification |
 | `word-editing-extraction.md` | Word inline editing, .docx review extraction, author review round | Three Mark Types, Extraction Protocol, Generation Protocol (.docx output) |
 | `test-isolation-guards.md` | Test isolation, live service leak, env var prod default, conftest guard | The Bug, The Fix: conftest.py Autouse Guard, The Anti-Pattern |
