@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
-# PreToolUse hook: WARN (never block) on `cd <dir> && <cmd>` / `cd <dir>; <cmd>`.
+# PreToolUse hook: BLOCK (exit 2) `cd <dir> && <cmd>` / `cd <dir>; <cmd>`.
 #
 # CFG-602: the global rule "No compound cd commands — use git -C <path> or absolute
-# paths" was broken 65 times in one session because nothing fired. The owner chose
-# (2026-09-28) to keep the rule and warn mechanically at the point of action.
+# paths" was broken 65 times in one session because nothing fired. A warning
+# (2026-09-28) changed nothing — it arrives after the command ran — so CFG-810
+# (owner, 2026-10-25) blocks and names the alternatives. The filename keeps "warn"
+# so no settings.json registration has to change.
 #
-# Warn = exit 0 + hookSpecificOutput.additionalContext (PreToolUse accepts it
-# since CC 2.1.170 — see knowledge/hook-behavior.md). Exit 0 with empty stdout
-# everywhere else, so there is no UI noise.
+# Exit 0 with empty stdout everywhere else, so there is no UI noise.
 
 INPUT=$(cat)
 
@@ -27,6 +27,5 @@ if ! printf '%s' "$CMD" | grep -qE '(^|[;&|(])[[:space:]]*cd[[:space:]]+[^;&|]+(
     exit 0
 fi
 
-MSG='compound-cd-warn (CFG-602): this command chains `cd <dir>` with another command. Fleet rule: no compound `cd` — use `git -C <path>` or absolute paths instead. Not blocked; fix the form next time.'
-python3 -c 'import json,sys; print(json.dumps({"hookSpecificOutput":{"hookEventName":"PreToolUse","additionalContext":sys.argv[1]}}))' "$MSG"
-exit 0
+echo 'compound-cd-warn (CFG-602/CFG-810): BLOCKED — this command chains `cd <dir>` with another command. Rewrite it: `git -C <path> …`, absolute paths, or `env -C <dir> <cmd>` for a tool that needs its working directory (e.g. a Windows .exe from a /mnt cwd).' >&2
+exit 2

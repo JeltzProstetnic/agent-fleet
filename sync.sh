@@ -112,7 +112,13 @@ case "${1:-help}" in
     status)         cmd_status ;;
     mobile-deploy)  bash "$SCRIPT_DIR/setup/scripts/mobile-deploy.sh" ;;
     mobile-collect) bash "$SCRIPT_DIR/setup/scripts/mobile-deploy.sh" --collect ;;
-    template-push)  shift; bash "$SCRIPT_DIR/setup/scripts/template-push.sh" --cfg-repo "$SCRIPT_DIR" "$@" ;;
+    template-push)
+        shift
+        if [[ ! -f "$SCRIPT_DIR/setup/scripts/template-push.sh" ]]; then
+            echo "sync.sh template-push: not available here — it pushes cfg-agent-fleet changes into the template and only exists in the head fleet's repo (setup/scripts/template-push.sh is absent)." >&2
+            exit 2
+        fi
+        bash "$SCRIPT_DIR/setup/scripts/template-push.sh" --cfg-repo "$SCRIPT_DIR" "$@" ;;
     *)
         echo "Usage: bash sync.sh {setup|deploy|edit|recover|check|check-template|status|template-push|mobile-deploy|mobile-collect}"
         echo ""
@@ -123,7 +129,7 @@ case "${1:-help}" in
         echo "  check              — Check all propagation chains for drift/staleness"
         echo "  check-template     — Pre-publish check: exclusions, personal data, config"
         echo "  status             — Show differences between repo and live"
-        echo "  template-push      — Push cfg changes to template repo (agent-fleet)"
+        echo "  template-push      — Push cfg changes to template repo (agent-fleet; head fleet only)"
         echo "  mobile-deploy      — Generate/refresh the mobile agent-fleet repo"
         echo "  mobile-collect     — Merge mobile outbox tasks into cross-project inbox"
         ;;

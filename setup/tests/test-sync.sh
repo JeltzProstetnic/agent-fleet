@@ -735,6 +735,37 @@ test_dead_template_push_stub_removed() {
 }
 run_test "v1.0: dead template-push.sh stub removed (CFG-281)" test_dead_template_push_stub_removed
 
+test_template_push_refuses_without_its_script() {
+    # CFG-700 step 7: downstream installations carry this dispatcher but not
+    # setup/scripts/template-push.sh (a head-fleet-only tool). The arm must refuse
+    # cleanly instead of running bash on a missing file.
+    local sb out rc=0
+    sb=$(mktemp -d)
+    cp "$SYNC_SCRIPT" "$sb/sync.sh"; cp -r "$SYNC_LIB_DIR" "$sb/sync-lib"
+    mkdir -p "$sb/setup/scripts"
+    out=$(bash "$sb/sync.sh" template-push --dry-run 2>&1) || rc=$?
+    rm -rf "$sb"
+    assert_eq "2" "$rc" "template-push exits 2 when its script is absent"
+    assert_contains "$out" "template-push" "the message names the command"
+    assert_contains "$out" "cfg-agent-fleet" "the message says where the command lives"
+    assert_not_contains "$out" "No such file" "no raw bash missing-file error"
+}
+run_test "CFG-700: template-push refuses cleanly without template-push.sh" test_template_push_refuses_without_its_script
+
+test_template_push_runs_its_script_when_present() {
+    local sb out rc=0
+    sb=$(mktemp -d)
+    cp "$SYNC_SCRIPT" "$sb/sync.sh"; cp -r "$SYNC_LIB_DIR" "$sb/sync-lib"
+    mkdir -p "$sb/setup/scripts"
+    printf '#!/usr/bin/env bash\necho "STUB-RAN $*"\n' > "$sb/setup/scripts/template-push.sh"
+    out=$(bash "$sb/sync.sh" template-push --dry-run 2>&1) || rc=$?
+    rm -rf "$sb"
+    assert_eq "0" "$rc" "template-push runs when its script exists"
+    assert_contains "$out" "STUB-RAN --cfg-repo" "the script gets --cfg-repo"
+    assert_contains "$out" "--dry-run" "extra args pass through"
+}
+run_test "CFG-700: template-push still dispatches when template-push.sh exists" test_template_push_runs_its_script_when_present
+
 test_dispatcher_is_thin() {
     local lines
     lines=$(wc -l < "$SYNC_SCRIPT")
