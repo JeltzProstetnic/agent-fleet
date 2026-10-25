@@ -43,6 +43,10 @@ Bundle names are without the `voltagent-` prefix for readability. Full bundle na
 `voltagent-data-ai`, `voltagent-infra`, `voltagent-dev-exp`, `voltagent-biz`,
 `voltagent-domains`, `voltagent-meta`.
 
+## Type → Knowledge
+
+A new project starts with its type's generic knowledge: `setup/scripts/new-project.sh` seeds the project CLAUDE.md's Knowledge Loading table from `setup/config/project-type-knowledge.conf` (one row per file, compound types get the union, existing rows are kept). To give a type more knowledge, add a row there — only for files that are generic and ship in the template.
+
 ## Phase-Based Roster Adjustment
 
 A project's type determines its DEFAULT roster, but the active session phase may need
