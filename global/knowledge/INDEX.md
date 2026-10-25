@@ -34,6 +34,20 @@ Conditionally loaded files containing operational knowledge for specific tools a
 | `gmail-management.md` | Gmail triage, inbox management, email | Triage protocol, draft lifecycle, label taxonomy, spam strategy |
 | `scrollback-fix.md` | Scrollback issues, terminal buffer overflow | Root cause, terminal-specific fixes, deployment checklist |
 | `rule-writing.md` | Writing or proposing new rules | Quality checklist, anti-patterns, process |
+| `deliverable-authoring.md` | Before the first draft of any stakeholder-facing deliverable | Clarify-before-building, one audience per document, no process-meta, status fidelity, sourced numbers |
+| `needs-to-requirements.md` | Eliciting or writing user needs, requirements, an MVP scope, a build plan | The four-document chain, theme clustering, `UN-nnn`/`SR-xnn` formats, category M/D/I, traceability, status inheritance |
+| `user-roles-and-personas.md` | Writing user needs, personas, audience analysis, role-scoped UI or notifications | Three kinds of role, nesting/positional/situational, union-not-selector, personas as real named people, coverage matrices |
+| `vertical-slicing.md` | Cutting a build order, roadmap or release plan | Slice anatomy, recording-vs-reasoning split, cross-cutting boundaries, coverage matrix, failure modes |
+| `project-economics.md` | ROI sections, portfolio ranking, continue/kill arguments, business-case features | eNPV, ETC/EAC, productivity index, payback, margin, drift index; assumptions as owned records; alerting |
+| `anti-chain-state.md` | Anti-chain state, cooldown mutation, "tried vs did", weighted-random state bug | The Bug, The Pattern, Where This Applies |
+| `systemd-memory-accounting.md` | systemd service memory alarm, suspected leak, OOM post-mortem, container memo… | The trap, Measurement that established it, Diagnostic recipe |
+| `prose-register.md` | Writing, revising or briefing any human-facing text longer than a few lines | AI-tell lists, structural slop, sliding-window rhythm budget, claim fidelity |
+| `print-production.md` | Preparing a print interior or cover for a printer / print-on-demand | Ink limits, bleed, what the press does to the file |
+| `presentation-design.md` | Building or reviewing any slide deck / `.pptx` | ≤7 words per slide, deck-vs-companion-document, tooling reality, image-cap-safe render verification |
+| `word-editing-extraction.md` | Word inline editing, .docx review extraction, author review round | Three Mark Types, Extraction Protocol, Generation Protocol (.docx output) |
+| `test-isolation-guards.md` | Test isolation, live service leak, env var prod default, conftest guard | The Bug, The Fix: conftest.py Autouse Guard, The Anti-Pattern |
+| `pglite-bootstrap.md` | PGlite bootstrap, IndexedDB idempotency, PGlite-in-vitest, Recharts mock | Bootstrap Idempotency (IndexedDB Persistence), PGlite-in-Vitest Harness, Schema-Version Reset-on-Upgrade Migration |
+| `risk-management.md` | Risk tiers, E2E test requirements, privacy scrub, IT security compliance | Risk Tiers, T1 — Critical Infrastructure, T2 — Deployment Pipeline |
 
 ## Adding New Knowledge Files
 
