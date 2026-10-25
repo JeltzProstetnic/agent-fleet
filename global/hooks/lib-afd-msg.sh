@@ -7,6 +7,9 @@
 # session while the project it named sat blocked on its question). Every consumer therefore files each
 # message into a per-project queue, and each session takes only its own:
 #   - `@<project> …`  → that project (a unique name prefix works: `@cfg`)
+#   - a Telegram Reply → the project that SENT the replied-to message (`reply_to_project`
+#                        from the server, CFG-838), unless it can be the answer or verdict
+#                        that project's waiting relay is after (then the pool, lib-afd-pool.sh)
 #   - untagged        → the shared pool while any relay waits on a Telegram question
 #                        (marker $AFD_MSG_DIR/.waiting/<project>, CFG-779: the waiting
 #                        relays claim from it, lib-afd-pool.sh), else the consumer
@@ -141,13 +144,17 @@ afd_route_messages() {
         esac
         # A bare "@project" (nothing, or only a "#number", after the tag) while a relay waits
         # is a redirect verdict for that relay's ask-back, not a message for the project: it
-        # is pooled too.
+        # is pooled too. An explicit @tag wins over the project a Reply points at.
         target=""; bare=false
         [[ "$cmd" =~ ^(#[0-9]+[[:space:]]*)*$ ]] && bare=true
         if [[ "$text" =~ ^@([A-Za-z0-9_.-]+) ]] && { ! $bare || [[ -z "$waiters" ]]; }; then
             target=$(_afd_resolve_target "$(printf '%s' "${BASH_REMATCH[1]}" | tr '[:upper:]' '[:lower:]')")
-        elif [[ -n "$waiters" ]]; then
-            afd_pool_add "$line"; continue   # a waiting relay claims it (CFG-779)
+            target="${target:-$me}"              # unknown @name: the consumer, text intact
+        else
+            target=$(_afd_reply_origin "$line")  # a Reply: the session that sent what it answers (CFG-838)
+            if [[ -z "$target" && -n "$waiters" ]]; then
+                afd_pool_add "$line"; continue   # a waiting relay claims it (CFG-779)
+            fi
         fi
         target="${target:-$me}"
         _afd_locked _afd_append_line "$dir/$target.jsonl" "$line"
@@ -182,7 +189,8 @@ afd_claude_pid() {
 
 # afd_take_messages <me> — print and remove this project's queued lines, plus the untagged
 # pool once no relay waits any more (zero waiters: untagged belongs to the consumer, as it
-# did before the pool), or the pooled lines every live waiter has already rejected.
+# did before the pool), or the pooled lines every live waiter has already rejected — except a
+# pooled Reply to ANOTHER project's message, which is re-filed there (CFG-838, lib-afd-pool.sh).
 # Consumers other than the waiting relay check afd_question_waiting first; the relay itself
 # peeks and deletes by id (lib-afd-ask.sh) and never takes.
 afd_take_messages() {
@@ -194,7 +202,7 @@ afd_take_messages() {
         _afd_locked _afd_take_file "$(_afd_pool_file)"
     else
         _afd_locked _afd_pool_take_rejected "$live"
-    fi
+    fi | _afd_refile_replies "$me"
     return 0
 }
 

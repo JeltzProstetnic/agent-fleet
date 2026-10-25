@@ -512,4 +512,78 @@ test_incident_institute_redirects_to_aiware() {
 }
 run_test "2026-10-24: institute asks back and the user redirects #484 to aiware" test_incident_institute_redirects_to_aiware
 
+# ── CFG-838: the server names the project that SENT the replied-to message (reply_to_project) ──
+# Routing files such a Reply into that project's queue as if tagged, except when the project's own
+# relay reads it: a Reply to its question stays pooled (tier 0), and any Reply while its ask-back
+# is out stays pooled for the verdict scan — otherwise "y" to the ask-back would be taken as the answer.
+
+test_reply_to_own_older_message_is_taken_without_askback() {
+    setup_env
+    other_waiter institute 90
+    pending "$(msg 105 'skip' '"reply_to":77,"reply_to_project":"alpha"')"   # a Reply to alpha's earlier info message
+    run_relay "$(ask_json alpha)"
+    assert_eq "0" "$RC" "answered (rc=$RC, err: $ERR)"
+    assert_eq "Skip" "$(answer_of 'Add the caveat to P4?')" "a Reply to one of alpha's other messages is alpha's answer, like a tagged line (out: $OUT)"
+    assert_eq "0" "$(notifies 'was #')" "no ask-back although another relay waits: the Reply named its project"
+    assert_file_exists "$AFD_MSG_DIR/alpha.jsonl" "it came through alpha's own queue, not the pool"
+}
+run_test "CFG-838: a Reply to the project's other message answers without ask-back" test_reply_to_own_older_message_is_taken_without_askback
+
+test_reply_to_question_with_origin_stays_tier0() {
+    setup_env
+    other_waiter institute 90
+    pending "$(msg 105 'skip' '"reply_to":101,"reply_to_project":"alpha"')"
+    run_relay "$(ask_json alpha)"
+    assert_eq "Skip" "$(answer_of 'Add the caveat to P4?')" "a Reply to the question is taken (out: $OUT, err: $ERR)"
+    assert_eq "0" "$(notifies 'was #')" "with no ask-back"
+    assert_file_not_exists "$AFD_MSG_DIR/alpha.jsonl" "through the pool (tier 0), never alpha's queue"
+}
+run_test "CFG-838: a Reply to the question itself still goes through the pool at tier 0" test_reply_to_question_with_origin_stays_tier0
+
+test_verdict_reply_with_origin_is_still_a_verdict() {
+    setup_env
+    other_waiter institute 90
+    pending "$(msg 105 '1 and maybe 2')"
+    verdict "$(msg 110 'y' '"reply_to":106,"reply_to_project":"alpha"')"   # the user Replies to alpha's ask-back
+    run_relay "$(ask_json alpha)"
+    assert_eq "0" "$RC" "answered (rc=$RC, err: $ERR)"
+    assert_eq "1 and maybe 2" "$(answer_of 'Add the caveat to P4?')" "y as a Reply to the ask-back confirms #105 — it is not itself the answer (out: $OUT)"
+    assert_eq "1" "$(notifies '[alpha] working on #105')" "and the confirmation goes out"
+}
+run_test "CFG-838: y as a Reply to the ask-back is the verdict, not the answer" test_verdict_reply_with_origin_is_still_a_verdict
+
+# Review MAJOR 1 (2026-10-25). take_as <project> — what that project's hook would take next, in a
+# sandboxed shell (the lib resolves project names under $HOME).
+take_as() { HOME="$MOCK_HOME" AFD_PROJECT_ROOTS="$MOCK_HOME" bash -c 'source "$1"; afd_take_messages "$2"' _ "$REPO_ROOT/global/hooks/lib-afd-msg.sh" "$1"; }
+
+test_reply_to_unrelated_message_mid_askback_is_alphas_answer() {
+    setup_env
+    other_waiter institute 90
+    pending "$(msg 105 '1 and maybe 2')"
+    verdict "$(msg 110 '2' '"reply_to":77,"reply_to_project":"alpha"')" "$(msg 111 'y' '"reply_to":106')"
+    run_relay "$(ask_json alpha)"
+    assert_eq "0" "$RC" "answered (rc=$RC, err: $ERR)"
+    assert_eq "Skip" "$(answer_of 'Add the caveat to P4?')" "a Reply '2' to alpha's older info #77, sent mid-ask-back, is alpha's answer via its queue — never pooled — and the digit picks option 2 (CFG-773) (out: $OUT)"
+    assert_eq "0" "$(notifies '[alpha] working on')" "it was not the ask-back's y: no confirmation is sent"
+    rm -f "$AFD_MSG_DIR/.waiting/institute"           # the other relay is gone too: the next consumer drains the pool
+    local got; got=$(take_as institute)
+    assert_not_contains "$got" '"id":110' "so no later consumer can take it from the drained pool (got: $got)"
+}
+run_test "MAJOR 1(a): a Reply to the project's unrelated message mid-ask-back goes to its queue, not the pool" test_reply_to_unrelated_message_mid_askback_is_alphas_answer
+
+test_pooled_reply_left_behind_is_refiled_not_drained() {
+    setup_env
+    other_waiter institute 90
+    pending "$(msg 105 '1 and maybe 2')"
+    verdict "$(msg 110 'maybe' '"reply_to":106,"reply_to_project":"alpha"')" "$(msg 111 'y' '"reply_to":106,"reply_to_project":"alpha"')"
+    run_relay "$(ask_json alpha)"
+    assert_eq "1 and maybe 2" "$(answer_of 'Add the caveat to P4?')" "y confirms #105 (out: $OUT, err: $ERR)"
+    pool_has 110 && r=0 || r=1; assert_eq "0" "$r" "the undecidable Reply 'maybe' to the ask-back is still pooled when alpha's relay exits"
+    rm -f "$AFD_MSG_DIR/.waiting/institute"           # the other relay is gone too: the next consumer drains the pool
+    local got; got=$(take_as institute)
+    assert_not_contains "$got" '"id":110' "institute does not take alpha's Reply from the drained pool (MAJOR 1(b); got: $got)"
+    assert_file_contains "$AFD_MSG_DIR/alpha.jsonl" '"id": *110' "it is re-filed into alpha's queue for alpha's next prompt"
+}
+run_test "MAJOR 1(b): a Reply left in the pool when its relay exits is re-filed to its origin, not drained" test_pooled_reply_left_behind_is_refiled_not_drained
+
 suite_summary

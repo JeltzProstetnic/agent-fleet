@@ -12,7 +12,9 @@
 # Every write to a queue file goes through one flock (.lock): the relay peeks in place and
 # deletes by id, so a kill between any two steps leaves every line inside some file — the
 # take-and-requeue of CFG-781 is gone. Without flock(1) the operations run unlocked.
-# Sourced by lib-afd-msg.sh; uses its _afd_msg_dir.
+# CFG-838 (2026-10-25): a Telegram Reply belongs to the project that SENT the replied-to message;
+# the helpers that decide that, and the pool drain that honours it, live at the end of this file.
+# Sourced by lib-afd-msg.sh; uses its _afd_msg_dir, _afd_known_projects and _afd_marker_live.
 
 [[ "${_LIB_AFD_POOL_LOADED:-}" == "true" ]] && return 0
 _LIB_AFD_POOL_LOADED="true"
@@ -180,4 +182,68 @@ afd_release_claims_of() {
         [[ -d "$d" ]] && [[ "$(cut -d' ' -f1 "$d/owner" 2>/dev/null)" == "$1" ]] && rm -rf "$d"
     done
     return 0
+}
+
+# ── CFG-838: a Telegram Reply belongs to the project that SENT the replied-to message ──────────
+# 2026-10-25: the user replied to one project's info message #529; the server stored reply_to=529,
+# but no relay of that project waited, so the line counted as untagged and the first consumer took it.
+
+# _afd_reply_meta <json line> — "<project> <reply_to> [#n …]" when the line is a Telegram Reply to a
+# KNOWN project's message, else nothing. The server's reply_to_project is the replied-to notification's
+# leading "[project]" tag, machine-written as the sender's full name — so it is matched exactly
+# (case-insensitive), never as a prefix the way a human's @tag is (a prefix must not pick another
+# project; review MINOR 3). Fast path: no such field, no python.
+_afd_reply_meta() {
+    local meta
+    [[ "$1" == *reply_to_project* ]] || return 0
+    meta=$(printf '%s' "$1" | python3 -c '
+import json, re, sys
+d = json.load(sys.stdin)
+p = str(d.get("reply_to_project") or "").lower()
+if re.fullmatch(r"[A-Za-z0-9_.-]+", p):
+    print(p, d.get("reply_to") or 0, *re.findall(r"#\d+", str(d.get("message", ""))))' 2>/dev/null)
+    [[ -n "$meta" ]] && grep -qxF -- "${meta%% *}" <<< "$(_afd_known_projects)" && echo "$meta"
+    return 0
+}
+
+# _afd_reply_origin <json line> — the project to file a Reply into (the one that sent what it
+# answers), or nothing: not such a Reply, or one that may be the verdict or answer its origin's LIVE
+# relay waits for and so belongs in the pool — a Reply to that relay's question Q (tier 0,
+# lib-afd-ask.sh), to its ask-back C, or naming #C / #M (the verdict scan, lib-afd-scan.sh). Any
+# other Reply to that project goes to its queue even mid-ask-back: pooled, it would reach whichever
+# consumer drains the pool once the relay exits (review MAJOR 1).
+_afd_reply_origin() {
+    local meta origin rt refs m q claimed mm c
+    meta=$(_afd_reply_meta "$1"); [[ -n "$meta" ]] || return 0
+    read -r origin rt refs <<< "$meta"
+    m="$(_afd_msg_dir)/.waiting/$origin"
+    if [[ -f "$m" ]] && _afd_marker_live "$m"; then
+        read -r _ q claimed mm c < "$m" || true   # "<pid> Q" or "<pid> Q claimed M C"
+        [[ "$rt" == "$q" ]] && return 0
+        if [[ "$claimed" == claimed && -n "$c" ]]; then
+            [[ "$rt" == "$c" || " $refs " == *" #$c "* || " $refs " == *" #$mm "* ]] && return 0
+        fi
+    fi
+    echo "$origin"
+}
+
+# _afd_refile_replies <me> — filter for a pool drain (afd_take_messages): a line that is a Reply to
+# ANOTHER project's message is re-filed into that project's queue, pool bookkeeping (pooled, rejected)
+# dropped, instead of reaching the consumer; every other line passes through. A relay that exits
+# (answered, timed out, killed) leaves such lines behind — a tier-0 Reply it never claimed, a Reply to
+# its ask-back the verdict scan left alone — and the next consumer must not take them (review MAJOR 1).
+# A line is never dropped: if the bookkeeping cannot be stripped it is re-filed as it is.
+_afd_refile_replies() {
+    local me="$1" line meta origin stripped
+    while IFS= read -r line; do
+        meta=$(_afd_reply_meta "$line"); origin="${meta%% *}"
+        if [[ -n "$origin" && "$origin" != "$me" ]]; then
+            stripped=$(printf '%s' "$line" | python3 -c '
+import json, sys
+d = json.load(sys.stdin); d.pop("pooled", None); d.pop("rejected", None); print(json.dumps(d))' 2>/dev/null)
+            _afd_locked _afd_append_line "$(_afd_msg_dir)/$origin.jsonl" "${stripped:-$line}"
+        else
+            printf '%s\n' "$line"
+        fi
+    done
 }

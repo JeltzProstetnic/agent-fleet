@@ -520,4 +520,151 @@ test_short_name_unroutable() {
 }
 run_test "short name: empty when the project does not route" test_short_name_unroutable
 
+# ── CFG-838: a Telegram Reply belongs to the session that SENT the replied-to message ──
+# 2026-10-25: the user replied "Test" to config-repo's info message #529. The server stored
+# reply_to=529, but no config-repo relay waited, so the line counted as untagged and the first
+# consumer (another project) took it. The server now adds reply_to_project (the replied-to
+# message's leading [tag]); routing files such a line into that project's queue as if tagged —
+# unless that project's waiting relay reads the line itself (a Reply to its question, or any
+# Reply while its ask-back is out), which stays in the pool for the relay's claim.
+reply() {  # reply <id> <text> <reply_to> [reply_to_project] — one `afd messages` line
+    local p=""; [[ -n "${4:-}" ]] && p=",\"reply_to_project\":\"$4\""
+    printf '{"id":%s,"message":"%s","timestamp":"t","persona":"Bot","reply_to":%s%s}' "$1" "$2" "$3" "$p"
+}
+
+test_reply_routes_to_the_sender_project() {
+    setup_env
+    pending "$(reply 530 Test 529 config-repo)"
+    local out; out=$(afd_route_messages "beta")          # the other project's hook polls first
+    assert_eq "config-repo" "$out" "routing reports the Reply's origin project as a foreign target (got: $out)"
+    assert_eq "" "$(afd_take_messages "beta")" "the consumer does NOT get the Reply (the 2026-10-25 defect)"
+    assert_contains "$(afd_take_messages "config-repo")" '"id":530' "the project that sent #529 gets it, no relay waiting"
+}
+run_test "2026-10-25: a Reply to config-repo's info #529, consumed by another project, routes to config-repo" test_reply_routes_to_the_sender_project
+
+test_reply_creates_the_target_queue() {
+    setup_env
+    pending "$(reply 31 ok 30 gamma-radar)"
+    afd_route_messages "beta" >/dev/null
+    assert_file_exists "$AFD_MSG_DIR/gamma-radar.jsonl" "a project with no queue yet gets one, like a tagged message would"
+    assert_file_contains "$AFD_MSG_DIR/gamma-radar.jsonl" '"id":31' "holding the Reply"
+}
+run_test "a Reply to a project with no queue file yet creates it" test_reply_creates_the_target_queue
+
+test_reply_to_the_waiting_question_is_pooled_for_tier0() {
+    setup_env
+    mkdir -p "$AFD_MSG_DIR/.waiting"; echo "$$ 529" > "$AFD_MSG_DIR/.waiting/config-repo"
+    pending "$(reply 530 y 529 config-repo)"
+    afd_route_messages "beta" >/dev/null
+    assert_file_contains "$(POOL)" '"id": *530' "a Reply to the question its relay waits on is pooled (the relay's tier-0 claim)"
+    assert_file_not_exists "$AFD_MSG_DIR/config-repo.jsonl" "not filed into the project's queue"
+    source "$REPO_ROOT/global/hooks/lib-afd-scan.sh"
+    local ME=config-repo NOTIF_ID=529 ASK_M="" ASK_C="" ASK_QN=1
+    assert_eq "0 530 0" "$(_afd_ask_scan candidate)" "and that relay's scan picks it at tier 0 (reply_to == Q)"
+}
+run_test "a Reply to the question a relay waits on stays pooled; its scan claims it at tier 0" test_reply_to_the_waiting_question_is_pooled_for_tier0
+
+# Review MAJOR 1 (2026-10-25): pooling EVERY Reply to a project mid-ask-back re-created the defect —
+# once that relay exited, the next consumer drained the pool and took the Reply. Only a Reply that can
+# be the relay's verdict or answer is pooled: to its question Q, to its ask-back C, or naming #C / #M.
+test_reply_during_an_askback_pooled_only_as_verdict() {
+    setup_env
+    mkdir -p "$AFD_MSG_DIR/.waiting"; echo "$$ 529 claimed 540 541" > "$AFD_MSG_DIR/.waiting/config-repo"
+    pending "$(reply 542 y 541 config-repo)" "$(reply 543 'y #540' 538 config-repo)" \
+            "$(reply 544 skip 529 config-repo)" "$(reply 545 2 500 config-repo)"
+    afd_route_messages "beta" >/dev/null
+    assert_file_contains "$(POOL)" '"id": *542' "a Reply to the open ask-back (#541) is its verdict: pooled"
+    assert_file_contains "$(POOL)" '"id": *543' "a Reply naming the claimed message (#540) is a verdict too: pooled"
+    assert_file_contains "$(POOL)" '"id": *544' "a Reply to the question itself (#529) stays tier 0: pooled"
+    assert_file_not_contains "$(POOL)" '"id": *545' "a Reply to an UNRELATED older message (#500) of that project is NOT pooled (MAJOR 1)"
+    assert_file_contains "$AFD_MSG_DIR/config-repo.jsonl" '"id":545' "it goes to the project's queue, as a tagged line would"
+    assert_file_not_contains "$AFD_MSG_DIR/config-repo.jsonl" '"id":54[234]' "the verdict-shaped Replies do not"
+}
+run_test "mid-ask-back, only a Reply that can be the verdict or answer stays pooled" test_reply_during_an_askback_pooled_only_as_verdict
+
+# Review MAJOR 1(b): a relay exits (answered, timed out, killed) and leaves pooled Replies behind —
+# a tier-0 Reply to its question it never claimed, a Reply to its ask-back the verdict scan left
+# alone — and the next consumer drained the whole pool. The drain re-files such lines to their origin.
+test_pool_drain_refiles_replies_to_their_origin() {
+    setup_env
+    mkdir -p "$AFD_MSG_DIR"
+    printf '%s\n' '{"id":600,"message":"2","timestamp":"t","pooled":1,"reply_to":500,"reply_to_project":"alpha"}' \
+                  '{"id":601,"message":"chat","timestamp":"t","pooled":1}' \
+                  '{"id":602,"message":"skip","timestamp":"t","pooled":1,"reply_to":529,"reply_to_project":"config-repo"}' \
+                  '{"id":603,"message":"x","timestamp":"t","pooled":1,"reply_to":7,"reply_to_project":"beta"}' \
+                  '{"id":604,"message":"to nobody","timestamp":"t","pooled":1,"reply_to":8,"reply_to_project":"not-a-project"}' > "$(POOL)"
+    local got; got=$(afd_take_messages "beta")        # no relay waits: the consumer drains the pool
+    assert_contains "$got" '"id":601' "an untagged pooled line reaches the consumer, as before (got: $got)"
+    assert_contains "$got" '"id":603' "a Reply to the consumer's OWN message reaches the consumer"
+    assert_contains "$got" '"id":604' "a Reply whose origin is no known project reaches the consumer, as before"
+    assert_not_contains "$got" '"id":600' "a Reply to alpha's message does NOT go to the consumer (the CFG-838 misroute, re-created by the drain)"
+    assert_not_contains "$got" '"id":602' "nor a tier-0 Reply to config-repo's question its relay never claimed"
+    assert_file_contains "$AFD_MSG_DIR/alpha.jsonl" '"id": *600' "it is re-filed into alpha's queue"
+    assert_file_not_contains "$AFD_MSG_DIR/alpha.jsonl" '"pooled"' "without the pool bookkeeping"
+    assert_file_contains "$AFD_MSG_DIR/config-repo.jsonl" '"id": *602' "and the tier-0 Reply into config-repo's queue"
+    assert_file_not_exists "$(POOL)" "the pool is emptied"
+}
+run_test "pool drain (no waiter): Replies are re-filed to their origin project, not handed to the consumer" test_pool_drain_refiles_replies_to_their_origin
+
+test_rejected_by_all_drain_refiles_replies_too() {
+    setup_env
+    mkdir -p "$AFD_MSG_DIR/.waiting"; echo "$$ 3" > "$AFD_MSG_DIR/.waiting/alpha"; echo "$$ 4" > "$AFD_MSG_DIR/.waiting/beta"
+    printf '%s\n' '{"id":610,"message":"maybe","timestamp":"t","pooled":1,"rejected":["alpha","beta"],"reply_to":500,"reply_to_project":"config-repo"}' \
+                  '{"id":611,"message":"other","timestamp":"t","pooled":1,"rejected":["alpha","beta"]}' > "$(POOL)"
+    local got; got=$(afd_take_messages "gamma-radar")
+    assert_contains "$got" '"id":611' "a line every waiter rejected reaches the consumer, as before (got: $got)"
+    assert_not_contains "$got" '"id":610' "unless it is a Reply to another project's message"
+    assert_file_contains "$AFD_MSG_DIR/config-repo.jsonl" '"id": *610' "which is re-filed to that project"
+    assert_file_not_contains "$AFD_MSG_DIR/config-repo.jsonl" '"rejected"' "without the rejections"
+    assert_file_not_contains "$(POOL)" '"id": *61[01]' "both left the pool"
+}
+run_test "pool drain (rejected by every waiter): Replies are re-filed to their origin project" test_rejected_by_all_drain_refiles_replies_too
+
+# Review MINOR 3: reply_to_project is machine-written (the sender's full "[$ME]" tag), so it is
+# matched EXACTLY (case-insensitive) — never as a prefix the way a human's @tag is.
+test_reply_origin_requires_the_exact_project_name() {
+    setup_env
+    pending "$(reply 530 Test 529 conf)" "$(reply 531 Test 529 Config-Repo)"
+    afd_route_messages "beta" >/dev/null
+    assert_contains "$(afd_take_messages "beta")" '"id":530' "a prefix (conf) is not a project: the consumer, as untagged today"
+    assert_file_not_contains "$AFD_MSG_DIR/config-repo.jsonl" '"id":530' "it is NOT routed to config-repo by prefix"
+    assert_file_contains "$AFD_MSG_DIR/config-repo.jsonl" '"id":531' "the full name, any case, routes"
+}
+run_test "reply_to_project matches a project name exactly, never as a prefix" test_reply_origin_requires_the_exact_project_name
+
+test_reply_to_an_older_message_of_a_waiting_project_is_queued() {
+    setup_env
+    mkdir -p "$AFD_MSG_DIR/.waiting"; echo "$$ 529" > "$AFD_MSG_DIR/.waiting/config-repo"; echo "$$ 520" > "$AFD_MSG_DIR/.waiting/alpha"
+    pending "$(reply 530 skip 500 config-repo)"
+    afd_route_messages "beta" >/dev/null
+    assert_file_contains "$AFD_MSG_DIR/config-repo.jsonl" '"id":530' "a Reply to an older message of a project whose relay waits on a DIFFERENT question goes to that project's queue"
+    assert_file_not_exists "$(POOL)" "not to the pool, although two relays wait"
+}
+run_test "a Reply to a waiting project's other message is queued for it, not pooled" test_reply_to_an_older_message_of_a_waiting_project_is_queued
+
+test_unknown_reply_origin_is_untagged() {
+    setup_env
+    pending "$(reply 530 Test 529 not-a-project)"
+    afd_route_messages "beta" >/dev/null
+    assert_contains "$(afd_take_messages "beta")" '"id":530' "an unknown reply_to_project: the consumer, as an untagged line today"
+    mkdir -p "$AFD_MSG_DIR/.waiting"; echo "$$ 3" > "$AFD_MSG_DIR/.waiting/alpha"
+    pending "$(reply 531 Test 529 not-a-project)" "$(reply 532 Test 529)"
+    afd_route_messages "beta" >/dev/null
+    assert_file_contains "$(POOL)" '"id": *531' "…and pooled while a relay waits, as an untagged line today"
+    assert_file_contains "$(POOL)" '"id": *532' "a Reply with no reply_to_project (an untagged original, or the user's own message): untagged, as today"
+    assert_file_not_exists "$AFD_MSG_DIR/not-a-project.jsonl" "no orphan queue for an unknown origin"
+}
+run_test "unknown or absent reply_to_project keeps today's untagged behaviour" test_unknown_reply_origin_is_untagged
+
+test_explicit_tag_beats_reply_origin() {
+    setup_env
+    pending "$(reply 530 '@alpha do this' 529 config-repo)" "$(reply 531 'AFK off' 529 config-repo)"
+    touch "$HOME/.afd-afk"
+    local out; out=$(afd_route_messages "beta")
+    assert_file_contains "$AFD_MSG_DIR/alpha.jsonl" '"id":530' "an explicit @tag on a Reply wins over the replied-to project"
+    assert_file_not_exists "$AFD_MSG_DIR/config-repo.jsonl" "the origin project does not get it"
+    assert_file_not_exists "$HOME/.afd-afk" "an AFK switch sent as a Reply is still a switch (got: $out)"
+}
+run_test "a Reply carrying an @tag or an AFK command keeps those meanings" test_explicit_tag_beats_reply_origin
+
 suite_summary
