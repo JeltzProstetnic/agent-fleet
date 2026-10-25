@@ -52,7 +52,8 @@ Before selecting agents, determine whether VoltAgent bundles should be enabled a
 5. **Set up roster** — create `.claude/agents/`, `.claude/skills/`, copy selected files
 6. **Create session-context.md** — initial project state. Also create `tmp/` (gitignored, throwaway) and `drafts/` (tracked, content awaiting user action) directories
 7. **Add project to registry**: update `~/agent-fleet/registry.md`
-8. **Tell the user**: "Roster set up with N agents and M skills. Please restart to load them."
+8. **Finish and verify the launch**: run `bash ~/agent-fleet/setup/scripts/new-project.sh --name <name> --path <dir> --type "<registry type>"` — it pre-accepts Claude Code's workspace trust, pre-decides the MCP servers from `setup/config/project-mcp-defaults.conf`, creates or tops up `.gitignore`, seeds the project CLAUDE.md with its type's knowledge from `setup/config/project-type-knowledge.conf`, and checks the project through afleet's own resolver. Never call the project ready unless it printed `READY:`.
+9. **Tell the user**: "Roster set up with N agents and M skills. Please restart to load them." plus the `READY:` line verbatim.
 
 ---
 
