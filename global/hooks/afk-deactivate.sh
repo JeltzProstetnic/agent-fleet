@@ -77,6 +77,8 @@ if [[ -x "$AFD_CLI" ]]; then
       ts=$(echo "$line" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('timestamp','')[:16])" 2>/dev/null)
       persona=$(echo "$line" | python3 -c "import sys,json; print(json.load(sys.stdin).get('persona','') or '')" 2>/dev/null)
       redirected=$(echo "$line" | python3 -c "import sys,json; print('(redirected here by the user) ' if json.load(sys.stdin).get('redirected') else '')" 2>/dev/null)
+      # CFG-839: a Reply to this project's own message is addressed here too.
+      [[ -z "$redirected" ]] && redirected=$(echo "$line" | ME="$ME" python3 -c "import sys,json,os; d=json.load(sys.stdin); print('(reply to #%s) ' % d.get('reply_to') if d.get('reply_to') and d.get('reply_to_project') == os.environ['ME'] else '')" 2>/dev/null)
       if [[ -n "$msg" ]]; then
         [[ "$msg" == @* || -n "$redirected" ]] || HAS_UNTAGGED=true
         if [[ -n "$persona" ]]; then

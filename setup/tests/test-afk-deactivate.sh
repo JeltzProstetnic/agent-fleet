@@ -196,6 +196,29 @@ test_redirected_line_needs_no_triage() {
 }
 run_test "CFG-779: a redirected line is delivered without the triage note" test_redirected_line_needs_no_triage
 
+# CFG-839: a Telegram Reply filed here by reply_to_project is addressed to this project — live
+# 2026-10-26 the proof Reply #534 arrived with the "relay it elsewhere" note.
+test_reply_routed_line_needs_no_triage() {
+    setup_env
+    mkdir -p "$AFD_MSG_DIR"
+    printf '%s\n' '{"id":534,"message":"Proof","timestamp":"t","persona":"Bot","reply_to":533,"reply_to_project":"cfg-agent-fleet"}' > "$AFD_MSG_DIR/cfg-agent-fleet.jsonl"
+    run_prompt "hi"
+    assert_contains "$OUT" "Proof" "a Reply routed here is injected (out: $OUT)"
+    assert_contains "$OUT" "reply to #533" "and labelled as a reply to this project's message"
+    assert_not_contains "$OUT" "not addressed" "no triage note: the Reply names its project"
+}
+run_test "CFG-839: a reply-routed line is delivered without the triage note" test_reply_routed_line_needs_no_triage
+
+# A Reply to ANOTHER project's message that still reached this session keeps the triage note.
+test_reply_to_other_project_keeps_triage() {
+    setup_env
+    mkdir -p "$AFD_MSG_DIR"
+    printf '%s\n' '{"id":535,"message":"ok","timestamp":"t","persona":"Bot","reply_to":520,"reply_to_project":"other-project"}' > "$AFD_MSG_DIR/cfg-agent-fleet.jsonl"
+    run_prompt "hi"
+    assert_contains "$OUT" "not addressed" "a Reply to another project's message still gets triage (out: $OUT)"
+}
+run_test "CFG-839: a Reply to another project keeps the triage note" test_reply_to_other_project_keeps_triage
+
 # CFG-700: the hook ships to other fleets — the user's name comes from the env, the
 # persona from the message, and nothing personal is hard-coded.
 test_header_names_configured_user() {

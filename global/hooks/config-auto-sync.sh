@@ -76,6 +76,10 @@ _silence_idle_waiter
 # "per-session" true rather than aspirational.
 rm -f "$ORIGINAL_DIR/.claude/.artifact-consent" 2>/dev/null || true
 rm -f "$CONFIG_REPO/.claude/.artifact-consent" 2>/dev/null || true
+# Same per-session rule for cloud-routine-guard.sh (CFG-842).
+rm -f "$ORIGINAL_DIR/.claude/.cloud-routine-consent" 2>/dev/null || true
+rm -f "${CLAUDE_PROJECT_DIR:-$ORIGINAL_DIR}/.claude/.cloud-routine-consent" 2>/dev/null || true
+rm -f "$CONFIG_REPO/.claude/.cloud-routine-consent" 2>/dev/null || true
 
 # --- Phase -2: arm every fleet repo's pre-push guard (CFG-535) ---
 # This hook pushes to ~/agent-fleet, which is PUBLIC, and does so without any leak
