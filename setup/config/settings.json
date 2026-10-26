@@ -261,6 +261,15 @@
         ]
       },
       {
+        "matcher": "RemoteTrigger|Skill",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash ~/.claude/hooks/safe-run.sh cloud-routine-guard.sh"
+          }
+        ]
+      },
+      {
         "matcher": "mcp__.*|WebSearch|WebFetch",
         "hooks": [
           {
