@@ -281,6 +281,38 @@ else
     fail "headless directory should be path-only: $_out"
 fi
 
+echo "=== WSL text editor: OPEN_FILE_TEXT_EXE override ==="
+
+# The notepad row's executable is per-machine preference, not fleet policy, so a machine
+# overlay may name another editor. Asserted on the real launch path: powershell.exe and
+# wslpath are stubbed on PATH and the stub logs the command it was asked to run.
+_launch_log() {  # <OPEN_FILE_TEXT_EXE value or empty> → the logged powershell command
+    local bin="$_tmp/bin" log="$_tmp/ps.log"
+    mkdir -p "$bin" "$_tmp/stage"; : > "$log"
+    printf '#!/usr/bin/env bash\nprintf "%%s\\n" "$*" >> "%s"\n' "$log" > "$bin/powershell.exe"
+    printf '#!/usr/bin/env bash\nprintf "C:\\\\stage\\\\%%s" "$(basename "$2")"\n' > "$bin/wslpath"
+    chmod +x "$bin/powershell.exe" "$bin/wslpath"
+    PATH="$bin:$PATH" OPEN_FILE_MACHINE=wsl OPEN_FILE_WIN_STAGE="$_tmp/stage" \
+        OPEN_FILE_TEXT_EXE="$1" bash "$HELPER" "$(_mk editor.md)" >/dev/null 2>&1
+    cat "$log"
+}
+if [ -d /mnt/c ]; then
+    _out="$(_launch_log '')"
+    if printf '%s' "$_out" | grep -q "Start-Process 'notepad.exe'"; then
+        pass "no override: text files launch notepad.exe"
+    else
+        fail "no override should launch notepad.exe, got: $_out"
+    fi
+    _out="$(_launch_log 'C:\Program Files\Notepad++\notepad++.exe')"
+    if printf '%s' "$_out" | grep -qF "Start-Process 'C:\Program Files\Notepad++\notepad++.exe'"; then
+        pass "OPEN_FILE_TEXT_EXE: text files launch the named editor"
+    else
+        fail "OPEN_FILE_TEXT_EXE was not used, got: $_out"
+    fi
+else
+    echo "  SKIP WSL launch tests: no /mnt/c on this host"
+fi
+
 echo "── Summary ──"
 echo "  Total:   $((PASSED + FAILED))"
 echo "  Passed:  $PASSED"

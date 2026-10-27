@@ -1,6 +1,7 @@
 #!/bin/bash
 # Context usage statusline for Claude Code
-# Shows: project [Model] ▓▓▓▓░░░░░░ 108k/200k (54%) $12.34 {persona}
+# Shows: project [Model] ▓▓▓▓░░░░░░ 108k/200k (54%) $12.34 {persona} 5h ▓▓░░░░░░░░ 23% ↻14:05
+# The 5h segment (rolling usage window) appears only when CC supplies rate_limits.five_hour.
 # Color: green <50%, cyan 50-59%, orange 60-69%, yellow 70-79%, red 80%+
 # Persona indicator reads from ~/.claude/.active-persona (written by Claude)
 input=$(cat)
@@ -80,24 +81,86 @@ try:
         pct = (input_tokens / win_size) * 100
     else:
         used_k = 0
-    pct_int = int(pct)
+    # Round half-up and fill from the rounded value, as for the 5h bar: floor division
+    # left the bar empty below 10%.
+    pct_int = int(pct + 0.5)
     total_k = win_size // 1000
     bar_w = 10
-    filled = pct_int * bar_w // 100
+    filled = min(bar_w, (pct_int * bar_w + 50) // 100)
     empty = bar_w - filled
-    if pct_int >= 80:
-        c = '\033[31m'        # red
-    elif pct_int >= 70:
-        c = '\033[93m'        # bright yellow
-    elif pct_int >= 60:
-        c = '\033[38;5;208m'  # orange (256-color)
-    elif pct_int >= 50:
-        c = '\033[36m'        # cyan (first warning)
-    else:
-        c = '\033[32m'        # green
+    def band_colour(p):
+        if p >= 80:
+            return '\033[31m'        # red
+        if p >= 70:
+            return '\033[93m'        # bright yellow
+        if p >= 60:
+            return '\033[38;5;208m'  # orange (256-color)
+        if p >= 50:
+            return '\033[36m'        # cyan (first warning)
+        return '\033[32m'            # green
+    c = band_colour(pct_int)
     r = '\033[0m'
     dim = '\033[2m'
     bar = '\u2593' * filled + '\u2591' * empty
+
+    # 5-hour rolling usage window. CC passes rate_limits.five_hour.{used_percentage,
+    # resets_at} for claude.ai plan sessions only (null/absent for API key, Bedrock,
+    # Vertex), so the segment is omitted when there is nothing to show. Same bar and
+    # colour bands as the context bar; reset time shown as local HH:MM. Rendered as the
+    # rightmost segment. CC sends one decimal (round(utilization*1000)/10): round it
+    # half-up, and fill from the rounded value so bar and number agree (floor division
+    # left the bar empty below 10%).
+    five_str = ''
+    five_pct = None
+    rl = d.get('rate_limits')
+    fh = (rl.get('five_hour') if isinstance(rl, dict) else None) or {}
+    if not isinstance(fh, dict): fh = {}
+    try:
+        five_pct = max(0, min(100, int(float(fh['used_percentage']) + 0.5)))
+    except Exception:
+        five_pct = None  # absent or malformed: omit the segment, keep the context bar
+    if five_pct is not None:
+        f_filled = (five_pct * bar_w + 50) // 100
+        reset_str = ''
+        ra = fh.get('resets_at')
+        try:
+            import datetime as _dt
+            ts = None
+            if isinstance(ra, (int, float)):
+                ts = _dt.datetime.fromtimestamp(ra)
+            elif isinstance(ra, str) and ra:
+                ts = _dt.datetime.fromisoformat(ra.replace('Z', '+00:00')).astimezone()
+            if ts:
+                reset_str = ' ' + dim + '\u21bb ' + ts.strftime('%H:%M') + r
+        except Exception:
+            pass
+        five_str = (' 5h ' + band_colour(five_pct) + '\u2593' * f_filled + '\u2591' * (bar_w - f_filled)
+                    + ' ' + str(five_pct) + '%' + r + reset_str)
+
+    # Terminal width for right-aligning the 5h segment. The JSON payload has no width, but
+    # CC sets COLUMNS for the statusline command (measured live on 2.1.303: 209). Order:
+    # STATUSLINE_WIDTH override (0 disables alignment), then COLUMNS, then the controlling
+    # terminal. The source is recorded in the sidecar as cols_src.
+    def term_width():
+        v = (os.environ.get('STATUSLINE_WIDTH') or '').strip()
+        if v:
+            return (int(v) if v.isdigit() else 0), 'STATUSLINE_WIDTH'
+        v = (os.environ.get('COLUMNS') or '').strip()
+        if v.isdigit() and int(v) > 0:
+            return int(v), 'COLUMNS'
+        try:
+            fd = os.open('/dev/tty', os.O_RDONLY)
+            try:
+                return os.get_terminal_size(fd).columns, 'tty'
+            finally:
+                os.close(fd)
+        except Exception:
+            return 0, 'none'
+    cols, cols_src = term_width()
+    try:
+        right_margin = int(os.environ.get('STATUSLINE_RIGHT_MARGIN') or 4)
+    except ValueError:
+        right_margin = 4
 
     # Project name from workspace
     project_dir = d.get('workspace', {}).get('project_dir', '')
@@ -334,11 +397,25 @@ try:
                             os.remove(old)
                     except Exception:
                         pass
-            j2.dump({'pct': pct_int, 'remaining': 100 - pct_int, 'size': win_size, 'used_k': used_k}, open(sidecar_path, 'w'))
+            budget = {'pct': pct_int, 'remaining': 100 - pct_int, 'size': win_size, 'used_k': used_k}
+            if five_pct is not None:
+                budget['five_hour_pct'] = five_pct
+            budget['cols'] = cols
+            budget['cols_src'] = cols_src
+            j2.dump(budget, open(sidecar_path, 'w'))
         except Exception:
             pass
 
-    sys.stdout.write(f'{project_str} [{model}] {c}{bar} {used_k}k/{total_k}k ({pct_int}%){r}{cost_str}{persona_str}{afk_str}{gpi_str}\n')
+    left = f'{project_str} [{model}] {c}{bar} {used_k}k/{total_k}k ({pct_int}%){r}{cost_str}{persona_str}{afk_str}{gpi_str}'
+    line = left
+    if five_str:
+        import re as _re2
+        right = five_str.lstrip(' ')
+        import unicodedata as _ud
+        vis = lambda s: sum(2 if _ud.east_asian_width(c) in 'WF' else 1 for c in _re2.sub(r'\x1b\[[0-9;]*m', '', s))
+        pad = cols - right_margin - vis(left) - vis(right) if cols > 0 else 0
+        line = left + (' ' * pad if pad >= 2 else ' ') + right  # too narrow or no width: one space
+    sys.stdout.write(line + '\n')
 except Exception:
     sys.stdout.write('[?] ...\n')
 " <<< "$input"

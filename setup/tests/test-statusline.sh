@@ -49,12 +49,33 @@ run_test "percentage calculation: 54% bar width" test_percentage_bar_54pct
 test_percentage_bar_25pct() {
     local output
     output=$(echo "$(make_json "Test" 25 200000 25000 0 0)" | bash "$SCRIPT_PATH")
-    # 25% of 10 = 2 filled, 8 empty (int(25*10/100) = 2)
+    # 25% of 10 = 2.5 segments → rounds half-up to 3 (Max, 2026-10-26: same rounding as the 5h bar)
     local expected_bar
-    expected_bar=$(printf '%s' "${FILLED}${FILLED}${EMPTY}${EMPTY}${EMPTY}${EMPTY}${EMPTY}${EMPTY}${EMPTY}${EMPTY}")
-    assert_contains "$output" "$expected_bar" "25% should produce 2 filled + 8 empty"
+    expected_bar=$(printf '%s' "${FILLED}${FILLED}${FILLED}${EMPTY}${EMPTY}${EMPTY}${EMPTY}${EMPTY}${EMPTY}${EMPTY}")
+    assert_contains "$output" "$expected_bar" "25% should produce 3 filled + 7 empty"
 }
 run_test "percentage calculation: 25% bar width" test_percentage_bar_25pct
+
+test_context_fill_rounds_to_nearest_segment() {
+    # Floor division left the context bar empty below 10%; it now rounds like the 5h bar.
+    local pct want_filled out bar
+    for pair in "0:0" "4:0" "5:1" "9:1" "14:1" "15:2" "95:10" "100:10"; do
+        pct="${pair%%:*}"; want_filled="${pair#*:}"
+        # Zero tokens: at 0% the script otherwise recomputes from tokens (make_json defaults to 108k).
+        out=$(make_json "TestModel" "$pct" 200000 0 0 0 | HOME="$TEST_TMPDIR/nohome" bash "$SCRIPT_PATH")
+        bar=""; for ((i=0; i<want_filled; i++)); do bar+="$FILLED"; done
+        for ((i=want_filled; i<10; i++)); do bar+="$EMPTY"; done
+        assert_contains "$out" "$bar " "context ${pct}% → ${want_filled}/10 segments (out: $out)" || return 1
+    done
+}
+run_test "context bar: fill rounds to the nearest 10% segment" test_context_fill_rounds_to_nearest_segment
+
+test_context_float_percentage_rounded() {
+    local out
+    out=$(make_json "TestModel" 42.6 | HOME="$TEST_TMPDIR/nohome" bash "$SCRIPT_PATH")
+    assert_contains "$out" "(43%)" "42.6% shown as 43% (out: $out)"
+}
+run_test "context bar: float percentage rounded half-up" test_context_float_percentage_rounded
 
 test_green_color_low_usage() {
     local raw_output
@@ -446,6 +467,218 @@ test_heartbeat_uses_afd_url() {
 run_test "heartbeat: sent to the configured AFD_URL" test_heartbeat_uses_afd_url
 
 
+# ── 5-hour rolling usage window (rate_limits.five_hour) ─────────────────────
+# CC (verified in the 2.1.303 binary) passes rate_limits.five_hour.{used_percentage,
+# resets_at} to the statusline for claude.ai plan sessions; null or absent otherwise.
+
+# Merge a rate_limits object (JSON string, or "null") into a make_json payload on stdin.
+add_rl() {
+    python3 -c 'import json,sys; d=json.load(sys.stdin); d["rate_limits"]=json.loads(sys.argv[1]); print(json.dumps(d))' "$1"
+}
+
+# Everything after the "5h " label, so colour/bar assertions cannot match the context bar.
+five_h_segment() { printf '%s' "${1#* 5h }"; }
+
+test_5h_bar_rendered() {
+    local out seg
+    out=$(make_json "TestModel" 10 | add_rl '{"five_hour":{"used_percentage":42,"resets_at":1793000000}}' | bash "$SCRIPT_PATH")
+    assert_contains "$out" " 5h " "5h label present (out: $out)"
+    seg=$(five_h_segment "$out")
+    assert_contains "$seg" "${FILLED}${FILLED}${FILLED}${FILLED}${EMPTY}${EMPTY}${EMPTY}${EMPTY}${EMPTY}${EMPTY} 42%" "42% → 4 filled + 6 empty, then the percentage (seg: $seg)"
+}
+run_test "5h window: 10-segment bar and percentage" test_5h_bar_rendered
+
+test_5h_segment_at_right_end() {
+    # Persona stays left, next to the context bar; the 5h segment is the last thing on the line.
+    local h="$TEST_TMPDIR/home" out
+    rm -rf "$h"; mkdir -p "$h/.claude"; mock_personas "$h"
+    echo "Assistant" > "$h/.claude/.active-persona"
+    out=$(make_json "TestModel" 10 | add_rl '{"five_hour":{"used_percentage":42,"resets_at":1793000000}}' | HOME="$h" TZ=UTC bash "$SCRIPT_PATH")
+    assert_contains "$out" " 5h " "5h segment present (out: $out)" || return 1
+    local before_persona="${out%%Assistant*}" before_5h="${out%% 5h *}"
+    [[ ${#before_5h} -gt ${#before_persona} ]] || { echo "  persona should come before the 5h segment (out: $out)"; return 1; }
+    local tail_part="${out##* 5h }"
+    assert_contains "$tail_part" $'07:33\033[0m' "line ends with the reset time (tail: $tail_part)" || return 1
+    assert_not_contains "$tail_part" "Assistant" "nothing from the persona after the 5h segment"
+}
+run_test "5h window: rightmost segment, persona stays left" test_5h_segment_at_right_end
+
+# Visible width of a rendered line: ANSI stripped, trailing newline dropped, counted in characters.
+visible_len() { printf '%s' "$1" | python3 -c 'import re,sys; print(len(re.sub(r"\x1b\[[0-9;]*m","",sys.stdin.read()).rstrip("\n")))'; }
+strip_ansi() { printf '%s' "$1" | python3 -c 'import re,sys; print(re.sub(r"\x1b\[[0-9;]*m","",sys.stdin.read()).rstrip("\n"))'; }
+
+test_5h_right_aligned_to_width() {
+    local out vis
+    out=$(make_json "TestModel" 10 | add_rl '{"five_hour":{"used_percentage":42,"resets_at":1793000000}}' \
+        | STATUSLINE_WIDTH=120 STATUSLINE_RIGHT_MARGIN=0 TZ=UTC bash "$SCRIPT_PATH")
+    vis=$(visible_len "$out")
+    assert_eq "$vis" "120" "line padded to exactly the width, 5h segment flush right (visible width: $vis)" || return 1
+    assert_contains "$(strip_ansi "$out")" "07:33" "reset time still present"
+}
+run_test "5h window: right-aligned to STATUSLINE_WIDTH" test_5h_right_aligned_to_width
+
+test_5h_alignment_counts_wide_chars() {  # Fable review of iv-agent-fleet #4: a wide glyph in free text must not wrap the line
+    local h="$TEST_TMPDIR/wide" out w
+    mkdir -p "$h/.claude"; echo "Bartl漢字" > "$h/.claude/.active-persona"
+    out=$(make_json "TestModel" 10 | add_rl '{"five_hour":{"used_percentage":42,"resets_at":1793000000}}' \
+        | HOME="$h" STATUSLINE_WIDTH=120 STATUSLINE_RIGHT_MARGIN=0 TZ=UTC bash "$SCRIPT_PATH")
+    w=$(printf '%s' "$out" | python3 -c 'import re,sys,unicodedata as u; s=re.sub(r"\x1b\[[0-9;]*m","",sys.stdin.read()).rstrip("\n"); print(sum(2 if u.east_asian_width(c) in "WF" else 1 for c in s))')
+    assert_eq "$w" "120" "display width with two wide chars is exactly 120 (got: $w)"
+}
+run_test "5h window: alignment counts East-Asian wide chars as 2 columns" test_5h_alignment_counts_wide_chars
+
+test_5h_non_dict_rate_limits_does_not_break_line() {
+    local out
+    out=$(make_json "TestModel" 10 | add_rl '"weird"' | TZ=UTC bash "$SCRIPT_PATH")
+    assert_not_contains "$out" "[?]" "a non-dict rate_limits leaves the line intact (out: $out)" || return 1
+    assert_contains "$out" "TestModel" "rest of the line still rendered"
+}
+run_test "5h window: non-dict rate_limits does not break the line" test_5h_non_dict_rate_limits_does_not_break_line
+
+test_5h_right_margin_respected() {
+    local out vis
+    out=$(make_json "TestModel" 10 | add_rl '{"five_hour":{"used_percentage":42,"resets_at":1793000000}}' \
+        | STATUSLINE_WIDTH=120 STATUSLINE_RIGHT_MARGIN=3 bash "$SCRIPT_PATH")
+    vis=$(visible_len "$out")
+    assert_eq "$vis" "117" "right margin keeps 3 columns free (visible width: $vis)"
+}
+run_test "5h window: right margin respected" test_5h_right_margin_respected
+
+test_5h_width_from_columns_env() {
+    local out vis
+    out=$(make_json "TestModel" 10 | add_rl '{"five_hour":{"used_percentage":42,"resets_at":1793000000}}' \
+        | env -u STATUSLINE_WIDTH COLUMNS=100 STATUSLINE_RIGHT_MARGIN=0 bash "$SCRIPT_PATH")
+    vis=$(visible_len "$out")
+    assert_eq "$vis" "100" "COLUMNS used when STATUSLINE_WIDTH is unset (visible width: $vis)"
+}
+run_test "5h window: width taken from COLUMNS" test_5h_width_from_columns_env
+
+test_5h_gap_between_persona_and_5h() {
+    local h="$TEST_TMPDIR/home" out plain gap
+    rm -rf "$h"; mkdir -p "$h/.claude"; mock_personas "$h"
+    echo "Assistant" > "$h/.claude/.active-persona"
+    out=$(make_json "TestModel" 10 | add_rl '{"five_hour":{"used_percentage":42,"resets_at":1793000000}}' \
+        | HOME="$h" STATUSLINE_WIDTH=120 STATUSLINE_RIGHT_MARGIN=0 bash "$SCRIPT_PATH")
+    plain=$(strip_ansi "$out")
+    gap=$(python3 -c 'import re,sys; m=re.search(r"Assistant( +)5h ",sys.argv[1]); print(len(m.group(1)) if m else -1)' "$plain")
+    [[ "$gap" -ge 10 ]] || { echo "  expected a wide gap between persona and 5h, got $gap spaces (plain: $plain)"; return 1; }
+}
+run_test "5h window: visible gap between persona and 5h segment" test_5h_gap_between_persona_and_5h
+
+test_5h_no_width_single_space() {
+    local out plain
+    out=$(make_json "TestModel" 10 | add_rl '{"five_hour":{"used_percentage":42,"resets_at":1793000000}}' \
+        | HOME="$TEST_TMPDIR/nohome" STATUSLINE_WIDTH=0 bash "$SCRIPT_PATH")
+    plain=$(strip_ansi "$out")
+    assert_contains "$plain" "(10%) 5h " "STATUSLINE_WIDTH=0 disables alignment: single space (plain: $plain)"
+}
+run_test "5h window: alignment disabled → single space" test_5h_no_width_single_space
+
+test_5h_narrow_terminal_no_overflow() {
+    local out plain
+    out=$(make_json "TestModel" 10 | add_rl '{"five_hour":{"used_percentage":42,"resets_at":1793000000}}' \
+        | HOME="$TEST_TMPDIR/nohome" STATUSLINE_WIDTH=40 STATUSLINE_RIGHT_MARGIN=0 bash "$SCRIPT_PATH")
+    plain=$(strip_ansi "$out")
+    assert_contains "$plain" "(10%) 5h " "too narrow to pad: falls back to a single space (plain: $plain)"
+}
+run_test "5h window: narrow terminal falls back to a single space" test_5h_narrow_terminal_no_overflow
+
+test_5h_colour_thresholds() {
+    local pct esc seg
+    for pair in "40:"$'\033[32m' "55:"$'\033[36m' "65:"$'\033[38;5;208m' "75:"$'\033[93m' "85:"$'\033[31m'; do
+        pct="${pair%%:*}"; esc="${pair#*:}"
+        seg=$(five_h_segment "$(make_json "TestModel" 10 | add_rl "{\"five_hour\":{\"used_percentage\":$pct,\"resets_at\":1793000000}}" | bash "$SCRIPT_PATH")")
+        assert_contains "$seg" "$esc" "5h at ${pct}% uses the context bar's colour for that band" || return 1
+    done
+}
+run_test "5h window: same colour bands as the context bar" test_5h_colour_thresholds
+
+test_5h_float_percentage_rounded() {
+    # CC sends round(utilization*1000)/10, i.e. one decimal; show it rounded half-up.
+    local seg
+    seg=$(five_h_segment "$(make_json "TestModel" 10 | add_rl '{"five_hour":{"used_percentage":42.7,"resets_at":1793000000}}' | bash "$SCRIPT_PATH")")
+    assert_contains "$seg" " 43%" "42.7 shown as 43% (seg: $seg)" || return 1
+    seg=$(five_h_segment "$(make_json "TestModel" 10 | add_rl '{"five_hour":{"used_percentage":42.5,"resets_at":1793000000}}' | bash "$SCRIPT_PATH")")
+    assert_contains "$seg" " 43%" "42.5 rounds half-up to 43% (seg: $seg)"
+}
+run_test "5h window: float percentage rounded half-up" test_5h_float_percentage_rounded
+
+test_5h_fill_rounds_to_nearest_segment() {
+    # Each segment is 10% of the DISPLAYED (rounded) percentage, so bar and number agree.
+    # Floor division showed an EMPTY bar at 9.4% (measured live, 2026-10-26).
+    local pct want_filled seg bar
+    for pair in "0:0" "4.4:0" "4.5:1" "9.4:1" "14.4:1" "14.5:2" "54:5" "95:10" "100:10"; do
+        pct="${pair%%:*}"; want_filled="${pair#*:}"
+        seg=$(five_h_segment "$(make_json "TestModel" 10 | add_rl "{\"five_hour\":{\"used_percentage\":$pct}}" | bash "$SCRIPT_PATH")")
+        bar=""; for ((i=0; i<want_filled; i++)); do bar+="$FILLED"; done
+        for ((i=want_filled; i<10; i++)); do bar+="$EMPTY"; done
+        assert_contains "$seg" "$bar " "${pct}% → ${want_filled}/10 segments (seg: $seg)" || return 1
+    done
+}
+run_test "5h window: bar fill rounds to the nearest 10% segment" test_5h_fill_rounds_to_nearest_segment
+
+test_5h_reset_time_epoch() {
+    local seg
+    seg=$(five_h_segment "$(make_json "TestModel" 10 | add_rl '{"five_hour":{"used_percentage":42,"resets_at":1793000000}}' | TZ=UTC bash "$SCRIPT_PATH")")
+    # 1793000000 = 2026-10-26 07:33:20 UTC
+    assert_contains "$seg" "07:33" "epoch resets_at rendered as local HH:MM (seg: $seg)" || return 1
+    assert_contains "$seg" $'\u21bb 07:33' "a space separates the reset icon from the time (seg: $seg)"
+}
+run_test "5h window: reset time from epoch seconds" test_5h_reset_time_epoch
+
+test_5h_reset_time_iso() {
+    local seg
+    seg=$(five_h_segment "$(make_json "TestModel" 10 | add_rl '{"five_hour":{"used_percentage":42,"resets_at":"2026-10-26T07:33:20Z"}}' | TZ=UTC bash "$SCRIPT_PATH")")
+    assert_contains "$seg" "07:33" "ISO resets_at rendered as local HH:MM (seg: $seg)"
+}
+run_test "5h window: reset time from ISO-8601 string" test_5h_reset_time_iso
+
+test_5h_absent_no_segment() {
+    local out
+    out=$(make_json "TestModel" 54 | bash "$SCRIPT_PATH")
+    assert_not_contains "$out" " 5h " "no rate_limits → no 5h segment (out: $out)"
+    assert_contains "$out" "(54%)" "context bar unaffected"
+}
+run_test "5h window: absent rate_limits → no segment" test_5h_absent_no_segment
+
+test_5h_null_no_crash() {
+    local out
+    out=$(make_json "TestModel" 54 | add_rl 'null' | bash "$SCRIPT_PATH")
+    assert_not_contains "$out" " 5h " "rate_limits null → no 5h segment"
+    assert_not_contains "$out" "[?] ..." "rate_limits null must not hit the fallback (out: $out)"
+    out=$(make_json "TestModel" 54 | add_rl '{"five_hour":null}' | bash "$SCRIPT_PATH")
+    assert_not_contains "$out" " 5h " "five_hour null → no 5h segment"
+    assert_contains "$out" "(54%)" "context bar still rendered (out: $out)"
+}
+run_test "5h window: null rate_limits / five_hour handled" test_5h_null_no_crash
+
+test_5h_malformed_keeps_context_bar() {
+    local out
+    out=$(make_json "TestModel" 54 | add_rl '{"five_hour":{"used_percentage":"n/a","resets_at":"garbage"}}' | bash "$SCRIPT_PATH")
+    assert_not_contains "$out" "[?] ..." "malformed five_hour must not hit the fallback (out: $out)"
+    assert_not_contains "$out" " 5h " "malformed percentage → no 5h segment"
+    assert_contains "$out" "(54%)" "context bar still rendered"
+}
+run_test "5h window: malformed values keep the context bar" test_5h_malformed_keeps_context_bar
+
+test_5h_missing_reset_still_renders() {
+    local seg
+    seg=$(five_h_segment "$(make_json "TestModel" 10 | add_rl '{"five_hour":{"used_percentage":30}}' | bash "$SCRIPT_PATH")")
+    assert_contains "$seg" " 30%" "bar renders without resets_at (seg: $seg)"
+}
+run_test "5h window: missing resets_at still renders the bar" test_5h_missing_reset_still_renders
+
+test_5h_in_sidecar() {
+    local sc="$TEST_TMPDIR/budget-5h.json"
+    rm -f "$sc"
+    make_json "TestModel" 10 | add_rl '{"five_hour":{"used_percentage":42,"resets_at":1793000000}}' \
+        | CONTEXT_BUDGET_PATH="$sc" bash "$SCRIPT_PATH" >/dev/null
+    local v
+    v=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("five_hour_pct"))' "$sc" 2>&1)
+    assert_eq "$v" "42" "sidecar carries five_hour_pct (got: $v)"
+}
+run_test "5h window: five_hour_pct written to the context-budget sidecar" test_5h_in_sidecar
+
 # ── Deployment (from the template's suite, CFG-700) ─────────────────────────
 
 test_settings_json_has_statusline_key() {
@@ -455,6 +688,19 @@ test_settings_json_has_statusline_key() {
     assert_file_contains "$settings" 'statusline-command.sh'
 }
 run_test "settings.json has statusLine key pointing to statusline-command.sh" test_settings_json_has_statusline_key
+
+test_statusline_refresh_interval_survives_deploy_merge() {
+    # CC re-runs the statusline only on token/mode/model changes, not on a terminal
+    # resize, so the right-aligned 5h segment needs statusLine.refreshInterval to follow
+    # the window width. Run json-merge.py (the deploy merge) against a live fixture that
+    # lacks the key: statusLine is template-authoritative, so the key must arrive.
+    local live="$TEST_TMPDIR/live-settings.json" out
+    printf '{"model":"opus[1m]","statusLine":{"type":"command","command":"old"}}' > "$live"
+    out=$(HOME="$TEST_TMPDIR" python3 "$REPO_ROOT/setup/scripts/json-merge.py" "$REPO_ROOT/setup/config/settings.json" "$live" "$TEST_TMPDIR/no-override.json" \
+        | python3 -c 'import json,sys; s=json.load(sys.stdin)["statusLine"]; print(s.get("refreshInterval"), s.get("command"), s.get("type"))')
+    assert_eq "$out" "10 bash ~/.claude/statusline-command.sh command" "merged statusLine, interval 10 s (an ungated AFD heartbeat fires per render) (got: $out)"
+}
+run_test "statusLine.refreshInterval survives the deploy merge" test_statusline_refresh_interval_survives_deploy_merge
 
 test_configure_deploys_statusline_to_claude_dir() {
     local config="$REPO_ROOT/setup/configure-claude.sh"

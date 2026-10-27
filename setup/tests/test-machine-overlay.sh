@@ -466,6 +466,8 @@ EOF
         log_warn()  { echo "WARN: $*" >&2; }
         log_error() { echo "ERROR: $*" >&2; }
 
+        # settings.json carries secrets in env: a deploy must keep its 600 (iv-agent-fleet #1, CFG-855)
+        chmod 644 "$live_dir/settings.json"   # a file an earlier deploy loosened gets re-tightened
         source "$COMMON_SH"
         source "$DEPLOY_SH"
         deploy_settings
@@ -473,6 +475,7 @@ EOF
         # Check that live settings don't contain unexpected keys
         assert_file_exists "$live_dir/settings.json"
         assert_file_not_contains "$live_dir/settings.json" "powershell"
+        assert_eq "600" "$(stat -c '%a' "$live_dir/settings.json")" "deploy keeps settings.json mode 600"
     )
 }
 

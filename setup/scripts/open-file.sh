@@ -11,6 +11,7 @@
 #   OPEN_FILE_DRY=1        resolve and print the decision, launch nothing (tests)
 #   OPEN_FILE_MACHINE=<m>  override machine detection (tests)
 #   OPEN_FILE_WIN_STAGE=<dir>  Windows-native staging dir for WSL launches
+#   OPEN_FILE_TEXT_EXE=<exe>   Windows editor for the notepad row (default notepad.exe)
 #
 # The file-type → application mapping is held as DATA, one row set per machine, so a
 # new type is a table row rather than a new branch.
@@ -156,7 +157,7 @@ _launch_wsl() {
     local exe
     case "$app" in
         chrome)  exe='chrome.exe' ;;
-        notepad) exe='notepad.exe' ;;
+        notepad) exe="${OPEN_FILE_TEXT_EXE:-notepad.exe}" ;;  # editor is per-machine preference; set it in a machine overlay
         *)       exe='' ;;
     esac
 

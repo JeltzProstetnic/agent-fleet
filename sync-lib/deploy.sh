@@ -179,6 +179,9 @@ deploy_settings() {
             log_warn "Settings merge contains test paths — aborting deploy to prevent env contamination"
             return
         fi
+        # The tmp file gets the umask mode; settings.json is always 600 (env holds secrets),
+        # which also re-tightens a file an earlier deploy left at 644 (iv-agent-fleet #1).
+        chmod 600 "${live}.tmp"
         mv "${live}.tmp" "$live"
         log_info "Deployed settings.json → $live (merged: base hooks/structure + live secrets)"
     else

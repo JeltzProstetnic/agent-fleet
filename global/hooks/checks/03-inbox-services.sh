@@ -146,10 +146,15 @@ EOF
     if [ "$_inbox_tok" -gt "${INBOX_TOKEN_CEILING:-20000}" ]; then
         WARNINGS="${WARNINGS:+$WARNINGS | }INBOX_OVERSIZE: cross-project/inbox.md is ~${_inbox_tok} tokens (ceiling ${INBOX_TOKEN_CEILING:-20000}) across $TOTAL open item(s) — promote them into project backlogs and delete them. See CFG-515."
     fi
-    _inbox_old=$(awk -v cutoff="$(date -d '30 days ago' +%Y-%m-%d 2>/dev/null || echo 0000-00-00)" \
+    # CFG-65: stream the corpus rather than naming files. As awk operands, an unmatched
+    # inbox/*.md glob made gawk abort before END and `|| echo 0` hid it, so the check was
+    # dead on every machine without inbox/; and the legacy preamble's dated prose counted.
+    _inbox_old=$( { if command -v inbox_legacy_body >/dev/null 2>&1; then inbox_legacy_body; else cat "$INBOX"; fi
+                    cat "$CONFIG_REPO"/cross-project/inbox/*.md; } 2>/dev/null \
+        | awk -v cutoff="$(date -d '30 days ago' +%Y-%m-%d 2>/dev/null || echo 0000-00-00)" \
         'match($0, /20[0-9][0-9]-[0-9][0-9]-[0-9][0-9]/) {
             d = substr($0, RSTART, RLENGTH); if (d < cutoff) n++
-         } END { print n+0 }' "$INBOX" "$CONFIG_REPO"/cross-project/inbox/*.md 2>/dev/null || echo 0)
+         } END { print n+0 }' 2>/dev/null || echo 0)
     [ -n "$_inbox_old" ] || _inbox_old=0
     if [ "$_inbox_old" -gt 0 ]; then
         WARNINGS="${WARNINGS:+$WARNINGS | }INBOX_STALE: $_inbox_old inbox line(s) carry a date older than 30 days — an inbox item that survives a month was never a handoff, it is untracked work. Promote to a backlog and delete."

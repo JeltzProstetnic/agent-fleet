@@ -49,18 +49,36 @@ inbox_items_for() {
     return 0
 }
 
+# CFG-65: the legacy file opens with documentation — a format example containing a
+# literal `- [ ] [Task description]` and dated prose — so a whole-file read reports an
+# item and a stale date in an empty inbox. Items live below this marker; a file without
+# it (older machines, test fixtures) is read whole, as before.
+INBOX_ITEMS_MARKER='<!-- Pending tasks appear below this line -->'
+
+inbox_legacy_body() {
+    local _legacy
+    _legacy="$(inbox_legacy)"
+    [ -f "$_legacy" ] || return 0
+    if grep -qF -- "$INBOX_ITEMS_MARKER" "$_legacy" 2>/dev/null; then
+        awk -v m="$INBOX_ITEMS_MARKER" 'found; index($0, m) { found = 1 }' "$_legacy" 2>/dev/null
+    else
+        cat "$_legacy" 2>/dev/null
+    fi
+    return 0
+}
+
 # Every open item across both sources. Used for the oversize/staleness signals, which
 # must describe the whole corpus rather than one project's slice.
 inbox_all_items() {
-    local _d _legacy _f
-    _d="$(inbox_dir)"; _legacy="$(inbox_legacy)"
+    local _d _f
+    _d="$(inbox_dir)"
     if [ -d "$_d" ]; then
         for _f in "$_d"/*.md; do
             [ -f "$_f" ] || continue
             grep -- '^- \[ \]' "$_f" 2>/dev/null
         done
     fi
-    [ -f "$_legacy" ] && grep -- '^- \[ \]' "$_legacy" 2>/dev/null
+    inbox_legacy_body | grep -- '^- \[ \]' 2>/dev/null
     return 0
 }
 
