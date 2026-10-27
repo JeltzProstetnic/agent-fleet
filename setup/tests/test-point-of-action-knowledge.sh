@@ -195,6 +195,20 @@ assert_empty "other tools of a secondary github server stay silent" "$OUT"
 _named=$(grep -cE 'mcp__github-[a-z]+__' "$HOOK" || true)
 assert "hook names no specific secondary github server" "0" "$_named"
 
+# 24. <intake>/<topic> move rule (2026-10-27): drafting/replying reminds to move the source thread;
+#     label tools warn that the top-level intake label is the trash-intake queue.
+export POAK_INTAKE_LABEL=Triage
+for t in mcp__claude_ai_Gmail__create_draft mcp__claude_ai_Gmail__reply mcp__google-workspace__draft_gmail_message; do
+  OUT=$(run "{\"session_id\":\"sbm-$t\",\"tool_name\":\"$t\",\"tool_input\":{}}")
+  assert_has "$t reminds to move into Triage/<topic>" "Triage/<topic>" "$(printf '%s' "$OUT" | jq -r '.hookSpecificOutput.additionalContext // empty' 2>/dev/null)"
+done
+for t in mcp__google-workspace__modify_gmail_message_labels mcp__google-workspace__batch_modify_gmail_message_labels mcp__claude_ai_Gmail__label_message mcp__claude_ai_Gmail__label_thread mcp__claude_ai_Gmail__update_message_labels; do
+  OUT=$(run "{\"session_id\":\"sbl-$t\",\"tool_name\":\"$t\",\"tool_input\":{}}")
+  assert_has "$t warns never top-level Triage" "never top-level Triage" "$(printf '%s' "$OUT" | jq -r '.hookSpecificOutput.additionalContext // empty' 2>/dev/null)"
+done
+OUT=$(run '{"session_id":"sbt","tool_name":"mcp__claude_ai_Gmail__trash_message","tool_input":{}}')
+assert_empty "trash tools get no move reminder" "$OUT"
+
 # 23. CONTENT-triggered group (CFG-853): vault work is a Bash/Write action, not an MCP tool, so the
 #     trigger is the command/content text. vault-ops gotchas inject once per session.
 OUT=$(run '{"session_id":"svault","tool_name":"Bash","tool_input":{"command":"bash ~/cfg-agent-fleet/secrets/vault-manage.sh status"}}')
