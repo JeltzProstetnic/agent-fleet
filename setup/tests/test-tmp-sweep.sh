@@ -63,6 +63,17 @@ test_report_line() {
 }
 run_test "writes a one-line report" test_report_line
 
+test_skips_venvs_and_reports_them() {  # using a venv never touches its mtimes; deleting it breaks a tool in daily use
+    setup_tree; mkdir -p "$H/proj/tmp/myvenv/lib"; : > "$H/proj/tmp/myvenv/pyvenv.cfg"
+    printf 'x' > "$H/proj/tmp/myvenv/lib/mod.py"; touch -d '30 days ago' "$H/proj/tmp/myvenv/lib/mod.py" "$H/proj/tmp/myvenv/pyvenv.cfg"
+    sweep >/dev/null
+    assert_file_exists "$H/proj/tmp/myvenv/lib/mod.py" "files inside a venv under tmp/ are kept" || return 1
+    assert_file_not_exists "$H/proj/tmp/old.txt" "the rest of tmp/ is still swept" || return 1
+    assert_contains "$(cat "$REPORT")" "venv in tmp" "report names the venv to move" || return 1
+    assert_contains "$(cat "$REPORT")" "proj/tmp/myvenv" "report gives its path"
+}
+run_test "venvs under tmp/ are skipped and reported" test_skips_venvs_and_reports_them
+
 test_session_start_surfaces_report() {
     local h="$TEST_TMPDIR/ss"; mkdir -p "$h/.claude"; echo "TMP_SWEEP: freed 12 MB in 3 files (2026-10-27)" > "$h/.claude/.tmp-sweep-last"
     local w; w=$(HOME="$h" CONFIG_REPO="$REPO_ROOT" WARNINGS="" bash -c 'source "$CONFIG_REPO/global/hooks/checks/05-stale-detection.sh" >/dev/null 2>&1; printf "%s" "$WARNINGS"')

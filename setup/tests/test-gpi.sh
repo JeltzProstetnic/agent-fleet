@@ -544,4 +544,12 @@ test_sessionend_has_gpi_cleanup() {
 }
 run_test "SessionEnd hook contains GPI cleanup" test_sessionend_has_gpi_cleanup
 
+test_done_on_unknown_op_creates_no_stub() {  # 2026-10-28: statusline showed "[? DONE]"
+    rm -f "$TEST_TMPDIR/gpi-state.json"
+    gpi start other "Other job" >/dev/null 2>&1
+    gpi done gone-already >/dev/null 2>&1
+    assert_eq "null" "$(gpi_field '.ops["gone-already"]')" "done on an expired/cleared op adds no label-less stub"
+}
+run_test "done on an unknown op creates no stub" test_done_on_unknown_op_creates_no_stub
+
 suite_summary
