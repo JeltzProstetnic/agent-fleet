@@ -25,6 +25,12 @@ if [ -n "$DOC_IN_TMP" ]; then
     WARNINGS="${WARNINGS:+$WARNINGS | }Documents found in project tmp/ dirs: $DOC_IN_TMP — these should be in DMS/NAS/Dropbox for cross-machine access."
 fi
 
+# Check 5.1b: last scratch sweep (CFG-851) — one line, only if it ran in the last day
+_sweep_rep="$HOME/.claude/.tmp-sweep-last"
+if [ -f "$_sweep_rep" ] && [ -n "$(find "$_sweep_rep" -mtime -1 2>/dev/null)" ]; then
+    WARNINGS="${WARNINGS:+$WARNINGS | }$(head -1 "$_sweep_rep")"
+fi
+
 # Check 5.2: Warn if agent-fleet-mobile is not cloned (mobile data won't sync)
 if grep -q 'mobile-collect\|mobile_collect' "$CONFIG_REPO/sync.sh" 2>/dev/null; then
     if [ ! -d "${USER_HOME:-$HOME}/agent-fleet-mobile" ]; then

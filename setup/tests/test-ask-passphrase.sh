@@ -105,6 +105,33 @@ test_powershell_wpf_cleans_temp_files() {
 }
 run_test "PowerShell WPF cleans up temp files after reading" test_powershell_wpf_cleans_temp_files
 
+# A killed run left plaintext passphrases in C:\temp (_vp_<pid>.bin, found 2026-10-27).
+test_wpf_kill_leaves_no_result_file() {
+    local d="$TEST_TMPDIR/kill"; mkdir -p "$d"
+    _ASK_PASS_WPF_CMD() { printf 'secret' > "$_ASK_PASS_WPF_RESULT_FILE"; sleep 30; }
+    export -f _ASK_PASS_WPF_CMD
+    ASK_PASS_FORCE_METHOD=powershell_wpf _ASK_PASS_WPF_RESULT_FILE="$d/_vp_x.bin" _ASK_PASS_WPF_PS1_FILE="$d/_ask_vp_x.ps1" \
+        bash "$SCRIPT" "T" >/dev/null 2>&1 &
+    local pid=$!
+    for _ in $(seq 1 40); do [[ -f "$d/_vp_x.bin" ]] && break; sleep 0.1; done
+    kill -TERM "$pid" 2>/dev/null; wait "$pid" 2>/dev/null
+    unset -f _ASK_PASS_WPF_CMD
+    assert_file_not_exists "$d/_vp_x.bin" "TERM mid-dialog removes the passphrase result file" || return 1
+    assert_file_not_exists "$d/_ask_vp_x.ps1" "TERM mid-dialog removes the ps1"
+}
+run_test "PowerShell WPF: killed run leaves no passphrase file" test_wpf_kill_leaves_no_result_file
+
+test_wpf_sweeps_stale_files_of_dead_runs() {
+    ASK_PASS_SOURCE_ONLY=1 source "$SCRIPT"
+    local d="$TEST_TMPDIR/stale"; mkdir -p "$d"
+    printf 'old' > "$d/_vp_999999.bin"; printf 'x' > "$d/_ask_vp_999999.ps1"; printf 'live' > "$d/_vp_$$.bin"
+    _wpf_sweep_stale "$d"
+    assert_file_not_exists "$d/_vp_999999.bin" "dead run's passphrase file removed" || return 1
+    assert_file_not_exists "$d/_ask_vp_999999.ps1" "dead run's ps1 removed" || return 1
+    assert_file_exists "$d/_vp_$$.bin" "a live run's file is left alone"
+}
+run_test "PowerShell WPF: stale files of dead runs are swept" test_wpf_sweeps_stale_files_of_dead_runs
+
 test_powershell_wpf_fails_on_empty_result() {
     ASK_PASS_SOURCE_ONLY=1 source "$SCRIPT"
 

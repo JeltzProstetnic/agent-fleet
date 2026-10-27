@@ -48,6 +48,18 @@ done
 # ---------------------------------------------------------------------------
 _has() { command -v "$1" &>/dev/null; }
 
+# Remove result/ps1 files left by dialog runs whose process is gone (SIGKILL leaves no
+# chance to clean up, and the result file is the passphrase in plaintext — found 2026-10-27).
+_wpf_sweep_stale() {
+  local f pid
+  for f in "$1"/_vp_*.bin "$1"/_ask_vp_*.ps1; do
+    [[ -f "$f" ]] || continue
+    pid="${f##*_vp_}"; pid="${pid%.*}"
+    [[ "$pid" =~ ^[0-9]+$ ]] && kill -0 "$pid" 2>/dev/null && continue
+    shred -u "$f" 2>/dev/null || rm -f "$f"
+  done
+}
+
 _detect_method() {
   local proc_version="${_ASK_PASS_PROC_VERSION:-/proc/version}"
   local has_tty="${_ASK_PASS_HAS_TTY:-auto}"
@@ -100,7 +112,12 @@ _prompt_once() {
     powershell_wpf)
       local wpf_result="${_ASK_PASS_WPF_RESULT_FILE:-/mnt/c/temp/_vp_$$.bin}"
       local wpf_ps1="${_ASK_PASS_WPF_PS1_FILE:-/mnt/c/temp/_ask_vp_$$.ps1}"
+      _wpf_sweep_stale "$(dirname "$wpf_result")"
       rm -f "$wpf_result"
+      # A killed run must not leave the plaintext result behind.
+      _WPF_FILES=("$wpf_result" "$wpf_ps1")
+      trap 'rm -f "${_WPF_FILES[@]}"' EXIT
+      trap 'rm -f "${_WPF_FILES[@]}"; exit 143' TERM INT HUP
 
       # Write the PowerShell script (avoids quoting hell through cmd.exe)
       cat > "$wpf_ps1" << 'PSEOF'
@@ -141,10 +158,11 @@ PSEOF
 
       # Execute (mockable via _ASK_PASS_WPF_CMD)
       if declare -F _ASK_PASS_WPF_CMD &>/dev/null; then
-        _ASK_PASS_WPF_CMD "$win_ps1" || { rm -f "$wpf_ps1" "$wpf_result"; return 1; }
+        # Background + wait, so a TERM runs the trap now instead of after the dialog closes.
+        _ASK_PASS_WPF_CMD "$win_ps1" & wait $! || { rm -f "$wpf_ps1" "$wpf_result"; return 1; }
       else
         cmd.exe /c "powershell.exe -NoProfile -ExecutionPolicy Bypass -File $win_ps1" \
-          >/dev/null 2>&1 || { rm -f "$wpf_ps1" "$wpf_result"; return 1; }
+          >/dev/null 2>&1 & wait $! || { rm -f "$wpf_ps1" "$wpf_result"; return 1; }
       fi
 
       # Read result

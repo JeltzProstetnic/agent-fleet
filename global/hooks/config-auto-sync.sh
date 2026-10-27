@@ -187,6 +187,10 @@ fi
 # permissions. Clean them before auto-sync to keep things tidy for the next session.
 bash "$CLEAN_PERMS_SCRIPT" 2>/dev/null || true
 
+# --- Phase 0.55: Age out the fleet's scratch (CFG-851) — detached, the first run is large ---
+TMP_SWEEP_SCRIPT="$CONFIG_REPO/setup/scripts/tmp-sweep.sh"
+[ -f "$TMP_SWEEP_SCRIPT" ] && setsid bash "$TMP_SWEEP_SCRIPT" </dev/null >/dev/null 2>&1 &
+
 # --- Phase 0.6: Auto-clean completed pending files ---
 # Delete pending files whose tracked backlog items are all [x] done.
 MANAGE_PENDING="$CONFIG_REPO/setup/scripts/manage-pending.sh"
