@@ -274,7 +274,9 @@ if $AUTO_CLEAN; then
     for pf in "${PENDING_FILES[@]}"; do
         pf_base="$(basename "$pf")"
 
-        if all_backlog_items_done "$pf_base"; then
+        # Every Tracked-by ID must be [x] too — [?]/[>] items are not done (2026-10-28).
+        _tb=$(get_tracked_prns "$pf")
+        if all_backlog_items_done "$pf_base" && { [[ -z "$_tb" ]] || all_prns_closed "$_tb"; }; then
             if $DRY_RUN; then
                 echo "CLEANED (dry-run): $pf_base — all backlog items completed"
             else

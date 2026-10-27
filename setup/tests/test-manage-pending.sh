@@ -206,6 +206,19 @@ test_auto_clean_deletes_completed() {
 }
 run_test "auto-clean: deletes file when backlog item is [x]" test_auto_clean_deletes_completed
 
+test_auto_clean_keeps_file_with_open_tracked_by() {  # 2026-10-28: a reference file was deleted while its Tracked-by items were [?]
+    local project_dir="$TEST_TMPDIR/project"
+    mkdir -p "$project_dir/docs"
+    printf '<!-- Action: reference -->\n<!-- Tracked-by: CFG-50, CFG-51, CFG-52 -->\n\n# x\n' > "$project_dir/docs/pending-mixed.md"
+    create_backlog "$project_dir" \
+        "- [x] [P1] \`CFG-50\` **Review done**: docs/pending-mixed.md" \
+        "- [?] [P1] \`CFG-51\` **Shipped, awaiting proof**" \
+        "- [>] [P2] \`CFG-52\` **In progress**"
+    bash "$SCRIPT" --auto-clean --project-dir "$project_dir" 2>&1
+    assert_file_exists "$project_dir/docs/pending-mixed.md" "kept while any Tracked-by item is not [x]"
+}
+run_test "auto-clean: keeps file while Tracked-by items are [?]/[>]" test_auto_clean_keeps_file_with_open_tracked_by
+
 test_auto_clean_keeps_open() {
     local project_dir="$TEST_TMPDIR/project"
     mkdir -p "$project_dir/docs"
