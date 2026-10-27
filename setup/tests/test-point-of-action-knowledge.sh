@@ -195,6 +195,25 @@ assert_empty "other tools of a secondary github server stay silent" "$OUT"
 _named=$(grep -cE 'mcp__github-[a-z]+__' "$HOOK" || true)
 assert "hook names no specific secondary github server" "0" "$_named"
 
+# 23. CONTENT-triggered group (CFG-853): vault work is a Bash/Write action, not an MCP tool, so the
+#     trigger is the command/content text. vault-ops gotchas inject once per session.
+OUT=$(run '{"session_id":"svault","tool_name":"Bash","tool_input":{"command":"bash ~/cfg-agent-fleet/secrets/vault-manage.sh status"}}')
+CTX="$(printf '%s' "$OUT" | jq -r '.hookSpecificOutput.additionalContext // empty' 2>/dev/null)"
+assert_has "vault-manage in Bash injects vault-ops" "vault-ops.md" "$CTX"
+assert_has "vault ctx: agent runs the dialog itself" "you run" "$CTX"
+assert_has "vault ctx: set reads stdin" "stdin" "$CTX"
+OUT=$(run '{"session_id":"svault","tool_name":"Bash","tool_input":{"command":"bash ~/cfg-agent-fleet/secrets/vault-manage.sh deploy"}}')
+assert_empty "vault-ops injects once per session" "$OUT"
+OUT=$(run '{"session_id":"svault2","tool_name":"Write","tool_input":{"file_path":"/tmp/x.sh","content":"P=$(bash setup/scripts/ask-passphrase.sh)"}}')
+assert_has "ask-passphrase in Write content injects vault-ops" "vault-ops.md" "$(printf '%s' "$OUT" | jq -r '.hookSpecificOutput.additionalContext // empty' 2>/dev/null)"
+OUT=$(run '{"session_id":"svault3","tool_name":"Read","tool_input":{"file_path":"/x/vault-manage.sh"}}')
+assert_empty "reading the script does not inject" "$OUT"
+SETTINGS="$REPO_ROOT/setup/config/settings.json"
+MATCHER=$(jq -r '.hooks.PreToolUse[] | select(any(.hooks[]; .command | test("point-of-action-knowledge.sh"))) | .matcher' "$SETTINGS" 2>/dev/null | head -1)
+for t in Bash Write; do
+  if [[ "$t" =~ ^($MATCHER)$ ]]; then PASS=$((PASS+1)); else FAIL=$((FAIL+1)); ERRORS="${ERRORS}\n  FAIL: POAK matcher '$MATCHER' does not fire for $t — the vault-ops group is dead"; fi
+done
+
 echo ""
 echo "Results: $PASS passed, $FAIL failed"
 if [[ $FAIL -gt 0 ]]; then echo -e "Failures:$ERRORS"; exit 1; fi
