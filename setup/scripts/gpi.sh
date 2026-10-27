@@ -164,6 +164,8 @@ cmd_update() {
 cmd_done() {
     local id="$1"
     ensure_state
+    # An op already expired or cleared must not come back as a label-less "[? DONE]" stub.
+    [[ -n "$(jq -r ".ops[\"$id\"] // empty" "$STATE_FILE")" ]] || return 0
     # Get label for notification
     local label
     label=$(jq -r ".ops[\"$id\"].label // \"$id\"" "$STATE_FILE")
