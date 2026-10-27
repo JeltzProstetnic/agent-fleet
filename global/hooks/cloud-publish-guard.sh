@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Approved by the owner 2026-08-24 as P0, fleet-wide.
-# PreToolUse hook: block publishing user content to third-party cloud hosting.
+# Approved by the owner 2026-08-24 as P0, fleet-wide. Consent hardening CFG-847 (2026-10-27).
+# PreToolUse hook (matcher Artifact): block publishing user content to third-party cloud hosting.
 #
 # Incident 2026-08-24: the Artifact tool published a user's unpublished cover art and book
 # positioning to claude.ai without consent, while the user owned self-hosted targets that were
@@ -16,35 +16,34 @@
 # cannot be edited. Only a hard block outranks it.
 #
 # Allowed: action "list" (read-only enumeration, no egress).
-# Allowed: publishing when the user has explicitly consented this session (marker file below).
-# Blocked: every other Artifact call.
+# Allowed: publishing when the user consented in THIS session (consent file holds the session id).
+# Blocked: every other Artifact call. If python3 cannot evaluate the call, it is blocked.
 # Exit 2 = block with message. Exit 0 = allow.
 
 INPUT=$(cat)
-
-# Only care about the Artifact tool
-case "$INPUT" in
-    *'"tool_name":"Artifact"'*|*'"tool_name": "Artifact"'*) ;;
-    *) exit 0 ;;
-esac
-
-# Extract the action field
-ACTION=""
-if command -v jq &>/dev/null; then
-    ACTION=$(echo "$INPUT" | jq -r '.tool_input.action // empty' 2>/dev/null)
-else
-    ACTION=$(echo "$INPUT" | grep -oE '"action"[[:space:]]*:[[:space:]]*"[^"]*"' | head -1 \
-             | sed 's/.*"action"[^"]*"\([^"]*\)"/\1/')
-fi
-
-# Enumerating existing artifacts sends nothing outward.
-[ "$ACTION" = "list" ] && exit 0
-
-# Explicit per-session consent. The user creates this deliberately:
-#   touch "$CLAUDE_PROJECT_DIR/.claude/.artifact-consent"
-# It is git-ignored and cleared by the SessionEnd hook, so consent never persists silently.
 CONSENT="${CLAUDE_PROJECT_DIR:-$PWD}/.claude/.artifact-consent"
-[ -f "$CONSENT" ] && exit 0
+
+VERDICT=$(printf '%s' "$INPUT" | CONSENT="$CONSENT" python3 -c '
+import json, os, sys
+d = json.load(sys.stdin)
+if d.get("tool_name") != "Artifact" or (d.get("tool_input") or {}).get("action") == "list":
+    print("allow"); sys.exit()
+# Consent counts only for the session that wrote it: a marker left behind by a crash,
+# a changed cwd, or a git sync from another machine carries a different id (CFG-847).
+sid = str(d.get("session_id") or "")
+try:
+    mark = open(os.environ["CONSENT"]).read().strip()
+except OSError:
+    mark = ""
+print("allow" if sid and mark == sid else "block")
+' 2>/dev/null)
+
+[ "$VERDICT" = "allow" ] && exit 0
+
+if [ "$VERDICT" != "block" ]; then
+  echo "BLOCKED: cloud-publish-guard could not evaluate this call (python3 missing or failed). Fix python3; the guard fails closed." >&2
+  exit 2
+fi
 
 _org="${CLOUD_PUBLISH_PROTECTED_ORG:-}"
 if [ -n "$_org" ]; then _prohibit="$_org content must NEVER be published this way under any circumstances."
@@ -59,6 +58,6 @@ else _prohibit="Employer or client content must NEVER be published this way unde
   echo "$_prohibit"
   echo
   echo "If the user has explicitly asked for a cloud artifact, they enable it for this session with:"
-  echo '  touch "$CLAUDE_PROJECT_DIR/.claude/.artifact-consent"'
+  echo "  echo \"\$CLAUDE_CODE_SESSION_ID\" > \"$CONSENT\""
 } >&2
 exit 2

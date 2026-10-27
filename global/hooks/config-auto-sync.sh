@@ -75,6 +75,7 @@ _silence_idle_waiter
 # which is the failure this whole guard exists to prevent. Clearing it here is what makes
 # "per-session" true rather than aspirational.
 rm -f "$ORIGINAL_DIR/.claude/.artifact-consent" 2>/dev/null || true
+rm -f "${CLAUDE_PROJECT_DIR:-$ORIGINAL_DIR}/.claude/.artifact-consent" 2>/dev/null || true
 rm -f "$CONFIG_REPO/.claude/.artifact-consent" 2>/dev/null || true
 # Same per-session rule for cloud-routine-guard.sh (CFG-842).
 rm -f "$ORIGINAL_DIR/.claude/.cloud-routine-consent" 2>/dev/null || true

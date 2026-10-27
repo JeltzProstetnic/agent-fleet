@@ -28,8 +28,10 @@ bad() { FAIL=$((FAIL+1)); echo "  FAIL: $1"; }
 TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
 mkdir -p "$TMP/proj/.claude"
 
-run() { # run <json> ; echoes exit code
-  printf '%s' "$1" | CLAUDE_PROJECT_DIR="$TMP/proj" bash "$HOOK" >/dev/null 2>&1
+SID="sess-$$"
+# run <json> — appends session_id the way Claude Code sends it on stdin (CFG-847).
+run() {
+  printf '%s' "${1%\}},\"session_id\":\"$SID\"}" | CLAUDE_PROJECT_DIR="$TMP/proj" bash "$HOOK" >/dev/null 2>&1
   echo $?
 }
 
@@ -66,10 +68,19 @@ expect "non-Artifact tool passes through" \
 expect "spaced JSON key still matches" \
   '{"tool_name": "Artifact", "tool_input": {"file_path": "/tmp/x.html"}}' 2
 
-# 6. Explicit per-session consent unblocks it.
-touch "$TMP/proj/.claude/.artifact-consent"
-expect "consent marker allows publish" \
-  '{"tool_name":"Artifact","tool_input":{"file_path":"/tmp/cover.html"}}' 0
+# 6. Explicit consent unblocks it — but only for the session that wrote it (CFG-847):
+#    a marker left by a crashed session, another cwd or a git sync carries a different id.
+PUB='{"tool_name":"Artifact","tool_input":{"file_path":"/tmp/cover.html"}}'
+echo "$SID" > "$TMP/proj/.claude/.artifact-consent"
+expect "this session's consent allows publish" "$PUB" 0
+echo "sess-older" > "$TMP/proj/.claude/.artifact-consent"
+expect "another session's consent does not count" "$PUB" 2
+: > "$TMP/proj/.claude/.artifact-consent"
+expect "an empty (touched) consent file does not count" "$PUB" 2
+echo "$SID" > "$TMP/proj/.claude/.artifact-consent"
+got=$(printf '%s' "$PUB" | CLAUDE_PROJECT_DIR="$TMP/proj" bash "$HOOK" >/dev/null 2>&1; echo $?)
+if [ "$got" = 2 ]; then ok "consent without a session_id on stdin does not count"
+else bad "consent without a session_id on stdin was accepted (exit $got)"; fi
 rm -f "$TMP/proj/.claude/.artifact-consent"
 
 # 7. Removing the marker re-arms the block — consent must not be sticky.
@@ -99,6 +110,20 @@ msg_alt=$(printf '%s' '{"tool_name":"Artifact","tool_input":{"file_path":"/tmp/x
 if grep -q 'myhost : ssh myhost' <<<"$msg_alt"; then ok "configured hosting alternatives are listed"
 else bad "configured hosting alternatives missing"; fi
 
+# 9c. The unblock command must be runnable from Bash, which has no CLAUDE_PROJECT_DIR:
+#     print the expanded path and write the session id, not a bare touch (CFG-847).
+case "$msg" in *"$TMP/proj/.claude/.artifact-consent"*) ok "unblock command names the expanded consent path";;
+  *) bad "unblock command path not expanded";; esac
+case "$msg" in *'CLAUDE_CODE_SESSION_ID'*) ok "unblock command writes the session id";;
+  *) bad "unblock command does not write the session id";; esac
+
+# 9d. Fails closed: if the evaluator cannot run, the Artifact call is blocked, not waved through.
+got=$(printf '%s' "$PUB" | PATH="/nonexistent" CLAUDE_PROJECT_DIR="$TMP/proj" /bin/bash "$HOOK" >/dev/null 2>&1; echo $?)
+if [ "$got" = 2 ]; then ok "fails closed without python3"; else bad "without python3 the guard exited $got"; fi
+
+# 9e. Malformed spacing / escaping in tool_name no longer slips past a text prefilter.
+expect "pretty-printed JSON still blocked" $'{\n  "tool_name" :\t"Artifact",\n  "tool_input": {"file_path": "/tmp/x.html"}}' 2
+
 # 10. The guard's consent path and the SessionEnd cleaner must name the SAME
 #     file. If they drift apart the marker is never expired, consent silently
 #     becomes permanent, and the guard looks armed while being disabled.
@@ -110,6 +135,14 @@ if [ -n "$gpath" ] && [ "$gpath" = "$cpath" ]; then
 else
   bad "consent path mismatch (guard='$gpath' cleaner='$cpath') — consent would never expire"
 fi
+
+# 11b. The cleaner also honours CLAUDE_PROJECT_DIR, which is the dir the guard reads.
+CT2="$(mktemp -d)"; mkdir -p "$CT2/.claude"; echo x > "$CT2/.claude/.artifact-consent"
+awk '/^# --- Phase -3:/,/^# --- Phase -2:/' "$SYNC" | grep -E '^rm -f ' \
+  | CLAUDE_PROJECT_DIR="$CT2" ORIGINAL_DIR="/nonexistent" CONFIG_REPO="/nonexistent" bash -s 2>/dev/null
+if [ ! -f "$CT2/.claude/.artifact-consent" ]; then ok "SessionEnd phase honours CLAUDE_PROJECT_DIR"
+else bad "consent marker under CLAUDE_PROJECT_DIR survived the SessionEnd phase"; fi
+rm -rf "$CT2"
 
 # 11. Behavioural: the cleaner actually removes a marker for the session's project.
 CT="$(mktemp -d)"; mkdir -p "$CT/.claude"; touch "$CT/.claude/.artifact-consent"
