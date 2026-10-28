@@ -253,6 +253,10 @@ MOCKEOF
     assert_file_exists "$call_log" "gpi should have been called" || return 1
     assert_file_contains "$call_log" "start" "gpi start should be called" || return 1
     assert_file_contains "$call_log" "$session" "gpi called with session name" || return 1
+    # CFG-863: the op records its tmux session, so SessionEnd and the statusline can tell a
+    # killed job from a quiet one. The op id happens to equal the session name, but an id is
+    # not a recorded fact — ops started by hand are not tmux sessions.
+    assert_file_contains "$call_log" "--tmux $session" "gpi start must record the tmux session" || return 1
     kill_session "$session"
 }
 run_test "GPI registration called on launch" test_gpi_called

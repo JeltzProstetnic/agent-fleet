@@ -154,12 +154,16 @@ fi
 
 # ── Leader path from here (a follower has already exited) ─────────────────────
 
-# --- Phase -0.5: Clear GPI state (CFG-363) — leader only (shared statusline) ---
-# Clean slate on session end — prevents stale statusline entries. State lives in
-# $HOME/.claude/.gpi-state.json (machine-global), so ONLY a leader may clear it.
+# --- Phase -0.5: Reap finished GPI ops (CFG-363) — leader only (shared statusline) ---
+# Prevents stale statusline entries. State lives in $HOME/.claude/.gpi-state.json, which is
+# MACHINE-global while "leader" is per PROJECT: other projects' live jobs are registered in
+# the same file. So only a leader may touch it, and even a leader removes only what is
+# provably over — completed ops and ops whose recorded tmux session is gone (`--dead`).
+# CFG-863: `clear --all` here wiped another project's four running tmux ops when a sibling
+# project's session ended (2026-10-28); the statusline then showed nothing running.
 _GPI_SCRIPT="$CONFIG_REPO/setup/scripts/gpi.sh"
 if [ -f "$_GPI_SCRIPT" ]; then
-    bash "$_GPI_SCRIPT" clear --all 2>/dev/null || true
+    bash "$_GPI_SCRIPT" clear --dead 2>/dev/null || true
 fi
 
 # Release server lock if session ID is available (CFG-101) — leader only.

@@ -36,6 +36,49 @@ def load_persona_colors():
     return colors
 PERSONA_COLORS = load_persona_colors()
 
+# GPI helpers (CFG-863). The state file is machine-global and written by gpi.sh under
+# flock. A renderer that read it unlocked and wrote a whole dict back lost whatever gpi.sh
+# changed in between (B); a plain open('w') showed readers a torn file (D).
+def _atomic_json(path, obj):
+    tmp = path + '.tmp.' + str(os.getpid())
+    with open(tmp, 'w') as tf:
+        tf.write(json.dumps(obj))
+    os.replace(tmp, path)
+
+def _gpi_commit(path, done_ids, now_ts):
+    # Re-read UNDER the lock, apply only this renderer's two mutations to the fresh copy
+    # (mark log-detected completions, drop completions older than 60 s), replace atomically.
+    import fcntl as _fc
+    with open(path + '.lock', 'w') as lk:
+        _fc.flock(lk, _fc.LOCK_EX)
+        with open(path) as sf:
+            fresh = json.loads(sf.read())
+        fops = fresh.get('ops', {})
+        for k in done_ids:
+            if k in fops and not fops[k].get('completed_at'):
+                fops[k].update({'pct': 100, 'detail': 'DONE', 'completed_at': int(now_ts)})
+        for k in [k for k, v in fops.items() if v.get('completed_at') and now_ts - v['completed_at'] > 60]:
+            del fops[k]
+        fresh['ops'] = fops
+        fresh['updated'] = int(now_ts)
+        _atomic_json(path, fresh)
+        _fc.flock(lk, _fc.LOCK_UN)
+
+def _gpi_tmux_sessions():
+    # Live tmux session names; None when tmux cannot be asked. No server at all means every
+    # recorded session is gone; any other failure proves nothing (treated as unknown).
+    try:
+        import subprocess as _sp
+        r = _sp.run(['tmux', 'list-sessions', '-F', '#{session_name}'],
+                    capture_output=True, text=True, timeout=2)
+    except Exception:
+        return None
+    if r.returncode == 0:
+        return set(r.stdout.split('\n'))
+    if 'no server running' in r.stderr or 'No such file or directory' in r.stderr:
+        return set()
+    return None
+
 # Model → context-window override. CC has two SKUs per model: the 200k
 # default (e.g., 'Opus 4.7') and the 1M opt-in variant (display_name
 # 'Opus 4.7 (1M context)', model ID '...[1m]'). Plain names are 200k —
@@ -197,14 +240,14 @@ try:
     gpi_completed_path = os.path.expanduser('~/.claude/.gpi-completed.json')
     if os.path.exists(gpi_path):
         try:
-            import time as _t, re as _re, fcntl as _fcntl
+            import time as _t, re as _re
             with open(gpi_path) as f:
                 gpi = json.loads(f.read())
             ops = gpi.get('ops', {})
             gpi_updated = gpi.get('updated', 0)
             now = _t.time()
             age = now - gpi_updated
-            # Staleness: also check log file mtimes — active logs prevent staleness
+            # Staleness: also check log file mtimes — active logs prevent dimming
             log_fresh = False
             for opv in ops.values():
                 lp = opv.get('log_path')
@@ -215,9 +258,13 @@ try:
                             log_fresh = True
                     except Exception:
                         pass
-            if ops and (age < 600 or log_fresh):
+            # CFG-863 (display): no age gate. An unfinished op stays visible (dimmed when quiet)
+            # until it completes or its recorded tmux session is gone — before, every op
+            # vanished after 600 s of quiet while still registered, and a long quiet job read
+            # as 'nothing running'.
+            if ops:
                 dp = '\033[2m' if (age > 300 and not log_fresh) else ''
-                state_dirty = False
+                done_ids = []
                 # Enrich ops that have log_path — parse live progress from log file
                 for opk, opv in list(ops.items()):
                     lp = opv.get('log_path')
@@ -233,9 +280,9 @@ try:
                             if 'RSYNC COMPLETE' in last or 'RSYNC DONE' in last:
                                 opv['pct'] = 100
                                 opv['detail'] = 'DONE'
-                                # Mark as completed in state for auto-cleanup
+                                # Mark as completed in state for auto-cleanup (committed below)
                                 opv['completed_at'] = int(now)
-                                state_dirty = True
+                                done_ids.append(opk)
                                 # Write notification sidecar
                                 notif = [{'id': opk, 'label': opv.get('label', opk), 'completed_at': int(now)}]
                                 try:
@@ -243,8 +290,7 @@ try:
                                         with open(gpi_completed_path) as nf:
                                             existing = json.loads(nf.read())
                                         notif = existing + notif
-                                    with open(gpi_completed_path, 'w') as nf:
-                                        nf.write(json.dumps(notif))
+                                    _atomic_json(gpi_completed_path, notif)
                                 except Exception:
                                     pass
                             else:
@@ -275,40 +321,30 @@ try:
                                 opv['detail'] = spd if spd else None
                         except Exception:
                             pass
-                # Write back state if log enrichment detected completion
-                if state_dirty:
-                    try:
-                        gpi['ops'] = ops
-                        gpi['updated'] = int(now)
-                        lock_path = gpi_path + '.lock'
-                        with open(lock_path, 'w') as lkf:
-                            _fcntl.flock(lkf, _fcntl.LOCK_EX)
-                            with open(gpi_path, 'w') as sf:
-                                sf.write(json.dumps(gpi))
-                            _fcntl.flock(lkf, _fcntl.LOCK_UN)
-                    except Exception:
-                        pass
-                # Filter: hide completed ops older than 60s, auto-clean from state
+                # Filter: hide completed ops older than 60 s, and unfinished ops whose recorded
+                # tmux session no longer exists (one tmux call, exact names — CFG-863). The
+                # renderer only hides those; `gpi clear --dead` (SessionEnd) removes them.
+                # 10 s grace after `started`: tmux-launch registers the op before the session exists.
+                live = None
+                if any(v.get('tmux_session') and not v.get('completed_at') for v in ops.values()):
+                    live = _gpi_tmux_sessions()
                 visible_ops = {}
-                expired_ids = []
+                expired = False
                 for opk, opv in ops.items():
                     ca = opv.get('completed_at')
+                    ts = opv.get('tmux_session')
+                    young = (now - (opv.get('started') or now)) <= 10
                     if ca and (now - ca) > 60:
-                        expired_ids.append(opk)
+                        expired = True
+                    elif not ca and ts and live is not None and ts not in live and not young:
+                        pass
                     else:
                         visible_ops[opk] = opv
-                # Clean expired from state file
-                if expired_ids:
+                # Write back (log-detected completions, expired entries): re-read under the
+                # lock and replace atomically — never this unlocked snapshot (CFG-863 B/D).
+                if done_ids or expired:
                     try:
-                        for eid in expired_ids:
-                            del gpi['ops'][eid]
-                        gpi['updated'] = int(now)
-                        lock_path = gpi_path + '.lock'
-                        with open(lock_path, 'w') as lkf:
-                            _fcntl.flock(lkf, _fcntl.LOCK_EX)
-                            with open(gpi_path, 'w') as sf:
-                                sf.write(json.dumps(gpi))
-                            _fcntl.flock(lkf, _fcntl.LOCK_UN)
+                        _gpi_commit(gpi_path, done_ids, now)
                     except Exception:
                         pass
                 active = list(visible_ops.values())

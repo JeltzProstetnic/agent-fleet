@@ -129,7 +129,9 @@ fi
 # CFG-616: a failed registration must not fail the launch, but it must not be
 # swallowed either — `2>/dev/null || true` plus an unconditional "GPI registered"
 # reported success while the statusline never learned about the job.
-GPI_ARGS=("$SESSION" "$LABEL")
+# CFG-863: record the tmux session on the op, so SessionEnd (`gpi clear --dead`) and the
+# statusline can tell a killed job from a quiet one without guessing from the op id.
+GPI_ARGS=("$SESSION" "$LABEL" --tmux "$SESSION")
 [[ -n "$LOG_PATH" ]] && GPI_ARGS+=(--log "$LOG_PATH")
 GPI_STATUS="GPI registered"
 if ! _gpi_err=$(gpi start "${GPI_ARGS[@]}" 2>&1 >/dev/null); then
