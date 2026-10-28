@@ -19,7 +19,7 @@ Claude Code configuration management across all machines and projects.
 | `docs/decisions.md` | Curated decisions & rationale — topical, manually maintained |
 | `backlog.md` | Prioritized backlog (gitignored, created by first-run refinement) |
 | `registry.md` | All projects, all machines (gitignored, created by first-run refinement) |
-| `sync.sh` | Bidirectional sync tool (setup/deploy/collect/status) |
+| `sync.sh` | Deploy-only sync tool (setup/deploy/status/check). Emergency: `recover --emergency` (`collect` is a deprecated alias) |
 | `setup/secrets/` | Encrypted token vault scaffold |
 | `setup/vps/` | VPS-specific bootstrap and skills |
 | `README.md` | Human-readable infrastructure overview |
@@ -77,11 +77,11 @@ Claude Code displays a live context usage indicator in the terminal status bar, 
 - After changing any global rule or CLAUDE.md during a session, remind the user to sync
 - When setting up a new project, add it to the registry
 - When infrastructure or deployment state changes, update `cross-project/infrastructure-strategy.md`
-- **Hook source editing hazard:** Files in `global/hooks/` are deployed (copied) to `~/.claude/hooks/`. The SessionEnd auto-sync hook runs `sync.sh collect`, which copies deployed hooks BACK to `global/hooks/`, overwriting any uncommitted edits. When editing hook sources, commit immediately after editing — do not leave them uncommitted across tool calls.
+- **Hook source editing hazard:** Files in `global/hooks/` are deployed (copied) to `~/.claude/hooks/`. The SessionEnd auto-sync hook runs `sync.sh deploy`, which overwrites deployed hooks from `global/hooks/`. Always edit in `global/hooks/` and commit before session end; deployed copies carry a `# MANAGED — DO NOT EDIT` header.
 
 ## Workflow
 
 1. Edit in this repo (canonical source)
 2. `bash sync.sh deploy` to push to live locations
-3. Or: edits during sessions → `bash sync.sh collect` to pull back
-4. Hooks automate both directions at session start/end
+3. The SessionEnd hook deploys automatically; the repo is the sole authority
+4. Emergency only: `bash sync.sh recover --emergency` pulls unsaved live edits back

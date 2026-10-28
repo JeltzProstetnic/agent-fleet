@@ -24,13 +24,13 @@ They're different categories. OpenClaw is a **personal AI assistant** (messaging
 **What it does:**
 - Multi-machine configuration management for Claude Code (or any terminal AI agent)
 - Cross-project orchestration with inbox, registry, boundary rules
-- 4-layer session persistence (next-session → context → history → archive)
+- Layered session memory (next-session handover → session-context → session-history → session-log archive, plus curated decisions)
 - Conditional knowledge loading (token-efficient, only load what's needed)
 - Hook pipelines (SessionStart, SessionEnd, PreToolUse, PostToolUse, UserPromptSubmit)
 - Encrypted vault with per-machine credential deployment
 - Config propagation via template system (canonical source → child projects)
 - Multi-persona system with context-based switching
-- 570+ tests, TDD-enforced
+- ~3,000 tests in 198 test files, TDD-enforced
 
 **Target:** "Professional multi-machine AI operations infrastructure." Deep, specialized, for power users running AI coding agents across multiple projects and machines.
 
@@ -39,18 +39,18 @@ They're different categories. OpenClaw is a **personal AI assistant** (messaging
 | Capability | OpenClaw | Agent Fleet |
 |-----------|----------|-------------|
 | **Primary interface** | Messaging apps (WhatsApp, Telegram, etc.) | Terminal (Claude Code, potentially OpenCode) |
-| **Autonomous execution** | Yes (heartbeat daemon) | No (requires active session) |
+| **Autonomous execution** | Yes (heartbeat daemon) | Partial: idle sessions are woken by inbox items and Telegram messages; no headless execution without a running session |
 | **Multi-machine sync** | No (single instance) | Yes (git-based, 6+ machines) |
 | **Multi-project** | No (one workspace) | Yes (registry, cross-project inbox, boundary rules) |
-| **Session persistence** | Daily files + MEMORY.md | 4-layer system (context → history → log → decisions) |
+| **Session persistence** | Daily files + MEMORY.md | Layered: handover → context → history → log, plus decisions |
 | **Knowledge loading** | All files loaded every time | Conditional (trigger-based, token-efficient) |
-| **Hook system** | Heartbeat daemon | 5 hook types (SessionStart/End, Pre/PostToolUse, UserPromptSubmit) |
+| **Hook system** | Heartbeat daemon | Hooks on 6 events (SessionStart/End, UserPromptSubmit, Pre/PostToolUse, Stop), all via `safe-run.sh` |
 | **Credential management** | Platform-specific | Encrypted vault with `deploy_to` targets |
 | **Config propagation** | Manual | `sync.sh template-push` with sanitization + leak detection |
 | **Persona system** | `SOUL.md` (single) | Multi-persona with auto-switching rules + per-machine overrides |
 | **Skills/extensions** | Smithery marketplace | Skill collections (getsentry, obra, trailofbits) |
 | **Setup complexity** | One folder, few files | Multi-repo system, steep onboarding (but guided) |
-| **Test suite** | Unknown | 570+ tests across 33 suites |
+| **Test suite** | Unknown | ~3,000 tests in 198 test files |
 | **Backend lock-in** | Any LLM (OpenAI, Claude, etc.) | Currently Claude Code (OpenCode evaluation in backlog) |
 
 ## Workspace File Mapping
@@ -85,8 +85,8 @@ The philosophical overlap is in "plain markdown as configuration":
 ## Where They Could Converge
 
 1. **Backend abstraction.** Agent Fleet's architecture isn't inherently Claude Code-specific. CFG-224 evaluates OpenCode as an alternative backend. OpenClaw's multi-LLM support is ahead here.
-2. **Messaging integration.** Agent Fleet has one-way Telegram (AFD notify). OpenClaw's 20+ platform bridges could be valuable. Not a priority, but the architecture doesn't prevent it.
-3. **Autonomous execution.** OpenClaw's heartbeat daemon is the one feature agent-fleet genuinely lacks. AFD is a step toward this but doesn't match OpenClaw's fire-and-forget autonomy. Worth monitoring.
+2. **Messaging integration.** Agent Fleet has two-way Telegram per project (`@project`), which wakes idle sessions and carries AFK approvals for risky commands. OpenClaw's 20+ platform bridges could be valuable. Not a priority, but the architecture doesn't prevent it.
+3. **Autonomous execution.** OpenClaw's heartbeat daemon is the one feature agent-fleet genuinely lacks. AFD now wakes idle sessions on incoming work, but it still needs a running session and doesn't match OpenClaw's fire-and-forget autonomy. Worth monitoring.
 
 ## Recommended Messaging
 

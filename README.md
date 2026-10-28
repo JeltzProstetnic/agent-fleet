@@ -189,13 +189,15 @@ The agent maintains `session-context.md` in every project directory. It tracks w
 
 ### Session Hooks
 
-Three hooks automate session lifecycle:
+Hooks on six Claude Code events (SessionStart, SessionEnd, UserPromptSubmit, PreToolUse, PostToolUse, Stop) automate the session lifecycle and guard risky actions. Every hook runs through `safe-run.sh`, so a broken hook degrades instead of locking you out. The three lifecycle hooks:
 
 | Hook | Type | What it does |
 |------|------|-------------|
 | `config-check.sh` | SessionStart | Syncs config, validates symlinks, injects hostname/time/persona/inbox/context into the session |
 | `config-auto-sync.sh` | SessionEnd | Rotates session state, commits project + config, pushes to remote, collects mobile outbox |
 | `context-budget.sh` | UserPromptSubmit | Injects `CONTEXT_BUDGET: NN% used` every turn so the agent tracks its own resource usage |
+
+On top of these, 18 PreToolUse guards (cross-project boundary, risk gate, credential and kill guards, among others), PostToolUse and Stop hooks, and 35 SessionStart checks.
 
 ### Session Flow
 
@@ -354,6 +356,11 @@ agent-fleet/
 |
 |-- sync-lib/
 |   |-- common.sh                  Shared helpers (hostname, project path, manifest parsing)
+|   |-- setup.sh                   Setup: symlink live locations to the repo
+|   |-- deploy.sh                  Deploy: push config from the repo to live locations
+|   |-- pre-deploy.sh              Mechanical pre-deploy checks
+|   |-- status.sh                  Status: compare repo vs live locations
+|   |-- recover.sh                 Emergency recover: copy live locations back to the repo
 |   `-- check.sh                   Template drift and personal data leak checks
 |
 |-- global/
@@ -381,7 +388,7 @@ agent-fleet/
 |   |   `-- _example/rules/CLAUDE.md   Example project config
 |   `-- tests/
 |       |-- run.sh                 Test runner
-|       `-- test-*.sh              73 test suites (~1,150 tests)
+|       `-- test-*.sh              198 test files (~3,000 tests)
 |
 |-- docs/
 |   |-- getting-started.md         Detailed setup and usage walkthrough
@@ -478,42 +485,42 @@ Add your own: copy `global/domains/_template/`, edit it, reference it from your 
 
 ### Test Suite
 
-~1,150 tests across 73 suites, run via `setup/tests/run.sh`:
+198 test files with about 3,000 test cases (7 end-to-end suites, skipped by default), run via `setup/tests/run.sh`. A selection:
 
-| Suite | Tests | Covers |
-|-------|------:|--------|
-| harness | 14 | Test runner itself |
-| rotate-session | 31 | Session archival, history rotation, template parsing |
-| git-sync-check | 15 | Remote detection, fast-forward, divergence handling |
-| sync | 42 | Deploy, recover, symlinks, hook copying, drift check |
-| persona | 6 | Persona file parsing, switching logic |
-| lsd-refresh | 9 | Dashboard cache generation, backlog scanning |
-| statusline | 27 | Context meter, persona display, color coding |
-| config-check | 77 | Symlink validation, stale session detection, permission cleanup, metadata injection |
-| filtered-push | 16 | Dual-remote push, path exclusion, config parsing, safety checks |
-| afleet | 21 | Fleet launcher, project detection, picker, SteamOS pre-flight |
-| afleet-nav | 14 | Cross-project navigation, tab opening, notify, info |
-| clean-marketplace-plugins | 10 | Plugin cleanup, dry-run, stale enabledPlugins |
-| clean-pending | 7 | Pending file cleanup after resolution |
-| clean-permissions | 8 | Permission block removal from settings.local.json |
-| context-budget | 13 | Context budget injection, GPI completion notifications |
-| fleet-issue | 34 | Privacy scrubber, dedup checker, issue formatter |
-| git-credential-mcp | 8 | MCP credential extraction for git |
-| gpi | 24 | Grind Progress Indicator CLI |
-| inbox-archive | 11 | Archive completed inbox items |
-| install-base | 7 | cc-mirror variant creation |
-| install-setup | 16 | Setup edge cases, non-interactive mode, rollback |
-| lrn-command | 22 | Self-audit quick command parsing |
-| manage-pending | 20 | Pending file lifecycle engine |
-| mobile | 28 | Mobile deploy/collect, outbox merge, idempotency |
-| nvm-path | 12 | NVM path handling across platforms |
-| plugin-inventory | 9 | Plugin audit and inventory |
-| session-lock | 25 | PID-based session lock, stale lock cleanup |
-| shell-rc | 8 | Shell RC patching (bashrc/zshrc) |
-| template-drift | 9 | Template vs instance drift detection |
-| template-smoke | 24 | End-to-end smoke test for clean template clone |
-| upgrade | 9 | upgrade.sh, migration runner, version gating |
-| youtube-tabs | 13 | Cross-machine YouTube tab persistence |
+| Suite | Covers |
+|-------|--------|
+| harness | Test runner itself |
+| rotate-session | Session archival, history rotation, template parsing |
+| git-sync-check | Remote detection, fast-forward, divergence handling |
+| sync | Deploy, recover, symlinks, hook copying, drift check |
+| persona | Persona file parsing, switching logic |
+| lsd-refresh | Dashboard cache generation, backlog scanning |
+| statusline | Context meter, persona display, color coding |
+| config-check | Symlink validation, stale session detection, permission cleanup, metadata injection |
+| filtered-push | Dual-remote push, path exclusion, config parsing, safety checks |
+| afleet | Fleet launcher, project detection, picker, SteamOS pre-flight |
+| afleet-nav | Cross-project navigation, tab opening, notify, info |
+| clean-marketplace-plugins | Plugin cleanup, dry-run, stale enabledPlugins |
+| clean-pending | Pending file cleanup after resolution |
+| clean-permissions | Permission block removal from settings.local.json |
+| context-budget | Context budget injection, GPI completion notifications |
+| fleet-issue | Privacy scrubber, dedup checker, issue formatter |
+| git-credential-mcp | MCP credential extraction for git |
+| gpi | Grind Progress Indicator CLI |
+| inbox-archive | Archive completed inbox items |
+| install-base | cc-mirror variant creation |
+| install-setup | Setup edge cases, non-interactive mode, rollback |
+| lrn-command | Self-audit quick command parsing |
+| manage-pending | Pending file lifecycle engine |
+| mobile | Mobile deploy/collect, outbox merge, idempotency |
+| nvm-path | NVM path handling across platforms |
+| plugin-inventory | Plugin audit and inventory |
+| session-lock | PID-based session lock, stale lock cleanup |
+| shell-rc | Shell RC patching (bashrc/zshrc) |
+| template-drift | Template vs instance drift detection |
+| template-smoke | End-to-end smoke test for clean template clone |
+| upgrade | upgrade.sh, migration runner, version gating |
+| youtube-tabs | Cross-machine YouTube tab persistence |
 
 TDD is enforced -- the agent writes tests before implementation code.
 
