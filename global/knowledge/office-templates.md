@@ -48,6 +48,10 @@ The leading `<!--META ... -->` block of the source becomes the document-control 
 
 Replace `assets/logo.svg` (keep the `0 0 400 100` viewBox — 4:1 — and all geometry stays valid), rasterise it to `assets/logo.png` at 1600×400, edit the tokens, run `make-template-docx.py`, re-run the tests. Four steps, all in the template's `README.md`.
 
+## Corporate .pptx templates: footer placeholders are not copied
+
+**python-pptx does not copy footer-type placeholders (infoline, date, slide number) from the layout to a new slide.** So `ph(slide, 11).text = …` raises `StopIteration` on a slide built with `add_slide(layout)`. Fix: deepcopy the layout's placeholder element into `slide.shapes._spTree`. Reference implementation: `_clone_from_layout` in the corporate progress-report kit (2026-10-28, CFG-849).
+
 ## Diagrams
 
 No charting library is involved anywhere. Options, in order of preference: **mermaid** (`mmdc`, committed `.mmd` alongside the render — set the light theme so it matches the palette), **hand-authored SVG** on a `0 0 1600 900` viewBox rasterised at 1.5×, or **HTML + CSS primitives** screenshotted through the same Chrome path as the slides. Embed diagrams into decks with the image slide type's `diag=True`, which drops the border, radius and shadow that photographic mockups get.

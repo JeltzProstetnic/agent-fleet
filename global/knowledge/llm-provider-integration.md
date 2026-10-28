@@ -27,6 +27,28 @@ service principal into a project that needs one POST with one header.
 
 ---
 
+## Outsourcing a job: `azure-ai.py` (CFG-861)
+
+Owner decision 2026-10-28: the employer's projects and cfg-agent-fleet send context-free text jobs to the
+employer's Foundry instead of spending Claude Code tokens. The rule arrives as `AZURE_AI:` at SessionStart,
+only in trees listed in `setup/config/azure-ai-allowlist.txt`; the CLI refuses anywhere else.
+
+```bash
+python3 ~/cfg-agent-fleet/setup/scripts/azure-ai.py --prompt-file prompt.md \
+    --input a.md --input b.txt [--system-file sys.md] [--out answer.md] [--max-tokens N]
+```
+
+- Answer → stdout (or `--out`); `model=… input_tokens=… output_tokens=…` → stderr.
+- Inputs are appended in full inside `<file name="…">` tags; the model sees nothing else, so put
+  every fact it needs in the prompt or an input. Check the answer before you use it.
+- Model: `claude-opus-4-5`, the only deployment on the resource (weaker than the session model).
+  Hence final creative prose stays with the writer subagent; Azure gets bulk and mechanical text.
+- Never send personal data: the owner's profile, contacts, family or health, other private projects' content.
+- Key: `~/.config/azure-ai/key`, written by `secrets/vault-manage.sh deploy` from vault key
+  `azure_ai_foundry`. Exit 2 = config/usage (missing key, not allowlisted), 1 = provider error.
+
+---
+
 ## Claude on Amazon Bedrock (Opus 4.7+) is the "Mantle" Messages endpoint
 
 Source: competitor-radar WSL 2026-09-28, verified on platform.claude.com "Claude in Amazon Bedrock (Opus 4.7 and later)".
