@@ -548,7 +548,7 @@ Setup auto-detects your platform and installs dependencies accordingly.
 | **WSL (Windows)** | apt (inside WSL) | Tested |
 | **Fedora / RHEL** | dnf | Tested |
 | **Arch / SteamOS** | pacman | Tested |
-| **macOS** | Homebrew | Supported |
+| **macOS** | Homebrew | Tested |
 
 **Windows:** Claude Code runs inside WSL, not natively. See Quick Start for WSL setup.
 
