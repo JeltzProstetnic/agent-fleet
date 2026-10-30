@@ -111,6 +111,10 @@ key separator; `grep -n` found nothing, python found the function at line 498, `
 
 A bundle holding both `P1.html` and `p1.html` lost 12 files on the NAS (SMB) and the Shield (NTFS) while `rsync` exited 0 — the second name overwrote the first. Only `md5sum -c` against the source manifest caught it (life 2026-10-08). An exit code is not a copy verification on nas/shield/dropbox; a checksum is. See `knowledge/fms-ops.md` § Backup Tiers.
 
+## 10. A "names no identifier" test that builds its needle by concatenation publishes the identifier
+
+To prove a public file carries no personal literal, a test that writes `"alice""example"` or `"my-config-repo""/secrets"` beats `grep`, but any human or AI reader still sees the identifier: it is the same disclosure in two pieces. Measured CFG-869 (2026-10-30): the hardening build added three such needles to public tests (owner name, hostnames, IP prefixes, employer, private vault path), and an older one from 2026-09-28 had been public for a month. Every grep sweep reported clean, because the split defeats exactly the check that was meant to find it. ⇒ In a public file, check for identifier SHAPES (a concrete `<dir>/secrets/` prefix, a named `<word>-vault.json`), or read the literals at run time from a private or gitignored list and skip when it is absent. When reviewing, also search for the split form: `'"[A-Za-z0-9./@_-]{2,}""[A-Za-z0-9./@_-]{2,}"'`. And squash unpushed commits before a public push if an intermediate commit carried the needle; a rewrite after the push is the expensive version.
+
 ## The one-line test
 
 Before trusting a check: **what would this command print if it had looked at nothing?** If that output
