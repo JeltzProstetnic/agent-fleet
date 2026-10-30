@@ -257,8 +257,8 @@ run_test "CFG-662: a base64 run containing AKIA passes; a standalone key id stil
 # needed the keyword immediately followed by [:=], so a JSON-quoted key —
 # "password": "…" — never matched and a real credential in a .json went
 # through. The CFG-662 placeholder case above passed for that wrong reason.
-# (b) FALSE POSITIVE: a lowercase YAML/env key with an ALL_CAPS placeholder
-# (smtp_password: CHANGE_ME_PASSWORD) blocked. The fix (MG, option i) allows an
+# (b) FALSE POSITIVE: a lowercase YAML/env key such as smtp_password with the
+# ALL_CAPS placeholder CHANGE_ME_PASSWORD blocked. The fix (MG, option i) allows an
 # optional '"' after the keyword and exempts a value shaped like a placeholder —
 # judged on the matched value only, never the line and never the filename. A
 # false negative is far worse than a false positive, so the exemption is kept
@@ -283,7 +283,7 @@ run_test "CFG-890: JSON-quoted password among other keys on one line blocks" tes
 
 test_allows_yaml_allcaps_placeholder_after_lowercase_key() {
     local repo; repo="$(_mkrepo)"
-    _stage "$repo" "deploy/config.yaml" 'smtp_password: CHANGE_ME_PASSWORD'
+    _stage "$repo" "deploy/config.yaml" 'smtp_password: CHANGE_ME_PASSWORD'  # pragma: allowlist secret
     local rc=0; _run_guard "$repo" "git commit -m yaml" 2>/dev/null || rc=$?
     assert_eq "0" "$rc" "a lowercase key with an ALL_CAPS placeholder value passes (measured rc=$rc)"
     repo="$(_mkrepo)"
@@ -291,7 +291,7 @@ test_allows_yaml_allcaps_placeholder_after_lowercase_key() {
     rc=0; _run_guard "$repo" "git commit -m env" 2>/dev/null || rc=$?
     assert_eq "0" "$rc" "an env-style placeholder passes (measured rc=$rc)"
 }
-run_test "CFG-890: YAML 'smtp_password: CHANGE_ME_PASSWORD' passes" test_allows_yaml_allcaps_placeholder_after_lowercase_key
+run_test "CFG-890: a lowercase YAML key with the placeholder CHANGE_ME_PASSWORD passes" test_allows_yaml_allcaps_placeholder_after_lowercase_key
 
 test_allows_json_quoted_allcaps_placeholder() {
     local repo; repo="$(_mkrepo)"
