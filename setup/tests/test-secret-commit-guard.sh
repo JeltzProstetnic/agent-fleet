@@ -252,6 +252,83 @@ test_allows_base64_run_containing_akia() {
 }
 run_test "CFG-662: a base64 run containing AKIA passes; a standalone key id still blocks" test_allows_base64_run_containing_akia
 
+# ── 4c. CFG-890: a keyword assignment is judged on its VALUE ─────────────────
+# Two defects the CFG-662 cases exposed. (a) FALSE NEGATIVE: the shape pattern
+# needed the keyword immediately followed by [:=], so a JSON-quoted key —
+# "password": "…" — never matched and a real credential in a .json went
+# through. The CFG-662 placeholder case above passed for that wrong reason.
+# (b) FALSE POSITIVE: a lowercase YAML/env key with an ALL_CAPS placeholder
+# (smtp_password: CHANGE_ME_PASSWORD) blocked. The fix (MG, option i) allows an
+# optional '"' after the keyword and exempts a value shaped like a placeholder —
+# judged on the matched value only, never the line and never the filename. A
+# false negative is far worse than a false positive, so the exemption is kept
+# narrow and the cases below pin where it ends. All values are fictional.
+
+test_blocks_json_quoted_password() {
+    local repo; repo="$(_mkrepo)"
+    _stage "$repo" "config/mail.json" '{"password": "Xk9vQ2mLp4Rt"}'  # pragma: allowlist secret
+    local rc=0; _run_guard "$repo" "git commit -m config" 2>/dev/null || rc=$?
+    assert_eq "2" "$rc" "a JSON-quoted key with a real-looking value must BLOCK (measured rc=$rc)"
+}
+run_test "CFG-890: JSON-quoted \"password\": \"<value>\" blocks" test_blocks_json_quoted_password
+
+test_blocks_json_quoted_password_among_other_keys() {
+    local repo; repo="$(_mkrepo)"
+    _stage "$repo" "config/mail.json" \
+        '{"host": "mail.example.com", "port": 587, "user": "alice", "password": "Xk9vQ2mLp4Rt", "tls": true}'  # pragma: allowlist secret
+    local rc=0; _run_guard "$repo" "git commit -m config" 2>/dev/null || rc=$?
+    assert_eq "2" "$rc" "the same key inside single-line JSON with other keys around it must BLOCK (measured rc=$rc)"
+}
+run_test "CFG-890: JSON-quoted password among other keys on one line blocks" test_blocks_json_quoted_password_among_other_keys
+
+test_allows_yaml_allcaps_placeholder_after_lowercase_key() {
+    local repo; repo="$(_mkrepo)"
+    _stage "$repo" "deploy/config.yaml" 'smtp_password: CHANGE_ME_PASSWORD'
+    local rc=0; _run_guard "$repo" "git commit -m yaml" 2>/dev/null || rc=$?
+    assert_eq "0" "$rc" "a lowercase key with an ALL_CAPS placeholder value passes (measured rc=$rc)"
+    repo="$(_mkrepo)"
+    _stage "$repo" "deploy/.env.example" 'DB_PASSWORD=REPLACE_WITH_REAL_PASSWORD'
+    rc=0; _run_guard "$repo" "git commit -m env" 2>/dev/null || rc=$?
+    assert_eq "0" "$rc" "an env-style placeholder passes (measured rc=$rc)"
+}
+run_test "CFG-890: YAML 'smtp_password: CHANGE_ME_PASSWORD' passes" test_allows_yaml_allcaps_placeholder_after_lowercase_key
+
+test_allows_json_quoted_allcaps_placeholder() {
+    local repo; repo="$(_mkrepo)"
+    _stage "$repo" "config/mail.json" '{"user": "alice", "password": "YOUR_PASSWORD_HERE", "tls": true}'
+    local rc=0; _run_guard "$repo" "git commit -m config" 2>/dev/null || rc=$?
+    assert_eq "0" "$rc" "a JSON-quoted key with an ALL_CAPS placeholder value passes (measured rc=$rc)"
+}
+run_test "CFG-890: JSON-quoted \"password\": \"YOUR_PASSWORD_HERE\" passes" test_allows_json_quoted_allcaps_placeholder
+
+test_blocks_mixed_case_value_after_lowercase_key() {
+    local repo; repo="$(_mkrepo)"
+    _stage "$repo" "deploy/config.yaml" 'smtp_password: Xk9vQ2mLp4Rt'  # pragma: allowlist secret
+    local rc=0; _run_guard "$repo" "git commit -m yaml" 2>/dev/null || rc=$?
+    assert_eq "2" "$rc" "a value that starts with a capital but carries lowercase entropy must still BLOCK (measured rc=$rc)"
+}
+run_test "CFG-890: a mixed-case real-looking value after a lowercase key still blocks" test_blocks_mixed_case_value_after_lowercase_key
+
+test_blocks_digit_heavy_allcaps_value() {
+    # Shaped like a placeholder by the letter class alone — capitals and digits —
+    # but a placeholder is a word, and three digits make it a key, not a word.
+    local repo; repo="$(_mkrepo)"
+    _stage "$repo" "deploy/config.yaml" 'smtp_password: X9K2M4P7Q1R5'  # pragma: allowlist secret
+    local rc=0; _run_guard "$repo" "git commit -m yaml" 2>/dev/null || rc=$?
+    assert_eq "2" "$rc" "an ALL_CAPS value with digit-heavy entropy must still BLOCK (measured rc=$rc)"
+}
+run_test "CFG-890: an ALL_CAPS but digit-heavy value still blocks" test_blocks_digit_heavy_allcaps_value
+
+test_placeholder_exemption_is_per_value_not_per_line() {
+    # One line, two assignments: a placeholder and a real-looking value. Exempting
+    # the line because the first value is a placeholder would let the second through.
+    local repo; repo="$(_mkrepo)"
+    _stage "$repo" "config/mail.json" '{"password": "CHANGE_ME_PASSWORD", "secret": "Xk9vQ2mLp4Rt"}'  # pragma: allowlist secret
+    local rc=0; _run_guard "$repo" "git commit -m config" 2>/dev/null || rc=$?
+    assert_eq "2" "$rc" "a real-looking value beside a placeholder on the same line must BLOCK (measured rc=$rc)"
+}
+run_test "CFG-890: the placeholder exemption is per matched value, not per line" test_placeholder_exemption_is_per_value_not_per_line
+
 # ── 5. CFG-621 lesson: never match the commit MESSAGE ─────────────────────────
 # vault-read-guard.sh blocks commits because the word "more" appears in an -m
 # body. This guard must read the staged diff only, so a message that quotes a

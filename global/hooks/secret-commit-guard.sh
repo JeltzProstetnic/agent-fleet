@@ -180,9 +180,31 @@ HITS=""
 # ── Detector 1: shape ─────────────────────────────────────────────────────────
 # AKIA is bounded: an AWS key id is a standalone 20-char token, while a base64 run (a data
 # URI, a certificate body) can contain AKIA + 16 [0-9A-Z] mid-string and is not one (CFG-662).
-SECRET_PATTERNS='sk-ant-[A-Za-z0-9-]{20,}|sk-[A-Za-z0-9]{20,}|(^|[^A-Za-z0-9+/])AKIA[0-9A-Z]{16}($|[^A-Za-z0-9+/])|AIzaSy[A-Za-z0-9_-]{33}|ghp_[A-Za-z0-9]{36,}|gho_[A-Za-z0-9]{36,}|xoxb-[A-Za-z0-9-]+|xoxp-[A-Za-z0-9-]+|-----BEGIN RSA|-----BEGIN PRIVATE KEY|-----BEGIN OPENSSH PRIVATE KEY|(password|passphrase|secret|private_key)[[:space:]]*[:=][[:space:]]*[^[:space:]]{6,}|(key|token|secret)[[:space:]]*[:=][[:space:]]*[A-Za-z0-9+/]{40,}={0,2}'  # pragma: allowlist secret
+SECRET_PATTERNS='sk-ant-[A-Za-z0-9-]{20,}|sk-[A-Za-z0-9]{20,}|(^|[^A-Za-z0-9+/])AKIA[0-9A-Z]{16}($|[^A-Za-z0-9+/])|AIzaSy[A-Za-z0-9_-]{33}|ghp_[A-Za-z0-9]{36,}|gho_[A-Za-z0-9]{36,}|xoxb-[A-Za-z0-9-]+|xoxp-[A-Za-z0-9-]+|-----BEGIN RSA|-----BEGIN PRIVATE KEY|-----BEGIN OPENSSH PRIVATE KEY|(key|token|secret)[[:space:]]*[:=][[:space:]]*[A-Za-z0-9+/]{40,}={0,2}'  # pragma: allowlist secret
 if printf '%s' "$ADDED" | grep -Eq "$SECRET_PATTERNS" 2>/dev/null; then
     HITS="shape"
+fi
+
+# A keyword assignment (password, passphrase, secret or private_key, then : or =) is
+# judged on its VALUE (CFG-890). The key may be JSON-quoted — "password": … — which
+# the old pattern never matched, so a real credential in a .json went through. The
+# value is exempt only when it is shaped like an ALL_CAPS placeholder, e.g.
+# CHANGE_ME_PASSWORD or YOUR_PASSWORD_HERE: a capital, then capitals and underscores
+# with at most two digits, six chars or more, optionally quoted, optionally followed
+# by closing punctuation. A lowercase letter, a symbol or a third digit makes it a
+# value, and it blocks. Each assignment is judged alone: never the whole line (a
+# placeholder beside a real value does not cover it) and never the filename (a
+# .example name proves nothing). ERE has no lookahead, so the value is extracted
+# with -o and tested on its own.
+KEY_PREFIX='(password|passphrase|secret|private_key)"?[[:space:]]*[:=][[:space:]]*'  # pragma: allowlist secret
+PLACEHOLDER='^"?[A-Z][A-Z0-9_]{5,}"?[]}),;]*$'
+if [ -z "$HITS" ]; then
+    VALUES=$(printf '%s' "$ADDED" | grep -oE "${KEY_PREFIX}[^[:space:]]{6,}" 2>/dev/null \
+             | sed -E "s/^${KEY_PREFIX}//")
+    if [ -n "$VALUES" ] && { printf '%s\n' "$VALUES" | grep -Evq "$PLACEHOLDER" \
+                            || printf '%s\n' "$VALUES" | grep -Eq '([0-9][^0-9]*){3}'; }; then
+        HITS="shape"
+    fi
 fi
 
 # ── Detector 2: value fingerprints ────────────────────────────────────────────
