@@ -115,6 +115,18 @@ A bundle holding both `P1.html` and `p1.html` lost 12 files on the NAS (SMB) and
 
 To prove a public file carries no personal literal, a test that writes `"alice""example"` or `"my-config-repo""/secrets"` beats `grep`, but any human or AI reader still sees the identifier: it is the same disclosure in two pieces. Measured CFG-869 (2026-10-30): the hardening build added three such needles to public tests (owner name, hostnames, IP prefixes, employer, private vault path), and an older one from 2026-09-28 had been public for a month. Every grep sweep reported clean, because the split defeats exactly the check that was meant to find it. ⇒ In a public file, check for identifier SHAPES (a concrete `<dir>/secrets/` prefix, a named `<word>-vault.json`), or read the literals at run time from a private or gitignored list and skip when it is absent. When reviewing, also search for the split form: `'"[A-Za-z0-9./@_-]{2,}""[A-Za-z0-9./@_-]{2,}"'`. And squash unpushed commits before a public push if an intermediate commit carried the needle; a rewrite after the push is the expensive version.
 
+## 11. A sandboxed error message describes the sandbox, not the machine
+
+Claude Code's Bash sandbox produces environment errors that are false for the machine. The same probe, sandbox on vs off (measured on a corporate WSL2 pilot, 2026-10-26, iv-agent-fleet #6 item 4):
+
+| Probe | Sandboxed | Unsandboxed |
+|---|---|---|
+| `stat` on a file that does not exist | `character special file`, owner `nobody` | `No such file or directory` |
+| `grep … /proc/sys/fs/binfmt_misc/WSLInterop` (what `wslview` checks) | `No such file or directory` → `wslview`: "WSL Interoperability is disabled" | `enabled` |
+| `npm view @anthropic-ai/claude-code version` | `npm error code EROFS` (it writes `~/.npm/_cacache` first) | the version |
+
+⇒ **Re-run unsandboxed before reporting a machine fault.** An `EROFS`, a `nobody` owner, a missing `/proc` entry or "interop disabled" is first a hypothesis about the sandbox. Whether `~/.npm/_cacache` belongs on the sandbox write allowlist is a permission-gate decision for the owner, not a fix to make in passing.
+
 ## The one-line test
 
 Before trusting a check: **what would this command print if it had looked at nothing?** If that output
