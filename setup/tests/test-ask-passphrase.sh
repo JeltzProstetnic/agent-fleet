@@ -74,6 +74,7 @@ test_powershell_wpf_reads_from_temp_file() {
     # Override METHOD and the temp file path
     METHOD="powershell_wpf"
     _ASK_PASS_WPF_RESULT_FILE="$mock_bin"
+    _ASK_PASS_WPF_PS1_FILE="$TEST_TMPDIR/ask.ps1"   # else the ps1 lands in the real C:\temp on WSL
     # Mock cmd.exe: simulate PowerShell writing the passphrase to the result file
     _ASK_PASS_WPF_CMD() { printf 'test-passphrase-123' > "$mock_bin"; return 0; }
 
@@ -108,14 +109,17 @@ run_test "PowerShell WPF cleans up temp files after reading" test_powershell_wpf
 # A killed run left plaintext passphrases in C:\temp (_vp_<pid>.bin, found 2026-10-27).
 test_wpf_kill_leaves_no_result_file() {
     local d="$TEST_TMPDIR/kill"; mkdir -p "$d"
-    _ASK_PASS_WPF_CMD() { printf 'secret' > "$_ASK_PASS_WPF_RESULT_FILE"; sleep 30; }
+    _ASK_PASS_WPF_CMD() { printf 'secret' > "$_ASK_PASS_WPF_RESULT_FILE"; touch "${_ASK_PASS_WPF_RESULT_FILE%/*}/mock-ran"; sleep 30; }
     export -f _ASK_PASS_WPF_CMD
     ASK_PASS_FORCE_METHOD=powershell_wpf _ASK_PASS_WPF_RESULT_FILE="$d/_vp_x.bin" _ASK_PASS_WPF_PS1_FILE="$d/_ask_vp_x.ps1" \
         bash "$SCRIPT" "T" >/dev/null 2>&1 &
     local pid=$!
-    for _ in $(seq 1 40); do [[ -f "$d/_vp_x.bin" ]] && break; sleep 0.1; done
+    for _ in $(seq 1 40); do [[ -f "$d/mock-ran" ]] && break; sleep 0.1; done
     kill -TERM "$pid" 2>/dev/null; wait "$pid" 2>/dev/null
     unset -f _ASK_PASS_WPF_CMD
+    # Without this the test passed vacuously: the script ignored ASK_PASS_FORCE_METHOD,
+    # opened a REAL kdialog titled "T" on the desktop, and no result file ever existed.
+    assert_file_exists "$d/mock-ran" "ASK_PASS_FORCE_METHOD=powershell_wpf runs the WPF path (mock), not a real dialog" || return 1
     assert_file_not_exists "$d/_vp_x.bin" "TERM mid-dialog removes the passphrase result file" || return 1
     assert_file_not_exists "$d/_ask_vp_x.ps1" "TERM mid-dialog removes the ps1"
 }

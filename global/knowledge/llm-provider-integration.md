@@ -97,6 +97,17 @@ and `_redact` — grep for them if you want the tested version rather than the s
 
 ---
 
+## JSON batches of translations break on native quotation marks
+
+When an LLM returns a JSON object of translations, a language with its own quotation marks (German/Polish „…“) often closes them with a bare ASCII `"` inside a value. `json.loads` then fails and the whole batch is lost. Seen live 2026-10-29: Claude via Azure Foundry, 1 of 13 languages. Working fix:
+1. Number the inputs (`{"1": text}`) and tell the model never to use ASCII `"` inside a value.
+2. On `JSONDecodeError`, repair by escaping every `"` that has neither `{`, `,` or `:` before it nor `:`, `,` or `}` after it, ignoring spaces.
+3. Re-validate each value after the repair.
+
+Reference implementation: dealer-prep `dealerprep/i18n_tools.py` `_repair()`.
+
+---
+
 ## Checklist for any new provider client
 
 - [ ] Redirects refused, not followed, on every call that carries a credential.

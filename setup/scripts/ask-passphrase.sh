@@ -87,7 +87,9 @@ _detect_method() {
   fi
 }
 
-METHOD=$(_detect_method)
+# ASK_PASS_FORCE_METHOD must also hold when run as a program, not only when sourced:
+# ignoring it here made a test open a real kdialog on the desktop (2026-10-29).
+METHOD="${ASK_PASS_FORCE_METHOD:-$(_detect_method)}"
 
 # ---------------------------------------------------------------------------
 # Single passphrase prompt — returns the passphrase in variable RESULT

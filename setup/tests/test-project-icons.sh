@@ -234,23 +234,20 @@ test_generate_creates_icons() {
         return
     fi
 
-    # The script writes to $REPO_DIR/setup/icons/ (hardcoded from SCRIPT_DIR)
-    # We run it and check the default output location
-    local default_icon_dir="$REPO_ROOT/setup/icons"
+    # Generate into an EMPTY dir: the committed setup/icons/ already holds every file,
+    # so checking there proved nothing, and regenerating there rewrote ten tracked
+    # binaries in the live repo on every suite run (found 2026-10-29).
+    local icon_dir="$TEST_TMPDIR/gen-icons" before after
+    before=$(cd "$REPO_ROOT" && git status --porcelain -- setup/icons)
 
-    bash "$SCRIPT" generate >/dev/null 2>&1
+    PROJECT_ICONS_DIR="$icon_dir" bash "$SCRIPT" generate >/dev/null 2>&1
 
-    # Should create .ico and .png for each priority
-    assert_file_exists "$default_icon_dir/p1.ico"
-    assert_file_exists "$default_icon_dir/p1.png"
-    assert_file_exists "$default_icon_dir/p2.ico"
-    assert_file_exists "$default_icon_dir/p2.png"
-    assert_file_exists "$default_icon_dir/p3.ico"
-    assert_file_exists "$default_icon_dir/p3.png"
-    assert_file_exists "$default_icon_dir/p4.ico"
-    assert_file_exists "$default_icon_dir/p4.png"
-    assert_file_exists "$default_icon_dir/p5.ico"
-    assert_file_exists "$default_icon_dir/p5.png"
+    local p ext
+    for p in 1 2 3 4 5; do
+        for ext in ico png; do assert_file_exists "$icon_dir/p$p.$ext"; done
+    done
+    after=$(cd "$REPO_ROOT" && git status --porcelain -- setup/icons)
+    assert_eq "$before" "$after" "generate under test leaves the committed setup/icons/ untouched"
 }
 run_test "generate creates icon files for all priorities" test_generate_creates_icons
 

@@ -32,7 +32,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
-ICON_DIR="$REPO_DIR/setup/icons"
+ICON_DIR="${PROJECT_ICONS_DIR:-$REPO_DIR/setup/icons}"   # override: tests generate into a tmp dir
 REGISTRY="$REPO_DIR/registry.md"
 
 # Windows hub location (NTFS — required for desktop.ini/attrib to work)
