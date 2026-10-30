@@ -11,7 +11,7 @@
 #
 # Why the marker exists: that logic is right for a block nobody meant to create
 # and wrong for one the user wrote on purpose. This script used to delete both.
-# MG authored a project allow-list on 2026-08-15 so an unattended run would not
+# The user authored a project allow-list on 2026-08-15 so an unattended run would not
 # stop on prompts; it was deleted at the next session start, because the script
 # runs unconditionally from SessionStart check 4.1. An authored block could not
 # survive one session boundary.

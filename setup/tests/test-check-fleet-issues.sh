@@ -6,7 +6,7 @@
 # zero comments on 2026-09-11 — four weeks with the reporter never told. Nothing
 # in SessionStart ever looked at the issue tracker, so "somebody reported this"
 # and "nobody reported anything" were indistinguishable at the only moment a
-# session is guaranteed to look at anything. MG's ruling: GitHub issues are the
+# session is guaranteed to look at anything. The user's ruling: GitHub issues are the
 # PREFERRED intake channel for fleet users, which only holds if the channel is
 # actually read.
 #

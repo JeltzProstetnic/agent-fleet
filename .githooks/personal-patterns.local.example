@@ -1,0 +1,17 @@
+# .githooks/personal-patterns.local — OPTIONAL and GITIGNORED (CFG-869).
+#
+# Copy this file to .githooks/personal-patterns.local and list YOUR OWN identifiers.
+# The pre-push guard sources it when present and blocks any push whose tracked text
+# files carry one of them. leak-shapes.sh catches the CLASSES (a home directory, a
+# hostname, an address, an e-mail); this file catches the VALUES a shape cannot: a
+# name, a handle, an employer, a project codename, a NAS or printer name.
+#
+# Never commit the real file. It is exactly the list that must not be public, which
+# is why it is not part of the template. The file is plain bash and is sourced.
+#
+# PERSONAL_PATTERNS — grep -E alternation, pipe-separated, in ONE pair of parentheses.
+PERSONAL_PATTERNS='(Alice Example|alice\.example|example-corp|zebra-nas|DESKTOP-ABC1234)'
+
+# PERSONAL_ALLOW — optional; grep -E over whole matching lines, to exempt a form you
+# publish on purpose, such as the template's own clone URL.
+PERSONAL_ALLOW='github\.com/alice-example/agent-fleet'

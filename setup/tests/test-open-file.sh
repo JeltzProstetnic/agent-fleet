@@ -35,7 +35,7 @@ _decide() {
     OPEN_FILE_DRY=1 OPEN_FILE_MACHINE="$1" bash "$HELPER" "$(_mk "$2")" 2>/dev/null
 }
 
-# ── WSL rows, exactly as MG approved them 2026-09-10 ────────────────────────
+# ── WSL rows, exactly as the user approved them 2026-09-10 ──────────────────
 # png/jpg/jpeg/gif/webp/svg/pdf/html → Chrome; txt/md/log → Notepad; else → VS Code.
 _wsl_chrome_ok=1
 for _ext in png jpg jpeg gif webp svg pdf html; do
@@ -109,7 +109,7 @@ fi
 echo "=== headless machines degrade honestly ==="
 
 # ── A machine with no GUI must say so, not pretend ─────────────────────────
-# MG's wording: degrade to printing the path WITH A STATED REASON. A silent no-op
+# The user's wording: degrade to printing the path WITH A STATED REASON. A silent no-op
 # would be worse than the path-reporting this whole rule exists to replace, because
 # the session would believe it had shown him something.
 _headless_ok=1
@@ -205,7 +205,7 @@ else
 fi
 
 # ── Dry run must not launch anything ───────────────────────────────────────
-# The guard that lets this suite run on MG's desktop without opening 20 windows.
+# The guard that lets this suite run on the user's desktop without opening 20 windows.
 if OPEN_FILE_DRY=1 OPEN_FILE_MACHINE=wsl bash "$HELPER" "$(_mk dry.png)" 2>&1 \
    | grep -qiE 'would open|dry'; then
     pass "dry run announces the decision instead of launching"
@@ -218,7 +218,7 @@ echo
 # CFG-681: one Chrome tab per SPACE in the filename
 # ══════════════════════════════════════════════════════════════════════════════
 # Measured 2026-09-23: two calls on "200 Software Project Assignment — AI First PDP.pdf"
-# opened 16 junk tabs on MG's desktop. `-ArgumentList '$win'` hands PowerShell ONE string
+# opened 16 junk tabs on the user's desktop. `-ArgumentList '$win'` hands PowerShell ONE string
 # which it passes as the raw command line, so Chrome re-splits it on spaces and treats
 # each of the 8 tokens as a URL.
 #

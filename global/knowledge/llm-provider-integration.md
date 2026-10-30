@@ -29,9 +29,9 @@ service principal into a project that needs one POST with one header.
 
 ## Outsourcing a job: `azure-ai.py` (CFG-861)
 
-Owner decision 2026-10-28: the employer's projects and cfg-agent-fleet send context-free text jobs to the
-employer's Foundry instead of spending Claude Code tokens. The rule arrives as `AZURE_AI:` at SessionStart,
-only in trees listed in `setup/config/azure-ai-allowlist.txt`; the CLI refuses anywhere else.
+Allowlisted projects send context-free text jobs to a Foundry deployment instead of spending Claude Code
+tokens. The rule arrives as `AZURE_AI:` at SessionStart, only in trees listed in
+`setup/config/azure-ai-allowlist.txt`; the CLI refuses anywhere else.
 
 ```bash
 python3 ~/cfg-agent-fleet/setup/scripts/azure-ai.py --prompt-file prompt.md \

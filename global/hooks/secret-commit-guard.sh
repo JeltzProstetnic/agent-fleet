@@ -187,8 +187,12 @@ fi
 # Salt and fingerprints are gitignored and local-only. An unsalted hash of a
 # low-entropy secret is brute-forceable, which is why the salt is mandatory:
 # without it this file would become the next version of the bug it prevents.
-FP_FILE="${CC_SECRET_FINGERPRINTS:-$ROOT/secrets/.secret-fingerprints}"
-SALT_FILE="${CC_SECRET_SALT:-$ROOT/secrets/.fingerprint-salt}"
+# Both layouts (CFG-869): secrets/ at the repo root (the private config repo) or
+# setup/secrets/ (a template clone). Root wins when both exist; env overrides win.
+SECRETS_DIR="$ROOT/secrets"
+[ -d "$SECRETS_DIR" ] || { [ -d "$ROOT/setup/secrets" ] && SECRETS_DIR="$ROOT/setup/secrets"; }
+FP_FILE="${CC_SECRET_FINGERPRINTS:-$SECRETS_DIR/.secret-fingerprints}"
+SALT_FILE="${CC_SECRET_SALT:-$SECRETS_DIR/.fingerprint-salt}"
 if [ -s "$FP_FILE" ] && [ -s "$SALT_FILE" ] && command -v python3 &>/dev/null; then
     if printf '%s' "$ADDED" | python3 -c '
 import hashlib, re, sys

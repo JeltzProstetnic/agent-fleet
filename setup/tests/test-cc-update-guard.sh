@@ -21,7 +21,7 @@
 #      `cc-mirror` from PATH, and never the literal `latest`. Then the post-condition runs.
 #
 # Why: on WSL 2026-09-23 the bare `cc-mirror` on PATH was the Windows-side 1.6.2
-# (/mnt/c/Users/Matthias/AppData/Roaming/npm, PATH position 28), whose bundle contains no
+# (/mnt/c/Users/<user>/AppData/Roaming/npm, PATH position 28), whose bundle contains no
 # `--claude-version` at all; it re-provisioned from claudeOrig=2.1.1, flipped the launcher
 # to cli.js, re-asserted team mode, and exited 0. mock_cc_mirror_1_6_2 reproduces that.
 

@@ -150,7 +150,7 @@ else
     echo "  (skip test 9: jq or settings.json unavailable)"
 fi
 
-# 19. web-research group (R2-A, MG-approved 2026-09-17): WebSearch first use injects the
+# 19. web-research group (R2-A, user-approved 2026-09-17): WebSearch first use injects the
 #     false-attribution ban. The failure it exists to prevent: an EduPage GDPR assessment written
 #     from search snippets, whose decisive self-contradiction was verbatim in a document nobody
 #     had opened. This is a BUILT-IN tool, not an mcp__ one — see the matcher guard below.
@@ -211,12 +211,12 @@ assert_empty "trash tools get no move reminder" "$OUT"
 
 # 23. CONTENT-triggered group (CFG-853): vault work is a Bash/Write action, not an MCP tool, so the
 #     trigger is the command/content text. vault-ops gotchas inject once per session.
-OUT=$(run '{"session_id":"svault","tool_name":"Bash","tool_input":{"command":"bash ~/cfg-agent-fleet/secrets/vault-manage.sh status"}}')
+OUT=$(run '{"session_id":"svault","tool_name":"Bash","tool_input":{"command":"bash ~/config-repo/secrets/vault-manage.sh status"}}')
 CTX="$(printf '%s' "$OUT" | jq -r '.hookSpecificOutput.additionalContext // empty' 2>/dev/null)"
 assert_has "vault-manage in Bash injects vault-ops" "vault-ops.md" "$CTX"
 assert_has "vault ctx: agent runs the dialog itself" "you run" "$CTX"
 assert_has "vault ctx: set reads stdin" "stdin" "$CTX"
-OUT=$(run '{"session_id":"svault","tool_name":"Bash","tool_input":{"command":"bash ~/cfg-agent-fleet/secrets/vault-manage.sh deploy"}}')
+OUT=$(run '{"session_id":"svault","tool_name":"Bash","tool_input":{"command":"bash ~/config-repo/secrets/vault-manage.sh deploy"}}')
 assert_empty "vault-ops injects once per session" "$OUT"
 OUT=$(run '{"session_id":"svault2","tool_name":"Write","tool_input":{"file_path":"/tmp/x.sh","content":"P=$(bash setup/scripts/ask-passphrase.sh)"}}')
 assert_has "ask-passphrase in Write content injects vault-ops" "vault-ops.md" "$(printf '%s' "$OUT" | jq -r '.hookSpecificOutput.additionalContext // empty' 2>/dev/null)"

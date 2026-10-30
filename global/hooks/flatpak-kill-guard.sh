@@ -3,7 +3,7 @@
 #
 # `flatpak kill` takes an INSTANCE — a numeric instance id OR an application id — and given
 # an application id it stops EVERY running instance of that app, not the one this session
-# started. Recurring offense (lrn audit 2026-04-24, Finding B; MG strongly frustrated).
+# started. Recurring offense (lrn audit 2026-04-24, Finding B; the user strongly frustrated).
 # The rule already sat in a machine file, which is not loaded at the moment
 # someone types the command — a rule cannot fire where it is not loaded (CFG-695).
 #

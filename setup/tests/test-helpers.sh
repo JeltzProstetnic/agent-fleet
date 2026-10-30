@@ -16,7 +16,7 @@ _ASSERT_FAIL_FILE=""
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 
-# No test may reach a real desktop dialog: a real kdialog titled "T" popped up on MG's
+# No test may reach a real desktop dialog: a real kdialog titled "T" popped up on the user's
 # screen mid-suite (2026-10-29, test-ask-passphrase.sh). Without a display, kdialog and
 # zenity are never selected and cannot draw.
 unset DISPLAY WAYLAND_DISPLAY

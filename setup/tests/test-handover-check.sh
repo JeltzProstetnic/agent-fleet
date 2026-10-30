@@ -51,27 +51,27 @@ _run() { RC=0; OUT=$(bash "$CHECK" "$TEST_TMPDIR" 2>&1) || RC=$?; }
 
 t_all_carried_verbatim() {
     _ctx "- Re-run the migration on the NUC
-- Ask MG about the **retention** window" "task: true
+- Ask the user about the **retention** window" "task: true
 file: docs/pending-x.md
 backlog: none
 description: resume"
     _pending "# Pending
 - Re-run the migration on the NUC
-- Ask MG about the retention window"
+- Ask the user about the retention window"
     _run; assert_eq "0" "$RC" "every item is in the pending file"
 }
 run_test "passes when every Recovery item is in the handover file" t_all_carried_verbatim
 
 t_missing_item_flagged() {
     _ctx "- Re-run the migration on the NUC
-- Tell MG the backup is 3 days stale" "task: true
+- Tell the user the backup is 3 days stale" "task: true
 file: docs/pending-x.md
 backlog: none
 description: resume"
     _pending "- Re-run the migration on the NUC"
     _run
     assert_eq "1" "$RC" "an uncarried item must fail the check" || return 1
-    assert_contains "$OUT" "Tell MG the backup is 3 days stale" "the missing item must be named"
+    assert_contains "$OUT" "Tell the user the backup is 3 days stale" "the missing item must be named"
 }
 run_test "fails and names an item the handover does not carry" t_missing_item_flagged
 
@@ -129,7 +129,7 @@ description: resume"
 run_test "a missing file: target carries nothing" t_missing_file_target
 
 t_rotate_warns_but_rotates() {
-    _ctx "- Tell MG the backup is 3 days stale" "task: true
+    _ctx "- Tell the user the backup is 3 days stale" "task: true
 file: docs/pending-x.md
 backlog: none
 description: resume"
@@ -137,7 +137,7 @@ description: resume"
     local out rc=0
     out=$(bash "$ROTATE" "$TEST_TMPDIR" 2>&1) || rc=$?
     assert_eq "0" "$rc" "rotation must not be blocked (it also runs in SessionEnd)" || return 1
-    assert_contains "$out" "Tell MG the backup is 3 days stale" "rotation must warn, naming the uncarried item" || return 1
+    assert_contains "$out" "Tell the user the backup is 3 days stale" "rotation must warn, naming the uncarried item" || return 1
     assert_file_contains "$TEST_TMPDIR/session-history.md" "Ship the thing" "and still rotate"
 }
 run_test "rotate-session.sh warns about uncarried items and still rotates" t_rotate_warns_but_rotates

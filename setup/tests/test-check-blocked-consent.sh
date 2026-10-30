@@ -51,7 +51,7 @@ test_closed_items_and_absent_backlog_silent() {
     local patched; patched=$(_bc_setup)
     cat > "$TEST_TMPDIR/project/backlog.md" <<'EOF'
 # Backlog
-- [x] [P2] `CFG-603` **Rule proposal (needs Meta-Rules consent): probe before contradicting.** DONE 2026-09-20, MG approved.
+- [x] [P2] `CFG-603` **Rule proposal (needs Meta-Rules consent): probe before contradicting.** DONE 2026-09-20, the user approved.
 - [ ] [P1] `CFG-433` **Cred mesh.** Blocked on user: verify the OAuth consent screen status in GCP Console.
 EOF
     local output
@@ -72,7 +72,7 @@ test_header_comment_marks_items() {
     cat > "$TEST_TMPDIR/project/backlog.md" <<'EOF'
 # Backlog
 <!-- CFG-596..599 promoted 2026-09-14 from the inbox. CFG-596 and CFG-597 both propose RULE changes and are blocked on Meta-Rules consent. -->
-- [ ] [P1] `CFG-596` **A session can draft a grievance letter on MG's behalf without asking what his grievance is.**
+- [ ] [P1] `CFG-596` **A session can draft a grievance letter on the user's behalf without asking what their grievance is.**
 - [x] [P0] `CFG-597` **CLOSED 2026-09-23 by CFG-693.**
 - [ ] [P2] `CFG-598` **Something else entirely.**
 EOF

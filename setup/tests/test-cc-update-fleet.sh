@@ -141,7 +141,7 @@ run_test "skips a host already at the target version" test_skips_up_to_date_host
 # ══════════════════════════════════════════════════════════════════════════════
 # TEST 5: a host with a live Claude Code session is refused without --force
 # ══════════════════════════════════════════════════════════════════════════════
-# MG uses the Decks in bed in the evening. Swapping the binary under a live session
+# The user uses the Decks in bed in the evening. Swapping the binary under a live session
 # is the one failure mode that hits him rather than the fleet.
 
 test_refuses_host_with_live_session() {

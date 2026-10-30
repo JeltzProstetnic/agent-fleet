@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # launch-registry.sh — the record of what THIS machine's fleet launchers started.
 #
-# CFG-694. MG, 2026-09-23: "you need to learn some control and discipline when killing
+# CFG-694. The user, 2026-09-23: "you need to learn some control and discipline when killing
 # processes before you kill something important by mistake!!!" — and, on a proposal that he
 # approve kills by PID: "did you think i would know processes by PID?? ridiculous, do
 # better - this is cfg job". So this is mechanical: no human is in the loop.

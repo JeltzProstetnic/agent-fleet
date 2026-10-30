@@ -268,7 +268,7 @@ run_test "allows git commit text inside a heredoc body" t_allows_commit_inside_h
 t_allows_quoted_trailer_cmdsub() {
     _repo; _add_rule "$R/CLAUDE.md"; git -C "$R" add CLAUDE.md
     local cmd
-    cmd=$(printf 'git -C "%s" commit -m "$(cat <<'"'"'EOF'"'"'\nAdd a rule\n\nApproved-By: MG\nEOF\n)"' "$R")
+    cmd=$(printf 'git -C "%s" commit -m "$(cat <<'"'"'EOF'"'"'\nAdd a rule\n\nApproved-By: the user\nEOF\n)"' "$R")
     assert_eq "0" "$(_rc_from "$TEST_TMPDIR" "$cmd")" "a trailer inside the \$(cat <<'EOF') message counts"
 }
 run_test "allows the trailer inside a \$(cat <<'EOF' …) message" t_allows_quoted_trailer_cmdsub
@@ -315,7 +315,7 @@ run_test "allows it with an Approved-By trailer (-m)" t_allows_trailer_second_m
 t_allows_trailer_heredoc() {
     _repo; _add_rule "$R/CLAUDE.md"; git -C "$R" add CLAUDE.md
     local cmd
-    cmd=$(printf 'git -C %s commit -F - <<EOF\nAdd rule\n\nApproved-By: MG\nEOF' "$R")
+    cmd=$(printf 'git -C %s commit -F - <<EOF\nAdd rule\n\nApproved-By: the user\nEOF' "$R")
     assert_eq "0" "$(_rc "$cmd")" "a trailer inside a heredoc message counts"
 }
 run_test "allows it with the trailer in a heredoc" t_allows_trailer_heredoc
@@ -395,7 +395,7 @@ run_test "blocks git commit -m x && echo Approved-By: y" t_blocks_trailer_outsid
 t_blocks_trailer_in_unrelated_heredoc() {
     _repo; _add_rule "$R/CLAUDE.md"; git -C "$R" add CLAUDE.md
     local cmd
-    cmd=$(printf 'cat > /dev/null <<EOF\nApproved-By: MG\nEOF\ngit -C %s commit -m x' "$R")
+    cmd=$(printf 'cat > /dev/null <<EOF\nApproved-By: the user\nEOF\ngit -C %s commit -m x' "$R")
     assert_eq "2" "$(_rc "$cmd")" "a heredoc that is not the commit's stdin is not its message"
 }
 run_test "blocks the trailer in a heredoc that feeds another command" t_blocks_trailer_in_unrelated_heredoc
@@ -409,20 +409,20 @@ run_test "allows the fleet convention: git -C <repo> commit -m Subject -m Approv
 
 t_allows_trailer_option_colon_and_eq_forms() {
     _repo; _add_rule "$R/CLAUDE.md"; git -C "$R" add CLAUDE.md
-    assert_eq "0 0" "$(_rc "git -C $R commit -m 'x' --trailer \"Approved-By: owner 2026-09-27\"") $(_rc "git -C $R commit --message='x' --trailer='Approved-By: MG'")" \
+    assert_eq "0 0" "$(_rc "git -C $R commit -m 'x' --trailer \"Approved-By: owner 2026-09-27\"") $(_rc "git -C $R commit --message='x' --trailer='Approved-By: the user'")" \
         "--trailer \"Approved-By: …\" and --trailer=/--message= forms carry the trailer"
 }
 run_test "allows --trailer \"Approved-By: …\" and the --trailer=/--message= forms" t_allows_trailer_option_colon_and_eq_forms
 
 t_allows_trailer_in_cluster_m() {
     _repo; _add_rule "$R/CLAUDE.md"; git -C "$R" add CLAUDE.md
-    assert_eq "0" "$(_rc "git -C $R commit -m 'Add rule' -am 'Approved-By: MG'")" "-am <msg> is -a plus -m <msg>"
+    assert_eq "0" "$(_rc "git -C $R commit -m 'Add rule' -am 'Approved-By: the user'")" "-am <msg> is -a plus -m <msg>"
 }
 run_test "allows the trailer as the value of a -am cluster" t_allows_trailer_in_cluster_m
 
 t_allows_trailer_here_string() {
     _repo; _add_rule "$R/CLAUDE.md"; git -C "$R" add CLAUDE.md
-    assert_eq "0" "$(_rc "git -C $R commit -F - <<< 'Add rule. Approved-By: MG'")" "a here-string feeding -F - is the message"
+    assert_eq "0" "$(_rc "git -C $R commit -F - <<< 'Add rule. Approved-By: the user'")" "a here-string feeding -F - is the message"
 }
 run_test "allows the trailer in a here-string feeding -F -" t_allows_trailer_here_string
 
@@ -430,7 +430,7 @@ t_judges_heredoc_before_command_name() {   # bash allows the redirection anywher
     _repo; _add_rule "$R/CLAUDE.md"; git -C "$R" add CLAUDE.md
     local bare ok
     bare=$(printf '<<EOF git -C %s commit -F -\nAdd rule\nEOF' "$R")
-    ok=$(printf 'git <<EOF -C %s commit -F -\nAdd rule\n\nApproved-By: MG\nEOF' "$R")
+    ok=$(printf 'git <<EOF -C %s commit -F -\nAdd rule\n\nApproved-By: the user\nEOF' "$R")
     assert_eq "2 0" "$(_rc "$bare") $(_rc "$ok")" "a leading or mid-command heredoc must not hide the commit, and still feeds -F -"
 }
 run_test "judges a commit whose heredoc operator precedes git or commit" t_judges_heredoc_before_command_name

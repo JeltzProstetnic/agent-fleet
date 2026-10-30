@@ -205,7 +205,7 @@ test_active_session_no_ghost() {
 ## Session Info
 - **Last Updated**: 2026-03-19T16:28:10+01:00
 - **Machine**: Steam Deck
-- **Working Directory**: /home/deck/cfg-agent-fleet
+- **Working Directory**: /home/alice/cfg-agent-fleet
 - **Session Goal**: Working on hook improvements
 
 ## Current State

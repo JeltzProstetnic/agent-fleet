@@ -119,7 +119,7 @@ is indistinguishable from success, the check is not evidence. Make it report wha
 
 ## A value's presence AFTER an incident is not evidence the incident caused it
 
-**Measured 2026-09-23 (WSL), and I got this wrong in a report to MG before catching it.**
+**Measured 2026-09-23 (WSL), and I got this wrong in a report to the user before catching it.**
 
 After `cc-mirror update` wrecked the install, `variant.json` read `teamModeEnabled: true` and two
 unfamiliar skills were on disk. I reported *"it silently enabled team mode — nobody asked for this."*

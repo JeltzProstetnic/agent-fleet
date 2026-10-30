@@ -65,10 +65,10 @@ run_test "sanitize_text redacts multiple IPv4 addresses" test_sanitize_multiple_
 
 test_sanitize_desktop_hostname() {
     extract_sanitize_text
-    local input="Session on DESKTOP-32ILURB completed"
+    local input="Session on DESKTOP-ABC1234 completed"
     local result
     result=$(sanitize_text "$input")
-    assert_not_contains "$result" "DESKTOP-32ILURB" "hostname should be redacted"
+    assert_not_contains "$result" "DESKTOP-ABC1234" "hostname should be redacted"
     assert_contains "$result" "[REDACTED-HOST]" "should contain redacted marker"
 }
 run_test "sanitize_text redacts DESKTOP-* hostnames" test_sanitize_desktop_hostname
@@ -89,11 +89,11 @@ run_test "sanitize_text redacts srv* hostnames" test_sanitize_srv_hostname
 
 test_sanitize_username_in_path() {
     extract_sanitize_text
-    local input="File at /home/jeltz/projects/config and /home/gruber/work"
+    local input="File at /home/alice/projects/config and /home/bob/work"
     local result
     result=$(sanitize_text "$input")
-    assert_not_contains "$result" "/home/jeltz/" "username path should be redacted"
-    assert_not_contains "$result" "/home/gruber/" "username path should be redacted"
+    assert_not_contains "$result" "/home/alice/" "username path should be redacted"
+    assert_not_contains "$result" "/home/bob/" "username path should be redacted"
     assert_contains "$result" "/home/[REDACTED-USER]/" "should contain redacted user marker"
 }
 run_test "sanitize_text redacts usernames in /home/ paths" test_sanitize_username_in_path

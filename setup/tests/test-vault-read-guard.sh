@@ -62,7 +62,7 @@ test_block_cp_vault_elsewhere() {
 run_test "blocks: cp vault.json to /tmp/" test_block_cp_vault_elsewhere
 
 test_block_cat_with_absolute_path() {
-    local rc; rc=$(_run_hook "cat /home/deck/cfg-agent-fleet/secrets/vault.json")
+    local rc; rc=$(_run_hook "cat /home/alice/config-repo/secrets/vault.json")
     assert_eq "2" "$rc" "cat with absolute path must be blocked"
 }
 run_test "blocks: cat with absolute path" test_block_cat_with_absolute_path
@@ -269,7 +269,7 @@ run_test "blocks: bash -c \"\$(cat <<EOF cat vault.json)\" (CFG-621 repair)" tes
 
 test_block_cat_heredoc_fed_to_eval() {
     local rc; rc=$(_run_hook "eval \"\$(cat <<'EOF'
-cat ~/cfg-agent-fleet/secrets/vault.json
+cat ~/config-repo/secrets/vault.json
 EOF
 )\"")
     assert_eq "2" "$rc" "eval \"\$(cat <<EOF …)\" executes the body and must be blocked"
@@ -345,10 +345,13 @@ run_test "allows: heredoc message via -am, --message=, -C, cd &&, a second -m, e
 # was held back from the public template. The filename match is generic now.
 
 test_hook_source_names_no_employer_vault() {
-    # Built by concatenation so this test file carries no employer literal itself.
-    local employer="ivo""clar"
-    local hits; hits=$(grep -ci "$employer" "$HOOK" || true)
-    assert_eq "0" "$hits" "the hook must not reference the deleted employer vault"
+    # A SHAPE check, so this file names no vault either (CFG-869: a needle split by
+    # concatenation is still readable). The only <word>-vault.json the hook may name
+    # is its own documented example; any other named vault file is a regression.
+    local named; named=$(grep -oE '[A-Za-z0-9_]+-vault\.json' "$HOOK" | grep -v -x 'other-vault\.json' || true)
+    local hits; hits=$(printf '%s' "$named" | grep -c . || true)
+    echo "    measured: named <word>-vault.json files in the hook besides the example = $hits"
+    assert_eq "0" "$hits" "the hook must not reference a specific (deleted employer) vault"
 }
 run_test "hook source carries no employer-vault reference (CFG-621)" test_hook_source_names_no_employer_vault
 
@@ -363,6 +366,88 @@ test_block_prefixed_vault_filename_generically() {
     assert_eq "2" "$rc" "any <prefix>-vault.json plaintext must be guarded, not one hard-coded name"
 }
 run_test "blocks: cat secrets/<prefix>-vault.json generically (CFG-621)" test_block_prefixed_vault_filename_generically
+
+# ── CFG-869 (Q3): the hook must not spell out one deployment's vault location ──
+# This hook ships verbatim in the public template. Its block message named the
+# private config repo's secrets path, which together with the repo name published
+# the exact location of the owner's credential store. The message now names the
+# vault-manage.sh it RESOLVES at run time (CC_VAULT_MANAGE, else the config repo
+# this hook was deployed from, else the conventional checkout names — in both
+# the secrets/ and setup/secrets/ layouts), and a placeholder when nothing resolves.
+
+# Like _run_hook, but for an arbitrary hook path and read via globals (HOOK_RC,
+# HOOK_STDERR) so it can be called with env prefixes: `HOME=… _run_hook_at …`.
+_run_hook_at() {  # _run_hook_at <hook-path> <command>
+    local hook="$1" cmd="$2" input
+    input=$(jq -n --arg c "$cmd" '{tool_name: "Bash", tool_input: {command: $c}}')
+    HOOK_RC=0
+    HOOK_STDERR=$(echo "$input" | bash "$hook" 2>&1) || HOOK_RC=$?
+}
+
+test_hook_source_carries_no_private_vault_path() {
+    # A SHAPE check, so this file does not spell the path out either (a needle split by
+    # concatenation is still readable). Any concrete <dir>/secrets/ prefix in the hook
+    # counts, except the generic forms it uses on purpose: $root/secrets/ (the runtime
+    # resolver), setup/secrets/ (the template layout) and <config-repo>/secrets/.
+    local named; named=$(grep -oE '[A-Za-z0-9_.~-]+/secrets/' "$HOOK" | grep -vE '^(root|ROOT|setup)/secrets/$' || true)
+    local hits; hits=$(printf '%s' "$named" | grep -c . || true)
+    echo "    measured: concrete <dir>/secrets/ paths in the hook = $hits"
+    assert_eq "0" "$hits" "the public hook must not spell out a deployment's vault path (CFG-869)"
+}
+run_test "hook source names no private vault path (CFG-869)" test_hook_source_carries_no_private_vault_path
+
+test_block_message_names_the_resolved_vault_manage() {
+    # Run from the repo: the hook sits in <repo>/global/hooks, so <repo> is what
+    # ../foundation resolves to, in whichever layout this checkout uses.
+    local want=""
+    [ -f "$REPO_ROOT/secrets/vault-manage.sh" ] && want="$REPO_ROOT/secrets/vault-manage.sh"
+    [ -z "$want" ] && [ -f "$REPO_ROOT/setup/secrets/vault-manage.sh" ] && want="$REPO_ROOT/setup/secrets/vault-manage.sh"
+    [ -n "$want" ] || { assert_eq "a vault-manage.sh" "none" "this checkout has no secrets/ or setup/secrets/ vault-manage.sh"; return 1; }
+    CC_VAULT_MANAGE= _run_hook_at "$HOOK" "cat secrets/vault.json"
+    assert_eq "2" "$HOOK_RC" "setup: the read must still be blocked" || return 1
+    echo "    measured: message names [$(printf '%s\n' "$HOOK_STDERR" | grep -oE 'bash [^ ]*vault-manage\.sh' | head -1)]"
+    assert_contains "$HOOK_STDERR" "bash $want decrypt" "the block message must name the vault-manage.sh resolved from this checkout"
+}
+run_test "block message names the vault-manage.sh resolved at run time (CFG-869)" \
+    test_block_message_names_the_resolved_vault_manage
+
+test_block_message_honours_cc_vault_manage_override() {
+    local d="$TEST_TMPDIR/vm-override"; mkdir -p "$d"
+    printf '#!/usr/bin/env bash\n' > "$d/vault-manage.sh"
+    CC_VAULT_MANAGE="$d/vault-manage.sh" _run_hook_at "$HOOK" "cat secrets/vault.json"
+    assert_eq "2" "$HOOK_RC" "setup: the read must still be blocked" || return 1
+    assert_contains "$HOOK_STDERR" "bash $d/vault-manage.sh deploy" "CC_VAULT_MANAGE must win over the resolved default"
+}
+run_test "block message honours CC_VAULT_MANAGE (CFG-869)" test_block_message_honours_cc_vault_manage_override
+
+test_block_message_falls_back_to_a_placeholder() {
+    # A copy of the hook with no foundation sibling, an empty HOME and no override:
+    # nothing resolves, so the message carries a neutral placeholder — never a
+    # hard-coded deployment path.
+    local d="$TEST_TMPDIR/nowhere"; mkdir -p "$d/hooks" "$d/home"
+    cp "$HOOK" "$d/hooks/vault-read-guard.sh"
+    local real_home="$HOME"
+    HOME="$d/home" CC_VAULT_MANAGE= _run_hook_at "$d/hooks/vault-read-guard.sh" "cat secrets/vault.json"
+    assert_eq "2" "$HOOK_RC" "setup: the read must still be blocked" || return 1
+    echo "    measured: message names [$(printf '%s\n' "$HOOK_STDERR" | grep -oE 'bash [^ ]*vault-manage\.sh' | head -1)]"
+    assert_contains "$HOOK_STDERR" "<config-repo>/secrets/vault-manage.sh" "with nothing resolvable the message must use the placeholder" || return 1
+    assert_not_contains "$HOOK_STDERR" "$real_home" "the message must not fall back to this user's real home"
+}
+run_test "block message uses a placeholder when no vault-manage.sh resolves (CFG-869)" \
+    test_block_message_falls_back_to_a_placeholder
+
+test_block_message_resolves_setup_secrets_layout() {
+    # A template clone keeps the vault under setup/secrets/. Stage that layout
+    # around a copy of the hook (<root>/global/hooks + <root>/global/foundation).
+    local root="$TEST_TMPDIR/tplclone"; mkdir -p "$root/global/hooks" "$root/global/foundation" "$root/setup/secrets" "$TEST_TMPDIR/home2"
+    cp "$HOOK" "$root/global/hooks/vault-read-guard.sh"
+    printf '#!/usr/bin/env bash\n' > "$root/setup/secrets/vault-manage.sh"
+    HOME="$TEST_TMPDIR/home2" CC_VAULT_MANAGE= _run_hook_at "$root/global/hooks/vault-read-guard.sh" "cat setup/secrets/vault.json"
+    assert_eq "2" "$HOOK_RC" "setup: a read of setup/secrets/vault.json must be blocked too" || return 1
+    assert_contains "$HOOK_STDERR" "bash $root/setup/secrets/vault-manage.sh status" "a setup/secrets/ layout must resolve to its own vault-manage.sh"
+}
+run_test "block message resolves the setup/secrets/ layout of a template clone (CFG-869)" \
+    test_block_message_resolves_setup_secrets_layout
 
 # ── NON-BASH TOOL ────────────────────────────────────────────────────────────
 

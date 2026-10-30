@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # open-file.sh — open a produced file for the user to LOOK AT (CFG-560)
 #
-# MG, 2026-09-10: "these image filesystem links do nothing for me, when i ask you to
+# The user, 2026-09-10: "these image filesystem links do nothing for me, when i ask you to
 # open stuff, open it." Reporting a path is not showing someone a file, and neither is
 # SendUserFile — it delivers a reference and reports success, which is why it misleads.
 #
@@ -41,7 +41,7 @@ _detect_machine() {
 }
 
 # ── Association tables ──────────────────────────────────────────────────────
-# WSL rows are MG-approved verbatim (2026-09-10, revised the same evening):
+# WSL rows are user-approved verbatim (2026-09-10, revised the same evening):
 #   png/jpg/jpeg/gif/webp/svg/pdf/html -> Chrome
 #   txt/md/log + source/config text    -> Notepad
 #   everything else                    -> print the path
@@ -77,7 +77,7 @@ _assoc() {
             printf 'xdg'
             ;;
         *)
-            # Headless, or a machine class with no rows defined. Per MG's scoping these
+            # Headless, or a machine class with no rows defined. Per the user's scoping these
             # degrade to printing the path with a stated reason.
             printf 'PATH_ONLY'
             ;;
@@ -127,7 +127,7 @@ _win_stage() {
 # Build the PowerShell -Command string for a Windows launch.
 #
 # Factored out so it can be ASSERTED WITHOUT LAUNCHING ANYTHING: the defect this exists to
-# prevent (CFG-681) was found because two calls put 16 Chrome tabs on MG's desktop, so a
+# prevent (CFG-681) was found because two calls put 16 Chrome tabs on the user's desktop, so a
 # test that launches is the one thing a test here must never do.
 #
 # The bug: `-ArgumentList '$win'` hands PowerShell ONE string, which it passes through as
@@ -149,7 +149,7 @@ _win_launch_cmd() {  # <exe|""> <windows-path>
 _launch_wsl() {
     local app="$1" path="$2" staged win
 
-    # No `code` branch: VS Code was retired fleet-wide by MG on 2026-09-10. Every
+    # No `code` branch: VS Code was retired fleet-wide by the user on 2026-09-10. Every
     # remaining app is a Windows executable, so all of them go through staging.
     staged="$(_win_stage "$path")" || { echo "open-file: could not stage $path" >&2; return 1; }
     win="$(wslpath -w "$staged" 2>/dev/null)" || { echo "open-file: wslpath failed for $staged" >&2; return 1; }
@@ -169,7 +169,7 @@ _launch_wsl() {
     fi
     # Report it. MEASURED 2026-09-23: this path printed NOTHING on success, so a session
     # that piped the call through `tail -3`, saw nothing and could not tell whether it had
-    # fired simply ran it again — 8 junk tabs became 16 on MG's desktop. A launch that
+    # fired simply ran it again — 8 junk tabs became 16 on the user's desktop. A launch that
     # reports itself cannot be repeated by a caller that is guessing.
     printf 'open-file: launched %s -> %s\n' "${exe:-<default app>}" "$path"
 }

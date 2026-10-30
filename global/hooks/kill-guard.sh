@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # PreToolUse hook: a session may only kill what it can PROVE it started.  CFG-694.
 #
-# MG, 2026-09-23: "you need to learn some control and discipline when killing processes
+# The user, 2026-09-23: "you need to learn some control and discipline when killing processes
 # before you kill something important by mistake!!!" — and, on a proposal that he approve
 # kills by PID: "did you think i would know processes by PID?? ridiculous, do better —
 # this is cfg job". So no human is in the loop here; ownership is proved mechanically.

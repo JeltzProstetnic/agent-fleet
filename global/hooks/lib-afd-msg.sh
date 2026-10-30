@@ -224,7 +224,7 @@ except Exception: print(0)" 2>/dev/null
 
 # afd_wake_hint <me> <session_id> — CFG-776. A session drains its queue only on its
 # own next prompt, so a message filed for an IDLE session waits forever unless some
-# other session wakes it (2026-10-19: MG's @aiware messages sat 10+ min). Hooks
+# other session wakes it (2026-10-19: the user's @aiware messages sat 10+ min). Hooks
 # cannot call SendMessage, so every hook that sees the model prints this hint: one
 # line naming each OTHER project whose queue has been undelivered for longer than
 # AFD_WAKE_AFTER seconds (default 30), at most once per session per message id.
@@ -253,5 +253,5 @@ for l in open(sys.argv[1]):
         [[ -n "$new" ]] && out="$out @$p:$new;"
     done
     [[ -n "$out" ]] || return 0
-    echo "TELEGRAM_UNDELIVERED (CFG-776):${out%;} — Telegram message(s) from MG are queued for another project whose session has not picked them up (it is probably idle; a session drains its queue only on its next prompt). Do not act on them. Run ListAgents and SendMessage each named project's session: \"Telegram message(s) are queued for you; your prompt hook delivers them.\" If no such session is live, tell MG: afd notify all \"[$me] @<project> has no live session; your message waits for its next start\" --channel telegram"
+    echo "TELEGRAM_UNDELIVERED (CFG-776):${out%;} — Telegram message(s) from the user are queued for another project whose session has not picked them up (it is probably idle; a session drains its queue only on its next prompt). Do not act on them. Run ListAgents and SendMessage each named project's session: \"Telegram message(s) are queued for you; your prompt hook delivers them.\" If no such session is live, tell the user: afd notify all \"[$me] @<project> has no live session; your message waits for its next start\" --channel telegram"
 }

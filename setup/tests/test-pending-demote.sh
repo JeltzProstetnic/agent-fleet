@@ -244,7 +244,7 @@ run_test "demote-check: missing .git → exit 0, not flagged" test_demote_no_git
 # get_tracked_prns reads the <!-- Tracked-by: --> comment form every real
 # pending file uses, so --demote-check now sees their IDs. A commit that only
 # cites an ID ("groundwork; CFG-665 itself stays open") then produced
-# "DEMOTE: <file> (CFG-665 shipped …)" for MG's live action list while the
+# "DEMOTE: <file> (CFG-665 shipped …)" for the user's live action list while the
 # backlog still had CFG-665 open. The backlog's own line for the ID vetoes.
 
 create_comment_form_pending() {

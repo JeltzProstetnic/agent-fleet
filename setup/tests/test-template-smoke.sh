@@ -287,35 +287,72 @@ test_no_personal_data_patterns() {
     setup_smoke_clone
     trap cleanup_smoke_clone RETURN
 
-    # Personal data patterns that should NEVER appear in the template
-    # Generic enough to catch leaks without being developer-specific
-    local patterns=(
-        '/home/jeltz'
-        '/home/deck'
-        '/home/gruber'
-        'jeltz.prostetnic@gmail.com'
-        'matthias@matthiasgruber.com'
-        'gutachten@matthiasgruber.com'
-        'DESKTOP-32ILURB'
-        'srv943133'
-        '192.168.50.199'
-        '109.106.246.63'
-        'mycloudex2ultra'
-        'ZH4HyxgrcabYR5ap'
-    )
-
-    for pattern in "${patterns[@]}"; do
-        local hits
-        hits=$(grep -rl --include='*.md' --include='*.sh' --include='*.json' \
-            "$pattern" "$SMOKE_DIR" 2>/dev/null \
-            | grep -v '.git/' \
-            | grep -v 'setup/tests/' \
-            || true)
-        assert_eq "" "$hits" \
-            "personal data pattern '$pattern' found in: $hits"
-    done
+    # Identifier SHAPES, not one owner's literals (CFG-869): a home directory, a
+    # hostname class, an IPv4 address, an e-mail address — read from the same
+    # definitions the pre-push guard uses, so the two cannot drift. The literal
+    # list this test used to carry was itself the leak.
+    local shapes="$SMOKE_DIR/.githooks/leak-shapes.sh"
+    assert_file_exists "$shapes" "the template must ship its leak shapes" || return 1
+    # Not `source`: bash fires a RETURN trap when a sourced file finishes, which would
+    # run cleanup_smoke_clone here and sweep an empty directory (measured: 0 hits
+    # against a tree that had two).
+    local SHAPE_PATTERNS SHAPE_ALLOW
+    eval "$(grep -E '^(SHAPE_PATTERNS|SHAPE_ALLOW)=' "$shapes")"
+    [ -n "$SHAPE_PATTERNS" ] && [ -n "$SHAPE_ALLOW" ] || { assert_eq "shapes" "" "leak-shapes.sh must define SHAPE_PATTERNS and SHAPE_ALLOW"; return 1; }
+    local hits
+    hits=$(grep -rnoE --include='*.md' --include='*.sh' --include='*.json' \
+            --include='*.yml' --include='*.yaml' --include='*.conf' --include='*.js' \
+            "$SHAPE_PATTERNS" "$SMOKE_DIR" 2>/dev/null \
+        | grep -v '/\.git/' \
+        | grep -v '/setup/tests/' \
+        | grep -v '/\.githooks/' \
+        | grep -vE "$SHAPE_ALLOW" \
+        || true)
+    echo "    measured: $(printf '%s' "$hits" | grep -c .) identifier-shaped token(s) outside tests and hooks"
+    assert_eq "" "$hits" "identifier-shaped tokens found in template files: $hits"
 }
-run_test "no personal data patterns in template files" test_no_personal_data_patterns
+run_test "no identifier-shaped tokens in template files (CFG-869)" test_no_personal_data_patterns
+
+test_pre_push_guard_passes_on_a_clean_clone() {
+    setup_smoke_clone
+    trap cleanup_smoke_clone RETURN
+
+    # The product: the template's own push guard, run by hand (no refs on stdin
+    # means HEAD), must let the template's HEAD through.
+    local out rc=0
+    out=$(bash "$SMOKE_DIR/.githooks/pre-push" </dev/null 2>&1) || rc=$?
+    echo "    measured: pre-push rc=$rc"
+    assert_eq "0" "$rc" "the template's pre-push guard must pass on its own HEAD: $out"
+}
+run_test "the template's pre-push guard passes on a clean clone (CFG-869)" test_pre_push_guard_passes_on_a_clean_clone
+
+test_vault_ciphertext_is_ignored_by_default() {
+    setup_smoke_clone
+    trap cleanup_smoke_clone RETURN
+
+    # CFG-869 (Q5): committing the encrypted vault is OPT-IN. A fresh clone must
+    # not stage either the plaintext or the ciphertext by default.
+    printf 'ciphertext-fixture\n' > "$SMOKE_DIR/setup/secrets/vault.json.enc"
+    printf '{}\n' > "$SMOKE_DIR/setup/secrets/vault.json"
+    local visible
+    visible=$(git -C "$SMOKE_DIR" status --porcelain --untracked-files=all -- setup/secrets)
+    echo "    measured: git status for setup/secrets = [$visible]"
+    assert_eq "" "$visible" "vault.json and vault.json.enc must both be invisible to git by default" || return 1
+    local rc=0; git -C "$SMOKE_DIR" check-ignore -q setup/secrets/vault.json.enc || rc=$?
+    assert_eq "0" "$rc" "setup/secrets/vault.json.enc must be gitignored (opt in by un-ignoring it)"
+}
+run_test "committing the encrypted vault is opt-in, not the default (CFG-869)" test_vault_ciphertext_is_ignored_by_default
+
+test_no_session_artefacts_in_docs() {
+    setup_smoke_clone
+    trap cleanup_smoke_clone RETURN
+
+    # Inbox-intake notes and pending files are one deployment's session state.
+    local stray
+    stray=$(find "$SMOKE_DIR/docs" -maxdepth 1 \( -name 'inbox-intake-*.md' -o -name 'pending-*.md' \) 2>/dev/null || true)
+    assert_eq "" "$stray" "session artefacts must not ship in the template: $stray"
+}
+run_test "no inbox-intake or pending session artefacts in docs/ (CFG-869)" test_no_session_artefacts_in_docs
 
 test_no_personal_domains_files() {
     setup_smoke_clone

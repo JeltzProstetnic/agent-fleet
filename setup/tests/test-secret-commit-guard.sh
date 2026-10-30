@@ -122,6 +122,47 @@ test_env_override_arms_a_repo_without_its_own_fingerprints() {
 }
 run_test "env override arms value-matching in a repo with no fingerprints of its own" test_env_override_arms_a_repo_without_its_own_fingerprints
 
+# ── 1c. The template layout: fingerprints under setup/secrets/ (CFG-869) ──────
+# The public template ships its vault scaffold as setup/secrets/, not secrets/.
+# With FP_FILE fixed to "$ROOT/secrets/…" the value detector never armed in a
+# template clone even when the fingerprint files existed. Both layouts must work.
+_run_guard_no_env() {  # like _run_guard, but with NO fingerprint env override at all
+    local repo="$1" cmd="$2" rc=0
+    printf '{"tool_name":"Bash","tool_input":{"command":%s}}' \
+        "$(python3 -c 'import json,sys;print(json.dumps(sys.argv[1]))' "$cmd")" \
+        | (cd "$repo" && env -u CC_SECRET_FINGERPRINTS -u CC_SECRET_SALT bash "$GUARD") \
+          2>"$TEST_TMPDIR/guard.err" || rc=$?
+    return "$rc"
+}
+test_setup_secrets_layout_arms_value_detector() {
+    local repo; repo="$(_mkrepo)"
+    # Move the scaffold to the template layout: setup/secrets/, no secrets/ at all.
+    mkdir -p "$repo/setup/secrets"; rmdir "$repo/secrets" 2>/dev/null || true
+    [ -d "$repo/secrets" ] && return 1
+    local salt="testsalt0123456789"
+    printf '%s' "$salt" > "$repo/setup/secrets/.fingerprint-salt"
+    python3 -c 'import hashlib,sys;print(hashlib.sha256((sys.argv[1]+sys.argv[2]).encode()).hexdigest())' \
+        "$salt" "correct-horse-battery-staple" > "$repo/setup/secrets/.secret-fingerprints"
+    _stage "$repo" "reports/audit.md" \
+        "The audit found the passphrase correct-horse-battery-staple in a gitignored file."
+    local rc=0; _run_guard_no_env "$repo" "git commit -m 'audit report'" || rc=$?
+    echo "    measured: rc=$rc with fingerprints under setup/secrets/ and no secrets/ dir"
+    assert_eq "2" "$rc" "fingerprints under setup/secrets/ (template layout) must arm the value detector"
+}
+run_test "template layout: fingerprints under setup/secrets/ arm the value detector (CFG-869)" \
+    test_setup_secrets_layout_arms_value_detector
+
+test_secrets_layout_still_preferred_when_both_exist() {
+    local repo; repo="$(_mkrepo)"
+    _mkfingerprints "$repo" "correct-horse-battery-staple"        # secrets/ (root layout)
+    mkdir -p "$repo/setup/secrets"                                  # an EMPTY template dir beside it
+    _stage "$repo" "reports/audit.md" "passphrase correct-horse-battery-staple written as prose"
+    local rc=0; _run_guard_no_env "$repo" "git commit -m 'audit report'" || rc=$?
+    assert_eq "2" "$rc" "with both dirs present the root secrets/ fingerprints must still be read"
+}
+run_test "root secrets/ layout keeps precedence when setup/secrets/ also exists (CFG-869)" \
+    test_secrets_layout_still_preferred_when_both_exist
+
 # The deployment half: the override must actually be SET, or the code path above
 # is dead everywhere. Asserts the shipped settings template arms it.
 test_settings_template_arms_the_override() {

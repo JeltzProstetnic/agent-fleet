@@ -14,7 +14,7 @@ Tests silently hit a live production service because client code defaults to a h
 
 ```python
 # In client code -- the anti-pattern
-url = os.getenv("SERVICE_URL", DEFAULT_PROD_URL)  # DEFAULT_PROD_URL = "http://192.168.1.10:8080"
+url = os.getenv("SERVICE_URL", DEFAULT_PROD_URL)  # DEFAULT_PROD_URL = "http://192.0.2.10:8080"
 ```
 
 When the test environment doesn't set `SERVICE_URL`, every test that exercises the client sends real HTTP requests to the production server. This causes:
@@ -54,7 +54,7 @@ Tests that genuinely need HTTP must explicitly override with a mock or test-inst
 
 ```python
 # NEVER do this -- env var default pointing to production
-DEFAULT_URL = "http://192.168.1.10:8080"
+DEFAULT_URL = "http://192.0.2.10:8080"
 url = os.getenv("SERVICE_URL", DEFAULT_URL)
 
 # INSTEAD -- fail fast when env var is missing

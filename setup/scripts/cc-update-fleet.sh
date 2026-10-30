@@ -18,7 +18,7 @@
 #   - a target that is not a concrete x.y.z
 #   - a source binary that does not report the target version
 #   - a host whose arch does not match the binary
-#   - a host with a live Claude Code session (MG uses the Decks in bed) — --force overrides
+#   - a host with a live Claude Code session (the user uses the Decks in bed) — --force overrides
 #
 # Tests: setup/tests/test-cc-update-fleet.sh (transport stubbed via CC_FLEET_SSH/SCP).
 set -euo pipefail

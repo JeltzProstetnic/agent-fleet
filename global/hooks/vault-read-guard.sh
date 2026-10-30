@@ -28,7 +28,7 @@ fi
 
 # Must mention a vault plaintext as a path (preceded by /, space, or start; followed by
 # space, end, or non-alnum). Catches `secrets/vault.json`, ` vault.json`,
-# `~/cfg-agent-fleet/secrets/vault.json`, `secrets/other-vault.json`, etc.
+# `~/<config-repo>/secrets/vault.json`, `secrets/other-vault.json`, etc.
 # but NOT `test-vault-manage.sh` (no .json) or `vault.json.tmp` (alnum follows).
 if ! echo "$CMD" | grep -qE '(^|[[:space:]/])([A-Za-z0-9_]+-)?vault\.json([[:space:]]|$|[^a-zA-Z0-9.])'; then
     exit 0
@@ -234,15 +234,37 @@ if echo "$SCAN" | grep -qE '(^|[[:space:];&|])(rm|ls|stat|chmod|chown|file|test|
     fi
 fi
 
+# Where is vault-manage.sh? Resolved at RUN TIME so that no copy of this hook — it
+# ships verbatim in the public template — spells out one deployment's vault location
+# (CFG-869). Order: CC_VAULT_MANAGE; the config repo this hook was deployed from
+# (~/.claude/foundation is a symlink into <repo>/global/, and from a checkout the
+# hook's own parent is <repo>/global/hooks); the conventional checkout names. Each
+# root is tried in both layouts, secrets/ (private config repo) and setup/secrets/
+# (template clone). Nothing found: a placeholder, never a hard-coded path.
+_vault_manage_path() {
+    local root c
+    [ -n "${CC_VAULT_MANAGE:-}" ] && [ -f "$CC_VAULT_MANAGE" ] && { printf '%s' "$CC_VAULT_MANAGE"; return; }
+    root=$(readlink -f "$(dirname "${BASH_SOURCE[0]}")/../foundation" 2>/dev/null) || root=""
+    root="${root%/global/foundation}"
+    for root in "$root" "$HOME/cfg-agent-fleet" "$HOME/agent-fleet"; do
+        [ -n "$root" ] || continue
+        for c in "$root/secrets/vault-manage.sh" "$root/setup/secrets/vault-manage.sh"; do
+            [ -f "$c" ] && { printf '%s' "$c"; return; }
+        done
+    done
+    printf '%s' '<config-repo>/secrets/vault-manage.sh'
+}
+
 # Block: command contains a read primitive or copy-elsewhere primitive
 if echo "$SCAN" | grep -qE '\b(cat|head|tail|less|more|grep|awk|sed|jq|xxd|od|python[23]?|node|cp|mv|tee|tar|zip)\b'; then
-    cat >&2 <<'BLOCKED_MSG'
+    VM=$(_vault_manage_path)
+    cat >&2 <<BLOCKED_MSG
 BLOCKED: Direct read/copy of secrets/vault.json bypasses vault-manage.sh and risks
 stale-plaintext drift (LRN S210). Use the canonical tool instead:
 
-  bash ~/cfg-agent-fleet/secrets/vault-manage.sh decrypt   # decrypt to vault.json
-  bash ~/cfg-agent-fleet/secrets/vault-manage.sh deploy    # deploy tokens to targets
-  bash ~/cfg-agent-fleet/secrets/vault-manage.sh status    # show keys (no decryption)
+  bash $VM decrypt   # decrypt to vault.json
+  bash $VM deploy    # deploy tokens to targets
+  bash $VM status    # show keys (no decryption)
 
 There is ONE vault and one passphrase (see knowledge/vault-ops.md).
 

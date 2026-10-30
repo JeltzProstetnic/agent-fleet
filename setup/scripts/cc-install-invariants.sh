@@ -27,7 +27,7 @@
 #   CC_INSTALL_SNAPSHOT      ${XDG_CACHE_HOME:-$HOME/.cache}/cfg-agent-fleet/cc-install.snapshot
 #   CC_SETTINGS_TEMPLATE     <repo>/setup/config/settings.json   (the env-key policy)
 #   CC_SETTINGS_OVERLAY_DIR  <repo>/setup/config/machines        (per-machine env-key policy)
-#   CC_VAULT_MANAGE          <repo>/secrets/vault-manage.sh      (keys vault deploy injects)
+#   CC_VAULT_MANAGE          <repo>/secrets/vault-manage.sh, else <repo>/setup/secrets/… (keys vault deploy injects)
 # Output: one line per check — OK: / FAIL: <TAG> / WARN: / INFO: — every line carries the
 # MEASURED values, never a restated assertion. Tags: DOWNGRADE RANGE VARIANT LAUNCHER
 # UNREQUESTED SETTINGS EXPECT UNKNOWN. Exit 1 on any FAIL, else 0.
@@ -43,7 +43,11 @@ LAUNCHER="${CC_LAUNCHER:-$HOME/.local/bin/mclaude}"
 SNAPSHOT="${CC_INSTALL_SNAPSHOT:-${XDG_CACHE_HOME:-$HOME/.cache}/cfg-agent-fleet/cc-install.snapshot}"
 TEMPLATE="${CC_SETTINGS_TEMPLATE:-$REPO_ROOT/setup/config/settings.json}"
 OVERLAY_DIR="${CC_SETTINGS_OVERLAY_DIR:-$REPO_ROOT/setup/config/machines}"
-VAULT_MANAGE="${CC_VAULT_MANAGE:-$REPO_ROOT/secrets/vault-manage.sh}"
+# Both layouts (CFG-869): secrets/ at the repo root (the private config repo) or
+# setup/secrets/ (a template clone). Root wins when both exist; the env override wins.
+_VM_DEFAULT="$REPO_ROOT/secrets/vault-manage.sh"
+[[ -f "$_VM_DEFAULT" ]] || _VM_DEFAULT="$REPO_ROOT/setup/secrets/vault-manage.sh"
+VAULT_MANAGE="${CC_VAULT_MANAGE:-$_VM_DEFAULT}"
 PKG_JSON="$MIRROR/npm/node_modules/@anthropic-ai/claude-code/package.json"
 NPM_ROOT_PKG="$MIRROR/npm/package.json"
 VARIANT="$MIRROR/variant.json"

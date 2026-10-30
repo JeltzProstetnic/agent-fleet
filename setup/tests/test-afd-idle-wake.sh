@@ -102,7 +102,7 @@ test_resumes_after_question_answered() {
 run_test "the waiter resumes delivery once the question is answered" test_resumes_after_question_answered
 
 # CFG-779: untagged lines are pooled while any relay waits; the relays claim from the pool
-# (lib-afd-pool.sh), so an idle waiter must leave it alone. A line MG redirected to this
+# (lib-afd-pool.sh), so an idle waiter must leave it alone. A line the user redirected to this
 # project through an ask-back sits in its own queue and is delivered like any other.
 test_pool_not_drained_while_a_relay_waits() {
     setup_env

@@ -247,6 +247,57 @@ EOF
 }
 run_test "successful full push to private remote" test_push_to_private
 
+# ── 10b. This repo's OWN .push-filter.conf is effective (CFG-869) ───────────
+# Every exclude= / exclude_glob= line of the shipped conf gets a fixture file at a
+# matching path; after filtering none may survive and an ordinary doc must. On top
+# of that the conf must cover the vault ciphertext (`vault.json.enc`, in whichever
+# layout this repo keeps it) and `docs/inbox-intake-*.md` session artefacts. A
+# renamed path that silently stops matching is exactly what this catches.
+_fixture_for_exclusion() {  # <exclude value> -> a relative path that matches it
+    local p="$1"
+    p="${p//\*/fixture}"                 # a glob star becomes a plain name
+    [[ "$p" == */ ]] && p="${p}fixture.md"   # a directory becomes a file in it
+    printf '%s' "$p"
+}
+test_shipped_conf_is_effective() {
+    setup_dual_remote_repo "$TEST_TMPDIR"
+    local repo="$TEST_TMPDIR/repo" conf="$REPO_ROOT/.push-filter.conf"
+    # The shipped conf names origin/template; give the fixture those remote names.
+    git -C "$repo" remote add origin "$TEST_TMPDIR/private.git"
+    git -C "$repo" remote add template "$TEST_TMPDIR/public.git"
+    git -C "$repo" fetch -q template 2>/dev/null || true
+    cp "$conf" "$repo/.push-filter.conf"
+    local excl; excl=$(grep -E '^exclude(_glob)?=' "$conf" | cut -d= -f2-)
+    assert_contains "$excl" "vault.json.enc" "the shipped conf must exclude the vault ciphertext (CFG-869)" || return 1
+    assert_contains "$excl" "docs/inbox-intake-*.md" "the shipped conf must exclude inbox-intake notes (CFG-869)" || return 1
+    local fixtures=() x f
+    while IFS= read -r x; do
+        [ -n "$x" ] || continue
+        f=$(_fixture_for_exclusion "$x")
+        mkdir -p "$repo/$(dirname "$f")"
+        printf 'fixture for %s\n' "$x" > "$repo/$f"
+        fixtures+=("$f")
+    done <<< "$excl"
+    mkdir -p "$repo/docs"; printf 'keep\n' > "$repo/docs/keep.md"
+    git -C "$repo" add -A -f
+    git -C "$repo" commit -qm "fixtures" 2>/dev/null
+    local out rc=0
+    out=$(cd "$repo" && bash "$SCRIPT" --dry-run 2>&1) || rc=$?
+    assert_eq "0" "$rc" "dry-run with the shipped conf must succeed: $out" || return 1
+    local commit; commit=$(printf '%s\n' "$out" | sed -n 's/.*Would push filtered commit \([0-9a-f]*\).*/\1/p' | head -1)
+    [ -n "$commit" ] || { assert_eq "a commit sha" "" "dry-run must report the filtered commit"; return 1; }
+    local tree; tree=$(git -C "$repo" ls-tree -r --name-only "$commit")
+    local survivors=""
+    for f in "${fixtures[@]}"; do
+        printf '%s\n' "$tree" | grep -qxF "$f" && survivors+="$f "
+    done
+    echo "    measured: ${#fixtures[@]} exclusion fixture(s), $(printf '%s\n' "$tree" | grep -c .) file(s) left in the filtered tree, survivors=[${survivors:-none}]"
+    assert_eq "" "$survivors" "every shipped exclusion must remove its fixture: $survivors" || return 1
+    assert_contains "$tree" "docs/keep.md" "ordinary docs must survive"
+}
+run_test "shipped .push-filter.conf: every exclusion is effective; vault ciphertext and inbox-intake notes covered (CFG-869)" \
+    test_shipped_conf_is_effective
+
 # ── 11. Filtered push excludes paths correctly ─────────────────────────────
 
 test_filtered_push_excludes_paths() {

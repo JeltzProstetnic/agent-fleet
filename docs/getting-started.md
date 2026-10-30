@@ -64,13 +64,13 @@ You should see symlinks confirmed and no errors. If something is broken, it tell
 If you configured MCP servers that need tokens:
 
 ```bash
-cp ~/agent-fleet/secrets/vault.json.example ~/agent-fleet/secrets/vault.json
+cp ~/agent-fleet/setup/secrets/vault.json.example ~/agent-fleet/setup/secrets/vault.json
 # Edit vault.json with your tokens (never commit this file — it's gitignored)
-bash ~/agent-fleet/secrets/vault-manage.sh encrypt
-bash ~/agent-fleet/secrets/vault-manage.sh deploy
+bash ~/agent-fleet/setup/secrets/vault-manage.sh encrypt
+bash ~/agent-fleet/setup/secrets/vault-manage.sh deploy
 ```
 
-Only the encrypted `.enc` file is committed. Your tokens never appear in git history.
+Both files are gitignored. Committing the encrypted `.enc` file so it travels with your repo is opt-in — `setup/secrets/.gitignore` says how. Your plaintext tokens never appear in git history.
 
 ---
 

@@ -10,7 +10,7 @@
 # was filed as a RULE change, parked behind Meta-Rules consent nobody ever requested. The
 # knowledge that would have prevented it lives in on-demand files (fleet-capabilities.md
 # §pkill) that are never in context at the moment someone types pkill — a rule cannot fire
-# where it is not loaded, which is why MG ordered this shipped as a hook instead.
+# where it is not loaded, which is why the user ordered this shipped as a hook instead.
 #
 # The safe forms: a self-excluding character class — [c]ru181 matches the string "cru181"
 # but the literal text "[c]ru181" in the shell's own argv does not match the regex — or

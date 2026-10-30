@@ -829,7 +829,7 @@ test_pending_files_comment_form_action() {
 
     printf '<!-- Action: reference -->\n<!-- Tracked-by: CFG-900 -->\n# Held for context\n' \
         > "$project_dir/docs/pending-comment-ref.md"
-    printf '<!-- Action: await-user-decision -->\n# Needs MG\n' \
+    printf '<!-- Action: await-user-decision -->\n# Needs the user\n' \
         > "$project_dir/docs/pending-comment-await.md"
 
     local patched

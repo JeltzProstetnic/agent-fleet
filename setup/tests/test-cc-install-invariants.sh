@@ -189,6 +189,45 @@ test_settings_env_declared_by_template_passes() {
 }
 run_test "SETTINGS: key declared by template is not drift (template is the policy)" test_settings_env_declared_by_template_passes
 
+# ── 10b. SETTINGS: vault-injected keys are found in BOTH repo layouts (CFG-869) ──
+# VAULT_MANAGE defaulted to <repo>/secrets/vault-manage.sh — the private config
+# repo's layout. The public template ships setup/secrets/, so in a template clone
+# the keys vault deploy injects were never read as policy and SETTINGS false-failed
+# on every one of them. Prove it with a copy of the guard inside a scratch checkout.
+_layout_guard() {  # _layout_guard <root> ; copies the guard to <root>/setup/scripts and runs it
+    local root="$1" rc=0
+    mkdir -p "$root/setup/scripts"
+    cp "$GUARD" "$root/setup/scripts/cc-install-invariants.sh"
+    OUT=$(PATH="$MOCKBIN:$PATH" CC_MIRROR_DIR="$MIRROR" CC_LAUNCHER="$LAUNCHER" \
+          CC_INSTALL_SNAPSHOT="$SNAP" CC_SETTINGS_TEMPLATE="$TMPL" CC_VAULT_MANAGE= \
+          bash "$root/setup/scripts/cc-install-invariants.sh" 2>&1) || rc=$?
+    RC=$rc
+    echo "    measured rc=$RC; SETTINGS FAIL count=[$(printf '%s' "$OUT" | grep -c '^FAIL: SETTINGS')]"
+}
+test_vault_keys_read_from_setup_secrets_layout() {
+    fx 2.1.280 '^2.1.280' false
+    local root="$TEST_TMPDIR/tplclone"
+    mkdir -p "$root/setup/secrets"
+    printf "env['ZZ_KEY_FROM_VAULT_DEPLOY'] = 'x'\n" > "$root/setup/secrets/vault-manage.sh"
+    fixture_settings_env "$MIRROR" ZZ_KEY_FROM_VAULT_DEPLOY 1
+    _layout_guard "$root"
+    assert_not_contains "$OUT" "FAIL: SETTINGS" "a key declared by setup/secrets/vault-manage.sh is policy in a template clone"
+}
+run_test "SETTINGS: vault-injected keys are read from setup/secrets/ (template layout, CFG-869)" \
+    test_vault_keys_read_from_setup_secrets_layout
+
+test_vault_keys_absent_without_any_vault_manage_still_fail() {
+    # The counter-case: the same key with NO vault-manage.sh in either layout must
+    # still be drift — otherwise the test above would pass for the wrong reason.
+    fx 2.1.280 '^2.1.280' false
+    local root="$TEST_TMPDIR/novault"
+    fixture_settings_env "$MIRROR" ZZ_KEY_FROM_VAULT_DEPLOY 1
+    _layout_guard "$root"
+    assert_contains "$OUT" "FAIL: SETTINGS" "with no vault-manage.sh anywhere the key is undeclared and must fail"
+}
+run_test "SETTINGS: the same key with no vault-manage.sh in either layout still fails (CFG-869)" \
+    test_vault_keys_absent_without_any_vault_manage_still_fail
+
 # ── 10c. SETTINGS: the cc-mirror-managed env keys are policy, not drift ───────
 # cc-mirror injects a fixed quiet-mode/feature env set into the live settings.json on
 # every install/update. sync.sh's env merge PRESERVES them but never writes them, and the

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Tests for global/hooks/kill-guard.sh — CFG-694.
 #
-# MG rejected the behavioural form of this outright ("did you think i would know processes
+# The user rejected the behavioural form of this outright ("did you think i would know processes
 # by PID?? ridiculous, do better - this is cfg job"), so ownership is proved mechanically:
 # same session id, or written down by a fleet launcher at launch.
 #

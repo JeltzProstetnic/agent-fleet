@@ -597,7 +597,7 @@ bash setup/secrets/vault-manage.sh encrypt
 bash setup/secrets/vault-manage.sh deploy
 ```
 
-`vault.json` is gitignored. Only the encrypted `.enc` file is committed.
+`vault.json` and `vault.json.enc` are both gitignored. Committing the ciphertext so it travels with your repo is opt-in — `setup/secrets/.gitignore` says how.
 
 ### Before pushing
 

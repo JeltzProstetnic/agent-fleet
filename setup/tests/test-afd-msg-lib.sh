@@ -414,7 +414,7 @@ test_telegram_afk_in_sentence_is_a_message() {
 run_test "'afk' inside a sentence is an ordinary message" test_telegram_afk_in_sentence_is_a_message
 
 # ── CFG-776: an idle session never drains its queue; another session must wake it ──
-# 2026-10-19: MG's @aiware messages sat 10+ min in aiware.jsonl because aiware was
+# 2026-10-19: the user's @aiware messages sat 10+ min in aiware.jsonl because aiware was
 # idle and the session that routed them was blocked in an AFK wait loop.
 
 queue_for() {  # queue_for <project> <age e.g. '-2 minutes'|now> <id>...

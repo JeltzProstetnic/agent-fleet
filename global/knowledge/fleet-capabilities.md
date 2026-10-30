@@ -67,7 +67,7 @@ The foundation everything else runs on.
 |---------|-------------|-----------|
 | Multi-machine identity | Hostname detection → machine profile auto-loading | `CLAUDE.md` identity table, `machines/*.md` |
 | sync.sh | Bidirectional sync: repo ↔ deployed config (setup/deploy/collect/status/stamp) | `sync.sh` |
-| Vault | Single encrypted secrets store (AES-256-CBC), deploy to all targets | `secrets/vault.json.enc`, `vault-manage.sh` |
+| Vault | Single encrypted secrets store (openssl, passphrase-protected), deploy to all targets | `setup/secrets/vault.json.enc`, `vault-manage.sh` |
 | Registry | Project catalog with parent/child relationships, machine assignments | `registry.md` |
 | Template sync | Personal config repo → public agent-fleet repo with push-filter sanitization | `sync.sh deploy`, `.push-filter.conf` |
 | Hooks | SessionStart (config-check.sh, 34 checks), SessionEnd (auto-sync), PreToolUse (AFD relay), PostToolUse (auto-lint for Write/Edit), UserPromptSubmit (AFK deactivate, context budget) | `global/hooks/` |

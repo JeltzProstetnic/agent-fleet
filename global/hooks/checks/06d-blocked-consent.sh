@@ -5,7 +5,7 @@
 #
 # An item parked behind a consent step nobody requests is indistinguishable
 # from a dropped one: CFG-597 sat 11 days behind "blocked on Meta-Rules
-# consent" with no protocol step putting it in front of MG, and recurred as
+# consent" with no protocol step putting it in front of the user, and recurred as
 # CFG-693. This lists every OPEN item marked as needing consent, every
 # session, in the WARNING channel (same as STALE_AWAIT) — a hook, not a rule,
 # because a rule cannot fire where it is not loaded. 0 LLM tokens, bounded to
@@ -23,7 +23,7 @@
 _bc_backlog="$PROJECT_DIR/backlog.md"
 if [ -f "$_bc_backlog" ]; then
     _bc_need='(need|needs|require|requires|requiring|await|awaits|awaiting|blocked[- ]on|pending|through|via|→)[^.;:]{0,30}consent|consent[- ](required|needed|pending)'
-    # An item whose own open line records MG's answer is no longer parked (2026-09-29).
+    # An item whose own open line records the user's answer is no longer parked (2026-09-29).
     _bc_resolved='\bAPPROVED\b|[Nn]o consent needed|reclassified'
     _bc_ids=""
     _bc_lines=$(sed -E 's/consent[- ](screen|marker|gated)//g; s/\.artifact-consent//g' "$_bc_backlog" 2>/dev/null \

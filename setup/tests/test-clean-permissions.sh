@@ -148,7 +148,7 @@ run_test "runs without arguments (defaults to HOME)" test_default_scans_home
 #
 # Everything above pins the script's ORIGINAL purpose and predates this work.
 # What follows pins the fix for the defect that made it destructive: it deleted
-# the whole `permissions` key from every project unconditionally, so a block MG
+# the whole `permissions` key from every project unconditionally, so a block the user
 # authored on 2026-08-15 (a project allow-list, so an unattended GPU run would
 # not stop on prompts) was written, verified, and deleted at the next session
 # start. A user-authored permissions block could not survive one session boundary.

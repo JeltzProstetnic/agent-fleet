@@ -74,7 +74,7 @@ run_test "apt install triggers reminder" test_apt_install_detected
 
 test_regular_command_ignored() {
     local input
-    input=$(make_input "Bash" "ls -la /home/deck" "total 42")
+    input=$(make_input "Bash" "ls -la /home/alice" "total 42")
     local output
     output=$(run_hook "$input")
     assert_eq "" "$output" "no output for regular command" || return 1
@@ -83,7 +83,7 @@ run_test "regular command produces no reminder" test_regular_command_ignored
 
 test_non_bash_tool_ignored() {
     local input
-    input=$(make_input "Read" "/home/deck/file.txt" "contents")
+    input=$(make_input "Read" "/home/alice/file.txt" "contents")
     local output
     output=$(run_hook "$input")
     assert_eq "" "$output" "no output for non-Bash tool" || return 1

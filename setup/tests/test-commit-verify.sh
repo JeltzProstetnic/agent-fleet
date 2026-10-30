@@ -81,7 +81,7 @@ run_test "failed git commit does not trigger verification" test_failed_commit_si
 # Test 8: Commit touching global/ triggers propagation reminder
 test_global_propagation() {
     local output
-    output=$(run_hook "git -C /home/deck/cfg-agent-fleet add global/CLAUDE.md && git -C /home/deck/cfg-agent-fleet commit -m 'Update rules'" "[main aaa1111] Update rules
+    output=$(run_hook "git -C /home/alice/cfg-agent-fleet add global/CLAUDE.md && git -C /home/alice/cfg-agent-fleet commit -m 'Update rules'" "[main aaa1111] Update rules
  1 file changed, 1 insertion(+)
  global/CLAUDE.md | 1 +")
     assert_contains "$output" "PROPAGATION"

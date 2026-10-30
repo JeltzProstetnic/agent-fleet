@@ -1,6 +1,6 @@
 # Vault Operations
 
-Operational procedures for the fleet's secret vault. The vault itself is at `~/agent-fleet/setup/secrets/vault.json.enc` (AES-256-CBC, PBKDF2, openssl). Only the config project owns the vault — no other project maintains its own secrets.
+Operational procedures for the fleet's secret vault. The vault itself is at `~/agent-fleet/setup/secrets/vault.json.enc`, an openssl-encrypted file whose cipher and key-derivation parameters live in `vault-manage.sh`, not in prose. Only the config project owns the vault — no other project maintains its own secrets.
 
 ## vault-manage.sh
 
