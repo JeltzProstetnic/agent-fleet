@@ -258,7 +258,7 @@ run_test "CFG-662: a base64 run containing AKIA passes; a standalone key id stil
 # "password": "…" — never matched and a real credential in a .json went
 # through. The CFG-662 placeholder case above passed for that wrong reason.
 # (b) FALSE POSITIVE: a lowercase YAML/env key such as smtp_password with the
-# ALL_CAPS placeholder CHANGE_ME_PASSWORD blocked. The fix (MG, option i) allows an
+# ALL_CAPS placeholder CHANGE_ME_PASSWORD blocked. The chosen fix (option i) allows an
 # optional '"' after the keyword and exempts a value shaped like a placeholder —
 # judged on the matched value only, never the line and never the filename. A
 # false negative is far worse than a false positive, so the exemption is kept
