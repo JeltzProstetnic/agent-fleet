@@ -58,6 +58,26 @@ test_appends_post_rotation_commits() {
 }
 run_test "appends post-rotation commits to session-log" test_appends_post_rotation_commits
 
+# CFG-687: cfg-agent-fleet sets color.ui/color.diff = always, so a bare `git log --oneline`
+# writes ANSI escapes into docs/session-log.md (52 lines carried them on 2026-10-30) and the
+# hash is invisible to any later grep.
+test_no_ansi_under_color_always() {
+    setup_post_rotation_repo "$TEST_TMPDIR"
+    git -C "$TEST_TMPDIR" config color.ui always
+    git -C "$TEST_TMPDIR" config color.diff always
+
+    echo "fix" > "$TEST_TMPDIR/fix.txt"
+    git -C "$TEST_TMPDIR" add fix.txt && git -C "$TEST_TMPDIR" commit -qm "colored commit"
+
+    bash "$APPEND_SCRIPT" "$TEST_TMPDIR"
+
+    local n
+    n=$(grep -c $'\x1b\[' "$TEST_TMPDIR/docs/session-log.md" || true)
+    assert_eq "0" "$n" "Post-shutdown line carries no ANSI escape (measured $n line(s) with ESC[ in the log)"
+    assert_file_contains "$TEST_TMPDIR/docs/session-log.md" "colored commit"
+}
+run_test "CFG-687: no ANSI escapes in the log under color.ui = always" test_no_ansi_under_color_always
+
 test_inserts_before_key_decisions() {
     setup_post_rotation_repo "$TEST_TMPDIR"
 

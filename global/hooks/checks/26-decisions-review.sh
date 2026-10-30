@@ -12,7 +12,8 @@
 
 _dr_file="${PROJECT_DIR:-$PWD}/docs/decisions.md"
 if [ -f "$_dr_file" ]; then
-    _dr_last=$(grep -m1 -E '^Last reviewed:' "$_dr_file" 2>/dev/null | sed -E 's/^Last reviewed:[[:space:]]*//; s/[[:space:]]+$//')
+    # The first YYYY-MM-DD on the line; a trailing note ("(DEC-1)") is not part of the date (CFG-755).
+    _dr_last=$(grep -m1 -E '^Last reviewed:' "$_dr_file" 2>/dev/null | grep -oE '[0-9]{4}-[0-9]{2}-[0-9]{2}' | head -1)
     _dr_epoch=""
     if [[ "$_dr_last" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]]; then
         _dr_epoch=$(date -d "$_dr_last" +%s 2>/dev/null || date -jf "%Y-%m-%d" "$_dr_last" +%s 2>/dev/null) || _dr_epoch=""

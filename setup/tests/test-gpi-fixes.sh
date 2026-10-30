@@ -276,4 +276,65 @@ test_statusline_render_triggers_cleanup() {
 }
 run_test "statusline render triggers cleanup of old completed ops" test_statusline_render_triggers_cleanup
 
+# ═══════════════════════════════════════════════════════════════════════════════
+# CFG-875: `done` exits 0 once the op is marked; `clear --dead` reaps idle ops that
+# carry no tmux_session (an 'LS tunnel' op sat on the statusline ~1 day).
+# ═══════════════════════════════════════════════════════════════════════════════
+
+suite_header "CFG-875: done exit code, idle reap of session-less ops"
+
+# Set an op's timestamps relative to now (seconds ago) in the test state file.
+_gpi_age() {  # <id> <started-ago> [<updated_at-ago>]
+    local now; now=$(date +%s)
+    local started=$((now - $2)) upd
+    upd=$((now - ${3:-$2}))
+    jq --arg id "$1" --argjson s "$started" --argjson u "$upd" \
+        '.ops[$id].started = $s | .ops[$id].updated_at = $u' "$TEST_TMPDIR/gpi-state.json" > "$TEST_TMPDIR/s.tmp"
+    mv "$TEST_TMPDIR/s.tmp" "$TEST_TMPDIR/gpi-state.json"
+}
+
+test_done_exit_0_when_sidecar_unwritable() {
+    gpi start op1 "job"
+    : > "$TEST_TMPDIR/blocker"   # a regular file where the sidecar's directory would go
+    local rc=0
+    GPI_STATE="$TEST_TMPDIR/gpi-state.json" GPI_COMPLETED="$TEST_TMPDIR/blocker/notdir/completed.json" "$GPI_SCRIPT" done op1 2>/dev/null || rc=$?
+    assert_eq "0" "$rc" "done exits 0 although the notification sidecar could not be written (measured rc=$rc)"
+    assert_neq "null" "$(gpi_field '.ops.op1.completed_at')" "the op is marked completed regardless"
+}
+run_test "CFG-875: done returns 0 once the op is marked, even if the sidecar write fails" test_done_exit_0_when_sidecar_unwritable
+
+test_clear_dead_reaps_idle_sessionless_op() {
+    gpi start idle7h "LS tunnel"          # no --tmux: never judged by tmux
+    gpi start idle1h "fresh job"
+    gpi start bumped "updated recently"
+    _gpi_age idle7h $((7*3600))
+    _gpi_age idle1h 3600
+    _gpi_age bumped $((7*3600)) 60        # started 7 h ago, last update 1 min ago
+    gpi clear --dead
+    assert_eq "null" "$(gpi_field '.ops.idle7h // null')" "op without tmux_session and no update for 7 h is reaped"
+    assert_eq "fresh job" "$(gpi_field '.ops.idle1h.label')" "an op idle for 1 h stays"
+    assert_eq "updated recently" "$(gpi_field '.ops.bumped.label')" "an old op that was updated recently stays"
+}
+run_test "CFG-875: clear --dead reaps a session-less op idle > 6 h, keeps fresh and recently-updated ones" test_clear_dead_reaps_idle_sessionless_op
+
+test_update_refreshes_updated_at() {
+    gpi start op1 "job"
+    _gpi_age op1 $((7*3600))
+    gpi update op1 --pct 50
+    local now; now=$(date +%s)
+    local u; u=$(gpi_field '.ops.op1.updated_at // 0')
+    (( now - u < 60 )) && ok=0 || ok=1
+    assert_eq "0" "$ok" "gpi update stamps the op's updated_at (measured age $((now - u)) s)"
+    assert_eq "$(gpi_field '.ops.op1.started')" "$(jq -r '.ops.op1.started' "$TEST_TMPDIR/gpi-state.json")" "started is untouched"
+}
+run_test "CFG-875: gpi update refreshes the op's updated_at, start sets it" test_update_refreshes_updated_at
+
+test_clear_dead_keeps_plain_clear_semantics() {
+    gpi start op1 "job"
+    _gpi_age op1 $((7*3600))
+    gpi clear                                # no --dead: idle age is not a reason
+    assert_eq "job" "$(gpi_field '.ops.op1.label')" "plain clear never reaps by idle age"
+}
+run_test "CFG-875: the idle reap is confined to clear --dead" test_clear_dead_keeps_plain_clear_semantics
+
 suite_summary

@@ -358,6 +358,46 @@ cmd_rollback() {
     printf "\n${C_GREEN}Rollback complete.${C_RESET} Run 'afleet doctor' to verify.\n\n"
 }
 
+# A safe-mode binary candidate: executable, and not the <1 MB ASCII shim that `npm pack`
+# leaves at bin/claude.exe (it prints "claude native binary not installed").
+_safe_mode_candidate_ok() {
+    [[ -n "$1" && -f "$1" && -x "$1" ]] || return 1
+    local size; size=$(wc -c < "$1" 2>/dev/null || echo 0)
+    if (( size < 1048576 )) && grep -aq "claude native binary not installed" "$1" 2>/dev/null; then
+        return 1
+    fi
+    return 0
+}
+
+# Resolve the Claude Code binary safe mode launches (CFG-888). This is the lockout-recovery
+# path, so it must pick the MIRROR's binary: PATH `claude` can be a different install (on
+# WSL a Windows npm shim at 2.1.37 beside the mirror's 2.1.280), and modern installs ship no
+# cli.js. Order: the launcher's exec target, mirror npm bin/claude.exe, mirror native/claude,
+# legacy cli.js via node, PATH claude last. Prints the command; returns 1 when nothing fits.
+resolve_safe_mode_binary() {
+    local mirror="${CC_MIRROR_DIR:-$HOME/.cc-mirror/mclaude}" launcher="$HOME/.local/bin/mclaude" target
+    if [[ -f "$launcher" ]]; then
+        # Known-good line: exec "<path>/bin/claude.exe" "$@" (or exec <mirror>/native/claude "$@")
+        target=$(grep -E '^[[:space:]]*exec[[:space:]]+"?[^"[:space:]]+' "$launcher" 2>/dev/null \
+                 | head -1 | sed -E 's/^[[:space:]]*exec[[:space:]]+"?([^"[:space:]]+).*/\1/')
+        target="${target/#\~/$HOME}"
+        _safe_mode_candidate_ok "$target" && { printf '%s\n' "$target"; return 0; }
+    fi
+    for target in "$mirror/npm/node_modules/@anthropic-ai/claude-code/bin/claude.exe" "$mirror/native/claude"; do
+        _safe_mode_candidate_ok "$target" && { printf '%s\n' "$target"; return 0; }
+    done
+    target="$mirror/npm/node_modules/@anthropic-ai/claude-code/cli.js"
+    if [[ -f "$target" ]] && command -v node >/dev/null 2>&1; then
+        printf 'node %s\n' "$target"; return 0
+    fi
+    target=$(command -v claude 2>/dev/null) || return 1
+    _safe_mode_candidate_ok "$target" || return 1
+    if [[ "$target" == */mnt/[A-Za-z]/* ]]; then
+        _warn "PATH claude is a Windows install ($target), not the mirror's binary — safe mode may run a different version" >&2
+    fi
+    printf '%s\n' "$target"
+}
+
 cmd_safe_mode() {
     local prepare_only="${AFLEET_SAFE_MODE_PREPARE_ONLY:-0}"
     local dry_run="${AFLEET_SAFE_MODE_DRY_RUN:-0}"
@@ -366,6 +406,9 @@ cmd_safe_mode() {
     printf "  Launching with: no hooks, no MCP servers, no plugins, minimal settings\n\n"
 
     if [[ "$dry_run" == "1" ]]; then
+        local dry_bin
+        dry_bin=$(resolve_safe_mode_binary) || dry_bin="none found"
+        printf "  Binary: %s\n" "$dry_bin"
         printf "  ${C_YELLOW}Dry run — would create temp config and launch: claude --safe-mode (bare, no hooks/MCP/plugins).${C_RESET}\n\n"
         return 0
     fi
@@ -406,17 +449,14 @@ EOF
     printf "  Config: %s\n" "$safe_dir"
     printf "  Press Ctrl+C to exit safe mode.\n\n"
 
-    # Find claude binary (bypass mclaude entirely)
+    # Find the claude binary (bypass the mclaude launcher, but take ITS target first — CFG-888)
     local claude_bin=""
-    if [[ -f "$HOME/.cc-mirror/mclaude/npm/node_modules/@anthropic-ai/claude-code/cli.js" ]]; then
-        claude_bin="node $HOME/.cc-mirror/mclaude/npm/node_modules/@anthropic-ai/claude-code/cli.js"
-    elif command -v claude >/dev/null 2>&1; then
-        claude_bin="claude"
-    else
+    claude_bin=$(resolve_safe_mode_binary) || {
         printf "${C_RED}Error: cannot find claude binary${C_RESET}\n" >&2
         rm -rf "$safe_dir"
         return 1
-    fi
+    }
+    printf "  Binary: %s\n" "$claude_bin"
 
     # Belt-and-suspenders (CFG-437): on top of the temp-config isolation above,
     # also pass CC's native --safe-mode flag (2.1.169+) so customizations are

@@ -178,7 +178,9 @@ ADDED=$(printf '%s\n' "$ADDED" | grep -vF "$ALLOW_MARK" || true)
 HITS=""
 
 # ── Detector 1: shape ─────────────────────────────────────────────────────────
-SECRET_PATTERNS='sk-ant-[A-Za-z0-9-]{20,}|sk-[A-Za-z0-9]{20,}|AKIA[0-9A-Z]{16}|AIzaSy[A-Za-z0-9_-]{33}|ghp_[A-Za-z0-9]{36,}|gho_[A-Za-z0-9]{36,}|xoxb-[A-Za-z0-9-]+|xoxp-[A-Za-z0-9-]+|-----BEGIN RSA|-----BEGIN PRIVATE KEY|-----BEGIN OPENSSH PRIVATE KEY|(password|passphrase|secret|private_key)[[:space:]]*[:=][[:space:]]*[^[:space:]]{6,}|(key|token|secret)[[:space:]]*[:=][[:space:]]*[A-Za-z0-9+/]{40,}={0,2}'  # pragma: allowlist secret
+# AKIA is bounded: an AWS key id is a standalone 20-char token, while a base64 run (a data
+# URI, a certificate body) can contain AKIA + 16 [0-9A-Z] mid-string and is not one (CFG-662).
+SECRET_PATTERNS='sk-ant-[A-Za-z0-9-]{20,}|sk-[A-Za-z0-9]{20,}|(^|[^A-Za-z0-9+/])AKIA[0-9A-Z]{16}($|[^A-Za-z0-9+/])|AIzaSy[A-Za-z0-9_-]{33}|ghp_[A-Za-z0-9]{36,}|gho_[A-Za-z0-9]{36,}|xoxb-[A-Za-z0-9-]+|xoxp-[A-Za-z0-9-]+|-----BEGIN RSA|-----BEGIN PRIVATE KEY|-----BEGIN OPENSSH PRIVATE KEY|(password|passphrase|secret|private_key)[[:space:]]*[:=][[:space:]]*[^[:space:]]{6,}|(key|token|secret)[[:space:]]*[:=][[:space:]]*[A-Za-z0-9+/]{40,}={0,2}'  # pragma: allowlist secret
 if printf '%s' "$ADDED" | grep -Eq "$SECRET_PATTERNS" 2>/dev/null; then
     HITS="shape"
 fi

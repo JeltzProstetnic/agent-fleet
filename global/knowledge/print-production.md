@@ -72,6 +72,11 @@ never build the ramp as pure K.
 - **[Official] Print covers: CMYK, and do NOT embed colour profiles** — "color profiles can produce
   unexpected results". Do not mix colour spaces in one file. Convert spot colours to CMYK.
   ([KDP — create a paperback cover](https://kdp.amazon.com/en_US/help/topic/G201953020))
+- **[Observed] KDP accepts RGB print covers in practice:** every cover of a multi-title,
+  multi-language series (paperback and hardcover) was uploaded RGB, and KDP accepted all of them.
+  Acceptance is not colour fidelity: KDP then converts itself, which is exactly the desaturation
+  risk below. Both facts are recorded on purpose; whether a title converts to CMYK first is the
+  project's call.
 - **Deep blues, purples and saturated reds desaturate** in conversion; KDP's own converter is called
   out as imperfect "particularly for highly saturated colours, deep blues, and certain reds".
   **Convert yourself; do not let the platform decide.**

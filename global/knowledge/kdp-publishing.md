@@ -2,7 +2,7 @@
 
 **Trigger:** load before building, uploading or correcting any Amazon KDP paperback, hardcover or Kindle eBook: cover wraps, spine maths, barcodes, ISBNs, listing metadata, language support, rejections.
 
-Measured facts from titles that shipped on KDP in several languages and formats, paperback and hardcover. **Out of scope:** what the press does to ink (bleed, ink limits, gradients, CMYK, scrims, lamination, proofing). That lives in `print-production.md`. Cover look and legibility live in `cover-design.md`.
+Measured facts from titles that shipped on KDP in several languages and formats, paperback and hardcover. **Out of scope:** what the press does to ink (bleed, ink limits, gradients, CMYK, scrims, lamination, proofing). That lives in `print-production.md`. Cover look and legibility live in `cover-design.md`. **Cover colour space, both facts:** KDP's official print-cover spec is CMYK without an embedded profile, yet every shipped cover of the titles measured here was uploaded RGB and accepted (observed). Details and the conversion risk: `print-production.md` § RGB → CMYK.
 
 **Authority order when sources disagree:** a working builder whose output KDP accepted > KDP rejection feedback > the KDP calculator > a template PDF > a web search. Never re-derive a shipped geometry from a web search.
 

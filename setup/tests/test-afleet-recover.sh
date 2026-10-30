@@ -387,6 +387,93 @@ test_safe_mode_passes_cc_native_flag() {
 }
 run_test "safe-mode passes CC native --safe-mode flag" test_safe_mode_passes_cc_native_flag
 
+# ── 4b. CFG-888: safe-mode must launch the MIRROR's Claude Code, never a stray PATH install ──
+# Measured 2026-10-30 on WSL: the old lookup tried the mirror's cli.js (no longer shipped),
+# then fell to PATH `claude` = a Windows npm shim at 2.1.37 while the mirror held 2.1.280.
+# Resolution order: launcher exec target → mirror npm bin/claude.exe → mirror native/claude →
+# legacy cli.js via node → PATH claude last (warned when it is a Windows install). A candidate
+# must be executable and not the <1 MB npm-pack ASCII shim. Dry-run prints the choice.
+_mk_fake_cc() {  # <path> <version>: a tiny executable standing in for a CC binary
+    mkdir -p "$(dirname "$1")"
+    printf '#!/usr/bin/env bash\n[[ "${1:-}" == "--version" ]] && { echo "%s"; exit 0; }\necho "FAKE_CC %s $*"\n' "$2" "$2" > "$1"
+    chmod +x "$1"
+}
+_safe_dry() {  # <home> [extra PATH dir]: dry-run safe-mode in the fake HOME, prints its output
+    # CC_MIRROR_DIR is exported by the live mclaude launcher and would point the resolver at
+    # the REAL mirror (read-only, but it hides the fixtures): pin it to the fake HOME.
+    HOME="$1" CONFIG_REPO="$1/cfg-agent-fleet" CC_MIRROR_DIR="$1/.cc-mirror/mclaude" \
+        CLAUDE_CONFIG_DIR="$1/.cc-mirror/mclaude/config" \
+        PATH="${2:-$1/.local/bin}:/usr/bin:/bin" AFLEET_SAFE_MODE_DRY_RUN=1 \
+        bash "$SCRIPT" safe-mode 2>&1 || true
+}
+_MIRROR_BIN=".cc-mirror/mclaude/npm/node_modules/@anthropic-ai/claude-code/bin/claude.exe"
+
+test_safe_mode_prefers_launcher_target() {
+    local home; home=$(create_mock_fleet)   # PATH claude mock at $home/.local/bin/claude (2.1.80)
+    _mk_fake_cc "$home/$_MIRROR_BIN" "2.1.280"
+    printf '#!/usr/bin/env bash\nexport CLAUDE_CONFIG_DIR="%s/.cc-mirror/mclaude/config"\nexec "%s/%s" "$@"\n' "$home" "$home" "$_MIRROR_BIN" > "$home/.local/bin/mclaude"
+    chmod +x "$home/.local/bin/mclaude"
+    local out; out=$(_safe_dry "$home")
+    assert_contains "$out" "Binary: $home/$_MIRROR_BIN" "the launcher's exec target is chosen (output: $(printf '%s' "$out" | grep -i binary || true))"
+    assert_not_contains "$out" "Binary: $home/.local/bin/claude" "PATH claude is not chosen while the launcher target exists"
+}
+run_test "CFG-888: safe-mode resolves the launcher's exec target first" test_safe_mode_prefers_launcher_target
+
+test_safe_mode_mirror_npm_before_path() {
+    local home; home=$(create_mock_fleet)
+    _mk_fake_cc "$home/$_MIRROR_BIN" "2.1.280"       # no launcher at all
+    local out; out=$(_safe_dry "$home")
+    assert_contains "$out" "Binary: $home/$_MIRROR_BIN" "mirror npm bin/claude.exe beats PATH claude"
+}
+run_test "CFG-888: without a launcher, the mirror's npm binary beats PATH" test_safe_mode_mirror_npm_before_path
+
+test_safe_mode_native_binary() {
+    local home; home=$(create_mock_fleet)
+    _mk_fake_cc "$home/.cc-mirror/mclaude/native/claude" "2.1.280"
+    local out; out=$(_safe_dry "$home")
+    assert_contains "$out" "Binary: $home/.cc-mirror/mclaude/native/claude" "native-install mirror binary is found"
+}
+run_test "CFG-888: a native-binary mirror (native/claude) is found" test_safe_mode_native_binary
+
+test_safe_mode_legacy_cli_js() {
+    local home; home=$(create_mock_fleet)
+    local cli="$home/.cc-mirror/mclaude/npm/node_modules/@anthropic-ai/claude-code/cli.js"
+    mkdir -p "$(dirname "$cli")"; echo "// legacy" > "$cli"
+    _mk_fake_cc "$home/.local/bin/node" "v22"
+    local out; out=$(_safe_dry "$home")
+    assert_contains "$out" "Binary: node $cli" "legacy cli.js is run through node, ahead of PATH claude"
+}
+run_test "CFG-888: legacy cli.js via node still works, ahead of PATH" test_safe_mode_legacy_cli_js
+
+test_safe_mode_path_last_with_windows_warning() {
+    local home; home=$(create_mock_fleet)
+    rm -f "$home/.local/bin/claude"
+    _mk_fake_cc "$home/mnt/c/Users/alice/AppData/Roaming/npm/claude" "2.1.37"
+    local out; out=$(_safe_dry "$home" "$home/mnt/c/Users/alice/AppData/Roaming/npm")
+    assert_contains "$out" "Binary: $home/mnt/c/Users/alice/AppData/Roaming/npm/claude" "PATH claude is the last resort"
+    assert_contains "$out" "Windows install" "a PATH claude under /mnt/c/ is flagged as a Windows install"
+}
+run_test "CFG-888: PATH claude is last and a /mnt/c/ one is flagged as a Windows install" test_safe_mode_path_last_with_windows_warning
+
+test_safe_mode_skips_npm_pack_shim() {
+    local home; home=$(create_mock_fleet)
+    mkdir -p "$(dirname "$home/$_MIRROR_BIN")"
+    printf '#!/usr/bin/env bash\necho "Error: claude native binary not installed." >&2\nexit 1\n' > "$home/$_MIRROR_BIN"
+    chmod +x "$home/$_MIRROR_BIN"
+    local out; out=$(_safe_dry "$home")
+    assert_not_contains "$out" "Binary: $home/$_MIRROR_BIN" "the <1 MB ASCII shim is never chosen"
+    assert_contains "$out" "Binary: $home/.local/bin/claude" "falls through to the next candidate"
+}
+run_test "CFG-888: the npm-pack ASCII shim is skipped" test_safe_mode_skips_npm_pack_shim
+
+test_safe_mode_reports_none_found() {
+    local home; home=$(create_mock_fleet)
+    rm -f "$home/.local/bin/claude"
+    local out; out=$(_safe_dry "$home" "$home/emptybin")
+    assert_contains "$out" "Binary: none found" "dry-run says when no candidate exists"
+}
+run_test "CFG-888: dry-run reports when no binary is found" test_safe_mode_reports_none_found
+
 # ── 5. MCP connectivity check ───────────────────────────────────────────────
 
 test_mcp_check_command_server_binary_exists() {

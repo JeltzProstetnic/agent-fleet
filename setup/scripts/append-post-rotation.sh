@@ -60,8 +60,9 @@ if ! git -C "$PROJECT_DIR" cat-file -t "$_ROTATION_HASH" &>/dev/null; then
     exit 0
 fi
 
-# Get post-rotation commits (chronological order)
-_POST_COMMITS=$(git -C "$PROJECT_DIR" log --oneline "$_ROTATION_HASH..$_CURRENT_HEAD" --reverse 2>/dev/null || true)
+# Get post-rotation commits (chronological order). --no-color: under color.ui = always
+# (set in this repo) a bare --oneline writes ANSI escapes into the log (CFG-687).
+_POST_COMMITS=$(git -C "$PROJECT_DIR" log --no-color --oneline "$_ROTATION_HASH..$_CURRENT_HEAD" --reverse 2>/dev/null || true)
 if [[ -z "$_POST_COMMITS" ]]; then
     rm -f "$_MARKER"
     exit 0

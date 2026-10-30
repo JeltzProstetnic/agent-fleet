@@ -10,6 +10,8 @@
 #   gpi.sh status
 #
 # State file: GPI_STATE env var or ~/.claude/.gpi-state.json
+# GPI_IDLE_REAP_SECS: `clear --dead` reaps an op that has no tmux_session once nothing has
+#   updated it for this long (default 21600 = 6 h; CFG-875).
 #
 # CFG-863: the state file is MACHINE-global while sessions are per project, so nothing
 # here may drop an op it cannot prove finished. Every write replaces the file atomically,
@@ -128,7 +130,8 @@ cmd_start() {
             seq_index: $seq_index,
             seq_total: $seq_total,
             log_path: $log_path,
-            tmux_session: $tmux_session
+            tmux_session: $tmux_session,
+            updated_at: $now
         }
         | .updated = $now
     "
@@ -159,6 +162,8 @@ cmd_update() {
 
     local now
     now=$(date +%s)
+    # Per-op last-update stamp: the idle reap in `clear --dead` reads it (CFG-875).
+    jq_parts+=(".ops[\"$id\"].updated_at = $now")
     jq_parts+=(".updated = $now")
 
     local expr
@@ -178,8 +183,10 @@ cmd_done() {
     now=$(date +%s)
     # Mark as completed (auto-cleanup will remove it after 60s)
     locked_update ".ops[\"$id\"].completed_at = $now | .updated = $now"
-    # Write notification sidecar for session awareness
-    write_notification "$id" "$label"
+    # Write notification sidecar for session awareness. The op is done once it is marked:
+    # a failed sidecar write must not turn that into exit 1 (CFG-875).
+    write_notification "$id" "$label" 2>/dev/null || true
+    return 0
 }
 
 # Ids of unfinished ops whose RECORDED tmux session no longer exists (CFG-863). "No server"
@@ -228,11 +235,18 @@ cmd_clear() {
     elif [[ "$dead" == true ]]; then
         # CFG-863: what SessionEnd runs — completed ops plus ops whose recorded tmux session
         # is gone. Never a running op: the file is shared by every project on the machine.
+        # CFG-875: an op WITHOUT a tmux_session can never be judged by tmux, so it is reaped
+        # once nothing has updated it for GPI_IDLE_REAP_SECS (default 6 h). Shorter than
+        # cleanup_stale's 24 h since start, which already runs on every call — a 24 h idle
+        # rule here would never fire. updated_at // started covers ops written before the stamp.
         local dead_ids
         dead_ids=$(dead_tmux_ids | jq -R . | jq -s .)
         locked_update '.ops = (.ops | to_entries | map(select(
                 (.value.completed_at // null) == null and ((.key as $k | $dead | index($k)) == null)
-            )) | from_entries) | .updated = $now' --argjson dead "${dead_ids:-[]}" --argjson now "$now"
+                and (((.value.tmux_session // null) != null)
+                     or ($now - (.value.updated_at // .value.started // $now)) <= $idle)
+            )) | from_entries) | .updated = $now' --argjson dead "${dead_ids:-[]}" --argjson now "$now" \
+            --argjson idle "${GPI_IDLE_REAP_SECS:-21600}"
     else
         # Default: remove only completed entries (those with completed_at set)
         locked_update '.ops = (.ops | to_entries | map(select((.value.completed_at // null) == null)) | from_entries) | .updated = $now' \

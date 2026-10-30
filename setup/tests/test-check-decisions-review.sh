@@ -66,6 +66,24 @@ test_missing_line_is_due_never() {
 }
 run_test "check 26: no 'Last reviewed:' line means the review is due" test_missing_line_is_due_never
 
+# CFG-755: `Last reviewed: 2026-09-29 (DEC-1)` was read as "never reviewed" because the
+# whole remainder had to be a bare date. The first YYYY-MM-DD on the line is the date.
+test_date_with_suffix_is_parsed() {
+    local patched; patched=$(_dr_setup)
+    local d; d=$(date -d '-40 days' +%Y-%m-%d)
+    _dr_decisions "Last reviewed: $d (DEC-1)"
+    local output field
+    output=$(run_hook "$patched")
+    field=$(_dr_field "$output")
+    assert_contains "$field" "$d" "date followed by a note is still the review date (measured field: '$field')"
+    assert_contains "$field" "40 days" "and its age is computed"
+    assert_not_contains "$field" "never" "not misread as never reviewed"
+    _dr_decisions "Last reviewed: $(date +%Y-%m-%d) (DEC-1, DEC-2 archived)"
+    output=$(run_hook "$patched")
+    assert_not_contains "$output" "DECISIONS_REVIEW_DUE" "reviewed today with a note → silent"
+}
+run_test "check 26 (CFG-755): a date followed by a note is parsed as that date" test_date_with_suffix_is_parsed
+
 test_unparseable_date_is_due() {
     local patched; patched=$(_dr_setup)
     _dr_decisions "Last reviewed: sometime last spring"

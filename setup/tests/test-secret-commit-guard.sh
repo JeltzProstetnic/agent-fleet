@@ -213,6 +213,45 @@ test_allows_clean_diff() {
 }
 run_test "allows a clean staged diff" test_allows_clean_diff
 
+# ── 4b. CFG-662: the three false-positive classes a sibling repo's own guard had to exempt ──
+# A guard that false-blocks trains the bypass (CFG-513). Each case is a shape that exists
+# in this fleet's repos; none carries a credential.
+test_allows_shell_prompt_string() {   # cfg's own vps/setup-web-terminal.sh:98
+    local repo; repo="$(_mkrepo)"
+    _stage "$repo" "vps/setup.sh" 'read -rsp "ttyd password: " TTYD_PASS'
+    local rc=0; _run_guard "$repo" "git commit -m prompt" 2>/dev/null || rc=$?
+    assert_eq "0" "$rc" "a read -rsp prompt string names a password but holds none (measured rc=$rc)"
+}
+run_test "CFG-662: a shell prompt string ('read -rsp \"… password: \"') passes" test_allows_shell_prompt_string
+
+test_allows_allcaps_placeholders_by_value() {   # infrastructure mail-relay config.json.example shape
+    local repo; repo="$(_mkrepo)"
+    local body='{"gmail": {"address": "alice@example.com", "app_password": "GMAIL_APP_PASSWORD_HERE"},
+ "accounts": [{"address": "bob@example.com", "password": "HOSTINGER_PW"}]}'
+    _stage "$repo" "scripts/config.json.example" "$body"
+    local rc=0; _run_guard "$repo" "git commit -m example" 2>/dev/null || rc=$?
+    assert_eq "0" "$rc" "ALL_CAPS placeholder values pass in a .example file (measured rc=$rc)"
+    repo="$(_mkrepo)"
+    _stage "$repo" "scripts/config.json" "$body"
+    rc=0; _run_guard "$repo" "git commit -m config" 2>/dev/null || rc=$?
+    assert_eq "0" "$rc" "the same placeholders pass under a non-.example name: judged by value, not filename (measured rc=$rc)"
+}
+run_test "CFG-662: ALL_CAPS placeholder values pass, judged by value not filename" test_allows_allcaps_placeholders_by_value
+
+test_allows_base64_run_containing_akia() {
+    local repo; repo="$(_mkrepo)"
+    # A base64 run (a data URI) that happens to contain AKIA + 16 [0-9A-Z] mid-string.
+    _stage "$repo" "docs/icon.md" '![i](data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAKIAB2C3D4E5F6G7H8I9J0dGVzdCBwbmcgYm9keQ==)'
+    local rc=0; _run_guard "$repo" "git commit -m icon" 2>/dev/null || rc=$?
+    assert_eq "0" "$rc" "a base64 run that merely contains AKIA is not an AWS key (measured rc=$rc)"
+    # Control: a real-shaped standalone key id must still BLOCK.
+    repo="$(_mkrepo)"
+    _stage "$repo" "docs/notes.md" 'aws_access_key_id = AKIAIOSFODNN7EXAMPLE'  # pragma: allowlist secret
+    rc=0; _run_guard "$repo" "git commit -m aws" 2>/dev/null || rc=$?
+    assert_eq "2" "$rc" "a standalone AKIA key id still blocks (measured rc=$rc)"
+}
+run_test "CFG-662: a base64 run containing AKIA passes; a standalone key id still blocks" test_allows_base64_run_containing_akia
+
 # ── 5. CFG-621 lesson: never match the commit MESSAGE ─────────────────────────
 # vault-read-guard.sh blocks commits because the word "more" appears in an -m
 # body. This guard must read the staged diff only, so a message that quotes a
