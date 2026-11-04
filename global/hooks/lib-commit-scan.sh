@@ -13,13 +13,17 @@
 # `pushd` with subshell scope, env prefixes, git's global options, commit's short
 # clusters and abbreviated long options, --pathspec-from-file. Text only the running shell
 # knows ($VAR, $(…), {a,b}) is marked unknown; an unknown pathspec means "any tracked path".
+# CFG-897: a `git add` earlier in the call is folded into the commit it precedes (tree paths; -A/-u =
+# all). `--with-messages` (argv) adds per job `X <only> <amend> <msg-unknown> <n> <-m/--trailer values…>
+# <n> <-F files…> <stdin 0|1 text|2 unknown> <text>` for rule-removal-guard.sh; `$(cat <<'T'…)` = DYN+CAP+body.
 
 [[ "${_LIB_COMMIT_SCAN_LOADED:-}" == "true" ]] && return 0
 _LIB_COMMIT_SCAN_LOADED="true"
 
 read -r -d '' _COMMIT_SCAN_PY <<'PY' || true
 import os, re, sys
-HOME, DYN = os.environ.get("HOME", ""), "\x01"   # DYN marks text known only at run time
+HOME, DYN, CAP = os.environ.get("HOME", ""), "\x01", "\x02"   # DYN: run-time text; CAP: captured body
+CATHD = re.compile(r"\$\(\s*cat\s*<<-?\s*['\"]?(\w+)['\"]?[ \t]*\n(.*?)\n[ \t]*\1[ \t]*\n?\s*\)\Z", re.S)
 NAME, FD = re.compile(r"[A-Za-z_]\w*"), re.compile(r"\d+(?=[<>])")
 ASSIGN = re.compile(r"[A-Za-z_]\w*(\[[^]]*\])?\+?=")
 BRACE = re.compile(r"\{[^{}]*(,|\.\.)[^{}]*\}")
@@ -43,6 +47,7 @@ def long_opt(name):  # git takes a unique prefix of a long option: --mess is --m
 class Lexer:
     def __init__(self, text):
         self.s, self.n, self.i, self.pending, self.jobs = text, len(text), 0, [], []
+        self.adds, self.muts, self.hs, self.hd, self.want_body = [], [], None, False, None   # CFG-897
 
     def at(self, k=0):
         return self.s[self.i + k] if self.i + k < self.n else ""
@@ -50,13 +55,16 @@ class Lexer:
     def blank(self):
         while self.at() in (" ", "\t"): self.i += 1
 
-    def bodies(self):  # after a newline: consume every queued heredoc body
+    def bodies(self):  # after a newline: consume every queued heredoc body (kept for `-F -`)
+        text = []
         for tag, strip in self.pending:
             while self.i < self.n:
                 j = self.s.find("\n", self.i); j = self.n if j < 0 else j
                 line, self.i = self.s[self.i:j], j + 1
                 if (line.lstrip("\t") if strip else line) == tag: break
+                text.append(line)
         self.pending = []
+        if self.want_body is not None: self.jobs[self.want_body][4]["stdin"] = "\n".join(text); self.want_body = None
 
     def skip_until(self, close, opener=None, depth=1):
         while self.i < self.n and depth:
@@ -67,9 +75,11 @@ class Lexer:
     def dollar(self, state, buf):
         nx, self.i = self.at(1), self.i + 2
         if nx == "(":
+            start = self.i - 2
             if self.at() == "(": self.i += 1; self.skip_until(")", "(", 2)   # $(( arithmetic ))
             else: self.parse(dict(state), True)        # $( command ): its own subshell
-            buf.append(DYN)
+            m = CATHD.match(self.s[start:self.i])      # $(cat <<'T' … T): the body is known text
+            buf.append(DYN + CAP + m.group(2) if m else DYN)
         elif nx == "{":
             start = self.i; self.skip_until("}", "{")
             buf.append(HOME if self.s[start:self.i - 1] == "HOME" and HOME else DYN)
@@ -121,20 +131,21 @@ class Lexer:
 
     def redirect(self, state):  # operator and target are dropped; `<<TAG` queues a body
         s, i = self.s, self.i
-        if s.startswith("<<<", i):
-            self.i += 3
+        hs = s.startswith("<<<", i)
+        if hs: self.i += 3
         elif s.startswith("<<", i):
             strip = s[i + 2:i + 3] == "-"
             self.i += 2 + strip; self.blank()
             tag = self.word(state)
-            if tag: self.pending.append((tag, strip))
+            if tag: self.pending.append((tag, strip)); self.hd = True
             return
         else:
             two = (s[i] == "<" and self.at(1) in ("&", ">")) or (s[i] == ">" and self.at(1) in (">", "&", "|"))
             self.i += 1 + two
         self.blank()
         if self.i < self.n and self.s[self.i] not in "\n;&|()<>":
-            self.word(state)
+            t = self.word(state)
+            if hs: self.hs = t                         # a here-string is this clause's stdin text
 
     def parse(self, state, nested):
         words = []
@@ -169,9 +180,10 @@ class Lexer:
                                   or (wrap and words[k][:1] == "-" and DYN not in words[k])):
             wrap = wrap or words[k] in WRAPPERS; k += 1
         w = words[k:]
-        if not w or DYN in w[0]: return
-        if w[0] in ("cd", "pushd", "popd"): self.chdir(w[0], w[1:], state)
-        elif os.path.basename(w[0]) == "git": self.git(w[1:], state)
+        if w and DYN not in w[0]:
+            if w[0] in ("cd", "pushd", "popd"): self.chdir(w[0], w[1:], state)
+            elif os.path.basename(w[0]) == "git": self.git(w[1:], state)
+        self.hs, self.hd = None, False                 # stdin facts belong to one clause
 
     def chdir(self, verb, args, state):
         while args and args[0][:1] == "-" and args[0] != "-":
@@ -196,10 +208,24 @@ class Lexer:
                 if t.startswith(("--git-dir=", "--work-tree=")): g.append(t)
                 k += 1
         if k < len(args) and args[k] == "commit": self.commit(args[k + 1:], state, g)
+        elif k < len(args) and args[k] in ("add", "rm", "mv"): self.add(args[k + 1:], state, g, args[k])
+
+    def add(self, args, state, g, kind):  # CFG-897: `git add` = tree paths for the commit; `rm`/`mv` = mutations
+        all_, paths = False, []
+        for t in args:
+            if t[:1] != "-": all_ |= DYN in t; paths += [] if DYN in t else [t]
+            else: all_ |= t[2:].split("=")[0] in ("all", "no-ignore-removal", "update", "pathspec-from-file") if t[:2] == "--" else bool(set(t[1:]) & set("Au"))
+        if kind == "add": self.adds.append((state["cwd"], g, all_, paths))
+        else: self.muts.append((state["cwd"], g, kind, paths))
+
+    def msgopt(self, x, key, val):  # CFG-897: what the commit's message is made of
+        if key in ("m", "message", "trailer"): x["msgs"].append(val)
+        elif key in ("F", "file"): x["files"].append(val)
+        elif key in ("amend", "C", "c", "reuse-message", "reedit-message", "fixup", "squash"): x["amend" if key == "amend" else "munk"] = True
 
     def commit(self, args, state, g):
-        all_ = unknown = nul = dd = False
-        paths, psff, k = [], None, 0
+        all_ = unknown = nul = dd = inc = False
+        paths, psff, k, x = [], None, 0, {"amend": False, "munk": False, "msgs": [], "files": [], "stdin": None, "sunk": False}
         while k < len(args):
             t = args[k]; k += 1
             if dd or t[:1] != "-" or t == "-":
@@ -210,23 +236,35 @@ class Lexer:
             elif t[:2] == "--":
                 name, eq, val = t[2:].partition("=")
                 opt = long_opt(name)
-                all_ |= opt == "all"; nul |= opt == "pathspec-file-nul"
+                all_ |= opt == "all"; nul |= opt == "pathspec-file-nul"; inc |= opt == "include"
                 if opt in VALUE and not eq: val = args[k] if k < len(args) else ""; k += 1
                 if opt == "pathspec-from-file": psff = val
+                self.msgopt(x, opt, val)
             else:                                      # short cluster: -am, -qam, -mMSG …
                 for p, ch in enumerate(t[1:], 1):
                     if ch == "a": all_ = True
+                    elif ch == "i": inc = True
                     elif ch == DYN: unknown = True; break
-                    elif ch in "mFCct": k += p == len(t) - 1; break   # value attached, else the next word
+                    elif ch in "mFCct":                # value attached, else the next word
+                        self.msgopt(x, ch, t[p + 1:] if p < len(t) - 1 else args[k] if k < len(args) else ""); k += p == len(t) - 1; break
                     elif ch in "Su": break             # optional value, attached only
         where = state["cwd"]
         if psff is not None:
             listed = self.pathspec_file(psff, where, g, nul)
             unknown |= listed is None; paths += listed or []
+        x["only"] = bool(paths) and not (all_ or inc or unknown)
+        for aw, ag, aall, ap in [] if x["only"] else self.adds:   # CFG-897: the call's earlier adds
+            if (aw, ag) != (where, g): unknown = True
+            else: all_ |= aall; paths = paths + ap
+        x["muts"] = [(k, p) for aw, ag, k, p in self.muts if (aw, ag) == (where, g) and not x["only"]]   # rm/mv to model
+        self.adds, self.muts = [], []
+        if "-" in x["files"]:                          # the message arrives on stdin
+            x["stdin"], x["sunk"] = self.hs, self.hs is None and not self.hd
+            if self.hs is None and self.hd: self.want_body = len(self.jobs)
         if where is None:                              # a cd we could not follow: read what base read
-            self.jobs.append((os.getcwd(), g, False, []))
+            self.jobs.append((os.getcwd(), g, False, [], x))
         else:
-            self.jobs.append((where, g, all_ or unknown or bool(paths), [] if all_ or unknown else paths))
+            self.jobs.append((where, g, all_ or unknown or bool(paths), [] if all_ or unknown else paths, x))
 
     def pathspec_file(self, name, where, g, nul):
         if DYN in name or name == "-" or where is None: return None
@@ -242,9 +280,12 @@ class Lexer:
 
 lx = Lexer(sys.stdin.buffer.read().decode("utf-8", "surrogateescape"))
 lx.parse({"cwd": os.getcwd()}, False)
-out = []
-for where, g, tree, paths in lx.jobs:
+out, ext = [], "--with-messages" in sys.argv[1:]   # CFG-897: X records for rule-removal-guard.sh
+for where, g, tree, paths, x in lx.jobs:
     out += ["J", where, str(len(g))] + g + [str(int(tree)), str(len(paths))] + paths
+    if ext:
+        out += ["X", str(int(x["only"])), str(int(x["amend"])), str(int(x["munk"])), str(len(x["msgs"]))] + x["msgs"] + [str(len(x["files"]))] + x["files"]
+        out += ["1" if x["stdin"] is not None else "2" if x["sunk"] else "0", x["stdin"] or "", str(len(x["muts"]))] + [f for k, p in x["muts"] for f in (k, str(len(p)), *p)]
 sys.stdout.buffer.write(("\0".join(out + ["E"]) + "\0").encode("utf-8", "surrogateescape"))
 PY
 

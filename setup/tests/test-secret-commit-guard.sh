@@ -458,6 +458,16 @@ test_blocks_commit_dash_am() {
 }
 run_test "blocks 'git commit -am' (CFG-668)" test_blocks_commit_dash_am
 
+# CFG-897: lib-commit-scan.sh folds a `git add` earlier in the same Bash call into the commit
+# it precedes, so the working-tree content of the added paths is read too (PreToolUse runs
+# before the add; the index does not show it yet). Over-read only — the index is still read.
+test_blocks_add_then_commit_same_call() {
+    local repo; repo="$(_mkrepo_with_unstaged_secret)"
+    local rc=0; _run_guard "$repo" "git add docs/session-log.md && git commit -m log" 2>/dev/null || rc=$?
+    assert_eq "2" "$rc" "exit was $rc: a secret in a file staged by 'git add f && git commit' in the same call must BLOCK (2)"
+}
+run_test "blocks a secret staged by 'git add <file> && git commit' in one call (CFG-897)" test_blocks_add_then_commit_same_call
+
 test_blocks_commit_all_long() {
     local repo; repo="$(_mkrepo_with_unstaged_secret)"
     local rc=0; _run_guard "$repo" "git commit --all -m log" 2>/dev/null || rc=$?

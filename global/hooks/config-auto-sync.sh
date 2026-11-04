@@ -496,6 +496,30 @@ if [[ -f "$_APPEND_SCRIPT" && -f "$ORIGINAL_DIR/.post-rotation-commit" && "$ORIG
     bash "$_APPEND_SCRIPT" "$ORIGINAL_DIR" 2>/dev/null || true
 fi
 
+# --- CFG-897: never sweep an unexplained rule removal into an Auto-sync commit ---
+# 3d8cb52c (2026-03-12) was exactly that: an Auto-sync commit dropped the subagent file-creation
+# guardrail from global CLAUDE.md, because this hook stages `global/` wholesale and nobody reads
+# what it records. rule-removal-guard.sh --check-staged judges the index as the PreToolUse guard
+# judges a commit — with no message, so every removed sentence is unexplained. Offending files
+# are UNSTAGED (the working tree is never touched), the rest is committed, and the hold is
+# written to the drift log, which the next SessionStart surfaces (config-check.sh Check 4.5).
+_RRG_SCRIPT=""
+for _c in "$(dirname "${BASH_SOURCE[0]}")/rule-removal-guard.sh" "$CONFIG_REPO/global/hooks/rule-removal-guard.sh"; do
+    [ -f "$_c" ] && { _RRG_SCRIPT="$_c"; break; }
+done
+_rule_removal_hold() {  # <repo> — unstages held rule files in <repo>; never fails the caller
+    local repo="$1" held f rc=0
+    [ -n "$_RRG_SCRIPT" ] || return 0
+    held=$(bash "$_RRG_SCRIPT" --check-staged "$repo" 2>/dev/null) || rc=$?
+    [ "$rc" -eq 1 ] && [ -n "$held" ] || return 0
+    while IFS= read -r f; do
+        [ -n "$f" ] && { git -C "$repo" restore --staged -- ":/$f" 2>/dev/null || true; }   # :/ = root-relative
+    done <<< "$held"
+    printf 'RULE_REMOVAL_HELD: %s: %s — a staged change drops rule sentence(s) with no Rule-removed trailer; left unstaged, working tree untouched. Commit it with the trailer(s) the guard asks for (bash %s --check-staged %s) or restore the sentence(s).\n' \
+        "$repo" "${held//$'\n'/ }" "$_RRG_SCRIPT" "$repo" >> "$DRIFT_LOG"
+    return 0
+}
+
 # --- Phase 2: Commit session files in current project (if separate from config repo) ---
 # Only commits session-related files. Does NOT push (avoids dual-remote/auth issues).
 # Skip if rotation failed — don't commit potentially corrupted session data.
@@ -508,6 +532,7 @@ if [[ "$_ORIG_ROTATE_OK" -eq 1 && "$ORIGINAL_DIR" != "$CONFIG_REPO" && -d "$ORIG
         git add session-history.md 2>/dev/null || true
         git add next-session-task.md 2>/dev/null || true
         git add docs/session-log.md 2>/dev/null || true
+        _rule_removal_hold "$ORIGINAL_DIR"   # CFG-897: session files are never rule files today; the check keeps it so
         if ! git diff --cached --quiet 2>/dev/null; then
             git commit -m "Auto-sync: session rotation $(date -u +'%Y-%m-%d %H:%M:%S UTC')" 2>/dev/null || true
         fi
@@ -685,6 +710,13 @@ if [[ "$_PHASE3_COMMIT" -eq 1 ]]; then
             git diff --cached --quiet 2>/dev/null && _PHASE3_COMMIT=0
         fi
     fi
+fi
+
+# CFG-897: same shape as the secret scan — hold rule files whose staged change drops a
+# sentence nobody retired (see _rule_removal_hold above), commit whatever else is staged.
+if [[ "$_PHASE3_COMMIT" -eq 1 ]]; then
+    _rule_removal_hold "$CONFIG_REPO"
+    git diff --cached --quiet 2>/dev/null && _PHASE3_COMMIT=0
 fi
 
 if [[ "$_PHASE3_COMMIT" -eq 1 ]]; then
