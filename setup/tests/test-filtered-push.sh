@@ -513,6 +513,84 @@ EOF
 }
 run_test "unknown config keys produce warnings" test_unknown_config_keys_warn
 
+# ── CFG-901: large excluded directories (SIGPIPE under pipefail) ────────────
+# A real run (2026-11-04): 'exclude docs' printed "matched no files in index" and published
+# 637 private files. `git ls-files … | grep -q .` under set -o pipefail: grep exits on the first
+# line, a producer with more than a pipe buffer (64 KB) of output dies of SIGPIPE, the
+# pipeline returns 141 and the if-test reads "no match". The fail-closed survivor check
+# used the same pipeline, so it missed too. > 64 KB of paths makes it deterministic.
+_cfg901_repo() {   # <conf-exclude-line>
+    setup_dual_remote_repo "$TEST_TMPDIR"
+    local repo="$TEST_TMPDIR/repo"
+    mkdir -p "$repo/docs/a-rather-long-private-subdirectory-name-for-cfg901"
+    python3 - "$repo/docs/a-rather-long-private-subdirectory-name-for-cfg901" <<'PY'
+import sys, os
+d = sys.argv[1]
+for i in range(3000):
+    open(os.path.join(d, f"private-session-decision-record-{i:05d}.md"), "w").write("secret\n")
+PY
+    printf 'public\n' > "$repo/README-public.md"
+    printf 'private_remote=private\npublic_remote=public\nbranch=main\n%s\n' "$1" > "$repo/.push-filter.conf"
+    git -C "$repo" add -A && git -C "$repo" commit -qm "big private dir" 2>/dev/null
+    local bytes; bytes=$(git -C "$repo" ls-files -- docs | wc -c)
+    echo "    measured: docs/ path listing = $bytes bytes (pipe buffer 65536)"
+}
+_cfg901_survivors() {   # <dry-run output> → count of docs/ files in the reported filtered commit
+    local commit; commit=$(printf '%s\n' "$1" | sed -n 's/.*Would push filtered commit \([0-9a-f]*\).*/\1/p' | head -1)
+    [ -n "$commit" ] || { echo "no-commit"; return; }
+    git -C "$TEST_TMPDIR/repo" ls-tree -r --name-only "$commit" -- docs | wc -l | tr -d ' '
+}
+
+test_large_excluded_dir_is_removed() {
+    _cfg901_repo "exclude=docs"
+    local out rc=0
+    out=$(env -C "$TEST_TMPDIR/repo" bash "$SCRIPT" --dry-run 2>&1) || rc=$?
+    local n; n=$(_cfg901_survivors "$out")
+    echo "    measured: rc=$rc docs files in filtered commit=[$n]"
+    assert_not_contains "$out" "matched no files" "a 3000-file excluded dir must be found, not reported as no-match" || return 1
+    assert_eq "0" "$n" "no file of the excluded dir may reach the public tree"
+}
+run_test "CFG-901: a large excluded directory (>64 KB of paths) is removed" test_large_excluded_dir_is_removed
+
+test_large_excluded_glob_is_removed() {
+    _cfg901_repo "exclude_glob=docs/**/*.md"
+    local out rc=0
+    out=$(env -C "$TEST_TMPDIR/repo" bash "$SCRIPT" --dry-run 2>&1) || rc=$?
+    local n; n=$(_cfg901_survivors "$out")
+    echo "    measured: rc=$rc docs files in filtered commit=[$n]"
+    assert_not_contains "$out" "matched no files" "a glob over 3000 files must be found" || return 1
+    assert_eq "0" "$n" "no globbed file may reach the public tree"
+}
+run_test "CFG-901: a large excluded glob (>64 KB of paths) is removed" test_large_excluded_glob_is_removed
+
+test_survivor_check_fails_closed_on_large_dir() {
+    _cfg901_repo "exclude=docs"
+    # Simulate a removal that silently does nothing: a git shim that no-ops 'git rm'.
+    local shim="$TEST_TMPDIR/shim"; mkdir -p "$shim"
+    local realgit; realgit=$(command -v git)
+    printf '#!/usr/bin/env bash\n[ "$1" = rm ] && exit 0\nexec %s "$@"\n' "$realgit" > "$shim/git"; chmod +x "$shim/git"
+    local out rc=0
+    out=$(env -C "$TEST_TMPDIR/repo" PATH="$shim:$PATH" bash "$SCRIPT" --dry-run 2>&1) || rc=$?
+    echo "    measured: rc=$rc FATAL line=[$(printf '%s\n' "$out" | grep -m1 FATAL || echo none)]"
+    assert_neq "0" "$rc" "a surviving 3000-file excluded dir must abort the push" || return 1
+    assert_contains "$out" "survived into the filtered public tree" "must name the fail-closed reason"
+}
+run_test "CFG-901: survivor check fails CLOSED when a large excluded dir survives" test_survivor_check_fails_closed_on_large_dir
+
+test_ls_files_failure_fails_closed() {
+    _cfg901_repo "exclude=docs"
+    local shim="$TEST_TMPDIR/shim2"; mkdir -p "$shim"
+    local realgit; realgit=$(command -v git)
+    printf '#!/usr/bin/env bash\n[ "$1" = ls-files ] && exit 128\nexec %s "$@"\n' "$realgit" > "$shim/git"; chmod +x "$shim/git"
+    local out rc=0
+    out=$(env -C "$TEST_TMPDIR/repo" PATH="$shim:$PATH" bash "$SCRIPT" --dry-run 2>&1) || rc=$?
+    echo "    measured: rc=$rc FATAL line=[$(printf '%s\n' "$out" | grep -m1 FATAL || echo none)]"
+    assert_neq "0" "$rc" "a failing git ls-files must abort, not read as 'no match'" || return 1
+    assert_contains "$out" "git ls-files failed" "must name the fail-closed reason" || return 1
+    assert_not_contains "$out" "survived into the filtered public tree" "must abort AT the failed ls-files, not rely on the later survivor check"
+}
+run_test "CFG-901: a failing git ls-files aborts the push (fail-closed)" test_ls_files_failure_fails_closed
+
 # ── Summary ──────────────────────────────────────────────────────────────────
 
 suite_summary
