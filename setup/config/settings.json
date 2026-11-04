@@ -10,6 +10,7 @@
     "CLAUDE_CODE_AGENT_TYPE": "team-lead",
     "DISABLE_AUTOUPDATER": "1",
     "CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION": "0",
+    "CLAUDE_CODE_DISABLE_AUTO_MEMORY": "1",
     "FORCE_COLOR": "1",
     "COLORTERM": "truecolor",
     "TERM_PROGRAM": "konsole",
