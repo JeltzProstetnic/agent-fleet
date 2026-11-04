@@ -230,8 +230,21 @@ git read-tree "$BRANCH"
 # renamed-dir / stale-config signal that let a sensitive path slip into the public
 # tree undetected (Fable R4/C7, 2026-07-05). Fail-closed hard assertion on a surviving
 # excluded path is tracked separately (needs a cross-project .push-filter.conf sweep).
+#
+# NEVER test "any match?" with `… | grep -q .` here (CFG-901, 2026-11-04): under pipefail,
+# grep -q exits on the first line, a producer with more than a pipe buffer (64 KB) of output
+# dies of SIGPIPE, the pipeline returns 141 and the if-test reads "no match". That silently
+# skipped `exclude=docs` (637 files) AND the survivor check below, and published a private
+# docs/ tree. Capture the whole listing instead, and fail closed if git itself fails.
+_index_matches() {   # <pathspec> → prints the tracked matches; exit 1 (fail-closed) if git fails
+    local out
+    out=$(git ls-files --cached -- "$1") || {
+        echo "FATAL: git ls-files failed for exclusion '$1' — refusing to push (fail-closed)." >&2; exit 1; }
+    printf '%s' "$out"
+}
 for path in "${EXCLUDE_PATHS[@]}"; do
-    if git ls-files --cached -- "$path" 2>/dev/null | grep -q .; then
+    matches=$(_index_matches "$path") || exit 1   # exit inside $(…) only leaves the subshell
+    if [[ -n "$matches" ]]; then
         git rm -r --cached --quiet -- "$path" 2>/dev/null || true
     else
         echo "WARNING: exclude '$path' matched no files in index (renamed dir or stale config?)" >&2
@@ -247,7 +260,8 @@ done
 # exactly how a full set of book manuscripts leaked to a public mirror (root cause
 # found 2026-07-31). Quoting makes git match the index, not the disk.
 for glob in "${EXCLUDE_GLOBS[@]}"; do
-    if git ls-files --cached -- "$glob" 2>/dev/null | grep -q .; then
+    matches=$(_index_matches "$glob") || exit 1
+    if [[ -n "$matches" ]]; then
         git rm -r --cached --quiet -- "$glob" 2>/dev/null || true
     else
         echo "WARNING: exclude_glob '$glob' matched no files in index" >&2
@@ -264,9 +278,12 @@ unset GIT_INDEX_FILE
 # git's pathspec matching against the TREE object (not the worktree) is authoritative.
 # A survivor means an exclusion silently failed — refuse to push rather than leak.
 # (Closes the "hard assertion tracked separately" gap noted above; 2026-07-31.)
+# Pipe-free for the same SIGPIPE reason as above (CFG-901); a git failure is itself fatal.
 for pat in "${EXCLUDE_PATHS[@]}" "${EXCLUDE_GLOBS[@]}"; do
-    if git ls-tree -r --name-only "$TREE" -- "$pat" 2>/dev/null | grep -q .; then
-        echo "FATAL: excluded pattern '$pat' survived into the filtered public tree — refusing to push (fail-closed)." >&2
+    survivors=$(git ls-tree -r --name-only "$TREE" -- "$pat") || {
+        echo "FATAL: git ls-tree failed checking '$pat' — refusing to push (fail-closed)." >&2; exit 1; }
+    if [[ -n "$survivors" ]]; then
+        echo "FATAL: excluded pattern '$pat' survived into the filtered public tree ($(printf '%s\n' "$survivors" | wc -l | tr -d ' ') file(s)) — refusing to push (fail-closed)." >&2
         exit 1
     fi
 done
