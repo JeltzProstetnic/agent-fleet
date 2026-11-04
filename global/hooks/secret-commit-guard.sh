@@ -165,84 +165,33 @@ done
 [ -n "$FP_ROOT" ] || exit 0
 ROOT="$FP_ROOT"
 
-# Documentation about secret scanning necessarily contains secret-shaped
-# examples — this guard's own source, its tests, and the backlog entry that
-# describes it all tripped it on the first real run. A path exemption would be
-# a bypass in disguise and would grow; a per-line marker is narrow, visible in
-# the diff, and forces whoever adds it to make the claim explicitly. Same shape
-# as git-sweep-guard.sh, where naming a pathspec always works.
-ALLOW_MARK='pragma: allowlist secret'
-ADDED=$(printf '%s\n' "$ADDED" | grep -vF "$ALLOW_MARK" || true)
-[ -n "$ADDED" ] || exit 0
-
-HITS=""
-
-# ── Detector 1: shape ─────────────────────────────────────────────────────────
-# AKIA is bounded: an AWS key id is a standalone 20-char token, while a base64 run (a data
-# URI, a certificate body) can contain AKIA + 16 [0-9A-Z] mid-string and is not one (CFG-662).
-SECRET_PATTERNS='sk-ant-[A-Za-z0-9-]{20,}|sk-[A-Za-z0-9]{20,}|(^|[^A-Za-z0-9+/])AKIA[0-9A-Z]{16}($|[^A-Za-z0-9+/])|AIzaSy[A-Za-z0-9_-]{33}|ghp_[A-Za-z0-9]{36,}|gho_[A-Za-z0-9]{36,}|xoxb-[A-Za-z0-9-]+|xoxp-[A-Za-z0-9-]+|-----BEGIN RSA|-----BEGIN PRIVATE KEY|-----BEGIN OPENSSH PRIVATE KEY|(key|token|secret)[[:space:]]*[:=][[:space:]]*[A-Za-z0-9+/]{40,}={0,2}'  # pragma: allowlist secret
-if printf '%s' "$ADDED" | grep -Eq "$SECRET_PATTERNS" 2>/dev/null; then
-    HITS="shape"
+# ── Detectors: lib-secret-detect.sh (CFG-892) ─────────────────────────────────
+# Both detectors — the shape patterns, the keyword-value rule (CFG-890) and the
+# salted value fingerprints — live in the shared lib so that the fleet pre-push
+# hook (global/hooks/git/pre-push) runs the SAME scan over commits this guard
+# never sees (scripts, auto-sync, MG's own shell). The allowlist marker filter
+# is the lib's too. Resolved beside this file, then in the deployed hooks dir,
+# then in the config repo. A guard that cannot load its detectors refuses the
+# commit: silently scanning nothing is the failure class CFG-892 exists to
+# remove, and sync.sh deploy ships both files in one loop, so this fires only
+# on a broken install.
+_LIB_SD=""
+for _c in "$(dirname "${BASH_SOURCE[0]}")/lib-secret-detect.sh" \
+          "${HOME:-}/.claude/hooks/lib-secret-detect.sh" \
+          "${CONFIG_REPO:-}/global/hooks/lib-secret-detect.sh"; do
+    [ -f "$_c" ] && { _LIB_SD="$_c"; break; }
+done
+# shellcheck source=lib-secret-detect.sh
+if [ -z "$_LIB_SD" ] || ! source "$_LIB_SD"; then
+    {
+        echo "BLOCKED (CFG-652/CFG-892): lib-secret-detect.sh is missing beside $(dirname "${BASH_SOURCE[0]}")/secret-commit-guard.sh —"
+        echo "the commit cannot be scanned for credentials, so it is refused (fail closed)."
+        echo "Repair: bash ~/cfg-agent-fleet/sync.sh deploy"
+    } >&2
+    exit 2
 fi
 
-# A keyword assignment (password, passphrase, secret or private_key, then : or =) is
-# judged on its VALUE (CFG-890). The key may be JSON-quoted — "password": … — which
-# the old pattern never matched, so a real credential in a .json went through. The
-# value is exempt only when it is shaped like an ALL_CAPS placeholder, e.g.
-# CHANGE_ME_PASSWORD or YOUR_PASSWORD_HERE: a capital, then capitals and underscores
-# with at most two digits, six chars or more, optionally quoted, optionally followed
-# by closing punctuation. A lowercase letter, a symbol or a third digit makes it a
-# value, and it blocks. Each assignment is judged alone: never the whole line (a
-# placeholder beside a real value does not cover it) and never the filename (a
-# .example name proves nothing). ERE has no lookahead, so the value is extracted
-# with -o and tested on its own.
-KEY_PREFIX='(password|passphrase|secret|private_key)"?[[:space:]]*[:=][[:space:]]*'  # pragma: allowlist secret
-PLACEHOLDER='^"?[A-Z][A-Z0-9_]{5,}"?[]}),;]*$'
-if [ -z "$HITS" ]; then
-    VALUES=$(printf '%s' "$ADDED" | grep -oE "${KEY_PREFIX}[^[:space:]]{6,}" 2>/dev/null \
-             | sed -E "s/^${KEY_PREFIX}//")
-    if [ -n "$VALUES" ] && { printf '%s\n' "$VALUES" | grep -Evq "$PLACEHOLDER" \
-                            || printf '%s\n' "$VALUES" | grep -Eq '([0-9][^0-9]*){3}'; }; then
-        HITS="shape"
-    fi
-fi
-
-# ── Detector 2: value fingerprints ────────────────────────────────────────────
-# Salt and fingerprints are gitignored and local-only. An unsalted hash of a
-# low-entropy secret is brute-forceable, which is why the salt is mandatory:
-# without it this file would become the next version of the bug it prevents.
-# Both layouts (CFG-869): secrets/ at the repo root (the private config repo) or
-# setup/secrets/ (a template clone). Root wins when both exist; env overrides win.
-SECRETS_DIR="$ROOT/secrets"
-[ -d "$SECRETS_DIR" ] || { [ -d "$ROOT/setup/secrets" ] && SECRETS_DIR="$ROOT/setup/secrets"; }
-FP_FILE="${CC_SECRET_FINGERPRINTS:-$SECRETS_DIR/.secret-fingerprints}"
-SALT_FILE="${CC_SECRET_SALT:-$SECRETS_DIR/.fingerprint-salt}"
-if [ -s "$FP_FILE" ] && [ -s "$SALT_FILE" ] && command -v python3 &>/dev/null; then
-    if printf '%s' "$ADDED" | python3 -c '
-import hashlib, re, sys
-try:
-    salt = open(sys.argv[1], "rb").read().strip().decode("utf-8", "replace")
-    want = {l.strip() for l in open(sys.argv[2]) if l.strip()}
-except OSError:
-    sys.exit(1)                      # unreadable -> degrade, never hard-fail
-if not want:
-    sys.exit(1)
-text = sys.stdin.read()
-# Candidate tokens: anything that could be a credential. Splitting on
-# whitespace alone misses a value inside quotes, a table cell or a sentence
-# ending in a period, which is exactly how these leaked.
-for tok in set(re.split(r"[\s`\"'\''<>(),;|]+", text)):
-    tok = tok.strip(".:!?*_[]{}")
-    if len(tok) < 6:
-        continue
-    if hashlib.sha256((salt + tok).encode()).hexdigest() in want:
-        sys.exit(0)                  # matched
-sys.exit(1)
-' "$SALT_FILE" "$FP_FILE" 2>/dev/null; then
-        HITS="${HITS:+$HITS+}value"
-    fi
-fi
-
+HITS=$(printf '%s' "$ADDED" | secret_detect "$ROOT")
 [ -n "$HITS" ] || exit 0
 
 # ── Report, naming files only ─────────────────────────────────────────────────

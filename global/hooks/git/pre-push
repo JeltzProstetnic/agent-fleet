@@ -1,0 +1,169 @@
+#!/usr/bin/env bash
+# pre-push — the fleet pre-push credential scan and hook dispatcher (CFG-892).
+#
+# Armed fleet-wide by `git config --global core.hooksPath ~/.claude/hooks/git`
+# (setup/scripts/install-git-hooks.sh, run by every `sync.sh deploy`).
+#
+# WHY. secret-commit-guard.sh sees only the commits Claude's Bash tool makes. A
+# credential committed by a script, by the SessionEnd auto-sync or by MG's own shell
+# reaches the remote unscanned, and a push to a public remote is irreversible
+# (owner decision 2026-10-30: a credential must never reach a remote, above all not a
+# public one). This hook runs the SAME two detectors (lib-secret-detect.sh:
+# provider shapes + keyword values, and salted fingerprints of the fleet's own secrets)
+# over every line ADDED by every commit that is about to leave the machine, whoever
+# made it, and refuses the push on a hit — naming files and commits, never the value.
+#
+# WHAT IS SCANNED. Per ref line git hands over ("<local ref> <local sha> <remote ref>
+# <remote sha>"): the commits in <remote sha>..<local sha> when the remote sha is known
+# here, else everything reachable from <local sha> that no remote-tracking ref of this
+# remote already has (new branch; a first push of a new repo scans all of it, which is
+# right). A delete pushes nothing. Already-pushed history is never rescanned, so a leak
+# that is already on the remote does not block unrelated clean work — it is reported by
+# the repo's own history scan, not here.
+#
+# THEN IT CHAINS what a global core.hooksPath would otherwise silently disable:
+# <toplevel>/.githooks/pre-push (the repo's tracked guard, e.g. agent-fleet's leak
+# scrubber) and <git-common-dir>/hooks/pre-push (git-lfs installs one). Same args, the
+# same stdin, first non-zero exit wins. See _chain.sh.
+#
+# POSTURE: fail closed. A range that cannot be computed, a git error, a missing
+# detector lib — the push is refused with a message that says why and how to repair.
+# The one escape is FLEET_PREPUSH_SCAN=0, which skips the scan LOUDLY (stderr names
+# CFG-892) and still chains. MG only, last resort, never in a script.
+#
+# Exit 0 = push proceeds. Exit 1 = refused.
+
+set -u
+
+ZERO='0000000000000000000000000000000000000000'
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REMOTE_NAME="${1:-}"
+
+# Buffer stdin ONCE, bytes intact, so each chained hook gets the same lines.
+STDIN="$(cat; printf x)"; STDIN="${STDIN%x}"
+
+_chain() {
+    printf '%s' "$STDIN" | bash "$HERE/_chain.sh" pre-push "$@"
+    exit $?
+}
+
+_refuse() {  # fail closed: the scan could not run, so nothing leaves
+    {
+        echo "BLOCKED (CFG-892): the pre-push credential scan could not run — the push is refused (fail closed)."
+        printf '  %s\n' "$@"
+        echo "  Nothing has left the machine. Repair: bash ~/cfg-agent-fleet/sync.sh deploy"
+    } >&2
+    exit 1
+}
+
+if [ "${FLEET_PREPUSH_SCAN:-1}" = "0" ]; then
+    {
+        echo "!!! CFG-892: FLEET_PREPUSH_SCAN=0 — the pre-push credential scan is SKIPPED for this push to '${REMOTE_NAME}'."
+        echo "!!! Whatever these commits contain is leaving the machine unscanned. Last resort only; unset it afterwards."
+    } >&2
+    _chain "$@"
+fi
+
+LIB="$HERE/../lib-secret-detect.sh"
+[ -f "$LIB" ] || _refuse "$LIB is missing (sync.sh deploy ships it beside the git/ dir)."
+# shellcheck source=../lib-secret-detect.sh
+source "$LIB" || _refuse "$LIB failed to load."
+
+# Fingerprint files resolve against the worktree root; a bare repo has none (env
+# overrides still apply there).
+ROOT="$(git rev-parse --show-toplevel 2>/dev/null)" || ROOT="$PWD"
+
+TMP="$(mktemp -d "${TMPDIR:-/tmp}/fleet-prepush.XXXXXX")" || _refuse "mktemp failed."
+trap 'rm -rf "$TMP"' EXIT
+
+# ── Which commits are leaving? ─────────────────────────────────────────────────
+: > "$TMP/revs"
+while read -r _lref lsha _rref rsha; do
+    [ -n "${lsha:-}" ] || continue
+    [ "$lsha" = "$ZERO" ] && continue                      # a delete pushes nothing
+    if [ "${rsha:-$ZERO}" != "$ZERO" ] && git rev-parse -q --verify "$rsha^{commit}" >/dev/null 2>&1; then
+        git rev-list "$rsha..$lsha" >> "$TMP/revs" 2>"$TMP/err" \
+            || _refuse "git rev-list $rsha..$lsha failed: $(tr '\n' ' ' < "$TMP/err")"
+    else
+        # No usable remote sha (new branch, first push, remote moved since the last
+        # fetch): everything reachable from the pushed commit that no remote-tracking
+        # ref of this remote already has. A URL as remote name matches no ref, so a
+        # push to a bare URL scans the whole reachable history — deliberately.
+        if [ -n "$REMOTE_NAME" ]; then
+            git rev-list "$lsha" --not --remotes="$REMOTE_NAME" >> "$TMP/revs" 2>"$TMP/err" \
+                || _refuse "git rev-list $lsha --not --remotes=$REMOTE_NAME failed: $(tr '\n' ' ' < "$TMP/err")"
+        else
+            git rev-list "$lsha" --not --remotes >> "$TMP/revs" 2>"$TMP/err" \
+                || _refuse "git rev-list $lsha --not --remotes failed: $(tr '\n' ' ' < "$TMP/err")"
+        fi
+    fi
+done <<< "$STDIN"
+sort -u -o "$TMP/revs" "$TMP/revs"
+
+[ -s "$TMP/revs" ] || _chain "$@"                        # nothing new to scan
+
+# ── Added lines, split per file ────────────────────────────────────────────────
+# --no-color: this fleet sets color.diff=always, which makes every ^+ match fail
+# silently (a documented WSL trap). --unified=0: added lines only. Merge commits
+# are diffed against their first parent so an evil merge is seen; the side branch's
+# own commits are in the range anyway. Prefixes pinned so the file split below does
+# not depend on diff.mnemonicPrefix / diff.noprefix.
+git log --no-walk --stdin --no-color --no-textconv --format= --unified=0 \
+        --diff-merges=first-parent --src-prefix=a/ --dst-prefix=b/ -p \
+        < "$TMP/revs" > "$TMP/patch" 2>"$TMP/err" \
+    || _refuse "git log -p over the pushed commits failed: $(tr '\n' ' ' < "$TMP/err")"
+
+mkdir "$TMP/files"
+awk -v out="$TMP/files" '
+    /^diff --git /     { inhdr = 1; cur = ""; next }
+    inhdr && /^@@/     { inhdr = 0; next }
+    inhdr && /^\+\+\+ / {
+        p = substr($0, 5)
+        if (p == "/dev/null") { cur = ""; next }
+        sub(/^b\//, "", p)
+        if (!(p in idx)) { idx[p] = ++n; print n "\t" p >> (out "/.names") }
+        cur = out "/" idx[p]; next
+    }
+    inhdr              { next }
+    /^\+/              { line = substr($0, 2); print line >> (out "/.all"); if (cur != "") print line >> cur }
+' "$TMP/patch" || _refuse "splitting the patch failed."
+
+[ -s "$TMP/files/.all" ] || _chain "$@"                  # nothing added at all
+
+# ── Scan ───────────────────────────────────────────────────────────────────────
+HITS=$(secret_detect "$ROOT" < "$TMP/files/.all")
+if [ "$(secret_value_status "$ROOT")" = "no-python" ]; then
+    echo "notice (CFG-892): python3 is unusable here — the value-fingerprint detector did not run on this push; the shape detector did." >&2
+fi
+[ -n "$HITS" ] || _chain "$@"
+
+# ── Report, naming files and commits only ──────────────────────────────────────
+# The matched line is never printed: echoing it would put the credential into the
+# transcript and the scrollback, which is the exposure being prevented. Files are
+# narrowed to the ones whose own added lines match (bounded, this is the rare path).
+SUSPECTS=""
+examined=0; found=0
+while IFS=$'\t' read -r idx path; do
+    examined=$((examined + 1))
+    [ "$examined" -le 400 ] && [ "$found" -lt 20 ] || break
+    [ -s "$TMP/files/$idx" ] || continue
+    [ -n "$(secret_detect "$ROOT" < "$TMP/files/$idx")" ] || continue
+    found=$((found + 1))
+    commits=$(git log --no-walk --stdin --format=%h -- "$path" < "$TMP/revs" 2>/dev/null | head -5 | tr '\n' ' ')
+    SUSPECTS+="  $path  (commit${commits:+s: $commits})"$'\n'
+done < "$TMP/files/.names"
+[ -n "$SUSPECTS" ] || SUSPECTS=$(cut -f2 "$TMP/files/.names" | head -20 | sed 's/^/  /')
+{
+    echo "BLOCKED (CFG-892): a commit in this push to '${REMOTE_NAME}' adds something that looks like a credential (${HITS} match)."
+    echo "File(s) in the pushed commits:"
+    printf '%s\n' "$SUSPECTS" | sed '/^$/d'
+    echo ""
+    echo "The matched value is deliberately NOT shown — printing it here would put it in the"
+    echo "transcript and the scrollback, which is the exposure this hook exists to prevent."
+    echo ""
+    echo "Nothing has left the machine. Remove the value from HISTORY — amend or rewrite the"
+    echo "commit; a later cleanup commit on top still pushes the leak — then push again. If this"
+    echo "is a false positive, confirm what the file contains and push the corrected history;"
+    echo "do not bypass the hook (CFG-513)."
+} >&2
+exit 1

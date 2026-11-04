@@ -26,12 +26,38 @@
 
 set -uo pipefail
 
+# CFG-892: the fleet git hook dispatcher. Once the global core.hooksPath points at
+# ~/.claude/hooks/git (install-git-hooks.sh), git runs ONLY that directory — and the
+# dispatcher chains .githooks/* itself, adding the pre-push credential scan. A
+# repo-local core.hooksPath=.githooks would SHADOW it, so the scan would never run in
+# exactly the repos that ship a guard — agent-fleet, which is PUBLIC, among them. With
+# the dispatcher armed this script therefore releases a local `.githooks` value and
+# never sets one. Without it (not installed, or half-installed), today's behaviour.
+_dispatcher_armed() {
+    local gp
+    gp="$(git config --global --get core.hooksPath 2>/dev/null || true)"
+    [[ "$gp" == "~/"* ]] && gp="$HOME/${gp#\~/}"
+    [[ -n "$gp" && "$gp" == "$HOME/.claude/hooks/git" && -x "$gp/pre-push" ]]
+}
+
 _ensure_one() {
     local repo="$1"
     [[ -d "$repo/.git" ]] || return 0                 # not a git repo — nothing to do
     # Ships no guard — leave alone. pre-commit counts too: the project template's
     # commit-size guard (CFG-490) is a pre-commit-only .githooks/.
     [[ -f "$repo/.githooks/pre-push" || -f "$repo/.githooks/pre-commit" ]] || return 0
+
+    if _dispatcher_armed; then
+        local local_v
+        local_v="$(git -C "$repo" config --local --get core.hooksPath 2>/dev/null || true)"
+        if [[ "$local_v" == ".githooks" ]]; then
+            git -C "$repo" config --local --unset core.hooksPath || return 1
+            echo "ensure-githooks: $repo — released local core.hooksPath=.githooks to the fleet dispatcher (CFG-892), which chains .githooks/* and adds the pre-push credential scan"
+        elif [[ -n "$local_v" ]]; then
+            echo "ensure-githooks: $repo has a local core.hooksPath ($local_v) — left as is; it shadows the fleet dispatcher, so the pre-push credential scan does NOT run there (CFG-892)" >&2
+        fi
+        return 0
+    fi
 
     local current
     current="$(git -C "$repo" config --get core.hooksPath 2>/dev/null || true)"

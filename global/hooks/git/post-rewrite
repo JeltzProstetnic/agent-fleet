@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+# post-rewrite — fleet pass-through stub (CFG-892). The global core.hooksPath that arms
+# the pre-push credential scan would otherwise silently disable this repo's own
+# post-rewrite hook. This stub only chains <toplevel>/.githooks/post-rewrite and then
+# <git-common-dir>/hooks/post-rewrite — same args, same stdin (the rewritten-sha pairs),
+# first non-zero exit wins. No scan here; see pre-push and _chain.sh.
+exec bash "$(dirname "${BASH_SOURCE[0]}")/_chain.sh" "$(basename "${BASH_SOURCE[0]}")" "$@"

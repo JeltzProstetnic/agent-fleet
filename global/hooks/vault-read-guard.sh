@@ -30,14 +30,26 @@ fi
 # space, end, or non-alnum). Catches `secrets/vault.json`, ` vault.json`,
 # `~/<config-repo>/secrets/vault.json`, `secrets/other-vault.json`, etc.
 # but NOT `test-vault-manage.sh` (no .json) or `vault.json.tmp` (alnum follows).
-if ! echo "$CMD" | grep -qE '(^|[[:space:]/])([A-Za-z0-9_]+-)?vault\.json([[:space:]]|$|[^a-zA-Z0-9.])'; then
-    exit 0
-fi
+VAULT_HIT=0; SETTINGS_HIT=0
+echo "$CMD" | grep -qE '(^|[[:space:]/])([A-Za-z0-9_]+-)?vault\.json([[:space:]]|$|[^a-zA-Z0-9.])' && VAULT_HIT=1
 
-# Allow the legitimate intermediary
-case "$CMD" in
-    *"vault-manage.sh"*) exit 0 ;;
-esac
+# CFG-892: the LIVE settings.json is a credential store too — its env block carries tokens
+# (AFD_TOKEN and others), and a subagent asked to "read the settings" printed them into its
+# transcript (2026-10-30). Live = $CLAUDE_CONFIG_DIR/settings.json, a cc-mirror
+# variant's config/settings.json, or ~/.claude/settings.json (live on hosts that symlink the
+# two). NOT the repo template (setup/config/settings.json: no secrets by invariant) and NOT a
+# project's <project>/.claude/settings.json. A suffix (settings.json.bak) is a copy: blocked.
+SETTINGS_RE='(\.cc-mirror/[^/[:space:]]+/config/settings\.json|CLAUDE_CONFIG_DIR\}?/settings\.json|(~|\$HOME|\$\{HOME\}|/home/[^/[:space:]]+|/root|/Users/[^/[:space:]]+)/\.claude/settings\.json)'
+echo "$CMD" | grep -qE "$SETTINGS_RE" && SETTINGS_HIT=1
+
+[ "$VAULT_HIT" = 1 ] || [ "$SETTINGS_HIT" = 1 ] || exit 0
+
+# Allow the legitimate intermediary (the vault's — it says nothing about the settings)
+if [ "$SETTINGS_HIT" = 0 ]; then
+    case "$CMD" in
+        *"vault-manage.sh"*) exit 0 ;;
+    esac
+fi
 
 # ── What the verb match may see (CFG-621) ────────────────────────────────────
 # The blocked-verb list contains the English words `more` and `less`, and the
@@ -255,8 +267,34 @@ _vault_manage_path() {
     printf '%s' '<config-repo>/secrets/vault-manage.sh'
 }
 
+# The masked settings reader, resolved like vault-manage.sh above (no deployment path baked in).
+_settings_view_path() {
+    local root
+    root=$(readlink -f "$(dirname "${BASH_SOURCE[0]}")/../foundation" 2>/dev/null) || root=""
+    root="${root%/global/foundation}"
+    for root in "$root" "$HOME/cfg-agent-fleet" "$HOME/agent-fleet"; do
+        [ -n "$root" ] && [ -f "$root/setup/scripts/settings-view.sh" ] && {
+            printf '%s' "$root/setup/scripts/settings-view.sh"; return; }
+    done
+    printf '%s' '<config-repo>/setup/scripts/settings-view.sh'
+}
+
 # Block: command contains a read primitive or copy-elsewhere primitive
-if echo "$SCAN" | grep -qE '\b(cat|head|tail|less|more|grep|awk|sed|jq|xxd|od|python[23]?|node|cp|mv|tee|tar|zip)\b'; then
+if [ "$SETTINGS_HIT" = 1 ] && echo "$SCAN" | grep -qE '\b(cat|head|tail|less|more|grep|awk|sed|jq|xxd|od|python[23]?|node|cp|mv|tee|tar|zip)\b'; then
+    SV=$(_settings_view_path)
+    cat >&2 <<BLOCKED_SETTINGS
+BLOCKED (CFG-892): the live settings.json is a credential store — its env block holds
+tokens (AFD_TOKEN and others), and reading it raw prints them into the transcript.
+Use the masked reader (env values masked unless the fleet template declares the key):
+
+  bash $SV                # the whole file, env values masked
+  bash $SV | jq .hooks    # any part of it
+
+ls/stat/test on the file stay allowed. Never print a credential's value.
+BLOCKED_SETTINGS
+    exit 2
+fi
+if [ "$VAULT_HIT" = 1 ] && echo "$SCAN" | grep -qE '\b(cat|head|tail|less|more|grep|awk|sed|jq|xxd|od|python[23]?|node|cp|mv|tee|tar|zip)\b'; then
     VM=$(_vault_manage_path)
     cat >&2 <<BLOCKED_MSG
 BLOCKED: Direct read/copy of secrets/vault.json bypasses vault-manage.sh and risks

@@ -461,4 +461,82 @@ test_non_bash_tool_ignored() {
 }
 run_test "passes through: non-Bash tools" test_non_bash_tool_ignored
 
+# ── CFG-892: the LIVE settings.json is a credential store (env block) ───────
+# 2026-10-30: a subagent "read the settings" and printed AFD_TOKEN's value into its
+# transcript. Raw reads of the live settings are blocked; settings-view.sh prints them
+# with env values masked. The repo template and per-project settings are not live.
+_settings_hook() {   # sets RC and OUT for one Bash command
+    local input; input=$(jq -n --arg c "$1" '{tool_name: "Bash", tool_input: {command: $c}}')
+    RC=0; OUT=$(printf '%s' "$input" | bash "$HOOK" 2>&1) || RC=$?
+}
+
+test_settings_cat_live_blocked() {
+    _settings_hook "cat ~/.cc-mirror/mclaude/config/settings.json"
+    echo "    measured: rc=$RC"
+    assert_eq "2" "$RC" "cat of the live cc-mirror settings.json must be blocked" || return 1
+    assert_contains "$OUT" "settings-view.sh" "the block must point at the masked reader"
+}
+run_test "CFG-892 blocks: cat ~/.cc-mirror/<variant>/config/settings.json" test_settings_cat_live_blocked
+
+test_settings_jq_config_dir_blocked() {
+    _settings_hook 'jq .env "$CLAUDE_CONFIG_DIR/settings.json"'
+    assert_eq "2" "$RC" "jq on \$CLAUDE_CONFIG_DIR/settings.json must be blocked"
+}
+run_test "CFG-892 blocks: jq .env \$CLAUDE_CONFIG_DIR/settings.json" test_settings_jq_config_dir_blocked
+
+test_settings_python_home_claude_blocked() {
+    _settings_hook "python3 -c \"import json;print(json.load(open('/home/someone/.claude/settings.json'))['env'])\""
+    assert_eq "2" "$RC" "python reading ~/.claude/settings.json must be blocked"
+}
+run_test "CFG-892 blocks: python3 reading /home/<user>/.claude/settings.json" test_settings_python_home_claude_blocked
+
+test_settings_grep_braced_var_blocked() {
+    _settings_hook 'grep TOKEN ${CLAUDE_CONFIG_DIR}/settings.json'
+    assert_eq "2" "$RC" "grep on \${CLAUDE_CONFIG_DIR}/settings.json must be blocked"
+}
+run_test "CFG-892 blocks: grep on \${CLAUDE_CONFIG_DIR}/settings.json" test_settings_grep_braced_var_blocked
+
+test_settings_ls_allowed() {
+    _settings_hook "ls -la ~/.cc-mirror/mclaude/config/settings.json"
+    assert_eq "0" "$RC" "ls (metadata only) must pass"
+}
+run_test "CFG-892 allows: ls of the live settings.json" test_settings_ls_allowed
+
+test_settings_repo_template_allowed() {
+    _settings_hook "cat setup/config/settings.json"
+    assert_eq "0" "$RC" "the repo template holds no secrets and must stay readable"
+}
+run_test "CFG-892 allows: cat setup/config/settings.json (repo template)" test_settings_repo_template_allowed
+
+test_settings_project_settings_allowed() {
+    _settings_hook "jq .permissions ~/someproject/.claude/settings.json"
+    assert_eq "0" "$RC" "a project's .claude/settings.json is not the live credential store"
+}
+run_test "CFG-892 allows: a project's .claude/settings.json" test_settings_project_settings_allowed
+
+test_settings_local_json_allowed() {
+    _settings_hook "cat ~/.claude/settings.local.json"
+    assert_eq "0" "$RC" "settings.local.json is a different file"
+}
+run_test "CFG-892 allows: ~/.claude/settings.local.json" test_settings_local_json_allowed
+
+test_settings_view_allowed() {
+    _settings_hook "bash ~/cfg-agent-fleet/setup/scripts/settings-view.sh | jq .hooks"
+    assert_eq "0" "$RC" "the masked reader is the sanctioned path"
+}
+run_test "CFG-892 allows: settings-view.sh piped into jq" test_settings_view_allowed
+
+test_settings_commit_message_allowed() {
+    _settings_hook 'git commit -m "docs: never cat ~/.claude/settings.json, use settings-view.sh"'
+    assert_eq "0" "$RC" "a commit message that mentions the path reads nothing (CFG-621)"
+}
+run_test "CFG-892 allows: a commit message mentioning the path" test_settings_commit_message_allowed
+
+test_vault_block_unchanged() {
+    _settings_hook "cat secrets/vault.json"
+    assert_eq "2" "$RC" "vault.json reads stay blocked" || return 1
+    assert_contains "$OUT" "vault-manage.sh" "the vault block message is unchanged"
+}
+run_test "CFG-892: the vault.json block and its message are unchanged" test_vault_block_unchanged
+
 suite_summary

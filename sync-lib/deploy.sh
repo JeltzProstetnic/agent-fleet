@@ -46,6 +46,11 @@ cmd_deploy() {
     # Hooks
     deploy_hooks
 
+    # Arm the fleet git hook dispatcher — the pre-push credential scan (CFG-892). Runs
+    # after deploy_hooks so the dir it points at exists. Never fails the deploy: a
+    # foreign global core.hooksPath is reported and left alone.
+    bash "$SCRIPT_DIR/setup/scripts/install-git-hooks.sh" || log_warn "install-git-hooks.sh exited $? — the pre-push credential scan may not be armed"
+
     # Project-specific rules
     deploy_project_rules
 
@@ -264,7 +269,11 @@ deploy_hooks() {
         local subdir_name
         subdir_name=$(basename "$subdir")
         mkdir -p "$CLAUDE_HOME/hooks/$subdir_name"
-        for f in "$subdir"*.sh; do
+        # git/ holds git hooks, which git finds by BARE name (pre-push, post-commit…),
+        # so that dir ships every regular file; other subdirs ship *.sh as before (CFG-892).
+        local pat='*.sh'
+        [ "$subdir_name" = "git" ] && pat='*'
+        for f in "$subdir"$pat; do
             [ -f "$f" ] || continue
             local f_base
             f_base=$(basename "$f")
@@ -278,7 +287,7 @@ deploy_hooks() {
             log_info "Deployed hook: $subdir_name/$f_base"
         done
         # Clean orphaned hooks: remove deployed files that no longer exist in repo
-        for deployed in "$CLAUDE_HOME/hooks/$subdir_name/"*.sh; do
+        for deployed in "$CLAUDE_HOME/hooks/$subdir_name/"$pat; do
             [ -f "$deployed" ] || continue
             local d_base
             d_base=$(basename "$deployed")

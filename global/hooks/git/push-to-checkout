@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+# push-to-checkout — fleet pass-through stub (CFG-892). The global core.hooksPath that
+# arms the pre-push credential scan would otherwise silently disable this repo's own
+# push-to-checkout hook. This stub only chains <toplevel>/.githooks/push-to-checkout and
+# then <git-common-dir>/hooks/push-to-checkout — same args, same stdin, first non-zero
+# exit wins. No scan here; see pre-push and _chain.sh.
+exec bash "$(dirname "${BASH_SOURCE[0]}")/_chain.sh" "$(basename "${BASH_SOURCE[0]}")" "$@"

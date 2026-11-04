@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+# post-merge — fleet pass-through stub (CFG-892). The global core.hooksPath that arms the
+# pre-push credential scan would otherwise silently disable this repo's own post-merge
+# hook (git-lfs installs one). This stub only chains <toplevel>/.githooks/post-merge and
+# then <git-common-dir>/hooks/post-merge — same args, same stdin, first non-zero exit
+# wins. No scan here; see pre-push and _chain.sh.
+exec bash "$(dirname "${BASH_SOURCE[0]}")/_chain.sh" "$(basename "${BASH_SOURCE[0]}")" "$@"

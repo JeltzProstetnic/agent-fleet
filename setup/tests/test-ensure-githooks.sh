@@ -106,3 +106,93 @@ test_armed_guard_actually_blocks() {
 }
 run_test "armed guard actually blocks a real push" test_armed_guard_actually_blocks
 
+# ══ CFG-892: interplay with the fleet git hook dispatcher ═════════════════════
+# A repo-local core.hooksPath=.githooks OVERRIDES the global dispatcher, so the
+# pre-push credential scan would never run in exactly the repos that ship a
+# .githooks/ guard — agent-fleet, which is PUBLIC, among them. Once the global
+# dispatcher is armed it chains .githooks/* itself, so the local value must go
+# and must not come back. Without the dispatcher, today's behaviour stays.
+
+_dispatcher_armed_sandbox() {
+    export GIT_CONFIG_GLOBAL="$TEST_TMPDIR/gitconfig"; : > "$GIT_CONFIG_GLOBAL"
+    mkdir -p "$HOME/.claude/hooks"
+    cp -r "$REPO_ROOT/global/hooks/git" "$HOME/.claude/hooks/git"
+    cp "$REPO_ROOT/global/hooks/lib-secret-detect.sh" "$HOME/.claude/hooks/"
+    git config --global core.hooksPath "$HOME/.claude/hooks/git"
+    export CC_SECRET_FINGERPRINTS="$TEST_TMPDIR/none" CC_SECRET_SALT="$TEST_TMPDIR/none"
+    unset FLEET_PREPUSH_SCAN
+}
+
+_local_hookspath() { git -C "$1" config --local --get core.hooksPath 2>/dev/null || true; }
+
+test_dispatcher_armed_does_not_set_local() {
+    _dispatcher_armed_sandbox
+    local d="$TEST_TMPDIR/nolocal"; _mkrepo "$d"
+    local out; out=$(bash "$SCRIPT" "$d" 2>&1) || return 1
+    assert_eq "" "$(_local_hookspath "$d")" "with the dispatcher armed no local hooksPath may be set"
+    assert_not_contains "$out" "armed .githooks" "nothing to report"
+}
+run_test "CFG-892: dispatcher armed → a repo with .githooks gets NO local hooksPath" test_dispatcher_armed_does_not_set_local
+
+test_dispatcher_armed_unsets_local_githooks() {
+    _dispatcher_armed_sandbox
+    local d="$TEST_TMPDIR/release"; _mkrepo "$d"
+    git -C "$d" config core.hooksPath .githooks
+    local out; out=$(bash "$SCRIPT" "$d" 2>&1) || return 1
+    assert_eq "" "$(_local_hookspath "$d")" "a local .githooks value must be unset so the dispatcher runs"
+    assert_contains "$out" "$d" "the release must be reported, naming the repo"
+    assert_contains "$out" "CFG-892" "the report must say why"
+    # idempotent and silent afterwards
+    out=$(bash "$SCRIPT" "$d" 2>&1) || return 1
+    assert_not_contains "$out" "$d" "second run must be silent"
+}
+run_test "CFG-892: dispatcher armed → a local .githooks value is unset and reported" test_dispatcher_armed_unsets_local_githooks
+
+test_dispatcher_armed_keeps_custom_local() {
+    _dispatcher_armed_sandbox
+    local d="$TEST_TMPDIR/custom2"; _mkrepo "$d"
+    mkdir -p "$d/myhooks"
+    git -C "$d" config core.hooksPath myhooks
+    local out; out=$(bash "$SCRIPT" "$d" 2>&1) || return 1
+    assert_eq "myhooks" "$(_local_hookspath "$d")" "a deliberate custom local value is still preserved"
+    assert_contains "$out" "myhooks" "and the warning says it shadows the dispatcher"
+}
+run_test "CFG-892: dispatcher armed → a custom local value is preserved, with a warning" test_dispatcher_armed_keeps_custom_local
+
+test_dispatcher_half_installed_keeps_todays_behaviour() {
+    # Global hooksPath set, but no executable pre-push there: not a dispatcher. Today's
+    # rule applies unchanged — a non-default merged value is "custom", left as is.
+    export GIT_CONFIG_GLOBAL="$TEST_TMPDIR/gitconfig"; : > "$GIT_CONFIG_GLOBAL"
+    mkdir -p "$HOME/.claude/hooks/git"
+    git config --global core.hooksPath "$HOME/.claude/hooks/git"
+    local d="$TEST_TMPDIR/half"; _mkrepo "$d"
+    local out; out=$(bash "$SCRIPT" "$d" 2>&1) || return 1
+    assert_eq "" "$(_local_hookspath "$d")" "today's behaviour: a custom merged value is not overridden"
+    assert_contains "$out" "left as is" "today's warning"
+}
+run_test "CFG-892: a global hooksPath without an executable pre-push is not a dispatcher — today's behaviour" \
+    test_dispatcher_half_installed_keeps_todays_behaviour
+
+test_released_repo_guard_still_fires_through_dispatcher() {
+    _dispatcher_armed_sandbox
+    local d="$TEST_TMPDIR/chain"; _mkrepo "$d"
+    local remote="$TEST_TMPDIR/chain-remote"
+    git -C "$d" config core.hooksPath .githooks
+    printf '#!/usr/bin/env bash\necho "GUARD FIRED" >&2\nexit 1\n' > "$d/.githooks/pre-push"
+    chmod +x "$d/.githooks/pre-push"
+    git init -q --bare "$remote"
+    git -C "$d" remote add origin "$remote"
+    echo hi > "$d/f.txt"; git -C "$d" add -A
+    git -C "$d" -c user.name=t -c user.email=t@t commit -q -m init
+    bash "$SCRIPT" "$d" >/dev/null 2>&1 || return 1
+    assert_eq "" "$(_local_hookspath "$d")" "local value released" || return 1
+    local out rc=0
+    out=$(git -C "$d" push origin main 2>&1) || rc=$?
+    assert_neq "0" "$rc" "the repo's own guard must still block through the dispatcher chain" || return 1
+    assert_contains "$out" "GUARD FIRED" "the guard's own message must reach the caller"
+}
+run_test "CFG-892: after release the repo's .githooks/pre-push still blocks (dispatcher chains it)" \
+    test_released_repo_guard_still_fires_through_dispatcher
+
+suite_summary
+
