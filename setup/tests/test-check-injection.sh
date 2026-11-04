@@ -875,6 +875,46 @@ test_pending_comment_form_act_fires_act_pending() {
 }
 run_test "check 23b (CFG-482): comment-form act file fires ACT_PENDING" test_pending_comment_form_act_fires_act_pending
 
+# ── CFG-896: a scheduled act file stays out of ACT_PENDING until its due date ──
+_cfg896_inj_run() {   # <filename> <header-lines>
+    local config_repo="$TEST_TMPDIR/config-repo" mock_home="$TEST_TMPDIR/home" project_dir="$TEST_TMPDIR/project"
+    mkdir -p "$mock_home/.claude" "$project_dir/docs"
+    create_mock_config_repo "$config_repo"
+    _install_manage_pending "$config_repo"
+    touch "$config_repo/CLAUDE.md"; ln -sf "$config_repo/CLAUDE.md" "$mock_home/.claude/CLAUDE.md"
+    printf "%b\n<!-- Tracked-by: CFG-801 -->\n\nRenew it.\n" "$2" > "$project_dir/docs/$1"
+    printf '# Backlog\n- [ ] [P1] `CFG-801` **Renewal**: open\n' > "$project_dir/backlog.md"
+    local patched; patched=$(create_patched_script "$config_repo" "$mock_home" "$project_dir")
+    OUT=$(run_hook "$patched")
+}
+
+test_future_act_not_in_act_pending() {
+    local due; due=$(date -d '+30 days' +%F)
+    _cfg896_inj_run "pending-renewal-$due.md" "<!-- Action: act -->"
+    local act_field; act_field=$(echo "$OUT" | grep -oE 'ACT_PENDING:[^|]*' | head -1)
+    echo "    measured: ACT_PENDING=[$act_field] PENDING_FILES entry=[$(echo "$OUT" | grep -oE "pending-renewal-$due.md \([^)]*\)" | head -1)]"
+    assert_not_contains "$act_field" "pending-renewal-$due.md" "a future-dated act file must not demand immediate execution" || return 1
+    assert_contains "$OUT" "pending-renewal-$due.md (scheduled $due)" "it stays listed in PENDING_FILES as scheduled, with its due date"
+}
+run_test "check 23b (CFG-896): future-dated act file is scheduled, not ACT_PENDING" test_future_act_not_in_act_pending
+
+test_due_header_future_not_in_act_pending() {
+    local due; due=$(date -d '+30 days' +%F)
+    _cfg896_inj_run "pending-undated-renewal.md" "<!-- Action: act -->\n<!-- Due: $due -->"
+    local act_field; act_field=$(echo "$OUT" | grep -oE 'ACT_PENDING:[^|]*' | head -1)
+    assert_not_contains "$act_field" "pending-undated-renewal.md" "a future Due: header keeps the file out of ACT_PENDING" || return 1
+    assert_contains "$OUT" "pending-undated-renewal.md (scheduled $due)" "listed as scheduled"
+}
+run_test "check 23b (CFG-896): future Due: header keeps an act file out of ACT_PENDING" test_due_header_future_not_in_act_pending
+
+test_due_today_act_in_act_pending() {
+    local due; due=$(date +%F)
+    _cfg896_inj_run "pending-renewal-$due.md" "<!-- Action: act -->"
+    local act_field; act_field=$(echo "$OUT" | grep -oE 'ACT_PENDING:[^|]*' | head -1)
+    assert_contains "$act_field" "pending-renewal-$due.md" "on its due date the act file is live work"
+}
+run_test "check 23b (CFG-896): act file due today is in ACT_PENDING" test_due_today_act_in_act_pending
+
 # ── Summary ──────────────────────────────────────────────────────────────────
 
 suite_summary

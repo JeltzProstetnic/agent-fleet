@@ -77,6 +77,8 @@ never build the ramp as pure K.
   Acceptance is not colour fidelity: KDP then converts itself, which is exactly the desaturation
   risk below. Both facts are recorded on purpose; whether a title converts to CMYK first is the
   project's call.
+- **House rule (owner ruling, 2026-11-03):** print covers of **new titles** are CMYK; titles already
+  published stay RGB. "Future" means future books, not re-uploads of existing ones.
 - **Deep blues, purples and saturated reds desaturate** in conversion; KDP's own converter is called
   out as imperfect "particularly for highly saturated colours, deep blues, and certain reds".
   **Convert yourself; do not let the platform decide.**

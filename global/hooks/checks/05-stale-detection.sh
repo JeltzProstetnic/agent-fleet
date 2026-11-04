@@ -39,6 +39,7 @@ if grep -q 'mobile-collect\|mobile_collect' "$CONFIG_REPO/sync.sh" 2>/dev/null; 
 fi
 
 # Check 5.3: Warn on stale pending files with severity-differentiated tags
+source "$(dirname "${BASH_SOURCE[0]}")/../lib-pending-due.sh" 2>/dev/null || true
 STALE_MSG=""
 if [ -d "$CONFIG_REPO/docs" ]; then
     BACKLOG_FILE="$CONFIG_REPO/backlog.md"
@@ -51,8 +52,14 @@ if [ -d "$CONFIG_REPO/docs" ]; then
             | sed -n 's/^[[:space:]]*Action:[[:space:]]*\([^[:space:]]*\).*/\1/p' \
             | head -1 | tr '[:upper:]' '[:lower:]')
 
-        if [ "$_action" = "act" ] && [ "$FILE_AGE_DAYS" -ge 3 ]; then
-            STALE_MSG="${STALE_MSG:+$STALE_MSG | }STALE_ACT: $PF_BASE (${FILE_AGE_DAYS}d) — should have been executed immediately"
+        # CFG-896: a dated act file ages from its due date, and is silent before it.
+        _act_age="$FILE_AGE_DAYS"
+        if [ "$_action" = "act" ] && type pending_due_date >/dev/null 2>&1; then
+            _due=$(pending_due_date "$pf")
+            [ -n "$_due" ] && _act_age=$(pending_days_past_due "$_due" || echo "$FILE_AGE_DAYS")
+        fi
+        if [ "$_action" = "act" ] && [ "$_act_age" -ge 3 ]; then
+            STALE_MSG="${STALE_MSG:+$STALE_MSG | }STALE_ACT: $PF_BASE (${_act_age}d) — should have been executed immediately"
         fi
 
         if [ "$_action" = "defer" ] && [ "$FILE_AGE_DAYS" -ge 14 ]; then

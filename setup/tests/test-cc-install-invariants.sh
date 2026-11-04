@@ -234,7 +234,6 @@ run_test "SETTINGS: the same key with no vault-manage.sh in either layout still 
 # fleet template deliberately omits them (they are cc-mirror's, not fleet policy). The
 # checker must carry them as a 4th, enumerated policy source or every update rolls back.
 CC_MIRROR_MANAGED_KEYS=(
-    CLAUDE_CODE_DISABLE_AUTO_MEMORY
     CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC
     CLAUDE_CODE_DISABLE_OFFICIAL_MARKETPLACE_AUTOINSTALL
     CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY
@@ -259,7 +258,27 @@ test_cc_mirror_managed_env_keys_pass() {
     assert_eq "0" "$RC" "the cc-mirror-managed env key set must PASS (not drift)" || return 1
     assert_not_contains "$OUT" "FAIL: SETTINGS" "cc-mirror-managed keys must not trip SETTINGS"
 }
-run_test "SETTINGS: the 15 cc-mirror-managed env keys are policy, not drift" test_cc_mirror_managed_env_keys_pass
+run_test "SETTINGS: the 14 cc-mirror-managed env keys are policy, not drift" test_cc_mirror_managed_env_keys_pass
+
+# ── 10c2. SETTINGS: CLAUDE_CODE_DISABLE_AUTO_MEMORY is FLEET policy (CFG-201) ──
+# It used to sit in the cc-mirror-managed allowlist; since CFG-201 the fleet template sets it
+# (owner decision: nothing may rely on auto-memory). Its only policy source is the template.
+test_auto_memory_key_is_template_policy() {
+    fx 2.1.280 '^2.1.280' false
+    make_settings_template "$TMPL" CLAUDE_CODE_DISABLE_AUTO_MEMORY 1
+    fixture_settings_env "$MIRROR" CLAUDE_CODE_DISABLE_AUTO_MEMORY 1
+    guard
+    assert_not_contains "$OUT" "FAIL: SETTINGS" "the key set by the template must pass as policy"
+}
+run_test "SETTINGS: CLAUDE_CODE_DISABLE_AUTO_MEMORY passes when the template sets it (CFG-201)" test_auto_memory_key_is_template_policy
+
+test_auto_memory_key_not_exempt_without_template() {
+    fx 2.1.280 '^2.1.280' false
+    fixture_settings_env "$MIRROR" CLAUDE_CODE_DISABLE_AUTO_MEMORY 1
+    guard
+    assert_contains "$OUT" "CLAUDE_CODE_DISABLE_AUTO_MEMORY" "without the template the key is no longer cc-mirror-exempt and must be named"
+}
+run_test "SETTINGS: CLAUDE_CODE_DISABLE_AUTO_MEMORY is no longer cc-mirror-exempt (CFG-201)" test_auto_memory_key_not_exempt_without_template
 
 # ── 10d. SETTINGS: the allowlist stays a tripwire — an UNKNOWN key still fails ─
 test_cc_mirror_allowlist_still_a_tripwire() {

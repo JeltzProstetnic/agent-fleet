@@ -98,6 +98,11 @@ Measured from a live KDP dashboard, Aug 2026. Re-check, because KDP's lists chan
 - **KDP Select forbids the same eBook being available free elsewhere**, for example a free PDF on a repository. If a free edition exists, publish the Kindle eBook **outside Select**. Amazon may then price-match it down.
 - List prices are set per marketplace in KDP. Record the intended live prices in the project once confirmed, because they are the ruling, not earlier drafts.
 - ⚠ **Unverified:** whether the DRM setting is fixed at publication. Some notes say it is reversible at any time, and that conflicts with other understanding. Not checked against live terms. Off is the safer default.
+- **Kindle Unlimited was renamed Kindle+** (KDP notice 2026-10-27).
+
+## Driving KDP with the Playwright MCP
+
+Key points (measured in a book project, 2026-11-03; its project knowledge file `kdp-specs.md` holds the full recipe): log in from vault `amazon_kdp.*` through the `/dev/shm` bridge (`knowledge/dev-browser-ops.md`); go straight to the title-setup URLs; the description field is CKEditor; upload with `browser_file_upload`, not `waitForEvent('filechooser')`; the Previewer is mandatory before publishing; after new files the AI-disclosure checkbox must be re-confirmed.
 
 ## Manuscript rejections and build traps
 

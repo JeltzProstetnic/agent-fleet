@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Check group 4: Auto-fix — permissions, CLAUDE.local, FMS, drift, deps, AFD, bash perm
-# Checks: 4.1, 4.2, 4.3, 4.4, 4.5, 4.6, 4.7, 4.8
+# Checks: 4.1, 4.2, 4.3, 4.4, 4.5, 4.6, 4.8 (4.7 auto-memory moved to 04b-auto-memory.sh, CFG-201)
 # Shared vars used: CONFIG_REPO, WARNINGS, INBOX_MSG, SETTINGS_FILE
 
 # Check 4.1: Auto-remove stale permissions blocks from project settings.local.json
@@ -108,14 +108,6 @@ if [ "$_dep_run" -eq 1 ]; then
     if [ -n "$DEP_RESULTS" ]; then
         WARNINGS="${WARNINGS:+$WARNINGS | }Upstream dependency check: $DEP_RESULTS"
     fi
-fi
-
-# Check 4.7: MEMORY.md / memory/ violation detection (fleet rules prohibit auto-memory)
-if [ -f "$PROJECT_DIR/MEMORY.md" ] || [ -d "$PROJECT_DIR/memory" ]; then
-    _mem_targets=""
-    [ -f "$PROJECT_DIR/MEMORY.md" ] && _mem_targets="MEMORY.md"
-    [ -d "$PROJECT_DIR/memory" ] && _mem_targets="${_mem_targets:+$_mem_targets or }memory/"
-    WARNINGS="${WARNINGS:+$WARNINGS | }[WARN] $PROJECT_DIR has $_mem_targets — fleet rules prohibit auto-memory. Delete and use proper fleet structure."
 fi
 
 # Check 4.8b: MCP config symlink health — auto-fix broken ~/.mcp.json

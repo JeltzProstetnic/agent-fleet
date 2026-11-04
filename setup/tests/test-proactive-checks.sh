@@ -8,6 +8,7 @@ source "$(dirname "$0")/test-helpers.sh"
 suite_header "Proactive Debt Detection Checks (CFG-172 Phase 1)"
 
 CHECK_04="$REPO_ROOT/global/hooks/checks/04-auto-fix.sh"
+CHECK_04B="$REPO_ROOT/global/hooks/checks/04b-auto-memory.sh"   # memory checks moved here (CFG-201)
 CHECK_05="$REPO_ROOT/global/hooks/checks/05-stale-detection.sh"
 CHECK_14="$REPO_ROOT/global/hooks/checks/14-audit-staleness.sh"
 
@@ -20,6 +21,10 @@ setup_check_env() {
     export DEFAULT_BRANCH="main"
     export USER_HOME="$TEST_TMPDIR/home"
     export HOME="$TEST_TMPDIR/home"
+    # CFG-201: Check 4.7 reads CC's real memory location and the disable flag
+    export CLAUDE_CONFIG_DIR="$TEST_TMPDIR/ccconfig"
+    export CLAUDE_CODE_DISABLE_AUTO_MEMORY=1
+    mkdir -p "$CLAUDE_CONFIG_DIR/projects"
     WARNINGS=""
     INBOX_MSG=""
 
@@ -49,7 +54,7 @@ setup_check_env() {
 test_memory_clean() {
     setup_check_env
     # No MEMORY.md or memory/ in PROJECT_DIR
-    source "$CHECK_04"
+    source "$CHECK_04B"
     assert_not_contains "$WARNINGS" "MEMORY.md" "clean project should not warn about MEMORY.md"
     assert_not_contains "$WARNINGS" "memory/" "clean project should not warn about memory/"
 }
@@ -59,7 +64,7 @@ run_test "MEMORY.md: clean project is silent" test_memory_clean
 test_memory_md_exists() {
     setup_check_env
     echo "# Auto Memory" > "$PROJECT_DIR/MEMORY.md"
-    source "$CHECK_04"
+    source "$CHECK_04B"
     assert_contains "$WARNINGS" "MEMORY.md" "MEMORY.md should trigger warning"
     assert_contains "$WARNINGS" "fleet rules prohibit auto-memory" "warning should mention fleet rules"
 }
@@ -70,7 +75,7 @@ test_memory_dir_exists() {
     setup_check_env
     mkdir -p "$PROJECT_DIR/memory"
     echo "stuff" > "$PROJECT_DIR/memory/note.md"
-    source "$CHECK_04"
+    source "$CHECK_04B"
     assert_contains "$WARNINGS" "memory/" "memory/ dir should trigger warning"
     assert_contains "$WARNINGS" "fleet rules prohibit auto-memory" "warning should mention fleet rules"
 }
@@ -81,7 +86,7 @@ test_memory_both() {
     setup_check_env
     echo "# Auto Memory" > "$PROJECT_DIR/MEMORY.md"
     mkdir -p "$PROJECT_DIR/memory"
-    source "$CHECK_04"
+    source "$CHECK_04B"
     assert_contains "$WARNINGS" "MEMORY.md" "should mention MEMORY.md"
     assert_contains "$WARNINGS" "memory/" "should mention memory/"
 }
@@ -91,10 +96,61 @@ run_test "MEMORY.md: both file and dir triggers warning" test_memory_both
 test_memory_empty_dir() {
     setup_check_env
     mkdir -p "$PROJECT_DIR/memory"
-    source "$CHECK_04"
+    source "$CHECK_04B"
     assert_contains "$WARNINGS" "memory/" "empty memory/ dir should still trigger warning"
 }
 run_test "MEMORY.md: empty memory/ dir triggers warning" test_memory_empty_dir
+
+# ── CFG-201: CC writes memory to $CLAUDE_CONFIG_DIR/projects/<cwd>/memory/, not the project dir ──
+
+# A memory file written after the fleet-wide cutover is a real violation → warn, naming the project
+test_memory_config_dir_new_write_warns() {
+    setup_check_env
+    mkdir -p "$CLAUDE_CONFIG_DIR/projects/-home-x-proj/memory"
+    echo "feedback" > "$CLAUDE_CONFIG_DIR/projects/-home-x-proj/memory/feedback_x.md"
+    source "$CHECK_04B"
+    echo "    measured: WARNINGS=[${WARNINGS:0:160}]"
+    assert_contains "$WARNINGS" "-home-x-proj" "a memory file written after the cutover must be named" || return 1
+    assert_contains "$WARNINGS" "auto-memory" "the warning must say what it is about"
+}
+run_test "MEMORY (CFG-201): a new file under \$CLAUDE_CONFIG_DIR/projects/*/memory warns" test_memory_config_dir_new_write_warns
+
+# Files from before the cutover are migrated/inert history → silent (no permanent noise)
+test_memory_config_dir_old_file_silent() {
+    setup_check_env
+    mkdir -p "$CLAUDE_CONFIG_DIR/projects/-home-x-old/memory"
+    echo "old" > "$CLAUDE_CONFIG_DIR/projects/-home-x-old/memory/MEMORY.md"
+    touch -d 2026-10-01 "$CLAUDE_CONFIG_DIR/projects/-home-x-old/memory/MEMORY.md"
+    source "$CHECK_04B"
+    echo "    measured: WARNINGS=[${WARNINGS:0:160}]"
+    assert_not_contains "$WARNINGS" "-home-x-old" "pre-cutover memory files must not warn every session"
+}
+run_test "MEMORY (CFG-201): pre-cutover memory files stay silent" test_memory_config_dir_old_file_silent
+
+# The flag missing from the session env means auto-memory is ON → warn
+test_auto_memory_flag_missing_warns() {
+    setup_check_env
+    unset CLAUDE_CODE_DISABLE_AUTO_MEMORY
+    source "$CHECK_04B"
+    echo "    measured: WARNINGS=[${WARNINGS:0:160}]"
+    assert_contains "$WARNINGS" "CLAUDE_CODE_DISABLE_AUTO_MEMORY" "an unset flag must be reported"
+}
+run_test "MEMORY (CFG-201): CLAUDE_CODE_DISABLE_AUTO_MEMORY unset warns" test_auto_memory_flag_missing_warns
+
+test_auto_memory_flag_zero_warns() {
+    setup_check_env
+    export CLAUDE_CODE_DISABLE_AUTO_MEMORY=0
+    source "$CHECK_04B"
+    assert_contains "$WARNINGS" "CLAUDE_CODE_DISABLE_AUTO_MEMORY" "=0 means auto-memory is on and must be reported"
+}
+run_test "MEMORY (CFG-201): CLAUDE_CODE_DISABLE_AUTO_MEMORY=0 warns" test_auto_memory_flag_zero_warns
+
+test_auto_memory_flag_set_silent() {
+    setup_check_env
+    source "$CHECK_04B"
+    assert_not_contains "$WARNINGS" "CLAUDE_CODE_DISABLE_AUTO_MEMORY" "=1 is the healthy state and must be silent"
+}
+run_test "MEMORY (CFG-201): CLAUDE_CODE_DISABLE_AUTO_MEMORY=1 is silent" test_auto_memory_flag_set_silent
 
 # ══════════════════════════════════════════════════════════════════════════════
 # Check 2: Inbox staleness detection (05-stale-detection.sh)

@@ -780,6 +780,62 @@ EOF
 }
 run_test "check 5.4: no ESCALATE for completed (checked) inbox items (CFG-243)" test_inbox_no_escalate_checked_items
 
+# ── CFG-896: a scheduled act file is not stale before its due date ──────────
+# Global CLAUDE.md sends future work to a dated docs/pending-*.md; the date in the
+# filename (or a "Due: YYYY-MM-DD" header) is its due date. Age counts from that date.
+_cfg896_stale_run() {   # <filename> <header-lines> <mtime-spec>
+    local config_repo="$TEST_TMPDIR/config-repo" mock_home="$TEST_TMPDIR/home" project_dir="$TEST_TMPDIR/project"
+    mkdir -p "$mock_home/.claude" "$project_dir"
+    create_mock_config_repo "$config_repo"
+    touch "$config_repo/CLAUDE.md"; ln -sf "$config_repo/CLAUDE.md" "$mock_home/.claude/CLAUDE.md"
+    mkdir -p "$config_repo/docs"
+    printf "%b\n# Task\n\nDo this.\n" "$2" > "$config_repo/docs/$1"
+    touch -d "$3" "$config_repo/docs/$1"
+    local patched; patched=$(create_patched_script "$config_repo" "$mock_home" "$project_dir")
+    OUT=$(run_hook "$patched")
+}
+
+test_stale_act_future_due_silent() {
+    local due; due=$(date -d '+30 days' +%F)
+    _cfg896_stale_run "pending-renewal-$due.md" "<!-- Action: act -->" "10 days ago"
+    echo "    measured: due=$due STALE_ACT present=[$(printf '%s' "$OUT" | grep -c STALE_ACT)]"
+    assert_not_contains "$OUT" "STALE_ACT" "an act file due in the future must not be STALE_ACT, whatever its mtime"
+}
+run_test "check 17 (CFG-896): act file due in the future (filename date) is not STALE_ACT" test_stale_act_future_due_silent
+
+test_stale_act_due_header_future_silent() {
+    local due; due=$(date -d '+30 days' +%F)
+    _cfg896_stale_run "pending-undated-renewal.md" "<!-- Action: act -->\n<!-- Due: $due -->" "10 days ago"
+    assert_not_contains "$OUT" "STALE_ACT" "a Due: header in the future must silence STALE_ACT"
+}
+run_test "check 17 (CFG-896): act file with a future Due: header is not STALE_ACT" test_stale_act_due_header_future_silent
+
+test_stale_act_due_today_silent() {
+    local due; due=$(date +%F)
+    _cfg896_stale_run "pending-renewal-$due.md" "<!-- Action: act -->" "20 days ago"
+    assert_not_contains "$OUT" "STALE_ACT" "due today = age 0 from the due date, not 20 days from mtime"
+}
+run_test "check 17 (CFG-896): act file due today is not STALE_ACT (age counts from due date)" test_stale_act_due_today_silent
+
+test_stale_act_past_due_warns() {
+    local due; due=$(date -d '-5 days' +%F)
+    _cfg896_stale_run "pending-renewal-$due.md" "<!-- Action: act -->" "20 days ago"
+    echo "    measured: due=$due STALE_ACT line=[$(printf '%s' "$OUT" | grep -o 'STALE_ACT: pending-renewal[^|]*' | head -1)]"
+    assert_contains "$OUT" "STALE_ACT: pending-renewal-$due.md (5d)" "5 days past due must be STALE_ACT aged from the due date"
+}
+run_test "check 17 (CFG-896): act file 5 days past due is STALE_ACT (5d)" test_stale_act_past_due_warns
+
+test_days_past_due_signs() {
+    source "$REPO_ROOT/global/hooks/lib-pending-due.sh"
+    local t m p
+    t=$(pending_days_past_due "$(date +%F)"); m=$(pending_days_past_due "$(date -d '+1 day' +%F)"); p=$(pending_days_past_due "$(date -d '-5 days' +%F)")
+    echo "    measured: today=[$t] tomorrow=[$m] 5-days-ago=[$p]"
+    assert_eq "0" "$t" "today is 0 days past due" || return 1
+    assert_eq "-1" "$m" "tomorrow is -1 (bash truncation toward zero must not turn it into 0)" || return 1
+    assert_eq "5" "$p" "five days ago is 5"
+}
+run_test "lib-pending-due (CFG-896): days past due keeps its sign" test_days_past_due_signs
+
 # ── Summary ──────────────────────────────────────────────────────────────────
 
 suite_summary

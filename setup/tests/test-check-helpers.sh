@@ -113,6 +113,10 @@ create_patched_script() {
 # Override HOME and derived paths to isolate from real environment
 export HOME="$mock_home"
 export CC_MIRROR_DIR="$mock_home/.cc-mirror/mclaude"
+# CFG-201: never inherit the live session's CC config dir or auto-memory flag —
+# the sandbox models a healthy machine (memory checks have their own tests).
+export CLAUDE_CONFIG_DIR="$mock_home/.cc-mirror/mclaude/config"
+export CLAUDE_CODE_DISABLE_AUTO_MEMORY=1
 
 # cd into project dir so \$(pwd) returns what we want
 cd "$project_dir"

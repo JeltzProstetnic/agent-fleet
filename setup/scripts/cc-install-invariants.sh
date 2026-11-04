@@ -197,15 +197,14 @@ fi
 # cc-mirror-managed env keys — the 4th policy source for §5. cc-mirror injects this fixed
 # quiet-mode/feature set into the live settings.json on every install/update; sync.sh's env
 # merge PRESERVES them but never writes them, and the fleet template deliberately omits them
-# because they are cc-mirror's runtime concern, not fleet policy. 14 of the 15 are literally
-# the env-injection set in cc-mirror's own source (dist/cc-mirror.mjs, verified 2026-09-28);
-# CLAUDE_CODE_DISABLE_AUTO_MEMORY is a CC-side quiet key earlier cc-mirror installs wrote and
-# is kept here as part of the empirically-observed set. This is an ENUMERATED allowlist, not a
+# because they are cc-mirror's runtime concern, not fleet policy. All 14 are literally the
+# env-injection set in cc-mirror's own source (dist/cc-mirror.mjs, verified 2026-09-28).
+# CLAUDE_CODE_DISABLE_AUTO_MEMORY left this list in CFG-201 (2026-11-04): the fleet template
+# now sets it, so its policy source is the template. This is an ENUMERATED allowlist, not a
 # blanket rule: a key outside it still FAILs SETTINGS (that is what catches a real leak). A
 # credential such as GITHUB_PERSONAL_ACCESS_TOKEN is deliberately NOT here — its home is
 # .mcp.json (vault deploy_mcp_tokens), so in settings.json it is a leak and must still fail.
-CC_MIRROR_MANAGED_ENV_KEYS="CLAUDE_CODE_DISABLE_AUTO_MEMORY
-CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC
+CC_MIRROR_MANAGED_ENV_KEYS="CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC
 CLAUDE_CODE_DISABLE_OFFICIAL_MARKETPLACE_AUTOINSTALL
 CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY
 DISABLE_AUTO_MIGRATE_TO_NATIVE

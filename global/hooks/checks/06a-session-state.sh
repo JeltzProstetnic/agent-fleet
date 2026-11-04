@@ -84,6 +84,7 @@ _is_untracked_pending() {
     printf '%s\n' "$_stale_set" | grep -qF "UNTRACKED: $1"
 }
 
+source "$(dirname "${BASH_SOURCE[0]}")/../lib-pending-due.sh" 2>/dev/null || true
 _pending_list=""
 _act_files=""
 _stale_files=""
@@ -103,8 +104,14 @@ if [ -d "$PROJECT_DIR/docs" ]; then
             _stale_files="${_stale_files:+$_stale_files, }$_pf_base (${_action:-triage})"
             continue
         fi
-        _pending_list="${_pending_list:+$_pending_list, }$_pf_base (${_action:-triage})"
-        if [ "$_action" = "act" ]; then
+        # CFG-896: an act file due in the future is scheduled, not immediate work.
+        _pf_label="${_action:-triage}"; _pf_sched=""
+        if [ "$_action" = "act" ] && type pending_due_date >/dev/null 2>&1; then
+            _pf_due=$(pending_due_date "$_pf")
+            if [ -n "$_pf_due" ] && [[ "$_pf_due" > "$(date +%F)" ]]; then _pf_sched=1; _pf_label="scheduled $_pf_due"; fi
+        fi
+        _pending_list="${_pending_list:+$_pending_list, }$_pf_base ($_pf_label)"
+        if [ "$_action" = "act" ] && [ -z "$_pf_sched" ]; then
             _act_files="${_act_files:+$_act_files, }$_pf_base"
         fi
         if _is_untracked_pending "$_pf_base"; then
