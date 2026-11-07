@@ -90,6 +90,19 @@ Cards that carry no `<a href>` (Vue click handlers) still lead somewhere: click 
 
 The Commons API and `upload.wikimedia.org` answer a request with no User-Agent with a non-JSON error body, which a JSON parser reports as a parse failure rather than a refusal. Pass `curl -A '<tool>/1.0 (<contact>)'` (measured 2026-10-21).
 
+## Journal and literature access shortcuts
+
+Measured on WSL. **(1)** `www.cell.com` journal pages return **HTTP 403 to WebFetch** — a `curl` with a
+spoofed user agent was refused by the auto-mode classifier as bot-check circumvention; do not retry
+that. **(2)** **Crossref `api.crossref.org/works/<doi>` carries the FULL reference list** (84 entries,
+with DOIs) for Cell Press papers, and `filter=alternative-id:<PII without punctuation>` maps a PII to
+its DOI. **(3)** **Europe PMC REST** —
+`https://www.ebi.ac.uk/europepmc/webservices/rest/<PMCID>/fullTextXML` — returns full text of PMC
+open-access articles; use it instead of ResearchGate. **(4)** Many journal papers have an **arXiv
+preprint** findable by WebSearch on the exact title; the arXiv PDF downloads with plain curl. **(5)**
+**PubMed efetch needs the DOI term URL-encoded** — the `[doi]` brackets broke curl's URL globbing; use
+`curl -g` or encode. (measured on WSL 2026-11-05)
+
 ## Scope
 
 Applies to any project that fetches and parses third-party pages — competitor/news monitoring,

@@ -467,6 +467,8 @@ resolve_project() {
     MODE="launch"
     PICKER_ALL=0
     MODEL_ARG=""
+    ACCOUNT_ARG=""          # claude-swap account for this terminal only (CFG-917)
+    AFLEET_CONTINUE=""
     SHOW_MODEL_PICKER=false
     MCP_MODE="none"        # none | minimal | all  (CFG-506; default none by design)
 
@@ -522,6 +524,9 @@ resolve_project() {
                     echo "Transfer tool not yet installed (setup/scripts/cross-project-transfer.sh)." >&2; exit 1
                 fi ;;
             --model) [[ $# -ge 2 ]] || { echo "Error: --model requires an argument" >&2; exit 1; }; MODEL_ARG="$2"; shift 2 ;;
+            # claude-swap account session (CFG-917): this terminal only, see launch_mclaude.
+            --account) [[ $# -ge 2 ]] || { echo "Error: --account requires an account (alias, number or email)" >&2; exit 1; }; ACCOUNT_ARG="$2"; shift 2 ;;
+            --continue) AFLEET_CONTINUE=1; shift ;;
             # MCP selection for local-model mode. DEFAULT IS NONE — the lean profile exists
             # because 13 servers' tool definitions do not fit a local context window.
             # Must be matched BEFORE the `-*` and `*` catch-alls below or they swallow these.
@@ -534,6 +539,10 @@ resolve_project() {
             *)  if [[ -z "$PROJECT_ARG" ]]; then PROJECT_ARG="$1"; else MODEL_ARG="$1"; fi; shift ;;
         esac
     done
+
+    if [[ -n "$AFLEET_CONTINUE" && -z "$ACCOUNT_ARG" ]]; then
+        echo "Error: --continue is only supported together with --account <alias>" >&2; exit 1
+    fi
 
     # Lone-token disambiguation: `af gemma4` with no project.
     if [[ -n "$PROJECT_ARG" && -z "$MODEL_ARG" ]] && ! parse_registry 2>/dev/null | cut -d'|' -f1 | grep -qx "$PROJECT_ARG"; then
@@ -710,7 +719,7 @@ afleet_release_dry_run_locks() {
 
 launch_mclaude() {
     if [[ "$DRY_RUN" == "1" ]]; then
-        echo "DRY_RUN: would cd to $TARGET_DIR and exec mclaude"
+        echo "DRY_RUN: would cd to $TARGET_DIR and exec mclaude${ACCOUNT_ARG:+ as account $ACCOUNT_ARG}${AFLEET_CONTINUE:+ (continuing)}"
         afleet_release_dry_run_locks
         exit 0
     fi
@@ -725,6 +734,20 @@ launch_mclaude() {
     if [[ -z "$MCLAUDE" ]]; then
         echo "Error: mclaude not found. Install via cc-mirror." >&2
         exit 1
+    fi
+
+    # Account session (CFG-917): this terminal runs on another claude-swap account through cswap's
+    # session mode; every other session keeps the default account. Everything above (sync, lock,
+    # project resolution) has run as usual — only the final launcher differs.
+    if [[ -n "${ACCOUNT_ARG:-}" ]]; then
+        if [[ -n "${MODEL_ARG:-}" ]]; then
+            echo "Error: --account cannot be combined with a local model" >&2; exit 1
+        fi
+        if [[ ! -x "$_AFLEET_DIR/cswap-launch.sh" ]]; then
+            echo "Error: --account needs claude-swap set up (setup/scripts/cswap-launch.sh)" >&2; exit 1
+        fi
+        export AFLEET_ACCOUNT="$ACCOUNT_ARG" AFLEET_CONTINUE="${AFLEET_CONTINUE:-}"
+        MCLAUDE="$_AFLEET_DIR/cswap-launch.sh"
     fi
 
     # ── Local model launcher (CFG-506) ───────────────────────────────────────

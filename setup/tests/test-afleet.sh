@@ -439,6 +439,34 @@ test_promoted_child_has_parent_suffix() {
 }
 run_test "a child that outranks its parent renders below the parent" test_promoted_child_has_parent_suffix
 
+# ── --account (CFG-917: this terminal on another claude-swap account) ─────────
+
+test_account_dry_run() {
+    local env_dir; env_dir=$(create_mock_env)
+    local home="$TEST_TMPDIR/home"; mkdir -p "$home/project-alpha"
+    local output
+    output=$(CONFIG_REPO="$env_dir" HOME="$home" AFLEET_DRY_RUN=1 bash "$SCRIPT" --account max --continue project-alpha 2>&1)
+    assert_contains "$output" "as account max (continuing)" "dry run should name the account session"
+}
+run_test "--account <alias> --continue reaches launch as an account session" test_account_dry_run
+
+test_account_requires_value() {
+    local env_dir; env_dir=$(create_mock_env)
+    local rc=0; CONFIG_REPO="$env_dir" AFLEET_DRY_RUN=1 bash "$SCRIPT" --account >/dev/null 2>&1 || rc=$?
+    assert_eq "1" "$rc" "--account without a value must fail"
+}
+run_test "--account without an alias fails" test_account_requires_value
+
+test_continue_requires_account() {
+    local env_dir; env_dir=$(create_mock_env)
+    local home="$TEST_TMPDIR/home"; mkdir -p "$home/project-alpha"
+    local output rc=0
+    output=$(CONFIG_REPO="$env_dir" HOME="$home" AFLEET_DRY_RUN=1 bash "$SCRIPT" --continue project-alpha 2>&1) || rc=$?
+    assert_eq "1" "$rc" "--continue alone is not supported"
+    assert_contains "$output" "--account"
+}
+run_test "--continue without --account fails and says why" test_continue_requires_account
+
 # ── Summary ──────────────────────────────────────────────────────────────────
 
 suite_summary

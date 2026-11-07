@@ -35,6 +35,12 @@ line) and the `CFG-616` `tmux -t` prefix match (`-t job` resolves to a live `job
 zero before the `||` fired. Any comparison against `"0"` then fails, and the test looks like the code
 is broken when the test is. Use `|| true`, or `grep -c … ; true`.
 
+**Prefer explicit default over `|| echo 0` entirely:** `n=$(grep -c PAT file); n=${n:-0}` — this never
+produces the two-line string, and it also covers the case where grep errors out with no stdout at all
+(file missing). **Measured cost of the `|| echo 0` form in a watch loop:** a Monitor built on
+it compared `"0\n0"` against a threshold every cycle, silently reported nothing, and missed a real
+arm-exit event for ~90 min. (measured on WSL 2026-11-05/06, MG-approved lrn finding)
+
 ## 3. `grep <pattern> <log> | tail -N` hides the line you are looking for
 
 On a log carrying a high-frequency recurring line — an APScheduler job logging every 15 s — the tail
