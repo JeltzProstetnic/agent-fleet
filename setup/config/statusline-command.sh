@@ -234,6 +234,30 @@ try:
     if os.path.exists(afk_marker):
         afk_str = f' \033[91m[AFK]\033[0m'
 
+    # claude-swap account segment. setup/scripts/cswap-poll.sh writes the state every minute:
+    # active account alias + its 7-day %, and a pending switch proposal as ' → <alias>?'.
+    cswap_str = ''
+    try:
+        _cs = os.path.join(os.environ.get('XDG_STATE_HOME') or os.path.expanduser('~/.local/state'), 'cswap-fleet')
+        with open(os.path.join(_cs, 'status.json')) as f:
+            _st = json.load(f)
+        _acc = {a.get('number'): a for a in _st.get('accounts', [])}
+        def _label(a): return a.get('alias') or (a.get('email') or '?').split('@')[0]
+        _act = _acc.get(_st.get('activeAccountNumber'))
+        if _act:
+            _w = ((_act.get('usage') or {}).get('sevenDay') or {}).get('pct')
+            _p = int(float(_w) + 0.5) if _w is not None else None
+            cswap_str = (' ⇄ ' + (band_colour(_p) if _p is not None else '') + _label(_act)
+                         + (' ' + str(_p) + '%' if _p is not None else '') + r)
+            try:
+                with open(os.path.join(_cs, 'pending.json')) as f:
+                    _pd = json.load(f)
+                cswap_str += ' \033[93m→ ' + _label(_acc.get(_pd.get('number')) or _pd) + '?' + r
+            except Exception:
+                pass
+    except Exception:
+        cswap_str = ''
+
     # GPI (Grind Progress Indicator) — reads state file from gpi.sh
     gpi_str = ''
     gpi_path = os.path.expanduser('~/.claude/.gpi-state.json')
@@ -323,8 +347,8 @@ try:
                             pass
                 # Filter: hide completed ops older than 60 s, and unfinished ops whose recorded
                 # tmux session no longer exists (one tmux call, exact names — CFG-863). The
-                # renderer only hides those; `gpi clear --dead` (SessionEnd) removes them.
-                # 10 s grace after `started`: tmux-launch registers the op before the session exists.
+                # renderer only hides those; 'gpi clear --dead' (SessionEnd) removes them.
+                # 10 s grace after 'started': tmux-launch registers the op before the session exists.
                 live = None
                 if any(v.get('tmux_session') and not v.get('completed_at') for v in ops.values()):
                     live = _gpi_tmux_sessions()
@@ -442,7 +466,7 @@ try:
         except Exception:
             pass
 
-    left = f'{project_str} [{model}] {c}{bar} {used_k}k/{total_k}k ({pct_int}%){r}{cost_str}{persona_str}{afk_str}{gpi_str}'
+    left = f'{project_str} [{model}] {c}{bar} {used_k}k/{total_k}k ({pct_int}%){r}{cost_str}{persona_str}{afk_str}{cswap_str}{gpi_str}'
     line = left
     if five_str:
         import re as _re2

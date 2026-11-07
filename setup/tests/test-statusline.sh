@@ -716,4 +716,37 @@ test_statusline_script_reads_active_persona() {
 }
 run_test "statusline-command.sh source reads .active-persona and uses PERSONA_COLORS" test_statusline_script_reads_active_persona
 
+# ── claude-swap account segment ─────────────────────────────────────────────
+
+test_cswap_segment_shows_account() {
+    local h="$TEST_TMPDIR/cswap1"; mkdir -p "$h/.local/state/cswap-fleet"
+    echo '{"activeAccountNumber":1,"accounts":[{"number":1,"alias":"ultra","active":true,"usage":{"sevenDay":{"pct":97.0}}}]}' > "$h/.local/state/cswap-fleet/status.json"
+    local out; out=$(make_json "TestModel" 50 | HOME="$h" XDG_STATE_HOME= bash "$SCRIPT_PATH")
+    assert_contains "$out" "ultra 97%" "statusline should show the active cswap account and its 7d usage"
+}
+run_test "cswap segment: active account alias + 7d %" test_cswap_segment_shows_account
+
+test_cswap_segment_shows_proposal() {
+    local h="$TEST_TMPDIR/cswap2"; mkdir -p "$h/.local/state/cswap-fleet"
+    echo '{"activeAccountNumber":1,"accounts":[{"number":1,"alias":"ultra","active":true,"usage":{"sevenDay":{"pct":97.0}}},{"number":2,"alias":"max","active":false}]}' > "$h/.local/state/cswap-fleet/status.json"
+    echo '{"number": 2, "email": "m@example.com"}' > "$h/.local/state/cswap-fleet/pending.json"
+    local out; out=$(make_json "TestModel" 50 | HOME="$h" XDG_STATE_HOME= bash "$SCRIPT_PATH")
+    assert_contains "$out" "max?" "statusline should show the pending switch proposal"
+}
+run_test "cswap segment: pending proposal shown as '→ max?'" test_cswap_segment_shows_proposal
+
+test_cswap_segment_absent_without_state() {
+    local out; out=$(make_json "TestModel" 50 | HOME="$TEST_TMPDIR/nohome" XDG_STATE_HOME= bash "$SCRIPT_PATH")
+    assert_not_contains "$out" $'\u21c4' "no cswap state, no segment"
+}
+run_test "cswap segment absent without cswap state" test_cswap_segment_absent_without_state
+
+test_no_stderr() {
+    # Backticks inside the bash double-quoted python run as command substitution (2026-11-07:
+    # a comment's `gpi clear --dead` executed on every render and `started` printed an error).
+    local err; err=$(make_json "TestModel" 50 | HOME="$TEST_TMPDIR/nohome" bash "$SCRIPT_PATH" 2>&1 >/dev/null)
+    assert_eq "" "$err" "statusline must write nothing to stderr"
+}
+run_test "statusline writes nothing to stderr (no backticks in the python body)" test_no_stderr
+
 suite_summary

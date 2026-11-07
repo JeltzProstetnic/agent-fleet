@@ -104,8 +104,13 @@ Measured from a live KDP dashboard, Aug 2026. Re-check, because KDP's lists chan
 
 Key points (measured in a book project, 2026-11-03; its project knowledge file `kdp-specs.md` holds the full recipe): log in from vault `amazon_kdp.*` through the `/dev/shm` bridge (`knowledge/dev-browser-ops.md`); go straight to the title-setup URLs; the description field is CKEditor; upload with `browser_file_upload`, not `waitForEvent('filechooser')`; the Previewer is mandatory before publishing; after new files the AI-disclosure checkbox must be re-confirmed.
 
+## Weekly title-creation limit
+
+KDP enforces a **weekly title-creation limit per format.** Measured 2026-11-04: after 2 new hardcovers in one evening, the 3rd "+ Create hardcover" details page would not save — in Playwright automation, save-and-continue silently stayed on the page; a second click surfaced "**Title creation limit reached** — You have reached your weekly title creation limit for this format. Your limit resets on Sunday at 12:00 AM UTC." Editing/re-publishing existing formats was unaffected (8 Kindle + 6 PB publishes the same day). **Plan new formats across weeks**; when a new-format save does nothing, look for this dialog first. (scifi WSL 2026-11-04)
+
 ## Manuscript rejections and build traps
 
+- **Non-ASCII filenames INSIDE an EPUB block a NEW Kindle title.** A filename like `OEBPS/brücke-über-äonen.xhtml` (slugified German chapter title) hangs the online Kindle previewer at 95% — reproduces in plain Chrome too — and Publish answers "Please fix the highlighted error(s) to continue." with nothing highlighted: the save-and-publish response carries `errors: {}` (no field). Existing titles with the same kind of names had already published, so "it worked before" proves nothing. **Fix:** make every EPUB-internal filename ASCII (fold ä→ae ö→oe ü→ue ß→ss, then NFKD + ascii-ignore); re-upload publishes at once. **Diagnose:** `python3 -c "import zipfile,sys;print([n for n in zipfile.ZipFile(sys.argv[1]).namelist() if not n.isascii()])" book.epub`. Reference fix + test: `~/scifi/scripts/md_to_epub.py` `slugify`, `scripts/test_md_to_epub.py` `test_slugs_are_ascii` (scifi `ae0d18a`). (scifi WSL 2026-11-04)
 - **"Remove all template text and guides… see PDF page N"** usually means **markup residue** (literal `![alt](path)` image tags printed on the page), not template text.
   - **Amazon names ONE example page.** One rejection citing a single page hid ten tags across six pages, in two languages, plus EPUBs with zero embedded images. Sweep every edition before trusting the scope of the letter.
 - **weasyprint prints `Failed to load image` on stderr and exits 0.** It produces a PDF with a blank where the image belongs. Treat that string as fatal in the build.
