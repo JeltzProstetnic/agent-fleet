@@ -239,6 +239,10 @@
           },
           {
             "type": "command",
+            "command": "bash ~/.claude/hooks/safe-run.sh rule-removal-guard.sh"
+          },
+          {
+            "type": "command",
             "command": "bash ~/.claude/hooks/safe-run.sh vault-read-guard.sh"
           }
         ]
