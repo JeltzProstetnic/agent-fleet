@@ -749,4 +749,32 @@ test_no_stderr() {
 }
 run_test "statusline writes nothing to stderr (no backticks in the python body)" test_no_stderr
 
+test_cswap_segment_account_session() {
+    # A cswap session (CLAUDE_CONFIG_DIR = …/claude-swap/sessions/<n>-<slug>) runs on account n,
+    # not on the default account in status.json — show its own account, and no default proposal.
+    local h="$TEST_TMPDIR/cswap3"; mkdir -p "$h/.local/state/cswap-fleet"
+    echo '{"activeAccountNumber":2,"accounts":[{"number":1,"alias":"ultra","active":false,"usage":{"sevenDay":{"pct":97.0}}},{"number":2,"alias":"max","active":true,"usage":{"sevenDay":{"pct":6.0}}}]}' > "$h/.local/state/cswap-fleet/status.json"
+    echo '{"number": 1}' > "$h/.local/state/cswap-fleet/pending.json"
+    local out; out=$(make_json "TestModel" 50 | HOME="$h" XDG_STATE_HOME= CLAUDE_CONFIG_DIR="$h/.local/share/claude-swap/sessions/1-m_example.com" bash "$SCRIPT_PATH")
+    assert_contains "$out" "ultra 97% (session)" "account session shows its own account"
+    assert_not_contains "$out" "max 6%" "not the default account"
+    assert_not_contains "$out" $'\u2192' "no default-switch proposal inside an account session"
+}
+run_test "cswap segment in an account session: its own account, marked (session)" test_cswap_segment_account_session
+
+test_five_hour_survives_long_left() {
+    # 2026-11-07: a long GPI label filled MG's 138 columns and CC truncated the line, cutting off the
+    # 5h segment (rendered last). The left side must give way, the 5h segment must stay, the line must fit.
+    local h="$TEST_TMPDIR/longtail"; mkdir -p "$h/.claude"
+    echo "AVeryLongPersonaNameStandingInForAGpiLabelThatFillsTheWholeLine" > "$h/.claude/.active-persona"
+    local json='{"model":{"display_name":"TestModel"},"workspace":{"project_dir":"/x/proj"},"context_window":{"used_percentage":40,"context_window_size":200000,"current_usage":{"input_tokens":1,"cache_creation_input_tokens":0,"cache_read_input_tokens":0}},"rate_limits":{"five_hour":{"used_percentage":48,"resets_at":"2026-11-08T02:30:00Z"}}}'
+    local out; out=$(echo "$json" | HOME="$h" COLUMNS=90 STATUSLINE_RIGHT_MARGIN=4 bash "$SCRIPT_PATH")
+    assert_contains "$out" " 48%" "the 5h percentage must be visible"
+    assert_contains "$out" "(40%)" "the core (context %) is never cut"
+    local w; w=$(printf '%s' "$out" | python3 -c "import sys,re;print(len(re.sub(r'\x1b\[[0-9;]*m','',sys.stdin.read().rstrip())))")
+    [ "$w" -le 86 ] || { echo "visible width $w > 86 (COLUMNS 90 - margin 4)"; return 1; }
+    assert_contains "$out" "AVeryLong" "the tail is shortened, not dropped, when there is room"
+}
+run_test "5h segment survives a long tail (tail is shortened, core kept, line fits the width)" test_five_hour_survives_long_left
+
 suite_summary

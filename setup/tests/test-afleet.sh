@@ -467,6 +467,24 @@ test_continue_requires_account() {
 }
 run_test "--continue without --account fails and says why" test_continue_requires_account
 
+test_hotswap_dry_run() {
+    local env_dir; env_dir=$(create_mock_env)
+    local home="$TEST_TMPDIR/home"; mkdir -p "$home/project-alpha"
+    local output
+    output=$(CONFIG_REPO="$env_dir" HOME="$home" AFLEET_DRY_RUN=1 bash "$SCRIPT" --hotswap project-alpha 2>&1)
+    assert_contains "$output" "with a hot-swap account store" "--hotswap must reach launch as an opt-in store session"
+}
+run_test "--hotswap (CFG-922, opt-in) reaches launch with a per-session account store" test_hotswap_dry_run
+
+test_default_launch_has_no_store() {
+    local env_dir; env_dir=$(create_mock_env)
+    local home="$TEST_TMPDIR/home"; mkdir -p "$home/project-alpha"
+    local output
+    output=$(CONFIG_REPO="$env_dir" HOME="$home" AFLEET_DRY_RUN=1 bash "$SCRIPT" project-alpha 2>&1)
+    assert_not_contains "$output" "hot-swap" "a normal launch must stay untouched"
+}
+run_test "a normal af launch gets no hot-swap store" test_default_launch_has_no_store
+
 # ── Summary ──────────────────────────────────────────────────────────────────
 
 suite_summary

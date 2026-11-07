@@ -244,12 +244,20 @@ try:
         _acc = {a.get('number'): a for a in _st.get('accounts', [])}
         def _label(a): return a.get('alias') or (a.get('email') or '?').split('@')[0]
         _act = _acc.get(_st.get('activeAccountNumber'))
+        # A cswap session (CLAUDE_CONFIG_DIR = .../claude-swap/sessions/<n>-<slug>) runs on account n.
+        _sess = os.environ.get('CLAUDE_CONFIG_DIR') or ''
+        _sn = os.path.basename(_sess.rstrip('/')).split('-', 1)[0] if '/claude-swap/sessions/' in _sess else ''
+        if _sn.isdigit():
+            _act = _acc.get(int(_sn)) or _act
         if _act:
             _w = ((_act.get('usage') or {}).get('sevenDay') or {}).get('pct')
             _p = int(float(_w) + 0.5) if _w is not None else None
             cswap_str = (' ⇄ ' + (band_colour(_p) if _p is not None else '') + _label(_act)
-                         + (' ' + str(_p) + '%' if _p is not None else '') + r)
+                         + (' ' + str(_p) + '%' if _p is not None else '')
+                         + (' (session)' if _sn.isdigit() else '') + r)
             try:
+                if _sn.isdigit():
+                    raise LookupError  # a default-switch proposal does not concern this session
                 with open(os.path.join(_cs, 'pending.json')) as f:
                     _pd = json.load(f)
                 cswap_str += ' \033[93m→ ' + _label(_acc.get(_pd.get('number')) or _pd) + '?' + r
@@ -466,13 +474,33 @@ try:
         except Exception:
             pass
 
-    left = f'{project_str} [{model}] {c}{bar} {used_k}k/{total_k}k ({pct_int}%){r}{cost_str}{persona_str}{afk_str}{cswap_str}{gpi_str}'
+    core = f'{project_str} [{model}] {c}{bar} {used_k}k/{total_k}k ({pct_int}%){r}'
+    tail = f'{cost_str}{persona_str}{afk_str}{cswap_str}{gpi_str}'
+    left = core + tail
     line = left
     if five_str:
         import re as _re2
         right = five_str.lstrip(' ')
         import unicodedata as _ud
         vis = lambda s: sum(2 if _ud.east_asian_width(c) in 'WF' else 1 for c in _re2.sub(r'\x1b\[[0-9;]*m', '', s))
+        # Too long for the terminal: CC would truncate the END and drop the 5h segment (a long GPI
+        # label did, 2026-11-07). Shorten the optional tail (cost, persona, AFK, account, GPI) instead,
+        # keeping its ANSI codes intact; the core (project, model, context bar) is never cut.
+        def _vis_cut(s, n):
+            out, w, i = [], 0, 0
+            while i < len(s):
+                m = _re2.match(r'\x1b\[[0-9;]*m', s[i:])
+                if m:
+                    out.append(m.group(0)); i += len(m.group(0)); continue
+                cw = 2 if _ud.east_asian_width(s[i]) in 'WF' else 1
+                if w + cw > n:
+                    break
+                out.append(s[i]); w += cw; i += 1
+            return ''.join(out)
+        avail = cols - right_margin - vis(right) - 2 if cols > 0 else 0
+        if cols > 0 and vis(left) > avail:
+            room = avail - vis(core) - 1
+            left = core + (_vis_cut(tail, room) + r + '…' if room >= 4 else '')
         pad = cols - right_margin - vis(left) - vis(right) if cols > 0 else 0
         line = left + (' ' * pad if pad >= 2 else ' ') + right  # too narrow or no width: one space
     sys.stdout.write(line + '\n')

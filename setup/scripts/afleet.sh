@@ -469,6 +469,7 @@ resolve_project() {
     MODEL_ARG=""
     ACCOUNT_ARG=""          # claude-swap account for this terminal only (CFG-917)
     AFLEET_CONTINUE=""
+    AFLEET_HOTSWAP="${AFLEET_HOTSWAP:-0}"   # CFG-922 per-session account store (in-session `swap <acct>`), opt-in
     SHOW_MODEL_PICKER=false
     MCP_MODE="none"        # none | minimal | all  (CFG-506; default none by design)
 
@@ -527,6 +528,7 @@ resolve_project() {
             # claude-swap account session (CFG-917): this terminal only, see launch_mclaude.
             --account) [[ $# -ge 2 ]] || { echo "Error: --account requires an account (alias, number or email)" >&2; exit 1; }; ACCOUNT_ARG="$2"; shift 2 ;;
             --continue) AFLEET_CONTINUE=1; shift ;;
+            --hotswap) AFLEET_HOTSWAP=1; shift ;;
             # MCP selection for local-model mode. DEFAULT IS NONE — the lean profile exists
             # because 13 servers' tool definitions do not fit a local context window.
             # Must be matched BEFORE the `-*` and `*` catch-alls below or they swallow these.
@@ -719,7 +721,7 @@ afleet_release_dry_run_locks() {
 
 launch_mclaude() {
     if [[ "$DRY_RUN" == "1" ]]; then
-        echo "DRY_RUN: would cd to $TARGET_DIR and exec mclaude${ACCOUNT_ARG:+ as account $ACCOUNT_ARG}${AFLEET_CONTINUE:+ (continuing)}"
+        echo "DRY_RUN: would cd to $TARGET_DIR and exec mclaude${ACCOUNT_ARG:+ as account $ACCOUNT_ARG}${AFLEET_CONTINUE:+ (continuing)}$([[ "$AFLEET_HOTSWAP" == 1 ]] && echo ' with a hot-swap account store')"
         afleet_release_dry_run_locks
         exit 0
     fi
@@ -748,6 +750,18 @@ launch_mclaude() {
         fi
         export AFLEET_ACCOUNT="$ACCOUNT_ARG" AFLEET_CONTINUE="${AFLEET_CONTINUE:-}"
         MCLAUDE="$_AFLEET_DIR/cswap-launch.sh"
+    fi
+
+    # Per-session credential store (CFG-922, setup/scripts/cc-account-store.sh), opt-in via --hotswap /
+    # AFLEET_HOTSWAP=1: `! swap <acct>` inside this session then moves only this session. Owner = this
+    # shell ($$), alive as long as the session (CC runs under script(1)); released in post_session_cleanup.
+    if [[ "$AFLEET_HOTSWAP" == "1" ]]; then
+        local _store
+        if _store=$(bash "$_AFLEET_DIR/cc-account-store.sh" init "$AFLEET_SESSION_ID" --owner $$ ${ACCOUNT_ARG:+--account "$ACCOUNT_ARG"}); then
+            export AFLEET_ACCOUNT_STORE="$_store" CLAUDE_SECURESTORAGE_CONFIG_DIR="$_store"
+        else
+            echo "Error: could not prepare the hot-swap account store (cc-account-store.sh init)" >&2; exit 1
+        fi
     fi
 
     # ── Local model launcher (CFG-506) ───────────────────────────────────────
@@ -977,6 +991,11 @@ DONTPANIC
 # Reads globals: MCLAUDE_EXIT, TARGET_DIR, AFLEET_WORKTREE_MODE,
 #                AFLEET_WORKTREE_MAIN, AFLEET_WORKTREE_BRANCH
 post_session_cleanup() {
+    # CFG-922: CC has exited and this shell owns the per-session store — release it (never from
+    # SessionEnd: that also fires on /clear, under a running CC).
+    if [[ -n "${AFLEET_ACCOUNT_STORE:-}" ]]; then
+        bash "$_AFLEET_DIR/cc-account-store.sh" release "$AFLEET_SESSION_ID" >/dev/null 2>&1 || true
+    fi
     # ── Worktree cleanup ─────────────────────────────────────────────────────
     # If this session ran in an afleet-managed worktree, either auto-remove
     # (empty) or prompt to merge (has commits/changes).

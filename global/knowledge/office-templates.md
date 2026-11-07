@@ -45,6 +45,8 @@ The leading `<!--META ... -->` block of the source becomes the document-control 
 
 - **pandoc → weasyprint HTML is capped at 36em wide by pandoc's default template**, and that embedded CSS beats a `weasyprint -s` user stylesheet. Use `pandoc -s -V document-css=false -c file://<css>` and put `html,body{margin:0;max-width:none}` in the stylesheet (life 2026-10-08).
 
+- **LibreOffice: adjacent bordered paragraphs leave a 2 pt gap in the side borders (measured 2026-11-07):** e.g. a title row with a bottom separator over a body row, margins 0 — measured in the PDF with PyMuPDF `get_drawings` (body side lines start 2.05 pt below the fill), with join-border on or off. For box/callout layouts in ODT/DOCX use a 1-column table (cell borders + one inner separator), which renders clean. `open-file.sh` on WSL has no `.odt` handler (prints the path only); LibreOffice is Windows-side.
+
 ## Branding a fork (onboarding)
 
 Replace `assets/logo.svg` (keep the `0 0 400 100` viewBox — 4:1 — and all geometry stays valid), rasterise it to `assets/logo.png` at 1600×400, edit the tokens, run `make-template-docx.py`, re-run the tests. Four steps, all in the template's `README.md`.
