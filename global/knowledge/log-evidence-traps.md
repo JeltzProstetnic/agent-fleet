@@ -137,6 +137,10 @@ Claude Code's Bash sandbox produces environment errors that are false for the ma
 
 A pipeline's exit status is its LAST command's, so `tail` (always 0) is what `&&` sees, and pytest's failure never reaches the gate. Happened twice in one research-code session (2026-11-08): two commits landed with a red docs test, each fixed by a follow-up commit. ⇒ Put `set -o pipefail;` before the pipeline, or gate on the test runner itself and tail its saved output separately (`pytest … > /tmp/t.log; rc=$?; tail -1 /tmp/t.log; [ $rc -eq 0 ] && git commit …`).
 
+## 13. `openssl verify -CAfile X` trusts more than X
+
+With `-CAfile` given, OpenSSL still loads its default certificate DIRECTORY and (OpenSSL 3) its default CAstore. Measured 2026-11-08 on OpenSSL 3.0.13: a real `api.anthropic.com` chain verified `OK` against a CAfile holding one unrelated root, until `-no-CApath -no-CAstore` were added. So "this chain verifies against bundle X" is not evidence about X, and a decoy CAfile can "verify" because the real root sits in the default store. ⇒ Pass `-no-CApath -no-CAstore` (OpenSSL 3), or an empty `-CApath <dir>` where those flags do not exist (LibreSSL), whenever the question is what ONE bundle trusts. Reference: `setup/scripts/corporate-ca.sh` `verify_with`.
+
 ## The one-line test
 
 Before trusting a check: **what would this command print if it had looked at nothing?** If that output

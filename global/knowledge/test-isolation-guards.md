@@ -110,6 +110,23 @@ Measured in a fleet project, 2026-05; guard placement and DB-class enumeration: 
 The env-var bug above is one member of a family: a suite or gate that **reports success without
 having exercised the thing**. Two more members, both measured.
 
+## A HOME sandbox does not cover the config-dir variables, and a live settings write spreads at once
+
+A bash suite sandboxed `HOME`, but the script under test chose its target as
+`${CC_MIRROR_DIR:-$HOME/.cc-mirror/mclaude}/config/settings.json`. Inside a Claude Code session
+`CC_MIRROR_DIR` (and `CLAUDE_CONFIG_DIR`) name the **live** config, so the tests wrote five
+certificate variables pointing at their deleted temp dirs into the live `settings.json`
+(2026-11-08). **Claude Code hot-applies settings env changes to running sessions, including the
+environment of their Bash tool calls**: within seconds `SSL_CERT_FILE` in this and every other open
+session named a missing file and `curl`/git/Python TLS failed (`curl` → `000`). The harness's
+protected-file fingerprint caught the write, but only after it had happened.
+
+- ⇒ Every test that runs a script which resolves a config location must clear the config-dir
+  variables, not just `HOME`: `env -u CC_MIRROR_DIR -u CLAUDE_CONFIG_DIR …`.
+- ⇒ Repair a leaked env key by **repointing it at a valid value**, not by deleting it: the hot reload
+  picked up the corrected value in running sessions without a restart; whether it would also unset a
+  deleted key was not established.
+
 ## A test that SKIPS in the environment where it was written verifies NOTHING
 
 A subagent wrote a spiking-neuron (LIF) module with `torch` absent, so its behavioral tests were

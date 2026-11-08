@@ -851,8 +851,18 @@ main() {
     log_success "Prerequisites verified"
     echo ""
 
+    # CFG-864: inherit the corporate TLS root install-base trusted (MCP installs download),
+    # and carry it into the deployed settings.json env. Both are no-ops without a proxy.
+    local ca_script="${SCRIPT_DIR}/scripts/corporate-ca.sh" ca_env=""
+    [[ -f "${ca_script}" ]] && ca_env="$(bash "${ca_script}" env)"
+    [[ -n "${ca_env}" ]] && eval "${ca_env}"
+
     # Run configuration steps
     deploy_voltagent_config
+    if [[ -n "${ca_env}" ]] && [[ "${DRY_RUN:-false}" != "true" ]]; then
+        bash "${ca_script}" persist-settings "${CONFIG_DIR}/settings.json" \
+            || log_warn "Could not add the corporate CA to ${CONFIG_DIR}/settings.json"
+    fi
     configure_mcp_servers
     patch_mclaude_launcher
     deploy_helper_scripts

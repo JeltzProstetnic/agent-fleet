@@ -156,6 +156,33 @@ check_environment() {
     log_success "Environment check complete"
 }
 
+# CFG-864: a TLS-inspecting proxy (any vendor) breaks every later download (Homebrew, nvm,
+# npm, Claude Code) with "unable to get local issuer certificate". Detect it by symptom and
+# trust its root BEFORE the first download; no-op without a proxy. Never fatal.
+setup_corporate_ca() {
+    local ca_script="${SCRIPT_DIR}/scripts/corporate-ca.sh"
+    [[ -f "${ca_script}" ]] || return 0
+    if [[ "${DRY_RUN}" == "true" ]]; then
+        bash "${ca_script}" setup --dry-run || true
+        return 0
+    fi
+    local rc=0
+    bash "${ca_script}" setup || rc=$?
+    case "${rc}" in
+        0) ;;
+        3) log_warn "A TLS-inspecting proxy was detected but its root certificate was not found locally."
+           log_warn "Downloads may fail. Export the root to a PEM file, then: bash ${ca_script} setup --root <file>" ;;
+        *) log_warn "Corporate CA setup failed (exit ${rc}) — downloads may fail with certificate errors" ;;
+    esac
+    local env_lines
+    env_lines="$(bash "${ca_script}" env)"
+    if [[ -n "${env_lines}" ]]; then
+        eval "${env_lines}"
+        INSTALLED_STEPS+=("corporate-ca (TLS-inspecting proxy root trusted)")
+        log_success "Corporate TLS root trusted for this install"
+    fi
+}
+
 # ============================================================================
 # STEP 2: SYSTEM DEPENDENCIES
 # ============================================================================
@@ -881,6 +908,7 @@ main() {
 
     # Run installation steps
     check_environment
+    setup_corporate_ca
     install_system_deps
     install_nodejs
     setup_npm_global
