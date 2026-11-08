@@ -104,6 +104,18 @@ Measured from a live KDP dashboard, Aug 2026. Re-check, because KDP's lists chan
 
 Key points (measured in a book project, 2026-11-03; its project knowledge file `kdp-specs.md` holds the full recipe): log in from vault `amazon_kdp.*` through the `/dev/shm` bridge (`knowledge/dev-browser-ops.md`); go straight to the title-setup URLs; the description field is CKEditor; upload with `browser_file_upload`, not `waitForEvent('filechooser')`; the Previewer is mandatory before publishing; after new files the AI-disclosure checkbox must be re-confirmed.
 
+## KDP form rules that hold for every title
+
+A NEW title starts with every field blank. An update to an existing listing inherits the owner's earlier hand-entered answers, so "it worked last time" on an update proves nothing for a new title (2026-11-08: two of these rules were missed on a new title after an update round had passed).
+
+- **AI tool-name fields: always `NOYB`** in every "which tool(s)" field, every content category, every title (owner rule 2026-11-04: no usage statistics volunteered to Amazon). Never type a vendor or model name there.
+- **Cover with a baked barcode → tick "Yes, my cover has a barcode"** (`#publisher-barcode`, appears only after the cover upload). Click its label TEXT; the box itself sits on a "Learn more" link. Left unticked, KDP stamps its own boxed barcode: on a hardcover it landed lower than the baked one, which stuck out above it (two barcodes); on a 6×9 paperback it happened to cover the baked one exactly.
+- **Print list prices are entered NET of VAT** on the new pricing page (an "+ Est. VAT" column shows the buyer price: 26.99 entered = 28.88 on .de). For a German book enter gross ÷ 1.07. The eBook field is VAT-inclusive (`price_vat_inclusive`).
+- **Category picker on a non-US primary marketplace:** set the marketplace in the VISIBLE dropdown (`select[name$="[home_marketplace]"]` → `.a-button-dropdown` → `a.a-dropdown-link`) BEFORE "Choose categories". The picker caches root nodes from the marketplace active when they loaded, then asks for children of a US node with the other marketplace, gets `[]` and silently shows no subcategory dropdown. Flip the dropdown away and back to refetch. The Kindle store has its own category tree, different from Books.
+- **Previewer stuck on "Checking your cover…" / "Preparing your files…"** for 10+ min while the setup page already reports the previewer available: Cancel, then "Launch Previewer" again opens it at once.
+- **Proof copies:** Request proof → quantity + marketplace → Submit → a second button "Confirm Proof Request"; the cart mail arrives within 4 h.
+- **eBook accessibility answers:** before answering, count `<img>` with a non-empty `alt` in the EPUB — pandoc's empty-caption images carry `alt=""`.
+
 ## Weekly title-creation limit
 
 KDP enforces a **weekly title-creation limit per format.** Measured 2026-11-04: after 2 new hardcovers in one evening, the 3rd "+ Create hardcover" details page would not save — in Playwright automation, save-and-continue silently stayed on the page; a second click surfaced "**Title creation limit reached** — You have reached your weekly title creation limit for this format. Your limit resets on Sunday at 12:00 AM UTC." Editing/re-publishing existing formats was unaffected (8 Kindle + 6 PB publishes the same day). **Plan new formats across weeks**; when a new-format save does nothing, look for this dialog first. (scifi WSL 2026-11-04)

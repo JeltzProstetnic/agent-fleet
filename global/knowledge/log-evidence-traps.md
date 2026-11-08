@@ -133,6 +133,10 @@ Claude Code's Bash sandbox produces environment errors that are false for the ma
 
 ⇒ **Re-run unsandboxed before reporting a machine fault.** An `EROFS`, a `nobody` owner, a missing `/proc` entry or "interop disabled" is first a hypothesis about the sandbox. Whether `~/.npm/_cacache` belongs on the sandbox write allowlist is a permission-gate decision for the owner, not a fix to make in passing.
 
+## 12. `pytest … | tail -1 && git commit …` commits when the tests FAIL
+
+A pipeline's exit status is its LAST command's, so `tail` (always 0) is what `&&` sees, and pytest's failure never reaches the gate. Happened twice in one research-code session (2026-11-08): two commits landed with a red docs test, each fixed by a follow-up commit. ⇒ Put `set -o pipefail;` before the pipeline, or gate on the test runner itself and tail its saved output separately (`pytest … > /tmp/t.log; rc=$?; tail -1 /tmp/t.log; [ $rc -eq 0 ] && git commit …`).
+
 ## The one-line test
 
 Before trusting a check: **what would this command print if it had looked at nothing?** If that output
