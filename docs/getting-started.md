@@ -37,6 +37,8 @@ git clone https://github.com/JeltzProstetnic/agent-fleet ~/agent-fleet
 
 > **Want a private copy?** Click "Use this template" on GitHub to create your own repo, then clone that URL instead. Don't fork — forks can't be private and your config will contain personal data. Setup auto-detects the template origin and reconfigures remotes.
 
+> **Clone fails with `SSL certificate problem: unable to get local issuer certificate`?** You are behind a corporate TLS-inspecting proxy. Setup handles the proxy itself, but the clone comes first: clone over SSH, or (WSL) fetch `setup/scripts/corporate-ca.sh` with Windows' `curl.exe` and run it before cloning. Both routes are in the [README](../README.md#five-minutes-to-a-working-agent).
+
 ### Step 2: Run setup
 
 ```bash

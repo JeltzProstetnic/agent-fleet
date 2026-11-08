@@ -40,6 +40,17 @@ bash setup.sh
 
 > **Want a private copy?** On GitHub, click **"Use this template" -> "Create a new repository"** (set it to **Private**), then clone your copy instead. Do NOT fork -- GitHub forks are public by default. Setup detects whether origin points to the template or your own repo and configures remotes accordingly.
 
+> **Behind a corporate TLS-inspecting proxy** (Zscaler, Netskope, Palo Alto, Fortinet, …)? `setup.sh` detects the proxy and trusts its root certificate automatically, before its first download. Nothing to configure. The one step it cannot cover is the clone itself: on a fresh WSL distro the Linux side does not trust the proxy yet (the Windows side does), so `git clone https://…` fails with `SSL certificate problem: unable to get local issuer certificate`. Two ways in:
+>
+> - **Clone over SSH** (needs an SSH key on your GitHub account): take the clone URL above and replace `https://github.com/` with `git@github.com:` (and append `.git`). If the network blocks port 22, use `ssh://git@ssh.github.com:443/` in place of `git@github.com:`.
+> - **No SSH, WSL:** fetch the standalone CA script through Windows' own `curl.exe`, which already trusts the proxy, run it, then clone over HTTPS as usual:
+>   ```bash
+>   curl.exe -fsSL https://github.com/JeltzProstetnic/agent-fleet/raw/main/setup/scripts/corporate-ca.sh > ~/corporate-ca.sh
+>   bash ~/corporate-ca.sh setup && . ~/.certs/corporate-ca.env
+>   ```
+>
+> Do not download the repo as a ZIP: setup runs, but without a git clone the fleet cannot sync or update. If the script cannot find the proxy's root in any local certificate store, export the root to a PEM file (ask IT) and run `bash setup/scripts/corporate-ca.sh setup --root <file.pem>`. On a Mac the clone normally works, because Apple's git trusts the keychain your IT already filled.
+
 The script detects your OS, installs dependencies, creates symlinks, sets up session hooks, and installs the `afleet` launcher. If origin still points to the template repo, setup automatically renames it to `upstream` (for pulling updates) and clears origin -- your own repo gets set as origin during first-run setup.
 
 **2. Set up credentials** (optional)
