@@ -763,7 +763,7 @@ test_cswap_segment_account_session() {
 run_test "cswap segment in an account session: its own account, marked (session)" test_cswap_segment_account_session
 
 test_five_hour_survives_long_left() {
-    # 2026-11-07: a long GPI label filled MG's 138 columns and CC truncated the line, cutting off the
+    # 2026-11-07: a long GPI label filled a 138-column terminal and CC truncated the line, cutting off the
     # 5h segment (rendered last). The left side must give way, the 5h segment must stay, the line must fit.
     local h="$TEST_TMPDIR/longtail"; mkdir -p "$h/.claude"
     echo "AVeryLongPersonaNameStandingInForAGpiLabelThatFillsTheWholeLine" > "$h/.claude/.active-persona"
@@ -776,5 +776,27 @@ test_five_hour_survives_long_left() {
     assert_contains "$out" "AVeryLong" "the tail is shortened, not dropped, when there is room"
 }
 run_test "5h segment survives a long tail (tail is shortened, core kept, line fits the width)" test_five_hour_survives_long_left
+
+test_cswap_segment_hotswap_store() {
+    # 2026-11-08: a session pinned via its per-session store (CLAUDE_SECURESTORAGE_CONFIG_DIR -> claude-swap
+    # profile <n>-...) still showed the default account.
+    local h="$TEST_TMPDIR/cswap4"; mkdir -p "$h/.local/state/cswap-fleet/stores" "$h/.local/share/claude-swap/sessions/1-m_example.com"
+    echo '{"activeAccountNumber":2,"accounts":[{"number":1,"alias":"ultra","active":false,"usage":{"sevenDay":{"pct":97.0}}},{"number":2,"alias":"max","active":true,"usage":{"sevenDay":{"pct":12.0}}}]}' > "$h/.local/state/cswap-fleet/status.json"
+    ln -s "$h/.local/share/claude-swap/sessions/1-m_example.com" "$h/.local/state/cswap-fleet/stores/sess-x"
+    local out; out=$(make_json "TestModel" 50 | HOME="$h" XDG_STATE_HOME= CLAUDE_SECURESTORAGE_CONFIG_DIR="$h/.local/state/cswap-fleet/stores/sess-x" bash "$SCRIPT_PATH")
+    assert_contains "$out" "ultra 97% (session)" "a store pinned to a profile shows that account"
+    assert_not_contains "$out" "max 12%"
+}
+run_test "cswap segment follows a hot-swap store pinned to another account" test_cswap_segment_hotswap_store
+
+test_cswap_segment_hotswap_store_default() {
+    local h="$TEST_TMPDIR/cswap5"; mkdir -p "$h/.local/state/cswap-fleet/stores" "$h/.cc-mirror/mclaude/config"
+    echo '{"activeAccountNumber":2,"accounts":[{"number":2,"alias":"max","active":true,"usage":{"sevenDay":{"pct":12.0}}}]}' > "$h/.local/state/cswap-fleet/status.json"
+    ln -s "$h/.cc-mirror/mclaude/config" "$h/.local/state/cswap-fleet/stores/sess-y"
+    local out; out=$(make_json "TestModel" 50 | HOME="$h" XDG_STATE_HOME= CLAUDE_SECURESTORAGE_CONFIG_DIR="$h/.local/state/cswap-fleet/stores/sess-y" bash "$SCRIPT_PATH")
+    assert_contains "$out" "max 12%" "a store on the default lineage shows the default account"
+    assert_not_contains "$out" "(session)"
+}
+run_test "cswap segment: a hot-swap store on the default lineage shows the default, unmarked" test_cswap_segment_hotswap_store_default
 
 suite_summary

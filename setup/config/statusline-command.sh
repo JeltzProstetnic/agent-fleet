@@ -245,7 +245,9 @@ try:
         def _label(a): return a.get('alias') or (a.get('email') or '?').split('@')[0]
         _act = _acc.get(_st.get('activeAccountNumber'))
         # A cswap session (CLAUDE_CONFIG_DIR = .../claude-swap/sessions/<n>-<slug>) runs on account n.
-        _sess = os.environ.get('CLAUDE_CONFIG_DIR') or ''
+        # A hot-swap store (CLAUDE_SECURESTORAGE_CONFIG_DIR, CFG-922) decides the account when present.
+        _store = os.environ.get('CLAUDE_SECURESTORAGE_CONFIG_DIR') or ''
+        _sess = os.path.realpath(_store) if _store else (os.environ.get('CLAUDE_CONFIG_DIR') or '')
         _sn = os.path.basename(_sess.rstrip('/')).split('-', 1)[0] if '/claude-swap/sessions/' in _sess else ''
         if _sn.isdigit():
             _act = _acc.get(int(_sn)) or _act
