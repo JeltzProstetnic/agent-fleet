@@ -28,7 +28,7 @@ Unified risk classification and enforcement for agent fleet infrastructure chang
 
 ## T2 — Deployment Pipeline
 
-**Files:** `setup/install.sh`, `setup/install-base.sh`, `setup/configure-claude.sh`, `setup/lib.sh`, `setup/scripts/upgrade.sh`, `setup/config/settings.json`, `setup/config/*.json`, `global/hooks/*.sh`, `setup/scripts/setup-project-roster.sh`
+**Files:** `setup/install.sh`, `setup/install-base.sh`, `setup/configure-claude.sh`, `setup/lib.sh`, `setup/scripts/upgrade.sh`, `setup/config/settings.json`, `setup/config/*.json`, `global/hooks/*.sh`, `setup/scripts/setup-project-roster.sh`. **The enforced gate is wider than this list:** `anti-lockout-check.sh` (`check_e2e_freshness`) demands a fresh E2E for ANY uncommitted change under `setup/scripts/`, `global/hooks/` or `setup/config/` — e.g. `setup/scripts/gpi.sh` (measured 2026-11-09, CFG-933). Plan the E2E run for every edit there.
 
 **Enforcement:** Post-edit awareness. After editing any T2 file, the agent must:
 1. Run `bash setup/tests/run.sh` (local test suite)
