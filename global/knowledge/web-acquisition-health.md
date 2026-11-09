@@ -101,7 +101,14 @@ its DOI. **(3)** **Europe PMC REST** —
 open-access articles; use it instead of ResearchGate. **(4)** Many journal papers have an **arXiv
 preprint** findable by WebSearch on the exact title; the arXiv PDF downloads with plain curl. **(5)**
 **PubMed efetch needs the DOI term URL-encoded** — the `[doi]` brackets broke curl's URL globbing; use
-`curl -g` or encode. (measured on WSL 2026-11-05)
+`curl -g` or encode. (measured on WSL 2026-11-05) **(6)** `link.springer.com/journal/<id>/submission-guidelines`
+cannot be re-verified by fetch from WSL: WebFetch stops at a 303 to `idp.springer.com/authorize` (cookie
+handshake), plain curl gets a ~3 KB script shell with none of the page text, and a cookie-jar curl through
+the redirect was refused by the auto-mode classifier — read Springer journal facts in a real browser at
+submission time. **(7)** PhiMiSci (`philosophymindscience.org`) and IJoDR sit behind an **Anubis
+proof-of-work wall**; a headless-Chrome render was refused by the classifier as bot-check circumvention and
+must not be retried — use a Wayback copy (mark it as such) or a real browser. **(8)** `academic.oup.com`
+author pages (SLEEP) read fine via WebFetch. (measured on WSL 2026-11-09)
 
 ## Scope
 

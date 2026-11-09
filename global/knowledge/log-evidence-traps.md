@@ -141,6 +141,19 @@ A pipeline's exit status is its LAST command's, so `tail` (always 0) is what `&&
 
 With `-CAfile` given, OpenSSL still loads its default certificate DIRECTORY and (OpenSSL 3) its default CAstore. Measured 2026-11-08 on OpenSSL 3.0.13: a real `api.anthropic.com` chain verified `OK` against a CAfile holding one unrelated root, until `-no-CApath -no-CAstore` were added. So "this chain verifies against bundle X" is not evidence about X, and a decoy CAfile can "verify" because the real root sits in the default store. ⇒ Pass `-no-CApath -no-CAstore` (OpenSSL 3), or an empty `-CApath <dir>` where those flags do not exist (LibreSSL), whenever the question is what ONE bundle trusts. Reference: `setup/scripts/corporate-ca.sh` `verify_with`.
 
+## 14. A pytest run that overlaps source edits produces false failures that look real
+
+Measured on WSL 2026-11-09: a source-pin test failed mid-run and passed on the final code — the test was never wrong, the run overlapped an edit.
+Two distinct mechanisms, both indistinguishable from a real regression:
+- **(a) ImportError from a stale cached module** — module A was imported before an edit and its
+  importer B after; B now imports a name A's already-cached copy lacks.
+- **(b) `inspect.getsource()` re-reads the file from DISK** using the loaded code object's line
+  numbers — an edit that shifts lines makes a source-pin test read the neighbouring function.
+
+⇒ Never edit code while a full suite runs. Take the regression baseline from a clean, isolated
+copy — `git worktree add --detach HEAD` (imports resolve to the worktree; symlink `node_modules`
+for vitest) — so edits in the working tree cannot leak into a run already in flight.
+
 ## The one-line test
 
 Before trusting a check: **what would this command print if it had looked at nothing?** If that output
