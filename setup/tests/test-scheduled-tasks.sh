@@ -547,4 +547,24 @@ test_overlays_name_their_machine() {
 }
 run_test "machine overlays: each sets SCHED_MACHINE to its directory name" test_overlays_name_their_machine
 
+# ── Fleet config: monthly DMARC review (infrastructure INF-204, MG MAIL-DMARC) ─────────────────────────────
+
+_dmarc_warnings_for() {
+    _SCHED_LIB_LOADED=""; source "$SCHED_LIB"
+    SCHED_MARKER_DIR="$TEST_TMPDIR/dmarc-$1"; mkdir -p "$SCHED_MARKER_DIR"
+    SCHED_MACHINE="wsl"; SCHED_PROJECT="$1"
+    sched_reset; source "$REPO_ROOT/setup/config/scheduled-tasks.sh"
+    sched_get_warnings
+}
+
+test_fleet_config_prompts_dmarc_review_in_infrastructure_only() {
+    local w
+    w=$(_dmarc_warnings_for infrastructure)
+    assert_contains "$w" "[PROMPTED] dmarc-review:" "infrastructure gets the monthly DMARC prompt"
+    assert_contains "$w" "INF-204" "the prompt names its backlog item"
+    w=$(_dmarc_warnings_for some-other-project)
+    assert_not_contains "$w" "dmarc-review" "other projects are not prompted"
+}
+run_test "fleet config: monthly DMARC review prompts infrastructure only" test_fleet_config_prompts_dmarc_review_in_infrastructure_only
+
 suite_summary
