@@ -574,6 +574,70 @@ test_cleanup_stale_mixed_entries() {
 }
 run_test "cleanup_stale removes stale entries while keeping fresh" test_cleanup_stale_mixed_entries
 
+# ── CFG-933: the 24 h age rule must never drop a job that is provably still running ──
+# A 2.5-day GPU run (tmux session alive) vanished from the
+# statusline at exactly 24 h, twice. A live tmux session is proof the op is unfinished.
+
+test_cleanup_stale_keeps_op_with_live_tmux() {
+    local live
+    live=$(tmux_sandbox_session)
+    gpi start long-op "multi-day run" --tmux "$live"
+    backdate_started long-op 90000           # 25 h
+    gpi status >/dev/null
+    tmux kill-server 2>/dev/null || true
+    assert_eq "multi-day run" "$(gpi_field '.ops["long-op"].label // "null"')" "op >24 h whose tmux session is alive survives cleanup_stale"
+}
+run_test "CFG-933: cleanup_stale keeps an op >24 h whose tmux session is alive" test_cleanup_stale_keeps_op_with_live_tmux
+
+test_cleanup_stale_reaps_old_op_with_dead_tmux() {
+    tmux kill-server 2>/dev/null || true
+    gpi start gone-op "ended run" --tmux "cfgtest-gone-$$"
+    backdate_started gone-op 90000
+    gpi status >/dev/null
+    assert_eq "null" "$(gpi_field '.ops["gone-op"] // "null"')" "op >24 h whose tmux session is gone is still reaped"
+}
+run_test "CFG-933: cleanup_stale still reaps an op >24 h whose tmux session is gone" test_cleanup_stale_reaps_old_op_with_dead_tmux
+
+test_cleanup_stale_keeps_tmux_op_when_tmux_errors() {
+    # A tmux failure other than "no server" proves nothing (CFG-863): keep the op.
+    mkdir -p "$TEST_TMPDIR/fakebin"
+    printf '#!/bin/sh\necho "error connecting: permission denied" >&2\nexit 1\n' > "$TEST_TMPDIR/fakebin/tmux"
+    chmod +x "$TEST_TMPDIR/fakebin/tmux"
+    gpi start unsure-op "unjudgeable" --tmux "cfgtest-any-$$"
+    backdate_started unsure-op 90000
+    PATH="$TEST_TMPDIR/fakebin:$PATH" gpi status >/dev/null
+    assert_eq "unjudgeable" "$(gpi_field '.ops["unsure-op"].label // "null"')" "unknown tmux error: a tmux op is never reaped by age"
+}
+run_test "CFG-933: an unexplained tmux error keeps tmux ops (cannot prove finished)" test_cleanup_stale_keeps_tmux_op_when_tmux_errors
+
+test_start_max_age_none_disables_age_reap() {
+    gpi start forever "manual long job" --max-age none
+    backdate_started forever $((30*86400))
+    gpi status >/dev/null
+    assert_eq "none" "$(gpi_field '.ops["forever"].max_age // "null"')" "--max-age none is recorded" || return 1
+    assert_eq "manual long job" "$(gpi_field '.ops["forever"].label // "null"')" "--max-age none: a 30-day-old op is not reaped by age"
+}
+run_test "CFG-933: start --max-age none disables the age reap" test_start_max_age_none_disables_age_reap
+
+test_start_max_age_seconds_overrides_default() {
+    gpi start short "short-lived" --max-age 3600
+    gpi start long "three-day job" --max-age 259200
+    backdate_started short 7200                # 2 h > its 1 h limit
+    backdate_started long 90000                # 25 h < its 72 h limit
+    gpi status >/dev/null
+    assert_eq "null" "$(gpi_field '.ops["short"] // "null"')" "--max-age 3600: op older than 1 h is reaped" || return 1
+    assert_eq "three-day job" "$(gpi_field '.ops["long"].label // "null"')" "--max-age 259200: op of 25 h survives"
+}
+run_test "CFG-933: start --max-age <secs> replaces the 24 h default" test_start_max_age_seconds_overrides_default
+
+test_start_max_age_invalid_is_rejected() {
+    local rc=0
+    gpi start bad "bad arg" --max-age soon 2>/dev/null || rc=$?
+    assert_eq "2" "$rc" "--max-age with a non-number, non-'none' value exits 2 (measured rc=$rc)" || return 1
+    assert_eq "null" "$(gpi_field '.ops["bad"] // "null"')" "no op is recorded for a rejected start"
+}
+run_test "CFG-933: start --max-age rejects an invalid value" test_start_max_age_invalid_is_rejected
+
 # ── SessionEnd GPI Cleanup Integration Test (CFG-363) ───────────────────────
 
 suite_header "GPI SessionEnd Integration Tests (CFG-363)"

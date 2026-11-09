@@ -4,6 +4,7 @@
 #
 # Usage:
 #   gpi.sh start  <id> <label> [--group <g>] [--seq <n/m>] [--eta <secs>] [--log <path>] [--tmux <session>]
+#                 [--max-age <secs>|none]
 #   gpi.sh update <id> [--pct <0-100>] [--detail <str>] [--eta <secs>]
 #   gpi.sh done   <id>
 #   gpi.sh clear  [--dead | --group <g> | --all]
@@ -72,15 +73,37 @@ cleanup_completed() {
         )) | from_entries)' --argjson now "$now"
 }
 
-# Remove orphaned ops older than 24 hours (no completed_at, stale started)
-# Safety net for entries that survive crashes or missed SessionEnd hooks.
+# Live tmux session names as a JSON array; `[]` when no server runs; `null` when tmux
+# cannot be asked (not installed, or any other error) — then nothing is proven (CFG-863).
+live_tmux_sessions_json() {
+    local out rc=0
+    command -v tmux >/dev/null 2>&1 || { echo null; return 0; }
+    out=$(tmux list-sessions -F '#{session_name}' 2>&1) || rc=$?
+    if (( rc != 0 )); then
+        if grep -qE 'no server running|No such file or directory' <<<"$out"; then echo '[]'; else echo null; fi
+        return 0
+    fi
+    jq -R . <<<"$out" | jq -sc .
+}
+
+# Remove orphaned ops past their max age: 24 h by default, `start --max-age <secs|none>`
+# per op. Safety net for entries that survive crashes or missed SessionEnd hooks.
+# CFG-933: never an op whose recorded tmux session is alive — that proves it still runs
+# (a 2.5-day GPU job vanished from the statusline at 24 h). If tmux cannot be
+# asked, no tmux op is reaped by age at all.
 # `started // $now`: an op without it counts as fresh instead of failing the whole sweep.
 cleanup_stale() {
-    local now
+    local now live
     now=$(date +%s)
+    live=$(live_tmux_sessions_json)
     locked_update '.ops = (.ops | to_entries | map(select(
-            (.value.completed_at // null) != null or ($now - (.value.started // $now)) <= 86400
-        )) | from_entries)' --argjson now "$now"
+            (.value.completed_at // null) != null
+            or ((.value.tmux_session // null) != null
+                and ($live == null or (.value.tmux_session as $s | $live | index($s)) != null))
+            or (.value.max_age // null) == "none"
+            or ($now - (.value.started // $now))
+               <= (if (.value.max_age | type) == "number" then .value.max_age else 86400 end)
+        )) | from_entries)' --argjson now "$now" --argjson live "${live:-null}"
 }
 
 # Write notification sidecar for session awareness (atomic, self-healing on a bad file)
@@ -98,6 +121,7 @@ cmd_start() {
     local id="$1" label="$2"
     shift 2
     local group="null" seq_index="null" seq_total="null" eta="null" log_path="null" tmux_session="null"
+    local max_age="null"
 
     while [[ $# -gt 0 ]]; do
         case "$1" in
@@ -112,6 +136,16 @@ cmd_start() {
             # killed job from a quiet one. tmux-launch.sh passes it; an op without it is
             # never judged dead.
             --tmux) tmux_session="\"$2\""; shift 2 ;;
+            # CFG-933: how long cleanup_stale lets the op live (default 24 h); `none` = never
+            # by age. Ops with a live tmux session are kept regardless.
+            --max-age)
+                case "${2:-}" in
+                    none) max_age='"none"' ;;
+                    ''|*[!0-9]*) echo "gpi start: --max-age takes seconds or 'none' (got '${2:-}')" >&2
+                                 return 2 ;;
+                    *) max_age="$2" ;;
+                esac
+                shift 2 ;;
             *) shift ;;
         esac
     done
@@ -131,6 +165,7 @@ cmd_start() {
             seq_total: $seq_total,
             log_path: $log_path,
             tmux_session: $tmux_session,
+            max_age: $max_age,
             updated_at: $now
         }
         | .updated = $now
