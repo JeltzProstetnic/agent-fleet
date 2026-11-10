@@ -1,6 +1,29 @@
 # Agent Fleet
 
-A persistent, multi-project, multi-machine AI agent that manages your development infrastructure through conversation.
+A general agentic work harness on top of Claude Code: software development, project management, scientific work, authoring, simulation, infrastructure and security, with a knowledge base that grows from your sessions.
+
+## What it is
+
+Agent Fleet is a layer of protocols, hooks, scripts and knowledge files on top of Claude Code. It keeps your work continuous from one session to the next and across your machines. Software development is one of its areas. The template also ships knowledge for project and backlog management, scientific work and audits, authoring and print production, simulation and manufacturing, infrastructure and security, graphics and presentations, and communication and social media. The knowledge base grows from your own sessions. When something goes wrong, the `lrn` self-audit turns the failure into a rule, a hook or a knowledge entry, and rules change only with your consent. Because the agent adapts to you, setup starts with an onboarding conversation about your projects, your style and your tools.
+
+## What it can do
+
+The template ships 51 operational knowledge files (about 350 KB, in `global/knowledge/`), 17 reference docs, 10 foundation protocols and 5 domains plus a template for your own, and the agent loads each one only when a project or situation calls for it.
+
+| Area | What ships |
+|------|-----------|
+| Delivery lifecycle and project management | Needs to requirements, vertical slices, deliverable authoring, project economics, risk tiers, a backlog convention with task IDs and states: `needs-to-requirements.md`, `vertical-slicing.md`, `risk-management.md`, `global/reference/backlog-convention.md` |
+| Software development | Test-first protocol, test isolation, browser automation, LLM provider integration: `global/domains/software-development/`, `test-isolation-guards.md`, `dev-browser-ops.md`, `llm-provider-integration.md` |
+| Authoring, publishing and print production | Book publishing, print production, cover design, a register check for human-facing text: `kdp-publishing.md`, `print-production.md`, `prose-register.md`, `global/domains/publications/` |
+| Graphics and presentation | Slide design, an office template builder for DOCX, PPTX and PDF, cover design: `presentation-design.md`, `office-templates.md`, `cover-design.md` |
+| Simulation and manufacturing | Building and validating discrete-event models of real plants, shopfloor management and governance: `manufacturing-simulation-modelling.md`, `shopfloor-management-and-governance.md` |
+| Scientific work and audits | Regulatory audit simulation (for example FDA, ISO 13485), academic peer review, citation and link checks: `audit-domains.md`, `audit-protocol.md`, `web-acquisition-health.md` |
+| Infrastructure and security | Server and deployment rules, MCP server deployment, service memory accounting, secret-scanning guards on commit and push: `global/domains/it-infrastructure/`, `mcp-deployment.md`, `systemd-memory-accounting.md` |
+| Communication and social media | Community and social media etiquette, Gmail management, prose register: `global/domains/engagement/`, `gmail-management.md`, `prose-register.md` |
+
+Add-on: simopt, a simulation-optimization framework in .NET 9, lives in its own public repository under the same GitHub account.
+
+Your own field: copy `global/domains/_template/`, fill it in, and reference it from your project's `CLAUDE.md`.
 
 ## Install, Launch, Talk
 
@@ -185,6 +208,10 @@ graph TD
 
 The agent doesn't load everything at once. A coding project loads TDD rules. An infrastructure project loads server protocols. This keeps the agent fast, focused, and leaves room in the context window for actual work.
 
+### Built-in memory and agent-fleet
+
+Claude Code's auto memory is per repository and stays on one machine. The [memory docs](https://code.claude.com/docs/en/memory) say it is "not shared across machines or cloud environments". At session start it loads the first 200 lines or 25 KB of its `MEMORY.md` index, and it reads topic files on demand. Agent Fleet's knowledge base is kept in git, synced to all your machines and shared by all your projects. A conditional loading table decides when each file loads, so each session reads only the files its work calls for. The fleet works alongside auto memory and `CLAUDE.md`.
+
 ### Session Persistence
 
 The agent maintains `session-context.md` in every project directory. It tracks what's in progress, what's done, and how to resume if the session terminates unexpectedly.
@@ -208,7 +235,7 @@ Hooks on six Claude Code events (SessionStart, SessionEnd, UserPromptSubmit, Pre
 | `config-auto-sync.sh` | SessionEnd | Rotates session state, commits project + config, pushes to remote, collects mobile outbox |
 | `context-budget.sh` | UserPromptSubmit | Injects `CONTEXT_BUDGET: NN% used` every turn so the agent tracks its own resource usage |
 
-On top of these, 18 PreToolUse guards (cross-project boundary, risk gate, credential and kill guards, among others), PostToolUse and Stop hooks, and 35 SessionStart checks.
+On top of these, 19 PreToolUse guards (cross-project boundary, risk gate, credential and kill guards, among others), PostToolUse and Stop hooks, and 36 SessionStart checks.
 
 ### Session Flow
 
@@ -237,6 +264,10 @@ graph LR
     style WORK fill:#4ecdc4,stroke:#1a535c,color:#000
     style STOP fill:#ff6b6b,stroke:#c94040,color:#fff
 ```
+
+### Delivery lifecycle
+
+Knowledge files and conventions carry the lifecycle, with no stage-gate engine. User needs become requirements (`needs-to-requirements.md`), requirements are cut into vertical slices (`vertical-slicing.md`), and each slice is built test-first. Risky changes need end-to-end tests before commit (`risk-management.md`). Every task carries an ID and a state in the project backlog (`global/reference/backlog-convention.md`). Open work at the end of a session goes into a per-project handover file, which the next session picks up.
 
 ### Cross-Project Coordination
 
@@ -399,7 +430,7 @@ agent-fleet/
 |   |   `-- _example/rules/CLAUDE.md   Example project config
 |   `-- tests/
 |       |-- run.sh                 Test runner
-|       `-- test-*.sh              198 test files (~3,000 tests)
+|       `-- test-*.sh              204 test files (~3,100 tests)
 |
 |-- docs/
 |   |-- getting-started.md         Detailed setup and usage walkthrough
@@ -496,7 +527,7 @@ Add your own: copy `global/domains/_template/`, edit it, reference it from your 
 
 ### Test Suite
 
-198 test files with about 3,000 test cases (7 end-to-end suites, skipped by default), run via `setup/tests/run.sh`. A selection:
+204 test files with about 3,100 test cases (7 end-to-end suites, skipped by default), run via `setup/tests/run.sh`. A selection:
 
 | Suite | Covers |
 |-------|--------|
