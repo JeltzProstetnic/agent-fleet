@@ -969,6 +969,43 @@ test_work_done_on_reference_file_not_flagged() {
 }
 run_test "check 23c (CFG-948): status=done on Action: reference is no conflict" test_work_done_on_reference_file_not_flagged
 
+# ── CFG-953: optional `rigor=regulated` in the Work block (its only allowed value) ──
+# Surfaced as " [regulated]" right after stage/status; any other value is WORK_MALFORMED.
+test_work_block_rigor_regulated_surfaced() {
+    _cfg948_run "pending-reg.md" "<!-- Action: act -->" \
+        "<!-- Work: stage=build; status=open; rigor=regulated; next=write the DHF index; approved=2026-11-11 MG -->" "" "body"
+    local pf_field act_field
+    pf_field=$(echo "$OUT" | grep -oE 'PENDING_FILES:[^|]*' | head -1)
+    act_field=$(echo "$OUT" | grep -oE 'ACT_PENDING:[^|]*' | head -1)
+    echo "    measured: $pf_field / $act_field"
+    assert_contains "$pf_field" "pending-reg.md (act; build/open [regulated]: write the DHF index)" "PENDING_FILES shows [regulated] right after stage/status"
+    assert_contains "$act_field" "pending-reg.md (build/open [regulated]: write the DHF index)" "ACT_PENDING shows [regulated] right after stage/status"
+    assert_not_contains "$OUT" "WORK_MALFORMED" "rigor=regulated is a valid block"
+}
+run_test "check 23c (CFG-953): rigor=regulated → [regulated] after stage/status in PENDING_FILES and ACT_PENDING" test_work_block_rigor_regulated_surfaced
+
+test_work_block_rigor_other_value_malformed() {
+    _cfg948_run "pending-rig.md" "<!-- Action: act -->" "<!-- Work: stage=build; status=open; next=x; rigor=express -->"
+    local pf_field wm_field
+    pf_field=$(echo "$OUT" | grep -oE 'PENDING_FILES:[^|]*' | head -1)
+    wm_field=$(echo "$OUT" | grep -oE 'WORK_MALFORMED:[^|]*' | head -1)
+    echo "    measured: $wm_field"
+    assert_contains "$wm_field" "pending-rig.md" "the malformed block is flagged by file name"
+    assert_contains "$wm_field" "rigor=express" "the warning names the offending value"
+    assert_contains "$wm_field" "rigor=regulated" "the format hint names the one allowed value"
+    assert_contains "$pf_field" "pending-rig.md (act)" "the PENDING_FILES entry falls back to the plain action label"
+}
+run_test "check 23c (CFG-953): rigor=express → WORK_MALFORMED, hint names rigor=regulated" test_work_block_rigor_other_value_malformed
+
+test_work_block_without_rigor_unchanged() {
+    _cfg948_run "pending-plain.md" "<!-- Action: act -->" "<!-- Work: stage=build; status=open; next=run E2E in podman; approved=2026-11-11 MG -->"
+    local pf_field; pf_field=$(echo "$OUT" | grep -oE 'PENDING_FILES:[^|]*' | head -1)
+    pf_field="${pf_field%"${pf_field##*[![:space:]]}"}"
+    echo "    measured: [$pf_field]"
+    assert_eq "PENDING_FILES: pending-plain.md (act; build/open: run E2E in podman)" "$pf_field" "a block without rigor renders byte-identically to CFG-948"
+}
+run_test "check 23c (CFG-953): a Work block without rigor renders byte-identically" test_work_block_without_rigor_unchanged
+
 test_handoff_resume_line_injected() {
     local config_repo="$TEST_TMPDIR/config-repo" mock_home="$TEST_TMPDIR/home" project_dir="$TEST_TMPDIR/project"
     mkdir -p "$mock_home/.claude" "$project_dir"

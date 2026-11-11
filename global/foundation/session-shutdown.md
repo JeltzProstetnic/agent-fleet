@@ -1,7 +1,7 @@
 # Session Shutdown Checklist — MANDATORY
 
 **Before every session end, run through this checklist in order.**
-**If shutdown was already completed this session, it is VOID — re-run the full checklist from step 0.**
+**If a shutdown already completed this session, re-run the full checklist from step 0 — unless nothing since needed a write, commit or action beyond a reply; then give only the completion line.**
 
 ### 0. Clean stale permissions
 - [ ] Run `bash ~/agent-fleet/setup/scripts/clean-permissions.sh` — removes "Always allow" permission blocks from project settings.local.json files that shadow global permissions and cause prompt storms during shutdown
@@ -58,7 +58,7 @@
 
 ### 9. Closing message
 - [ ] A shutdown response contains no questions, decisions, or approval requests anywhere — this overrides "User decisions as selectable options", and everything the user must answer goes in the handover file instead.
-- [ ] End the response with the completion announcement and nothing after it — no questions, no approval requests, no "let me know", because any answer voids the shutdown you just ran.
+- [ ] End the response with the completion announcement and nothing after it — no questions, no approval requests, no "let me know", because acting on an answer voids the shutdown you just ran.
 
 **The user must be able to open consistent, up-to-date files after the session ends.** Stale context, missing inbox tasks, or outdated strategy files are unacceptable.
 

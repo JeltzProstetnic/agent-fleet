@@ -464,6 +464,21 @@ afleet_project_preflight() {
         || echo "  Warning: $name has no CLAUDE.md — run setup/scripts/new-project.sh" >&2
     grep -qxE '/?tmp/?(\*)?' "$dir/.gitignore" 2>/dev/null \
         || echo "  Warning: $name does not gitignore tmp/" >&2
+    _afleet_ignore_terminal_logs "$dir" "$name"
+    return 0
+}
+
+# CFG-941: af logs everything typed in a session to docs/terminal-logs/ (once a sudo password).
+# Add the ignore line silently when missing; warn only when git already tracks logs, because
+# untracking (and any history scrub) is that project's own session's job.
+_afleet_ignore_terminal_logs() {
+    local dir="$1" name="$2" gi="$1/.gitignore" n
+    if ! grep -qxE '/?docs/terminal-logs/?(\*)?' "$gi" 2>/dev/null; then
+        [[ -s "$gi" && -n "$(tail -c1 "$gi")" ]] && printf '\n' >> "$gi"
+        printf 'docs/terminal-logs/\n' >> "$gi" 2>/dev/null || true
+    fi
+    n=$(git -C "$dir" ls-files -- docs/terminal-logs 2>/dev/null | grep -c . || true)
+    [[ "${n:-0}" -gt 0 ]] && echo "  Warning: $name tracks $n terminal log(s) in git — in that project's session run: git rm -r --cached docs/terminal-logs" >&2
     return 0
 }
 

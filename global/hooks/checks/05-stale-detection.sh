@@ -40,6 +40,24 @@ fi
 
 # Check 5.3: Warn on stale pending files with severity-differentiated tags
 source "$(dirname "${BASH_SOURCE[0]}")/../lib-pending-due.sh" 2>/dev/null || true
+# Tracked-by header value of a pending file, both header forms (CFG-496).
+_tracked_header() {
+    head -5 "$1" | sed -n -e 's/^[[:space:]]*<!--[[:space:]]*Tracked-by:[[:space:]]*\(.*\)[[:space:]]*-->.*/\1/p' \
+                         -e 's/^Tracked-by:[[:space:]]*\(.*\)/\1/p' | head -1
+}
+# "closed" when every ID's OWN backlog line (ID in backticks after the checkbox
+# and optional [Pn]) is [x]; "open" otherwise — an ID with no own line here is
+# unknown, not closed; "" when no ID is named. The first mention of an ID is often
+# a citation inside ANOTHER, closed item (CFG-620), so never grep loosely.
+_tracked_state() {
+    local _id _row _any=0
+    for _id in $(printf '%s\n' "$1" | grep -oE '[A-Z][A-Z0-9]*-[0-9]+' | sort -u); do
+        _any=1
+        _row=$(grep -m1 -E "^- \[.\] (\[[^]]*\] )?\`$_id\`" "$BACKLOG_FILE" 2>/dev/null || true)
+        case "$_row" in "- [x]"*) ;; *) echo open; return ;; esac
+    done
+    [ "$_any" -eq 1 ] && echo closed
+}
 STALE_MSG=""
 if [ -d "$CONFIG_REPO/docs" ]; then
     BACKLOG_FILE="$CONFIG_REPO/backlog.md"
@@ -75,12 +93,19 @@ if [ -d "$CONFIG_REPO/docs" ]; then
                 _await_warned=1
             fi
             if [ "$_await_warned" -eq 0 ] && [ -f "$BACKLOG_FILE" ]; then
-                _refs=$(grep "$PF_BASE" "$BACKLOG_FILE" 2>/dev/null || true)
-                if [ -n "$_refs" ]; then
-                    _has_open=$(echo "$_refs" | grep '\- \[ \]' || true)
-                    if [ -z "$_has_open" ] && echo "$_refs" | grep -q '\- \[x\]'; then
-                        STALE_MSG="${STALE_MSG:+$STALE_MSG | }STALE_AWAIT: $PF_BASE — all backlog items completed, safe to delete"
-                    fi
+                # CFG-952: judge by the Tracked-by header. Lines that merely cite the
+                # filename are the fallback for header-less files; [ ], [>] and [?]
+                # all count as open.
+                _hdr=$(_tracked_header "$pf"); _state=""
+                if [ -n "$_hdr" ]; then
+                    _state=$(_tracked_state "$_hdr")
+                else
+                    _refs=$(grep "$PF_BASE" "$BACKLOG_FILE" 2>/dev/null || true)
+                    if echo "$_refs" | grep -qE '\- \[[ >?]\]'; then _state=open
+                    elif echo "$_refs" | grep -q '\- \[x\]'; then _state=closed; fi
+                fi
+                if [ "$_state" = closed ]; then
+                    STALE_MSG="${STALE_MSG:+$STALE_MSG | }STALE_AWAIT: $PF_BASE — all backlog items completed, safe to delete"
                 fi
             fi
         fi
@@ -96,10 +121,7 @@ if [ -d "$CONFIG_REPO/docs" ]; then
             # so all six tracked files were reported "no backlog item" every session.
             _tracked_by=""
             if [ "$_is_tracked" -eq 0 ]; then
-                _tracked_by=$(head -5 "$pf" \
-                    | sed -n -e 's/^[[:space:]]*<!--[[:space:]]*Tracked-by:[[:space:]]*\(.*\)[[:space:]]*-->.*/\1/p' \
-                             -e 's/^Tracked-by:[[:space:]]*\(.*\)/\1/p' \
-                    | head -1)
+                _tracked_by=$(_tracked_header "$pf")
                 if [ -n "$_tracked_by" ]; then
                     _is_tracked=1
                 fi
@@ -118,23 +140,7 @@ if [ -d "$CONFIG_REPO/docs" ]; then
             elif [ -n "$_tracked_by" ] && [ -f "$BACKLOG_FILE" ]; then
                 # Tracked and old is normal. The actionable case is a file whose
                 # EVERY tracked item has closed — the convention says delete it.
-                # CFG-620: each ID's state comes from ITS OWN line (the ID in
-                # backticks right after the checkbox and optional [Pn] tag), the
-                # same anchor manage-pending.sh prn_state uses. The first mention
-                # of an ID is often a citation inside ANOTHER, closed item — that
-                # made open P0s read as closed and advised deleting live files.
-                # An ID with no own line here (another project's) is unknown, and
-                # unknown is not closed.
-                _any_open=0; _any_found=0
-                for _id in $(printf '%s\n' "$_tracked_by" | grep -oE '[A-Z][A-Z0-9]*-[0-9]+' | sort -u); do
-                    _any_found=1
-                    _row=$(grep -m1 -E "^- \[.\] (\[[^]]*\] )?\`$_id\`" "$BACKLOG_FILE" 2>/dev/null || true)
-                    case "$_row" in
-                        "- [x]"*) ;;
-                        *) _any_open=1 ;;
-                    esac
-                done
-                if [ "$_any_found" -eq 1 ] && [ "$_any_open" -eq 0 ]; then
+                if [ "$(_tracked_state "$_tracked_by")" = closed ]; then
                     if ! echo "$STALE_MSG" | grep -q "$PF_BASE" 2>/dev/null; then
                         STALE_MSG="${STALE_MSG:+$STALE_MSG | }Stale pending files: $PF_BASE — all tracked items closed, safe to delete"
                     fi

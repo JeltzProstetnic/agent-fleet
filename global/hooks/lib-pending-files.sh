@@ -19,7 +19,8 @@
 # UNTRACKED_PENDING (a different problem); a supersession pointer to a file that does
 # not exist is DANGLING_PENDING (a data-loss signal). Genuinely-open files keep
 # byte-identical ACT_PENDING/PENDING_FILES output — unless they carry a Work: block,
-# which is appended as "; stage/status: next" (CFG-948).
+# which is appended as "; stage/status: next" (CFG-948), or "; stage/status [regulated]: next"
+# when the block carries the optional rigor=regulated field (CFG-953).
 
 source "$(dirname "${BASH_SOURCE[0]}")/lib-pending-due.sh" 2>/dev/null || true
 source "$(dirname "${BASH_SOURCE[0]}")/lib-pending-work.sh" 2>/dev/null || true
@@ -98,7 +99,7 @@ pending_files_report() {
         WARNINGS="${WARNINGS:+$WARNINGS | }UNTRACKED_PENDING: act/present files with no Tracked-by: $_untracked_files — file a backlog item and add the header."
     fi
     if [ -n "$_work_malformed" ]; then
-        WARNINGS="${WARNINGS:+$WARNINGS | }WORK_MALFORMED: $_work_malformed — unparseable Work: block; fix it to <!-- Work: stage=<word>; status=<one of open, blocked, awaiting-proof, done>; next=<one line>; approved=<YYYY-MM-DD who, or none> --> (fields in any order, ;-separated)."
+        WARNINGS="${WARNINGS:+$WARNINGS | }WORK_MALFORMED: $_work_malformed — unparseable Work: block; fix it to <!-- Work: stage=<word>; status=<one of open, blocked, awaiting-proof, done>; next=<one line>; approved=<YYYY-MM-DD who, or none>; rigor=regulated --> (fields in any order, ;-separated; rigor is optional and regulated is its only value)."
     fi
     if [ -n "$_work_done_conflict" ]; then
         WARNINGS="${WARNINGS:+$WARNINGS | }WORK_DONE_CONFLICT: $_work_done_conflict — status=done on a still-live pending file; demote it (Action: reference, or delete) or reopen the work. A done item is not live work."

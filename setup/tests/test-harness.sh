@@ -99,6 +99,35 @@ test_tmpdir_cleanup() {
 }
 run_test "test tmpdir is cleaned up between tests" test_tmpdir_cleanup
 
+# CFG-935: inside a Claude Code session CC_MIRROR_DIR / CLAUDE_CONFIG_DIR name the LIVE config;
+# a sandboxed HOME alone left them pointing there, and corporate-ca tests wrote five env keys
+# into the live settings.json, which Claude Code hot-applied to every running session.
+_cfg935_probe() {
+    env CC_MIRROR_DIR=/live/mirror CLAUDE_CONFIG_DIR=/live/mirror/config \
+        bash -c 'source "$0"; eval "$1"' "$SCRIPT_DIR/test-helpers.sh" "$1" 2>/dev/null
+}
+test_setup_test_drops_inherited_config_dirs() {
+    local out
+    out=$(_cfg935_probe 'setup_test p; printf "%s|%s|%s|%s" "${CC_MIRROR_DIR-UNSET}" "${CLAUDE_CONFIG_DIR-UNSET}" "$REAL_CC_MIRROR_DIR" "$REAL_CLAUDE_CONFIG_DIR"; teardown_test')
+    assert_eq "UNSET|UNSET|/live/mirror|/live/mirror/config" "$out" \
+        "an inherited live config dir must not reach a test; REAL_* keep the live values"
+}
+run_test "CFG-935: setup_test drops inherited CC_MIRROR_DIR / CLAUDE_CONFIG_DIR" test_setup_test_drops_inherited_config_dirs
+
+test_setup_test_keeps_suite_fixture_config_dir() {
+    local out
+    out=$(_cfg935_probe 'export CLAUDE_CONFIG_DIR=/fixture/config; setup_test p; printf "%s|%s" "${CLAUDE_CONFIG_DIR-UNSET}" "${CC_MIRROR_DIR-UNSET}"; teardown_test')
+    assert_eq "/fixture/config|UNSET" "$out" "a value the suite set itself is a fixture and survives setup_test"
+}
+run_test "CFG-935: setup_test keeps a suite's own fixture config dir" test_setup_test_keeps_suite_fixture_config_dir
+
+test_teardown_restores_inherited_config_dirs() {
+    local out
+    out=$(_cfg935_probe 'setup_test p; teardown_test; printf "%s|%s" "${CC_MIRROR_DIR-UNSET}" "${CLAUDE_CONFIG_DIR-UNSET}"')
+    assert_eq "/live/mirror|/live/mirror/config" "$out" "teardown restores the inherited values, as it restores HOME"
+}
+run_test "CFG-935: teardown_test restores the inherited config dirs" test_teardown_restores_inherited_config_dirs
+
 # ── run_test verdict (CFG-532) ──────────────────────────────────────────────
 # run_test used to take only the test function's exit status — the status of its LAST
 # command — so a failing assert followed by a passing one was reported PASS. Every

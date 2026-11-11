@@ -497,6 +497,48 @@ test_preflight_warns_but_returns_zero() {
 }
 run_test "preflight: missing CLAUDE.md / tmp/ ignore warn, launch continues" test_preflight_warns_but_returns_zero
 
+# CFG-941: af logs everything typed in a session to docs/terminal-logs/ (once a sudo password);
+# projects older than new-project.sh's ignore line committed those logs. The preflight adds the
+# ignore line silently, and warns only when logs are already tracked.
+_pf_run() { source_lib_and_run "$PF/registry.md" /dev/null "$PF/cfg" afleet_project_preflight "$PF/home/proj" proj 2>&1 >/dev/null; }
+
+test_preflight_ignores_terminal_logs() {
+    _preflight_fixture
+    echo '{"enabledMcpjsonServers":[]}' > "$PF/home/proj/.claude/settings.local.json"; echo x > "$PF/home/proj/CLAUDE.md"
+    printf 'tmp/\nnode_modules/' > "$PF/home/proj/.gitignore"   # no trailing newline
+    local err; err=$(_pf_run)
+    assert_eq $'tmp/\nnode_modules/\ndocs/terminal-logs/' "$(cat "$PF/home/proj/.gitignore")" \
+        "line appended on its own line, existing lines kept" || return 1
+    assert_eq "" "$err" "adding the ignore line is a silent auto-fix" || return 1
+    _pf_run >/dev/null
+    assert_eq "1" "$(grep -c 'terminal-logs' "$PF/home/proj/.gitignore")" "a second launch does not duplicate it"
+}
+run_test "preflight (CFG-941): appends docs/terminal-logs/ to .gitignore once" test_preflight_ignores_terminal_logs
+
+test_preflight_terminal_logs_existing_forms() {
+    _preflight_fixture
+    echo '{"enabledMcpjsonServers":[]}' > "$PF/home/proj/.claude/settings.local.json"; echo x > "$PF/home/proj/CLAUDE.md"
+    printf 'tmp/\n/docs/terminal-logs\n' > "$PF/home/proj/.gitignore"
+    _pf_run >/dev/null
+    assert_eq "1" "$(grep -c 'terminal-logs' "$PF/home/proj/.gitignore")" "/docs/terminal-logs already counts" || return 1
+    rm "$PF/home/proj/.gitignore"
+    _pf_run >/dev/null
+    assert_file_contains "$PF/home/proj/.gitignore" "docs/terminal-logs/" "a project with no .gitignore gets one"
+}
+run_test "preflight (CFG-941): existing ignore forms respected, missing .gitignore created" test_preflight_terminal_logs_existing_forms
+
+test_preflight_warns_on_tracked_terminal_logs() {
+    _preflight_fixture
+    local p="$PF/home/proj"
+    echo '{"enabledMcpjsonServers":[]}' > "$p/.claude/settings.local.json"; echo x > "$p/CLAUDE.md"
+    printf 'tmp/\n' > "$p/.gitignore"; mkdir -p "$p/docs/terminal-logs"; echo typed > "$p/docs/terminal-logs/a.log"
+    git -C "$p" init -q && git -C "$p" add -A && git -C "$p" commit -qm init
+    local err; err=$(_pf_run)
+    assert_contains "$err" "1 terminal log" "names how many logs git already tracks" || return 1
+    assert_contains "$err" "git rm -r --cached docs/terminal-logs" "names the untrack command"
+}
+run_test "preflight (CFG-941): warns when terminal logs are already tracked" test_preflight_warns_on_tracked_terminal_logs
+
 test_afleet_calls_preflight() {
     assert_file_contains "$REPO_ROOT/setup/scripts/afleet.sh" 'afleet_project_preflight "$TARGET_DIR" "$TARGET_NAME"' "pre_launch_sync runs the preflight"
 }

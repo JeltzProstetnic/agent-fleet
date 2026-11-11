@@ -122,7 +122,11 @@ session named a missing file and `curl`/git/Python TLS failed (`curl` → `000`)
 protected-file fingerprint caught the write, but only after it had happened.
 
 - ⇒ Every test that runs a script which resolves a config location must clear the config-dir
-  variables, not just `HOME`: `env -u CC_MIRROR_DIR -u CLAUDE_CONFIG_DIR …`.
+  variables, not just `HOME`: `env -u CC_MIRROR_DIR -u CLAUDE_CONFIG_DIR …`. Since CFG-935 the bash
+  harness does this for you: `setup_test` unsets each of the two that still holds the value inherited
+  when `test-helpers.sh` was sourced (a value the suite set itself is a fixture and stays) and
+  `teardown_test` puts it back. A read-only check of the live config reads `REAL_CC_MIRROR_DIR` /
+  `REAL_CLAUDE_CONFIG_DIR`, as `REAL_HOME`; other harnesses (pytest, vitest) still need it by hand.
 - ⇒ Repair a leaked env key by **repointing it at a valid value**, not by deleting it: the hot reload
   picked up the corrected value in running sessions without a restart; whether it would also unset a
   deleted key was not established.

@@ -495,6 +495,67 @@ EOF
 }
 run_test "check 17: no STALE_AWAIT when backlog items still open" test_stale_await_keeps_open
 
+# CFG-952: an await file is judged by its Tracked-by header, not by the backlog
+# lines that happen to mention its filename. Real case 2026-11-11: the handover
+# tracked 13 IDs (six open); only two CLOSED items cited the filename, so the
+# check advised deleting a live handover with unanswered questions.
+_cfg952_await_fixture() {
+    local config_repo="$1" mock_home="$2" project_dir="$3" tracked="$4"
+    mkdir -p "$config_repo/docs" "$mock_home" "$project_dir"
+    printf '<!-- Action: await-user-decision -->\n<!-- Tracked-by: %s -->\n# Handover\n' "$tracked" \
+        > "$config_repo/docs/pending-handover.md"
+    touch -d "1 day ago" "$config_repo/docs/pending-handover.md"
+}
+test_stale_await_uses_tracked_by_not_filename_mentions() {
+    local config_repo="$TEST_TMPDIR/config-repo" mock_home="$TEST_TMPDIR/home" project_dir="$TEST_TMPDIR/project"
+    _cfg952_await_fixture "$config_repo" "$mock_home" "$project_dir" "CFG-939, CFG-935"
+    cat > "$config_repo/backlog.md" << 'EOF'
+# Backlog
+- [x] [P2] `CFG-939` **Done**: report in docs/pending-handover.md
+- [ ] [P1] `CFG-935` **Open**: test harness clears config-dir variables
+EOF
+    local patched output
+    patched=$(create_patched_script "$config_repo" "$mock_home" "$project_dir")
+    output=$(run_hook "$patched")
+    assert_not_contains "$output" "STALE_AWAIT" \
+        "CFG-935 is open in the Tracked-by header; a closed item citing the filename must not close the file"
+}
+run_test "check 17 (CFG-952): await file judged by Tracked-by, not filename mentions" test_stale_await_uses_tracked_by_not_filename_mentions
+
+test_stale_await_tracked_by_all_closed_warns() {
+    local config_repo="$TEST_TMPDIR/config-repo" mock_home="$TEST_TMPDIR/home" project_dir="$TEST_TMPDIR/project"
+    _cfg952_await_fixture "$config_repo" "$mock_home" "$project_dir" "CFG-939, CFG-935"
+    cat > "$config_repo/backlog.md" << 'EOF'
+# Backlog
+- [x] [P2] `CFG-939` **Done**: shipped
+- [x] [P1] `CFG-935` **Done**: shipped
+EOF
+    local patched output
+    patched=$(create_patched_script "$config_repo" "$mock_home" "$project_dir")
+    output=$(run_hook "$patched")
+    assert_contains "$output" "STALE_AWAIT: pending-handover.md" \
+        "every tracked ID closed (no filename mention needed) is the real STALE_AWAIT case"
+}
+run_test "check 17 (CFG-952): await file with every Tracked-by ID closed warns" test_stale_await_tracked_by_all_closed_warns
+
+test_stale_await_shipped_and_in_progress_are_open() {
+    local config_repo="$TEST_TMPDIR/config-repo" mock_home="$TEST_TMPDIR/home" project_dir="$TEST_TMPDIR/project"
+    mkdir -p "$config_repo/docs" "$mock_home" "$project_dir"
+    printf "# Decision\nAction: await-user-decision\n\nWaiting.\n" > "$config_repo/docs/pending-decision.md"
+    cat > "$config_repo/backlog.md" << 'EOF'
+# Backlog
+- [x] [P1] `CFG-77` **Decided**: See pending-decision.md
+- [?] [P1] `CFG-78` **Shipped, awaiting proof**: See pending-decision.md
+- [>] [P1] `CFG-79` **In progress**: See pending-decision.md
+EOF
+    local patched output
+    patched=$(create_patched_script "$config_repo" "$mock_home" "$project_dir")
+    output=$(run_hook "$patched")
+    assert_not_contains "$output" "STALE_AWAIT" \
+        "[?] awaiting proof and [>] in progress are not completed (header-less fallback)"
+}
+run_test "check 17 (CFG-952): [?] and [>] items keep an await file open" test_stale_await_shipped_and_in_progress_are_open
+
 # ── 27. Check 17 enhanced severity thresholds ────────────────────────────────
 
 test_stale_act_under_3d_no_warning() {

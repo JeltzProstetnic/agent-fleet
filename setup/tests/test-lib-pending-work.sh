@@ -2,6 +2,7 @@
 # Tests for global/hooks/lib-pending-work.sh (CFG-948): the parsed work-item
 # state block in docs/pending-*.md:
 #   <!-- Work: stage=<word>; status=<open|blocked|awaiting-proof|done>; next=<one line>; approved=<YYYY-MM-DD who|none> -->
+# plus the optional CFG-953 field `rigor=regulated` (its only allowed value, exact lowercase).
 source "$(dirname "$0")/test-helpers.sh"
 
 LIB="$REPO_ROOT/global/hooks/lib-pending-work.sh"
@@ -98,5 +99,67 @@ test_any_order_and_no_next() {
     assert_eq "ship/done" "$s" "fields in any order; no next → stage/status only"
 }
 run_test "fields in any order, next omitted → stage/status" test_any_order_and_no_next
+
+# ── CFG-953: optional rigor=regulated — the only allowed value; it only ADDS gates ──
+
+test_rigor_regulated_parses_any_order() {
+    local f; f=$(_pf '<!-- Action: act -->' \
+        '<!-- Work: rigor=regulated; status=open; next=write the DHF index; stage=build; approved=2026-11-11 MG -->')
+    source "$LIB"
+    local s rc=0; s=$(pending_work_summary "$f") || rc=$?
+    echo "    measured: summary=[$s] rc=$rc"
+    assert_eq "build/open [regulated]: write the DHF index" "$s" "[regulated] sits right after stage/status, before next"
+    assert_eq "0" "$rc" "rigor=regulated is a valid block, not malformed"
+    pending_work_parse "$f" || true
+    assert_eq "regulated" "${_pw_rigor:-}" "rigor field parsed into _pw_rigor"
+    assert_eq "" "${_pw_error:-}" "valid block has no error"
+}
+run_test "rigor=regulated (any field order) → stage/status [regulated]: next" test_rigor_regulated_parses_any_order
+
+test_rigor_regulated_without_next() {
+    local f; f=$(_pf '<!-- Work: stage=review; status=awaiting-proof; rigor=regulated -->')
+    source "$LIB"
+    local s; s=$(pending_work_summary "$f") || true
+    echo "    measured: summary=[$s]"
+    assert_eq "review/awaiting-proof [regulated]" "$s" "no next → stage/status [regulated]"
+}
+run_test "rigor=regulated, next omitted → stage/status [regulated]" test_rigor_regulated_without_next
+
+test_rigor_other_values_are_malformed() {
+    local v f s rc
+    for v in express '' Regulated; do
+        f=$(_pf "<!-- Work: stage=build; status=open; next=x; rigor=$v -->")
+        source "$LIB"
+        s=""; rc=0; s=$(pending_work_summary "$f") || rc=$?
+        echo "    measured: rigor=[$v] → summary=[$s] rc=$rc"
+        assert_contains "$s" "MALFORMED:" "rigor=$v is flagged (only exact lowercase 'regulated' is allowed)"
+        assert_contains "$s" "rigor=$v" "the offending value is named"
+        assert_contains "$s" "regulated" "the message names the one allowed value"
+        assert_eq "2" "$rc" "rigor=$v → rc 2"
+    done
+}
+run_test "rigor=express / rigor= / rigor=Regulated → MALFORMED naming the only allowed value" test_rigor_other_values_are_malformed
+
+test_rigor_does_not_leak_into_next_parse() {
+    local reg="$TEST_TMPDIR/pending-reg.md" plain
+    printf '%s\n' '<!-- Work: stage=build; status=open; rigor=regulated -->' > "$reg"
+    plain=$(_pf '<!-- Work: stage=build; status=open; next=run E2E in podman -->')
+    source "$LIB"
+    pending_work_parse "$reg" || true          # in THIS shell, so its globals are live
+    local s; s=$(pending_work_summary "$plain") || true
+    echo "    measured: plain-after-regulated=[$s]"
+    assert_eq "build/open: run E2E in podman" "$s" "a block without rigor renders exactly as before, even right after a regulated one"
+}
+run_test "rigor from one file does not leak into the next parse; no-rigor output byte-identical" test_rigor_does_not_leak_into_next_parse
+
+test_unknown_key_message_lists_rigor() {
+    local f; f=$(_pf '<!-- Work: stage=build; status=open; rigour=regulated -->')
+    source "$LIB"
+    local s; s=$(pending_work_summary "$f") || true
+    echo "    measured: [$s]"
+    assert_contains "$s" "unknown field 'rigour='" "a misspelt rigor is an unknown key, not silently ignored"
+    assert_contains "$s" "allowed: stage status next approved rigor" "the allowed-field list names rigor"
+}
+run_test "unknown key message lists rigor among the allowed fields" test_unknown_key_message_lists_rigor
 
 suite_summary

@@ -21,6 +21,14 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 # zenity are never selected and cannot draw.
 unset DISPLAY WAYLAND_DISPLAY
 
+# CFG-935: inside a Claude Code session CC_MIRROR_DIR / CLAUDE_CONFIG_DIR name the LIVE config,
+# and a sandboxed HOME does not move them — corporate-ca tests wrote five env keys into the live
+# settings.json, which Claude Code hot-applied to every running session. setup_test drops the
+# values inherited here (a value the suite sets itself is a fixture and stays); a read-only
+# check of the live config uses REAL_CC_MIRROR_DIR / REAL_CLAUDE_CONFIG_DIR, as REAL_HOME.
+export REAL_CC_MIRROR_DIR="${CC_MIRROR_DIR:-}" REAL_CLAUDE_CONFIG_DIR="${CLAUDE_CONFIG_DIR:-}"
+_CFGTEST_DROPPED=()
+
 # ── Colors ───────────────────────────────────────────────────────────────────
 if [[ -t 1 ]] && [[ "${NO_COLOR:-}" != "1" ]]; then
     RED='\033[0;31m'
@@ -93,6 +101,7 @@ setup_test() {
     # Snapshot protected files BEFORE sandboxing
     _snapshot_protected
     export HOME="$TEST_TMPDIR"
+    _drop_inherited_config_dirs
     # Fresh assertion-failure record for this test (CFG-532). A sibling of the tmpdir,
     # not inside it, so tests that inspect their sandbox never see it. mktemp creates it
     # exclusively and owner-only, and creating it here lets run_test treat a missing record
@@ -104,11 +113,30 @@ setup_test() {
     ((TESTS_RUN++)) || true
 }
 
+# CFG-935: unset each config-dir variable that still holds the live value inherited at source
+# time; remember it so teardown_test can put it back, as it puts back HOME.
+_drop_inherited_config_dirs() {
+    local _v _real
+    _CFGTEST_DROPPED=()
+    for _v in CC_MIRROR_DIR CLAUDE_CONFIG_DIR; do
+        _real="REAL_$_v"
+        if [[ -n "${!_v:-}" && "${!_v}" == "${!_real}" ]]; then
+            _CFGTEST_DROPPED+=("$_v")
+            unset "$_v"
+        fi
+    done
+}
+
 # Call after each test (or use trap). Cleans up temp dir and restores HOME.
 teardown_test() {
     if [[ -n "${ORIGINAL_HOME:-}" ]]; then
         export HOME="$ORIGINAL_HOME"
     fi
+    local _v _real
+    for _v in ${_CFGTEST_DROPPED[@]+"${_CFGTEST_DROPPED[@]}"}; do
+        _real="REAL_$_v"; export "$_v=${!_real}"
+    done
+    _CFGTEST_DROPPED=()
     # Verify no live system files were modified by the test
     if [[ -n "${_PROTECTED_SNAPSHOT:-}" ]]; then
         _verify_protected || printf "${RED}  WARNING: Live system file modified by test!${RESET}\n" >&2
