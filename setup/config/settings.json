@@ -140,6 +140,11 @@
         "hooks": [
           {
             "type": "command",
+            "command": "bash ~/.claude/hooks/safe-run.sh dev-browser-close.sh",
+            "timeout": 10
+          },
+          {
+            "type": "command",
             "command": "bash ~/.claude/hooks/safe-run.sh config-auto-sync.sh"
           }
         ]
