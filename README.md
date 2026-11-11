@@ -267,7 +267,7 @@ graph LR
 
 ### Delivery lifecycle
 
-Knowledge files and conventions carry the lifecycle, with no stage-gate engine. User needs become requirements (`needs-to-requirements.md`), requirements are cut into vertical slices (`vertical-slicing.md`), and each slice is built test-first. Risky changes need end-to-end tests before commit (`risk-management.md`). Every task carries an ID and a state in the project backlog (`global/reference/backlog-convention.md`). Open work at the end of a session goes into a per-project handover file, which the next session picks up.
+Knowledge files and conventions carry the lifecycle, with no stage-gate engine. User needs become requirements (`needs-to-requirements.md`), requirements are cut into vertical slices (`vertical-slicing.md`), and each slice is built test-first. Risky changes need end-to-end tests before commit (`risk-management.md`). Every task carries an ID and a state in the project backlog (`global/reference/backlog-convention.md`); a shipped item stays "awaiting live proof" (`[?]`) until the observation that closes it is seen. Open work at the end of a session goes into a per-project handover file, which the next session picks up.
 
 ### Cross-Project Coordination
 

@@ -28,9 +28,12 @@ Older completed items: `docs/backlog-archive.md`
 |--------|-------|---------|
 | `- [ ]` | Open | Available for work |
 | `- [>]` | In-progress | A session is actively working on this |
+| `- [?]` | Awaiting verification | Code done and deployed; waiting on a live proof or a user confirmation |
 | `- [x]` | Done | Completed |
 
 **In-progress rule:** Mark `[>]` when implementation begins (not at planning/triage). Revert to `[ ]` at shutdown if work is incomplete. Defense in depth — a session must forget both marking in-progress AND marking done for a stale item to resurface.
+
+**Awaiting-verification rule:** Mark `[?]` when the code is done and deployed but the proof is not in yet. An item in `[?]` **must name the exact observation that closes it**, and is **never** swept back to `[ ]` at shutdown — it is not incomplete, it is unverified. Without the named observation the state has no exit condition and silts up exactly as `[>]` did.
 
 ## Task IDs
 
