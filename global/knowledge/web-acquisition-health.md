@@ -86,6 +86,10 @@ Cards that carry no `<a href>` (Vue click handlers) still lead somewhere: click 
 `https://data.bka.gv.at/ris/api/v2.6/Bundesrecht?Applikation=BrKons&Gesetzesnummer=<NR>&Abschnitt.Von=<P>&Abschnitt.Bis=<P>&Abschnitt.Typ=Paragraph&Fassung.FassungVom=<YYYY-MM-DD>`
 (Landesrecht: `/Landesrecht?Applikation=LrKons&Bundesland.SucheInVorarlberg=true&Gesetzesnummer=<NR>&Fassung.FassungVom=…&DokumenteProSeite=OneHundred`). Without `Fassung.FassungVom` historical versions are mixed into the result. Full recipe: `~/life/knowledge/legal/at-sozialrecht-referenz.md` (life 2026-10-08).
 
+## EU-U.S. Data Privacy Framework register: query the backend, not the page
+
+`dataprivacyframework.gov/list` is a client-rendered SPA: curl gets a 2 KB shell and headless `--dump-dom` shows no list. Its backend answers plain curl: `POST https://dpfapi.azurewebsites.net/api/participants` with JSON `{"DataCovered":[],"Frameworks":[],"Industries":[],"PageNumber":0,"RecourseMechanisms":[],"StatutoryBody":[],"RowsPerPage":25,"Search":"<name>","StartLetter":"","Status":"Active|Inactive","States":[],"VerificationMethod":""}`; detail via `GET …/api/participants/<OrganizationId>` (certifications, InstallDate, UsageEndDate, InactivePeriods, CoveredEntities). ⚠ The JS bundle's initial-state object names the first key `Countries`, and that body returns **HTTP 500 with an empty body**; the live request (captured from a playwright-core network log) uses `DataCovered`. Measured 2026-11-10: Perplexity AI Inc. EU-US = Inactive-Withdrawal since 2026-10-21; Anthropic not listed; Amazon.com Inc. active (AWS covered).
+
 ## Wikimedia needs a User-Agent
 
 The Commons API and `upload.wikimedia.org` answer a request with no User-Agent with a non-JSON error body, which a JSON parser reports as a parse failure rather than a refusal. Pass `curl -A '<tool>/1.0 (<contact>)'` (measured 2026-10-21).
