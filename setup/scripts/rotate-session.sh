@@ -42,25 +42,70 @@ LOG_FILE="$LOG_DIR/session-log.md"
 # matches the lock's recorded PID), so proof is delegated to --owner-verified.
 # Absent the flag, refuse ONLY when a FOREIGN live lock is present — ordinary solo
 # use and tests (no lock) are unaffected.
-if [[ "$_OWNER_VERIFIED" -ne 1 ]]; then
+if [[ "$_OWNER_VERIFIED" -ne 1 && -f "$PROJECT_DIR/.claude/.session-lock" ]]; then
     _RS_LOCK_LIB="${_ROTATE_SCRIPT_DIR}/session-lock.sh"
-    if [[ -f "$_RS_LOCK_LIB" && -f "$PROJECT_DIR/.claude/.session-lock" ]]; then
-        _rs_rc=0
-        ( source "$_RS_LOCK_LIB"; check_lock "$PROJECT_DIR" ) >/dev/null 2>&1 || _rs_rc=$?
-        if [[ "$_rs_rc" -eq 2 || "$_rs_rc" -eq 3 ]]; then
+    _rs_rc=0
+    # CFG-965 SF-1: the library beside this script is the WORKING TREE's copy —
+    # the one a cfg session may be editing. A copy with check_lock renamed or a
+    # syntax error before it left check_lock undefined (127, neither 2/3 nor 4,
+    # and the guard rotated); a copy whose check_lock still parses while a
+    # helper it calls is mid-rename got 127 from the helper, read it as "no live
+    # session", deleted the leader's lock and rotated the leader's project (the
+    # residual, reviewer 2026-11-11). So HEAD's copy is asked FIRST whenever it
+    # is obtainable (`git show`; eval parses the whole file first, so a broken
+    # copy defines nothing rather than half a library — and is 5, not a fallback),
+    # the live copy only when there is no HEAD copy at all, exit 5 when neither
+    # yields a check_lock — all in a subshell, so nothing here leaks into the
+    # rotation — and anything but 0/1 refuses.
+    (
+        _rs_head=""
+        # env -u: an inherited GIT_DIR/GIT_WORK_TREE/GIT_INDEX_FILE would point
+        # git at another repo; `-C` must mean the repo this script lives in.
+        if _rs_prefix="$(env -u GIT_DIR -u GIT_WORK_TREE -u GIT_INDEX_FILE git -C "$_ROTATE_SCRIPT_DIR" rev-parse --show-prefix 2>/dev/null)"; then
+            _rs_head="$(env -u GIT_DIR -u GIT_WORK_TREE -u GIT_INDEX_FILE git -C "$_ROTATE_SCRIPT_DIR" show "HEAD:${_rs_prefix}session-lock.sh" 2>/dev/null)" || _rs_head=""
+        fi
+        if [[ -n "$_rs_head" ]]; then
+            eval "$_rs_head" >/dev/null 2>&1 || exit 5
+            command -v check_lock >/dev/null 2>&1 || exit 5
+            # 6: the lock on disk is one HEAD's library cannot read — empty,
+            # corrupt, or a newer format. check_lock would call it corrupt and,
+            # with no live CC visible, delete it and rotate; and _read_lock
+            # (python/jq) accepts any JSON, leaving the pid empty for a field
+            # name it does not know — a "dead pid" to check_lock. Readable =
+            # _read_lock succeeds AND machine set AND pid numeric. Never rotate
+            # over a lock the library cannot read.
+            { _read_lock "$PROJECT_DIR/.claude/.session-lock" >/dev/null 2>&1 \
+              && [[ -n "$_LOCK_MACHINE" && "$_LOCK_PID" =~ ^[0-9]+$ ]]; } || exit 6
+        elif [[ -f "$_RS_LOCK_LIB" ]]; then
+            source "$_RS_LOCK_LIB" >/dev/null 2>&1 || true
+        fi
+        command -v check_lock >/dev/null 2>&1 || exit 5
+        check_lock "$PROJECT_DIR"
+    ) >/dev/null 2>&1 || _rs_rc=$?
+    case "$_rs_rc" in
+        0|1) ;;
+        2|3)
             echo "rotate-session: refusing — $PROJECT_DIR is held by another live session (check_lock=$_rs_rc)." >&2
             echo "This is a follower-safety guard. The leader's shutdown passes --owner-verified to rotate." >&2
-            exit 3
-        elif [[ "$_rs_rc" -eq 4 ]]; then
+            exit 3 ;;
+        4)
             # CFG-673 / GH#9: the lock check saw no Claude Code process at all
             # (inside Claude Code's Bash sandbox, whose PID namespace hides the
             # host's processes). Whether a live session holds the project is
             # unknown: fail closed, the same exit as "held", and the lock stays.
             echo "rotate-session: refusing — whether another live session holds $PROJECT_DIR is unknown (check_lock=4: no Claude Code process is visible to the lock check, e.g. inside Claude Code's Bash sandbox). Treated as held; the lock was left in place." >&2
             echo "The leader's SessionEnd hook runs outside the sandbox and rotates its own project. If you have verified that no session is running there, clear the stale lock (session-lock.sh force_release) and run this again." >&2
-            exit 3
-        fi
-    fi
+            exit 3 ;;
+        6)
+            echo "rotate-session: refusing — $PROJECT_DIR: a lock is present that HEAD's session-lock.sh cannot read (empty, corrupt, or a newer format) — left in place; if no cfg session is live, clear it with session-lock.sh force_release (check_lock=6)." >&2
+            exit 3 ;;
+        *)
+            # CFG-965 SF-1: no usable check_lock (5), or one that failed (127 for
+            # a function the working tree's copy no longer defines). A verdict
+            # that cannot be taken is not "free".
+            echo "rotate-session: refusing — whether another live session holds $PROJECT_DIR is unknown: the lock check could not run (check_lock=$_rs_rc; session-lock.sh yields no working check_lock in the working tree nor at HEAD). Treated as held; the lock was left in place." >&2
+            exit 3 ;;
+    esac
 fi
 
 # --- Check session-context.md exists and has content ---

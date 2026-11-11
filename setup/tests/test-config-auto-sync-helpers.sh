@@ -150,6 +150,9 @@ create_patched_hook() {
     # IMPORTANT: The original hook does NOT use set -euo pipefail.
 
     cp "$HOOK_SCRIPT" "$patched"
+    # The hook sources lib-cfg-held.sh (CFG-965) from its own directory and FAILS
+    # CLOSED without it — every suite gets the real library beside the copy.
+    cp "$REPO_ROOT/global/hooks/lib-cfg-held.sh" "$TEST_TMPDIR/lib-cfg-held.sh"
 
     # The hook sources lib-detect-repo.sh from $(dirname BASH_SOURCE[0]) which
     # won't exist when running from /tmp. We prepend our own _detect_config_repo

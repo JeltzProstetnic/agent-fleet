@@ -308,4 +308,172 @@ test_blind_scan_refuses_and_keeps_lock() {
 }
 run_test "CFG-673: bare rotate with zero visible CC processes ⇒ refused as unknown, lock kept" test_blind_scan_refuses_and_keeps_lock
 
+# ── CFG-965 SF-1: the guard must not fail open when check_lock is unavailable ─
+# The guard sources session-lock.sh from the WORKING TREE beside it — the tree a
+# cfg session is editing. A holder half-way through that file (check_lock
+# renamed, a syntax error before it) left check_lock undefined; the subshell
+# returned 127, which was neither 2/3 nor 4, and the guard rotated. Now: the
+# live library when it carries check_lock, else HEAD's copy, and any result
+# other than 0/1 refuses.
+
+# A scratch config repo: rotate-session.sh, lib.sh and the REAL session-lock.sh
+# committed at HEAD, so the guard runs from a directory with a git history.
+_mk_guard_repo() {   # <repo>
+    mkdir -p "$1/setup/scripts"
+    cp "$REPO_ROOT/setup/lib.sh" "$1/setup/lib.sh"
+    cp "$ROTATE" "$1/setup/scripts/rotate-session.sh"
+    cp "$LOCK_LIB" "$1/setup/scripts/session-lock.sh"
+    git -C "$1" init -q -b main
+    git -C "$1" config user.email t@t.t
+    git -C "$1" config user.name t
+    git -C "$1" add -A
+    git -C "$1" commit -q -m "baseline"
+}
+_rename_live_check_lock() {   # <repo> — the working tree's copy mid-edit
+    sed 's/^check_lock() {/check_lock_wip() {/' "$LOCK_LIB" > "$1/setup/scripts/session-lock.sh"
+    grep -q '^check_lock_wip() {' "$1/setup/scripts/session-lock.sh"
+}
+
+test_sf1_renamed_live_lib_refuses_foreign_lock() {
+    local repo="$TEST_TMPDIR/repo" dir="$TEST_TMPDIR/proj-sf1-foreign" rc=0 err
+    _mk_guard_repo "$repo"; _make_project "$dir"
+    _rename_live_check_lock "$repo" || { echo "fixture: rename failed" >&2; return 1; }
+    sleep 120 & local lpid=$!; _FOREIGN_LOCK_PIDS+=("$lpid")
+    ( source "$LOCK_LIB"; _write_lock "$dir/.claude/.session-lock" "af-leader" "cc-leader" "$lpid" )
+    err=$(AFLEET_SESSION_ID=af-mine CC_SESSION_ID=cc-mine bash "$repo/setup/scripts/rotate-session.sh" "$dir" 2>&1 >/dev/null) || rc=$?
+    assert_eq "3" "$rc" "check_lock renamed in the working tree: HEAD's copy still refuses the foreign lock (measured rc=$rc)" || return 1
+    assert_file_not_exists "$dir/session-history.md" "no rotation happened" || return 1
+    assert_contains "$err" "held by another live session" "the refusal names a seen holder (check_lock 2), not an unusable library"
+}
+run_test "CFG-965 SF-1: check_lock renamed in the working tree ⇒ HEAD's copy refuses a foreign lock" test_sf1_renamed_live_lib_refuses_foreign_lock
+
+test_sf1_renamed_live_lib_owner_rotates_via_head_copy() {
+    # The fallback must resolve OWNERSHIP, not merely refuse: the proven leader
+    # (degraded matcher, afleet id) rotates on the bare command although the
+    # working tree's check_lock is mid-rename.
+    local repo="$TEST_TMPDIR/repo" dir="$TEST_TMPDIR/proj-sf1-owner" rc=0
+    _mk_guard_repo "$repo"; _make_project "$dir"
+    _rename_live_check_lock "$repo" || { echo "fixture: rename failed" >&2; return 1; }
+    ( source "$LOCK_LIB"; _write_lock "$dir/.claude/.session-lock" "af-mine" "" "$$" )
+    _CC_SELF_PID="" AFLEET_SESSION_ID="af-mine" bash "$repo/setup/scripts/rotate-session.sh" "$dir" >/dev/null 2>&1 || rc=$?
+    assert_eq "0" "$rc" "the owner is recognised through HEAD's copy and rotates (measured rc=$rc)" || return 1
+    assert_file_exists "$dir/session-history.md" "rotation happened for the owner"
+}
+run_test "CFG-965 SF-1: check_lock renamed in the working tree ⇒ the owner still rotates through HEAD's copy" test_sf1_renamed_live_lib_owner_rotates_via_head_copy
+
+test_sf1_no_usable_library_refuses_and_says_why() {
+    # Neither the working tree nor HEAD yields a check_lock, and a lock is
+    # present: refuse (exit 3) and name the library, never rotate.
+    local repo="$TEST_TMPDIR/repo" dir="$TEST_TMPDIR/proj-sf1-none" rc=0 err
+    mkdir -p "$repo/setup/scripts"
+    cp "$REPO_ROOT/setup/lib.sh" "$repo/setup/lib.sh"
+    cp "$ROTATE" "$repo/setup/scripts/rotate-session.sh"
+    printf '_LOCK_SESSION=""\n_read_lock() { return 1; }\n' > "$repo/setup/scripts/session-lock.sh"
+    git -C "$repo" init -q -b main
+    git -C "$repo" config user.email t@t.t
+    git -C "$repo" config user.name t
+    git -C "$repo" add -A
+    git -C "$repo" commit -q -m "no check_lock anywhere"
+    _make_project "$dir"
+    printf '{"machine":"x","pid":1,"sessionId":"s","timestamp":"t","user":"u"}\n' > "$dir/.claude/.session-lock"
+    err=$(bash "$repo/setup/scripts/rotate-session.sh" "$dir" 2>&1 >/dev/null) || rc=$?
+    assert_eq "3" "$rc" "no usable check_lock + a lock present ⇒ refused (measured rc=$rc)" || return 1
+    assert_file_not_exists "$dir/session-history.md" "no rotation happened" || return 1
+    assert_contains "$err" "check_lock" "the refusal names the lock check it could not run" || return 1
+    assert_file_exists "$dir/.claude/.session-lock" "the lock is left in place"
+}
+run_test "CFG-965 SF-1: no usable session-lock.sh anywhere + a lock ⇒ refused, library named, lock kept" test_sf1_no_usable_library_refuses_and_says_why
+
+# ── SF-1 residual: check_lock still defined, a helper it calls mid-rename ────
+# With the live copy asked first, its check_lock ran, `_project_has_live_cc`
+# returned 127 (false), and the dead-pid branch deleted the leader's lock and
+# rotated the leader's project. HEAD's copy is asked first whenever it is
+# obtainable. Shape of test_follower_real_env_dead_pid_leader_live_refused.
+_rename_live_helper() {   # <repo> — check_lock intact, _project_has_live_cc renamed in the working tree
+    sed 's/^_project_has_live_cc() {/_project_has_live_cc_wip() {/' "$LOCK_LIB" > "$1/setup/scripts/session-lock.sh"
+    grep -q '^_project_has_live_cc_wip() {' "$1/setup/scripts/session-lock.sh"
+}
+_sf1_residual_rotate_case() {   # <renamed:yes|no> — prints "rc=<n> lock=<0|1> history=<0|1>"
+    local repo="$TEST_TMPDIR/repo" dir="$TEST_TMPDIR/proj-sf1-residual" rc=0 lock=0 hist=0
+    _mk_guard_repo "$repo"; _make_project "$dir"; _mk_fake_cc
+    if [[ "$1" == yes ]]; then _rename_live_helper "$repo" || { echo "fixture: rename failed" >&2; return 1; }; fi
+    true & local dpid=$!; wait "$dpid" 2>/dev/null || true
+    ( source "$LOCK_LIB"; _write_lock "$dir/.claude/.session-lock" "af-leader" "cc-leader" "$dpid" )
+    local ldr; ldr="$(_spawn_other_cc "$dir")" || { echo "could not spawn the leader CC" >&2; return 1; }
+    _real_env cc-follower bash "$TEST_TMPDIR/fakecc-leader.sh" "$repo/setup/scripts/rotate-session.sh" "$dir" >/dev/null 2>&1 || rc=$?
+    kill "$ldr" 2>/dev/null || true
+    [[ -f "$dir/.claude/.session-lock" ]] && lock=1
+    [[ -f "$dir/session-history.md" ]] && hist=1
+    printf 'rc=%s lock=%s history=%s\n' "$rc" "$lock" "$hist"
+}
+_assert_sf1_residual_refused() {   # <result> <label>
+    assert_contains "$1" "rc=3" "$2: refused (measured: $1)" || return 1
+    assert_contains "$1" "lock=1" "$2: the leader's lock is kept" || return 1
+    assert_contains "$1" "history=0" "$2: no rotation happened"
+}
+test_sf1_residual_rotate_control() {
+    local r; r=$(_sf1_residual_rotate_case no)
+    echo "    measured: $r"
+    _assert_sf1_residual_refused "$r" "control (real live library)"
+}
+run_test "CFG-965 SF-1 residual control: dead-pid lock + live leader CC ⇒ refused through HEAD's copy" test_sf1_residual_rotate_control
+
+test_sf1_residual_rotate_helper_renamed() {
+    local r; r=$(_sf1_residual_rotate_case yes)
+    echo "    measured: $r"
+    _assert_sf1_residual_refused "$r" "_project_has_live_cc renamed in the working tree, check_lock intact"
+}
+run_test "CFG-965 SF-1 residual: a helper renamed in the working tree ⇒ still refused, lock kept" test_sf1_residual_rotate_helper_renamed
+
+# ── Round 3: a lock HEAD's older library cannot read; inherited git env ──────
+test_lock_head_library_cannot_read_refuses_and_keeps_it() {
+    # HEAD's copy is asked first; a lock in a format it cannot parse (a newer
+    # library wrote it) must be a refusal, never "corrupt — cleaned and rotated".
+    local repo="$TEST_TMPDIR/repo" dir="$TEST_TMPDIR/proj-newer-lock" rc=0 err before
+    _mk_guard_repo "$repo"; _make_project "$dir"
+    printf 'lockfmt=2\nmachine=%s\npid=%s\nsessionId=af-leader\n' "$(hostname)" "$$" > "$dir/.claude/.session-lock"
+    before=$(cat "$dir/.claude/.session-lock")
+    err=$(bash "$repo/setup/scripts/rotate-session.sh" "$dir" 2>&1 >/dev/null) || rc=$?
+    assert_eq "3" "$rc" "a lock HEAD's library cannot read ⇒ refused (measured rc=$rc)" || return 1
+    assert_file_exists "$dir/.claude/.session-lock" "the lock is NOT deleted" || return 1
+    assert_eq "$before" "$(cat "$dir/.claude/.session-lock")" "and is byte-identical" || return 1
+    assert_file_not_exists "$dir/session-history.md" "no rotation happened" || return 1
+    assert_contains "$err" "cannot read (empty, corrupt, or a newer format)" "the refusal names the three possibilities without guessing" || return 1
+    assert_contains "$err" "force_release" "and says how to clear it once no session is live"
+}
+run_test "CFG-965: a lock in a format HEAD's library cannot read ⇒ refused, lock kept, reason named" test_lock_head_library_cannot_read_refuses_and_keeps_it
+
+test_lock_with_renamed_pid_field_refuses_and_keeps_it() {
+    # Round 4: valid JSON, live pid under a field name HEAD's library does not
+    # know. _read_lock returns 0 with an empty pid; check_lock would read that
+    # as dead, scan, delete the lock and rotate. Readable = machine + numeric pid.
+    local repo="$TEST_TMPDIR/repo" dir="$TEST_TMPDIR/proj-renamed-pid" rc=0 err before
+    _mk_guard_repo "$repo"; _make_project "$dir"
+    printf '{"machine":"%s","lockPid":%s,"sessionId":"af-leader","timestamp":"2026-11-11T00:00:00Z","user":"test","ccSessionId":"cc-leader"}\n' \
+        "$(hostname)" "$$" > "$dir/.claude/.session-lock"
+    before=$(cat "$dir/.claude/.session-lock")
+    err=$(bash "$repo/setup/scripts/rotate-session.sh" "$dir" 2>&1 >/dev/null) || rc=$?
+    assert_eq "3" "$rc" "a JSON lock without a numeric pid HEAD knows ⇒ refused (measured rc=$rc)" || return 1
+    assert_file_exists "$dir/.claude/.session-lock" "the lock is NOT deleted" || return 1
+    assert_eq "$before" "$(cat "$dir/.claude/.session-lock")" "and is byte-identical" || return 1
+    assert_file_not_exists "$dir/session-history.md" "no rotation happened" || return 1
+    assert_contains "$err" "cannot read (empty, corrupt, or a newer format)" "the refusal names the unreadable lock"
+}
+run_test "CFG-965: a JSON lock with the pid under a name HEAD's library does not know ⇒ refused, lock kept" test_lock_with_renamed_pid_field_refuses_and_keeps_it
+
+test_git_env_does_not_hide_head_copy() {
+    # An inherited GIT_DIR points git elsewhere; the guard must still read
+    # HEAD's session-lock.sh from the repo the script lives in (owner shape of
+    # test_sf1_renamed_live_lib_owner_rotates_via_head_copy).
+    local repo="$TEST_TMPDIR/repo" dir="$TEST_TMPDIR/proj-git-env" rc=0
+    _mk_guard_repo "$repo"; _make_project "$dir"
+    _rename_live_check_lock "$repo" || { echo "fixture: rename failed" >&2; return 1; }
+    ( source "$LOCK_LIB"; _write_lock "$dir/.claude/.session-lock" "af-mine" "" "$$" )
+    GIT_DIR="$TEST_TMPDIR/not-a-repo" GIT_WORK_TREE="$TEST_TMPDIR/not-a-tree" _CC_SELF_PID="" AFLEET_SESSION_ID="af-mine" \
+        bash "$repo/setup/scripts/rotate-session.sh" "$dir" >/dev/null 2>&1 || rc=$?
+    assert_eq "0" "$rc" "the owner still rotates through HEAD's copy with GIT_DIR/GIT_WORK_TREE pointing elsewhere (measured rc=$rc)" || return 1
+    assert_file_exists "$dir/session-history.md" "rotation happened for the owner"
+}
+run_test "CFG-965: inherited GIT_DIR/GIT_WORK_TREE do not hide HEAD's session-lock.sh from the guard" test_git_env_does_not_hide_head_copy
+
 suite_summary

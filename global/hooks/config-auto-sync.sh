@@ -7,11 +7,15 @@
 # 2. Commit session files in current project (if different from the config repo)
 # 3. Auto-rotate the config repo's own session
 # 4. Deploy repo → live, commit config repo changes, and push
-#    Step 3, the commit in step 4 and the template propagation (Phase 0.8) are
-#    skipped when a DIFFERENT live session holds the config repo (CFG-666 /
-#    CFG-665) — they are that session's own shutdown work; touching them from
-#    here blanked and swept a live session, and pushed its half-built files to
-#    the public template.
+#    Everything that writes to, deletes from, deploys or publishes the config
+#    repo's working tree is skipped when a DIFFERENT live session holds that
+#    repo (CFG-666 / CFG-665 / CFG-965): the mobile collect (Phase 0), the
+#    pending auto-clean (0.6), the inbox archive (0.65), the T2 marker (0.75),
+#    the template propagation (0.8), rotation, deploy, staging and commit (3).
+#    They are that session's own shutdown work; touching them from here blanked
+#    and swept a live session, pushed its half-built files to the public
+#    template, and deployed its half-edited hooks over the live ~/.claude. The
+#    verdict and its fail-closed rules live in lib-cfg-held.sh.
 #
 # On failure: writes a marker to .sync-failed
 # The SessionStart hook (config-check.sh) reads this marker and alerts the user.
@@ -27,6 +31,34 @@ source "$(dirname "${BASH_SOURCE[0]}")/lib-detect-repo.sh" 2>/dev/null || true
 CONFIG_REPO="$(_detect_config_repo)"
 FAIL_MARKER="$CONFIG_REPO/.sync-failed"
 LOCK_FILE="$CONFIG_REPO/.sync-lock"
+# Lock waits (seconds) and the ONE deadline they share. The whole SessionEnd
+# hook is capped by settings.json's CLAUDE_CODE_SESSIONEND_HOOKS_TIMEOUT_MS
+# (60 s), and that cap kills the hook SILENTLY — no .sync-failed, no Phase 4/5,
+# a kill mid-commit can leave .git/index.lock. So no wait here may run past
+# the cap: each is min(its budget, _HOOK_CAP − elapsed since the hook started),
+# never below 0 (a 0 is a non-blocking try). Phase 0.8's budget is 20 s and it
+# DEFERS on timeout (free: the next shutdown pushes); Phase 3's is 45 s and it
+# loses its commit on timeout (expensive), so it gets the larger share — but
+# whatever is left of the cap bounds both, so sync_fail "lock" is always
+# reached, visibly, before the cap (reviewer R2: the two budgets alone added up
+# to 65 s). _HOOK_CAP is 55 s: 5 s of headroom under the 60 s cap for the
+# phases after Phase 3's wait to fail cleanly. CFG_AUTO_SYNC_LOCK_WAIT
+# overrides both budgets and CFG_AUTO_SYNC_HOOK_CAP the cap (tests).
+_T0=$SECONDS
+_HOOK_CAP="${CFG_AUTO_SYNC_HOOK_CAP:-55}"
+_TPL_LOCK_WAIT="${CFG_AUTO_SYNC_LOCK_WAIT:-20}"
+_LOCK_WAIT="${CFG_AUTO_SYNC_LOCK_WAIT:-45}"
+# Phase 3's wait also keeps a RESERVE: the work after it (deploy, commit, push,
+# mobile, shim) needs ~10-15 s of cap itself, and a wait that ends exactly at
+# the deadline would hand it nothing (reviewer: lock busy 50 s ⇒ Phase 3 began
+# at +50 s with 10 s left). Phase 0.8 keeps no reserve — its timeout is a free
+# deferral and what follows it is cheap.
+_P3_RESERVE=15
+_lock_budget() {   # <budget> [reserve] → seconds this wait may still take: min(budget, cap − elapsed − reserve), floored at 0
+    local left=$(( _HOOK_CAP - (SECONDS - _T0) - ${2:-0} ))
+    (( left < 0 )) && left=0
+    (( $1 < left )) && echo "$1" || echo "$left"
+}
 ROTATE_SCRIPT="$CONFIG_REPO/setup/scripts/rotate-session.sh"
 CLEAN_PERMS_SCRIPT="$CONFIG_REPO/setup/scripts/clean-permissions.sh"
 
@@ -47,6 +79,38 @@ source "$(dirname "${BASH_SOURCE[0]}")/lib-hook-stdin.sh" 2>/dev/null || true
 if command -v read_cc_session_id >/dev/null 2>&1; then
     _CC_SID="$(read_cc_session_id)"
 fi
+
+# The owner check for the config repo (CFG-665/666/965) lives in lib-cfg-held.sh,
+# sourced from this hook's own directory like the libraries above. Unlike them it
+# is load-bearing, so a missing or unloadable copy FAILS CLOSED: these stubs
+# treat the config repo as held and say why, instead of letting every
+# cfg-touching phase run unguarded. The library redefines all of them. One
+# exception, mirrored from the library's own shortcut (CFG-965 R4): the project
+# IS the config repo and no lock is left — a genuine leader released its own in
+# Phase -1 — is "not held" without asking, library or no library; otherwise the
+# owner's own shutdown would never rotate its context or deploy while the
+# library is missing.
+_CFG_HELD_BY_OTHER=0
+_CFG_HELD_RECORDED=0
+_CFG_HELD_UNKNOWN_RECORD=""
+_CFG_DRIFT_LOG_RESET_PENDING=0
+_cfg_held_probe() {
+    [[ "$ORIGINAL_DIR" == "$CONFIG_REPO" && ! -f "$CONFIG_REPO/.claude/.session-lock" ]] && return 0
+    _CFG_HELD_BY_OTHER=1
+    [[ "$_CFG_HELD_RECORDED" -eq 1 ]] && return 0
+    _CFG_HELD_RECORDED=1
+    _shutdown_progress "Owner-check library missing (lib-cfg-held.sh) — config repo treated as held."
+    _CFG_HELD_UNKNOWN_RECORD="$(date -u +'%Y-%m-%d %H:%M:%S UTC') lib-cfg-held.sh missing or unloadable beside $(dirname "${BASH_SOURCE[0]}")/config-auto-sync.sh — config repo treated as held (fail closed): rotation, deploy, propagation and commit skipped; redeploy the hooks (sync.sh deploy)"
+}
+_cfg_held_flush_record() {   # append the stashed record to the drift log (after Phase 0.7 has rewritten it)
+    _CFG_DRIFT_LOG_RESET_PENDING=0
+    [ -n "$_CFG_HELD_UNKNOWN_RECORD" ] || return 0
+    echo "$_CFG_HELD_UNKNOWN_RECORD" >> "$CONFIG_REPO/.sync-warnings.log" 2>/dev/null || true
+    _CFG_HELD_UNKNOWN_RECORD=""
+}
+_cfg_held_notice() { :; }
+_cfg_defer_audit() { :; }
+source "$(dirname "${BASH_SOURCE[0]}")/lib-cfg-held.sh" 2>/dev/null || true
 
 # --- Phase -4: silence this session's idle waiter (CFG-806) — before anything else ---
 # afd-idle-wake.sh (Stop hook, asyncRewake, CFG-777/797) polls for up to 12 h and exits 2
@@ -177,11 +241,34 @@ if [ -n "$_LOCK_SID" ]; then
     fi
 fi
 
+# --- CFG-666 / CFG-665 / CFG-965: is the config repo held by a DIFFERENT live session? ---
+# Decided ONCE, here — before any phase touches the config repo's working tree
+# (Phase 0 mobile collect, 0.6 pending auto-clean, 0.65 inbox archive, 0.75 T2
+# marker, 0.8 template propagation, 3 rotate/deploy/stage/commit) — and asked
+# once more under each lock (Phase 0.8, Phase 3) for a session that arrives in
+# between. The probe only ever turns "not held" into "held", and a held repo is
+# not probed again. check_lock comes from session-lock.sh (sourced in Phase -1)
+# or, when that working-tree copy has none, from HEAD's copy (SF-1); anything
+# but a clean 0/1 is held. Verdict, records, fail-closed rules: lib-cfg-held.sh.
+# (CFG-665, measured twice 2026-11-11: the verdict used to be taken in Phase 3,
+# after Phase 0.8 had already pushed a live cfg session's uncommitted files to
+# agent-fleet — c8e613c, 67df308.) Phase 0.7 below rewrites the drift log from
+# scratch, so an "unknown" record taken here is stashed and appended after it.
+_CFG_DRIFT_LOG_RESET_PENDING=1
+_cfg_held_probe
+
 # --- Phase 0: Collect mobile outbox tasks ---
+# Skipped while another live session holds the config repo (CFG-965): --collect
+# appends to cross-project/inbox.md and docs/mobile-session-log.md in the cfg
+# WORKING TREE and resets the phone outbox. Nothing is lost by waiting — the
+# outbox keeps its tasks until the next unheld shutdown, and the holder is told
+# mid-session (MOBILE_DATA:) and collects them itself.
 MOBILE_REPO="$HOME/agent-fleet-mobile"
 if [ -f "$MOBILE_REPO/inbox/outbox.md" ]; then
     MOBILE_TASKS=$(grep -c '^\- \[ \]' "$MOBILE_REPO/inbox/outbox.md" 2>/dev/null || echo "0")
-    if [ "$MOBILE_TASKS" -gt 0 ] 2>/dev/null; then
+    if [ "$MOBILE_TASKS" -gt 0 ] 2>/dev/null && [ "$_CFG_HELD_BY_OTHER" -eq 1 ]; then
+        _cfg_defer_audit MOBILE_COLLECT_DEFERRED "config repo held by another live session — $MOBILE_TASKS phone outbox task(s) left for its holder or the next unheld shutdown"
+    elif [ "$MOBILE_TASKS" -gt 0 ] 2>/dev/null; then
         bash "$CONFIG_REPO/setup/scripts/mobile-deploy.sh" --collect \
             --config-repo "$CONFIG_REPO" \
             --target "$MOBILE_REPO" 2>/dev/null || true
@@ -191,6 +278,12 @@ fi
 # --- Phase 0.5: Clean stale permissions blocks ---
 # "Always allow" clicks create project-level permissions blocks that shadow global
 # permissions. Clean them before auto-sync to keep things tidy for the next session.
+# Not gated on the held verdict (CFG-965, documented): the sweep is $HOME-wide
+# over every project's .claude/settings.local.json — gitignored, never part of
+# the config repo's working tree — backs up what it removes, spares a block
+# marked .permissions-authored, and runs with exactly the same scope from every
+# SessionStart (checks/04-auto-fix.sh, Check 4.1). Whether the config repo is
+# held changes nothing about what it touches or who else already touches it.
 bash "$CLEAN_PERMS_SCRIPT" 2>/dev/null || true
 
 # --- Phase 0.55: Age out the fleet's scratch (CFG-851) — detached, the first run is large ---
@@ -199,8 +292,13 @@ TMP_SWEEP_SCRIPT="$CONFIG_REPO/setup/scripts/tmp-sweep.sh"
 
 # --- Phase 0.6: Auto-clean completed pending files ---
 # Delete pending files whose tracked backlog items are all [x] done.
+# Skipped while another live session holds the config repo (CFG-965): this
+# DELETES docs/pending-*.md from the cfg working tree — files the holder may be
+# demoting, editing or about to commit. The holder's own shutdown cleans them.
 MANAGE_PENDING="$CONFIG_REPO/setup/scripts/manage-pending.sh"
-if [ -f "$MANAGE_PENDING" ]; then
+if [ "$_CFG_HELD_BY_OTHER" -eq 1 ]; then
+    _cfg_defer_audit PENDING_AUTO_CLEAN_DEFERRED "config repo held by another live session — docs/pending-*.md left to its holder"
+elif [ -f "$MANAGE_PENDING" ]; then
     bash "$MANAGE_PENDING" --auto-clean --project-dir "$CONFIG_REPO" 2>/dev/null || true
 fi
 
@@ -209,7 +307,10 @@ fi
 # inbox stays lean. Only from the config repo's own shutdown (it owns cross-project/*
 # — cross-project write boundary); no-op if no completed items. Runs before the
 # config-repo commit phase so the archived state is committed this session.
-if [[ "$ORIGINAL_DIR" == "$CONFIG_REPO" ]]; then
+# CFG-965: and not from a nested CC mis-marked leader in the config repo while
+# the real leader's lock is still there (_CFG_HELD_BY_OTHER) — the one cfg
+# shutdown that is not the holder's, and inbox.md is the holder's tree.
+if [[ "$ORIGINAL_DIR" == "$CONFIG_REPO" && "$_CFG_HELD_BY_OTHER" -eq 0 ]]; then
     _INBOX_ARCHIVE="$CONFIG_REPO/setup/scripts/inbox-archive.sh"
     if [[ -f "$_INBOX_ARCHIVE" && -f "$CONFIG_REPO/cross-project/inbox.md" ]]; then
         bash "$_INBOX_ARCHIVE" "$CONFIG_REPO/cross-project/inbox.md" \
@@ -227,18 +328,42 @@ DRIFT_LOG="$CONFIG_REPO/.sync-warnings.log"
 if [ -f "$CONFIG_REPO/sync.sh" ]; then
     DRIFT_OUTPUT=$(bash "$CONFIG_REPO/sync.sh" check 2>&1 || true)
     DRIFT_ISSUES=$(echo "$DRIFT_OUTPUT" | grep -i 'warn\|drifted\|stale\|issue(s) found' || true)
+    # CFG-965: while another live session holds the config repo, every
+    # "<file>: drifted (repo ≠ deployed)" line — and every "<file>: not
+    # deployed" line, the holder's NEW, undeployed file — is that session's
+    # uncommitted tree versus the live copy: work in progress, not drift. The
+    # next SessionStart would surface them as "fix with sync.sh deploy", the
+    # deploy Phase 3 rightly refuses. Those lines are dropped before the log is
+    # written, and so is the "N issue(s) found" summary whose N counted them;
+    # every other warning stays; a log that would be left empty is not written
+    # at all; the drop is one audit line, never drift.
+    if [ "$_CFG_HELD_BY_OTHER" -eq 1 ] && printf '%s\n' "$DRIFT_ISSUES" | grep -q -e 'repo ≠ deployed' -e ': not deployed'; then
+        _drift_dropped=$(printf '%s\n' "$DRIFT_ISSUES" | grep -c -e 'repo ≠ deployed' -e ': not deployed' || true)
+        DRIFT_ISSUES=$(printf '%s\n' "$DRIFT_ISSUES" | grep -v -e 'repo ≠ deployed' -e ': not deployed' -e 'issue(s) found' || true)
+        printf '%s\n' "$DRIFT_ISSUES" | grep -q '[^[:space:]]' || DRIFT_ISSUES=""
+        _cfg_defer_audit DRIFT_CHECK_DEFERRED "config repo held by another live session — $_drift_dropped repo≠deployed/not-deployed line(s) are its holder's uncommitted work, not drift; dropped from the drift log with the issue summary"
+    fi
     if [ -n "$DRIFT_ISSUES" ]; then
         printf '%s\n' "$DRIFT_ISSUES" > "$DRIFT_LOG"
     else
         rm -f "$DRIFT_LOG"
     fi
 fi
+# The early probe's "unknown" record (CFG-965), if any, is appended only now:
+# the check above rewrites the drift log from scratch and would have erased it.
+_cfg_held_flush_record
 
 # --- Phase 0.75: T2 deployment-critical edit detection (CFG-326) ---
 # Check if T2 files were modified this session. If so, warn that E2E tests should be run.
 # Does NOT block shutdown — informational only, surfaced at next session start.
+# Skipped while another live session holds the config repo (CFG-965): the diff
+# against HEAD is that session's unfinished work, and the marker would report
+# it to the next SessionStart as T2 edits to verify. Left exactly as it is —
+# not rewritten, not removed; the holder's own shutdown computes it.
 T2_MARKER="$CONFIG_REPO/.t2-edits-pending"
-if [ -d "$CONFIG_REPO/.git" ]; then
+if [ "$_CFG_HELD_BY_OTHER" -eq 1 ]; then
+    _cfg_defer_audit T2_CHECK_DEFERRED "config repo held by another live session — .t2-edits-pending left as it was"
+elif [ -d "$CONFIG_REPO/.git" ]; then
     _t2_files=$(git -C "$CONFIG_REPO" diff --name-only HEAD 2>/dev/null || true)
     if [ -z "$_t2_files" ]; then
         _t2_files=$(git -C "$CONFIG_REPO" diff --name-only HEAD~1 2>/dev/null || true)
@@ -260,53 +385,6 @@ if [ -d "$CONFIG_REPO/.git" ]; then
     fi
 fi
 
-# --- CFG-666 / CFG-665: is the config repo held by a DIFFERENT live session? ---
-# If it is, everything below that touches the config repo's session files,
-# working tree or index is that session's job at its own shutdown: the template
-# propagation (Phase 0.8 — it copies the WORKING TREE into the public template),
-# rotation (Phase 3), the post-rotation marker (Phase 3.5) and staging/committing.
-# A non-empty session-context.md is evidence that somebody is using it, not
-# evidence that rotation is due. check_lock comes from session-lock.sh (sourced
-# in Phase -1); when it is unavailable, rotate-session.sh's own guard in Phase 3
-# is the fallback — its exit 3 sets the same flag.
-#
-# Decided ONCE, here, before Phase 0.8, and consumed by Phase 3 (CFG-665,
-# measured twice 2026-11-11: Phase 0.8 pushed a live cfg session's uncommitted
-# files to agent-fleet — c8e613c, 67df308 — because the verdict was only taken
-# in Phase 3, after the push).
-_CFG_HELD_BY_OTHER=0
-_cfg_held_notice() {
-    _shutdown_progress "Config repo is held by another live session — its context and work are left to it."
-}
-_cfg_held_probe() {
-    command -v check_lock >/dev/null 2>&1 || return 0
-    if [[ "$ORIGINAL_DIR" == "$CONFIG_REPO" ]]; then
-        # The project IS the config repo: Phase 1's guard verdict is the answer,
-        # and Phase 1 has not run yet. Ask what that guard (rotate-session.sh)
-        # asks: a lock still present — a genuine leader released its own in
-        # Phase -1 — that check_lock calls foreign. Phase 3 adds Phase 1's own
-        # verdict once it exists.
-        [[ -f "$CONFIG_REPO/.claude/.session-lock" ]] || return 0
-    fi
-    local rc=0
-    check_lock "$CONFIG_REPO" >/dev/null 2>&1 || rc=$?
-    # 2 = another live session on this machine, 3 = another machine (unverifiable)
-    if [[ "$rc" -eq 2 || "$rc" -eq 3 ]]; then
-        _CFG_HELD_BY_OTHER=1
-        _cfg_held_notice
-    elif [[ "$rc" -eq 4 ]]; then
-        # CFG-673 / GH#9: cannot determine — the lock check saw no Claude Code
-        # process at all, so "nobody live" is its blindness. Fail closed: treat
-        # the config repo as held (no propagation, no rotation, no staging, no
-        # commit) and record the unknown state where the next SessionStart
-        # surfaces it.
-        _CFG_HELD_BY_OTHER=1
-        _shutdown_progress "Config repo lock state unknown (no Claude Code process visible) — treated as held; its context and work are left alone."
-        echo "$(date -u +'%Y-%m-%d %H:%M:%S UTC') config repo lock state unknown (check_lock=4: no Claude Code process visible to the lock check) — treated as held, rotation and commit skipped, lock left in place" >> "$CONFIG_REPO/.sync-warnings.log"
-    fi
-}
-_cfg_held_probe
-
 # --- Phase 0.8: Automatic template propagation (CFG-242, CFG-391) ---
 # If template-push.sh exists and template repo is local, auto-propagate changes.
 # Category 1-2 files are auto-committed. Category 3 files are flagged only.
@@ -316,6 +394,34 @@ _cfg_held_probe
 _TPL_SCRIPT="$CONFIG_REPO/setup/scripts/template-push.sh"
 _TPL_DIR="$HOME/agent-fleet"
 _TPL_FAIL_MARKER="$CONFIG_REPO/.template-push-failed"
+# CFG-965: under the config repo lock. Phase 0.8 ran outside any lock, so two
+# shutdowns ending together propagated in parallel — two template-push runs
+# into one ~/agent-fleet index, racing the push. It now takes the same
+# .sync-lock as Phase 3 (fd 8, released at the end of this phase), so a
+# template push also waits for another shutdown's Phase 3 commit and sees a
+# settled tree. A busy or unwritable lock DEFERS the push — the drift stays and
+# the next shutdown pushes it — rather than failing the shutdown or touching
+# the failure streak. The re-probe under the lock closes the gap between the
+# early verdict and the copy.
+_TPL_LOCKED=0
+if [ -f "$_TPL_SCRIPT" ] && [ -d "$_TPL_DIR/.git" ] && [ "$_CFG_HELD_BY_OTHER" -eq 0 ]; then
+    _tpl_lock_why="lock file $LOCK_FILE not writable"
+    if ( : >> "$LOCK_FILE" ) 2>/dev/null; then
+        exec 8>"$LOCK_FILE"
+        _tpl_wait=$(_lock_budget "$_TPL_LOCK_WAIT")
+        if flock -w "$_tpl_wait" 8; then
+            _TPL_LOCKED=1
+            _cfg_held_probe
+        else
+            exec 8>&-
+            _tpl_lock_why="config repo lock busy for ${_tpl_wait}s (another shutdown in progress; budget ${_TPL_LOCK_WAIT}s, hook cap ${_HOOK_CAP}s)"
+        fi
+    fi
+    if [ "$_TPL_LOCKED" -eq 0 ]; then
+        _shutdown_progress "Template propagation deferred — $_tpl_lock_why."
+        _cfg_defer_audit TEMPLATE_PUSH_DEFERRED "$_tpl_lock_why — propagation left to the next shutdown"
+    fi
+fi
 if [ -f "$_TPL_SCRIPT" ] && [ -d "$_TPL_DIR/.git" ] && [ "$_CFG_HELD_BY_OTHER" -eq 1 ]; then
     # CFG-665: template-push copies the config repo's WORKING TREE — another
     # live session's uncommitted, half-built files included — into the PUBLIC
@@ -327,11 +433,8 @@ if [ -f "$_TPL_SCRIPT" ] && [ -d "$_TPL_DIR/.git" ] && [ "$_CFG_HELD_BY_OTHER" -
     # project as "propagation drift … fix with sync.sh deploy" — wrong advice,
     # and with a cfg session live most of the day it would fire on most shutdowns.
     _shutdown_progress "Template propagation deferred — config repo held by another live session."
-    mkdir -p "$HOME/.claude/logs" 2>/dev/null
-    printf '%s TEMPLATE_PUSH_DEFERRED: config repo held by another live session — its owner propagates at its own shutdown (shutdown of %s)\n' \
-        "$(date -u +'%Y-%m-%d %H:%M:%S UTC')" "$(basename "$ORIGINAL_DIR")" \
-        >> "$HOME/.claude/logs/template-push-deferred.log" 2>/dev/null || true
-elif [ -f "$_TPL_SCRIPT" ] && [ -d "$_TPL_DIR/.git" ]; then
+    _cfg_defer_audit TEMPLATE_PUSH_DEFERRED "config repo held by another live session — its owner propagates at its own shutdown"
+elif [ "$_TPL_LOCKED" -eq 1 ]; then
     # CFG-431: gate on REAL drift. The dry-run reports "Would copy/sanitize" only
     # for files that differ from the template (byte-identical targets print
     # "Identical:"), so the count is the number of files a push would change —
@@ -470,6 +573,8 @@ elif [ -f "$_TPL_SCRIPT" ] && [ -d "$_TPL_DIR/.git" ]; then
         fi
     fi
 fi
+# CFG-965: release the Phase 0.8 lock (fd 8); Phase 3 takes its own (fd 9).
+if [ "$_TPL_LOCKED" -eq 1 ]; then flock -u 8 2>/dev/null; exec 8>&-; fi
 
 # --- Phase 0.85: Pending-file demote detection (loop closure) ---
 # After commits land, detect act/present pending files whose Tracked-by PRN was
@@ -477,6 +582,9 @@ fi
 # body). Surface PENDING_DEMOTE_NEEDED so the shipping session demotes them in
 # the same session — closes the stale-pending loop at the SessionEnd end.
 # Advisory only: appends to the drift log, never changes exit behaviour.
+# Runs for a held config repo too (CFG-965, documented): it reads git history
+# and prints advice; its only write is the drift-log line, the channel meant
+# for the next session — the holder's, most likely.
 if [ -d "$CONFIG_REPO/.git" ] && [ -f "$MANAGE_PENDING" ]; then
     _since=$(git -C "$CONFIG_REPO" log --grep 'Auto-sync: session rotation' -1 --format=%H 2>/dev/null)
     [ -z "$_since" ] && _since="HEAD~20"
@@ -536,13 +644,33 @@ _shutdown_progress "Rotating session..."
 # on ownership evidence (CFG-536) instead of a blanket bypass.
 _ORIG_ROTATE_OK=1
 _ORIG_HELD_BY_OTHER=0
-if [[ -f "$ORIGINAL_DIR/session-context.md" && -s "$ORIGINAL_DIR/session-context.md" ]]; then
+if [[ "$ORIGINAL_DIR" == "$CONFIG_REPO" && "$_CFG_HELD_BY_OTHER" -eq 1 ]]; then
+    # CFG-965: the project IS the config repo and the early probe already found
+    # it held (or its holder unknown): the hook's own verdict is authoritative —
+    # rotate-session.sh is not asked; its guard is a second line of defence, not
+    # the decision. Recorded once: the unknown case was recorded by the probe.
+    if [[ "$_CFG_HELD_RECORDED" -eq 0 ]]; then
+        echo "$(date -u +'%Y-%m-%d %H:%M:%S UTC') rotation refused for $ORIGINAL_DIR: held by another live session (the hook's own owner check) although this session's role marker said leader — context left intact, rotate-session.sh not run" >> "$CONFIG_REPO/.sync-warnings.log"
+    fi
+    _ORIG_ROTATE_OK=0
+    _ORIG_HELD_BY_OTHER=1
+elif [[ -f "$ORIGINAL_DIR/session-context.md" && -s "$ORIGINAL_DIR/session-context.md" ]]; then
     _rot1_rc=0
-    bash "$ROTATE_SCRIPT" "$ORIGINAL_DIR" 2>/dev/null || _rot1_rc=$?
+    _rot1_err=$(bash "$ROTATE_SCRIPT" "$ORIGINAL_DIR" 2>&1 >/dev/null) || _rot1_rc=$?
     if [[ "$_rot1_rc" -eq 3 ]]; then
         # Guard refusal: another live session holds this project although our
-        # role marker said leader. The context is intact — leave it, say so.
-        echo "$(date -u +'%Y-%m-%d %H:%M:%S UTC') rotate-session refused for $ORIGINAL_DIR: held by another live session although this session's role marker said leader — context left intact" >> "$CONFIG_REPO/.sync-warnings.log"
+        # role marker said leader — or the guard could not tell (check_lock 4
+        # or unusable; its stderr says "unknown"). The context is intact —
+        # leave it, say so ONCE: when the project IS the config repo and the
+        # early probe already recorded the unknown state, this refusal is the
+        # same event (CFG-965 NIT 6).
+        case "$_rot1_err" in
+            *unknown*) _rot1_why="whether another live session holds it is unknown (lock check could not tell)" ;;
+            *)         _rot1_why="held by another live session" ;;
+        esac
+        if [[ "$ORIGINAL_DIR" != "$CONFIG_REPO" || "$_CFG_HELD_RECORDED" -eq 0 ]]; then
+            echo "$(date -u +'%Y-%m-%d %H:%M:%S UTC') rotate-session refused for $ORIGINAL_DIR: $_rot1_why although this session's role marker said leader — context left intact" >> "$CONFIG_REPO/.sync-warnings.log"
+        fi
         _ORIG_ROTATE_OK=0
         _ORIG_HELD_BY_OTHER=1
     elif [[ "$_rot1_rc" -ne 0 ]]; then
@@ -609,21 +737,25 @@ _shutdown_progress "Deploying config..."
 cd "$CONFIG_REPO" 2>/dev/null || sync_fail "cd" "Config repo not found at $CONFIG_REPO"
 
 # Acquire exclusive lock to prevent parallel session-end races.
-# flock -w 30 = wait up to 30s for the lock. A typical shutdown takes ~5-10s.
+# Waits up to _LOCK_WAIT (45 s) — or whatever is left of the hook's deadline
+# (_lock_budget, see the definitions at the top), so this wait can never be
+# the one that runs the hook into the silent 60 s cap. A typical shutdown holds
+# the lock for ~5-10 s; a template push under it (Phase 0.8) longer.
 # Previous: flock -n (non-blocking skip) silently dropped uncommitted work.
 exec 9>"$LOCK_FILE"
-if ! flock -w 30 9; then
-    sync_fail "lock" "Config repo lock held >30s by another session"
+_p3_wait=$(_lock_budget "$_LOCK_WAIT" "$_P3_RESERVE")
+if ! flock -w "$_p3_wait" 9; then
+    sync_fail "lock" "Config repo lock held >${_p3_wait}s by another session (budget ${_LOCK_WAIT}s, hook cap ${_HOOK_CAP}s, work reserve ${_P3_RESERVE}s, $((SECONDS - _T0))s elapsed)"
 fi
 
-# --- CFG-666 / CFG-665: is the config repo held by a DIFFERENT live session? ---
-# Decided before Phase 0.8 (_cfg_held_probe, which see): one verdict for the
-# template propagation and for everything below. Asked once more here, under
-# the flock, for a session that arrived during Phases 0.8–2: the probe only
-# ever turns "not held" into "held", and a repo already held is not probed
-# again, so its rc-4 record is written at most once. When the project IS the
-# config repo, Phase 1's guard verdict is added too — it exists now: the probe
-# ran the same guard early, so the two differ only when the holder changed
+# --- CFG-666 / CFG-665 / CFG-965: is the config repo held by a DIFFERENT live session? ---
+# Decided before Phase 0 and re-asked under the Phase 0.8 lock (_cfg_held_probe,
+# lib-cfg-held.sh): one verdict for every cfg-touching phase. Asked once more
+# here, under the flock, for a session that arrived during Phases 0.8–2: the
+# probe only ever turns "not held" into "held", and a repo already held is not
+# probed again, so its unknown record is written at most once. When the project
+# IS the config repo, Phase 1's guard verdict is added too — it exists now: the
+# probe ran the same guard early, so the two differ only when the holder changed
 # between them, and a hold from either side counts.
 [[ "$_CFG_HELD_BY_OTHER" -eq 0 ]] && _cfg_held_probe
 if [[ "$ORIGINAL_DIR" == "$CONFIG_REPO" && "$_ORIG_HELD_BY_OTHER" -eq 1 && "$_CFG_HELD_BY_OTHER" -eq 0 ]]; then
@@ -658,12 +790,24 @@ fi
 # Deploy repo → live (v1.0: repo is sole source of truth, no more collect)
 # Deploy failure is non-fatal for the commit path — rotation data must still be
 # committed and pushed. Deploy will re-run at next session start anyway.
-DEPLOY_OUTPUT=$(bash "$CONFIG_REPO/sync.sh" deploy 2>&1)
-if [ $? -ne 0 ]; then
-    printf '%s sync.sh deploy failed (non-fatal): %s\n' \
-        "$(date -u +'%Y-%m-%d %H:%M:%S UTC')" \
-        "$(echo "$DEPLOY_OUTPUT" | tail -1)" \
-        >> "$CONFIG_REPO/.sync-warnings.log"
+#
+# CFG-965 / Q-965-DEPLOY (MG, 2026-11-11): SKIPPED ENTIRELY while another live
+# session holds the config repo. `sync.sh deploy` copies the WORKING TREE — that
+# session's half-edited hooks, settings and knowledge — over the live ~/.claude,
+# from any project's shutdown. No HEAD-only or temporary-checkout deploy either:
+# the holder deploys at its own shutdown, and every SessionStart deploys anyway.
+# An expected skip: audit line, not drift.
+if [[ "$_CFG_HELD_BY_OTHER" -eq 1 ]]; then
+    _shutdown_progress "Deploy skipped — config repo held by another live session."
+    _cfg_defer_audit DEPLOY_DEFERRED "config repo held by another live session — sync.sh deploy skipped; the holder deploys at its own shutdown and every SessionStart deploys"
+else
+    DEPLOY_OUTPUT=$(bash "$CONFIG_REPO/sync.sh" deploy 2>&1)
+    if [ $? -ne 0 ]; then
+        printf '%s sync.sh deploy failed (non-fatal): %s\n' \
+            "$(date -u +'%Y-%m-%d %H:%M:%S UTC')" \
+            "$(echo "$DEPLOY_OUTPUT" | tail -1)" \
+            >> "$CONFIG_REPO/.sync-warnings.log"
+    fi
 fi
 
 # --- Phase 3.5: Detect post-rotation commits and append to session-log ---
@@ -792,6 +936,13 @@ fi
 # Moved from Phase 0.9 — running before session rotation caused persistent staleness.
 # Reached on EVERY leader shutdown since CFG-634, whether or not Phase 3 committed;
 # a follower has already exited in Phase -1, so only a leader ever refreshes mobile.
+# Not gated on the held verdict (CFG-965, documented): mobile-deploy.sh READS
+# the config repo and every registry project's session-context and backlog and
+# WRITES only into ~/agent-fleet-mobile — nothing in the cfg working tree. A
+# live cfg session is just one of the live projects whose context the phone
+# snapshot excerpts on every shutdown, and what leaves the machine is decided
+# by the leak gate and the egress policy below, not by who holds which repo;
+# the holder's own shutdown refreshes the snapshot again.
 _MOBILE_DEPLOY="$CONFIG_REPO/setup/scripts/mobile-deploy.sh"
 _LEAK_LIB="$CONFIG_REPO/setup/scripts/lib-leak-gate.sh"
 if [ -f "$_MOBILE_DEPLOY" ] && [ -d "$MOBILE_REPO" ]; then
@@ -894,9 +1045,14 @@ fi
 # shutdown. Absent shim = nothing to do. It runs on every LEADER shutdown, with
 # or without a Phase 3 commit (CFG-634); follower shutdowns exit in Phase -1, so
 # only the leader's shutdown can ever refresh what the shim refreshes.
+# CFG-965: it is also told the owner verdict (CFG_HELD_BY_OTHER=0|1), so a
+# deployment's shim can hold its own cfg-tree writes while the repo is held.
+# Not gated here: this fleet's shim touches no cfg working file (it refreshes
+# a credential blob on a remote host), and a downstream one decides for itself.
 _LOCAL_SHIM="$CONFIG_REPO/setup/scripts/config-auto-sync-local.sh"
 if [ -f "$_LOCAL_SHIM" ]; then
-    CONFIG_REPO="$CONFIG_REPO" ORIGINAL_DIR="$ORIGINAL_DIR" bash "$_LOCAL_SHIM" >/dev/null || true
+    CONFIG_REPO="$CONFIG_REPO" ORIGINAL_DIR="$ORIGINAL_DIR" CFG_HELD_BY_OTHER="$_CFG_HELD_BY_OTHER" \
+        bash "$_LOCAL_SHIM" >/dev/null || true
 fi
 
 sync_success
