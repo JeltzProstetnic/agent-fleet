@@ -101,6 +101,8 @@ assert_has "playwright ctx: Chromium drift"         "Chromium"                "$
 assert_has "playwright ctx: KB pointer"             "dev-browser-ops.md"      "$CTX"
 assert_has "playwright ctx: vault login via /dev/shm bridge" "/dev/shm"     "$CTX"
 assert_has "playwright ctx: never browser_type a password" "never browser_type a password" "$CTX"
+assert_has "playwright ctx: multi-page forms in page order (CFG-942)" "MULTI-PAGE FORMS" "$CTX"
+assert_has "playwright ctx: read back after the first Next (CFG-942)" "after the first Next reload the page you left" "$CTX"
 
 # 13. Playwright browser_snapshot shares browser-automation → deduped in same session
 OUT=$(run '{"session_id":"splay","tool_name":"mcp__playwright__browser_snapshot","tool_input":{}}')
