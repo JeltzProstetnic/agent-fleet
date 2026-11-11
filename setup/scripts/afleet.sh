@@ -740,9 +740,7 @@ launch_mclaude() {
 
     # Account session (CFG-917): this terminal runs on another claude-swap account through cswap's
     # session mode; every other session keeps the default account. Everything above (sync, lock,
-    # project resolution) has run as usual — only the final launcher differs. When the account IS the
-    # current default, cswap-launch.sh runs the plain launcher found above (AFLEET_PLAIN_MCLAUDE) on the
-    # default lineage instead: a session-mode profile of the default would be a second holder of its token.
+    # project resolution) has run as usual — only the final launcher differs.
     if [[ -n "${ACCOUNT_ARG:-}" ]]; then
         if [[ -n "${MODEL_ARG:-}" ]]; then
             echo "Error: --account cannot be combined with a local model" >&2; exit 1
@@ -750,7 +748,7 @@ launch_mclaude() {
         if [[ ! -x "$_AFLEET_DIR/cswap-launch.sh" ]]; then
             echo "Error: --account needs claude-swap set up (setup/scripts/cswap-launch.sh)" >&2; exit 1
         fi
-        export AFLEET_ACCOUNT="$ACCOUNT_ARG" AFLEET_CONTINUE="${AFLEET_CONTINUE:-}" AFLEET_PLAIN_MCLAUDE="$MCLAUDE"
+        export AFLEET_ACCOUNT="$ACCOUNT_ARG" AFLEET_CONTINUE="${AFLEET_CONTINUE:-}"
         MCLAUDE="$_AFLEET_DIR/cswap-launch.sh"
     fi
 
