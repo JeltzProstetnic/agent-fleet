@@ -539,4 +539,125 @@ test_vault_block_unchanged() {
 }
 run_test "CFG-892: the vault.json block and its message are unchanged" test_vault_block_unchanged
 
+# ── CFG-959: a metadata verb must not launder a read in the same command ──────
+# 2026-11-11: a subagent ran `S=<live settings>; ls -la $S; readlink -f $S; python3 - <<EOF
+# … json.load(open(S)) … EOF` and printed the env block. The guard exempted the whole
+# command because it contained `ls` and the read was a heredoc, not a pipe. Second gap:
+# a path BUILT at run time (os.environ['CLAUDE_CONFIG_DIR']+'/settings.json',
+# Path.home()/'.cc-mirror'/…) never spells the live path, so SETTINGS_RE never matched.
+# Rule now: any read primitive anywhere in the command (outside a commit message) blocks,
+# whatever metadata verbs sit beside it; a built path counts as live when the command also
+# names a live location (CLAUDE_CONFIG_DIR, .cc-mirror, a home-relative .claude).
+
+_LIVE='~/.cc-mirror/mclaude/config/settings.json'
+
+test_cfg959_block_exact_leak_shape() {
+    _settings_hook "S=$_LIVE; ls -la \$S; readlink -f \$S; python3 - <<'EOF'
+import json,os
+s=json.load(open(os.path.expanduser('$_LIVE')))
+print(s.get('env'))
+EOF"
+    echo "    measured: rc=$RC"
+    assert_eq "2" "$RC" "ls + readlink + python heredoc reading the live settings must be blocked" || return 1
+    assert_contains "$OUT" "settings-view.sh" "the block must point at the masked reader"
+}
+run_test "CFG-959 blocks: S=<live>; ls -la \$S; readlink -f \$S; python3 - <<EOF open(S) (the leak)" \
+    test_cfg959_block_exact_leak_shape
+
+test_cfg959_block_ls_then_cat() {
+    _settings_hook "ls -la $_LIVE; cat $_LIVE"
+    assert_eq "2" "$RC" "ls followed by cat of the live settings must be blocked"
+}
+run_test "CFG-959 blocks: ls -la <live>; cat <live>" test_cfg959_block_ls_then_cat
+
+test_cfg959_block_stat_and_python_c() {
+    _settings_hook "stat $_LIVE && python3 -c \"import json;print(json.load(open('$_LIVE'))['env'])\""
+    assert_eq "2" "$RC" "stat && python3 -c open(<live>) must be blocked"
+}
+run_test "CFG-959 blocks: stat <live> && python3 -c open(<live>)" test_cfg959_block_stat_and_python_c
+
+test_cfg959_block_test_f_and_cat() {
+    _settings_hook "test -f $_LIVE && cat $_LIVE"
+    assert_eq "2" "$RC" "test -f && cat of the live settings must be blocked" || return 1
+    _settings_hook "[ -f $_LIVE ] && cat $_LIVE"
+    assert_eq "2" "$RC" "[ -f ] && cat of the live settings must be blocked"
+}
+run_test "CFG-959 blocks: test -f <live> && cat <live> (and the [ -f ] form)" test_cfg959_block_test_f_and_cat
+
+test_cfg959_block_vault_ls_then_cat() {
+    # The same exemption laundered the vault plaintext too.
+    _settings_hook "ls -la secrets/vault.json; cat secrets/vault.json"
+    assert_eq "2" "$RC" "ls followed by cat of the vault plaintext must be blocked"
+}
+run_test "CFG-959 blocks: ls -la secrets/vault.json; cat secrets/vault.json" test_cfg959_block_vault_ls_then_cat
+
+test_cfg959_block_heredoc_env_config_dir() {
+    _settings_hook "python3 - <<'EOF'
+import json,os
+print(json.load(open(os.environ['CLAUDE_CONFIG_DIR']+'/settings.json'))['env'])
+EOF"
+    echo "    measured: rc=$RC"
+    assert_eq "2" "$RC" "a path built from os.environ['CLAUDE_CONFIG_DIR'] is the live settings — must be blocked"
+}
+run_test "CFG-959 blocks: python heredoc, os.environ['CLAUDE_CONFIG_DIR']+'/settings.json'" \
+    test_cfg959_block_heredoc_env_config_dir
+
+test_cfg959_block_heredoc_environ_get_with_default() {
+    _settings_hook "python3 - <<'EOF'
+import json, os
+p = os.path.join(os.environ.get('CLAUDE_CONFIG_DIR', '~/.claude'), 'settings.json')
+print(json.load(open(os.path.expanduser(p)))['env'])
+EOF"
+    assert_eq "2" "$RC" "os.environ.get('CLAUDE_CONFIG_DIR', default) joined with settings.json must be blocked"
+}
+run_test "CFG-959 blocks: python heredoc, os.path.join(os.environ.get('CLAUDE_CONFIG_DIR', …), 'settings.json')" \
+    test_cfg959_block_heredoc_environ_get_with_default
+
+test_cfg959_block_heredoc_path_home_cc_mirror() {
+    _settings_hook "python3 - <<'EOF'
+import json
+from pathlib import Path
+p = Path.home() / '.cc-mirror' / 'mclaude' / 'config' / 'settings.json'
+print(json.loads(p.read_text())['env'])
+EOF"
+    assert_eq "2" "$RC" "Path.home()/'.cc-mirror'/…/'settings.json' is the live settings — must be blocked"
+}
+run_test "CFG-959 blocks: python heredoc, Path.home()/'.cc-mirror'/…/'settings.json'" \
+    test_cfg959_block_heredoc_path_home_cc_mirror
+
+test_cfg959_block_shell_var_indirection() {
+    _settings_hook 'D=$CLAUDE_CONFIG_DIR; jq .env "$D/settings.json"'
+    assert_eq "2" "$RC" "jq on \$D/settings.json with D=\$CLAUDE_CONFIG_DIR must be blocked"
+}
+run_test "CFG-959 blocks: D=\$CLAUDE_CONFIG_DIR; jq .env \"\$D/settings.json\"" test_cfg959_block_shell_var_indirection
+
+test_cfg959_allow_metadata_only_forms() {
+    local form
+    for form in "ls -la $_LIVE" "stat $_LIVE" "test -f $_LIVE" "[ -f $_LIVE ] && echo present" \
+                "ls -la $_LIVE; readlink -f $_LIVE" 'readlink -f "$CLAUDE_CONFIG_DIR/settings.json"' \
+                "ls -la secrets/vault.json; stat secrets/vault.json"; do
+        _settings_hook "$form"
+        assert_eq "0" "$RC" "metadata-only [$form] must stay allowed" || return 1
+    done
+}
+run_test "CFG-959 allows: ls/stat/test/readlink of the live settings, alone or chained together" \
+    test_cfg959_allow_metadata_only_forms
+
+test_cfg959_allow_settings_view_relative() {
+    _settings_hook "bash setup/scripts/settings-view.sh | jq .hooks"
+    assert_eq "0" "$RC" "the masked reader (relative path) must stay allowed"
+}
+run_test "CFG-959 allows: bash setup/scripts/settings-view.sh | jq .hooks" test_cfg959_allow_settings_view_relative
+
+test_cfg959_allow_template_grep_with_marker_word() {
+    # The live-location words alone are not a hit: a grep of the repo TEMPLATE for one of
+    # them reads no secret, and a project's .claude/settings.json is not live either.
+    _settings_hook "grep -n CLAUDE_CONFIG_DIR setup/config/settings.json"
+    assert_eq "0" "$RC" "grep CLAUDE_CONFIG_DIR in the repo template must stay allowed" || return 1
+    _settings_hook 'grep HOME ~/someproject/.claude/settings.json'
+    assert_eq "0" "$RC" "grep HOME in a project's .claude/settings.json must stay allowed"
+}
+run_test "CFG-959 allows: grep CLAUDE_CONFIG_DIR setup/config/settings.json; grep HOME <project>/.claude/settings.json" \
+    test_cfg959_allow_template_grep_with_marker_word
+
 suite_summary

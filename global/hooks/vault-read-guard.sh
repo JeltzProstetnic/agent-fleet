@@ -41,6 +41,19 @@ echo "$CMD" | grep -qE '(^|[[:space:]/])([A-Za-z0-9_]+-)?vault\.json([[:space:]]
 # project's <project>/.claude/settings.json. A suffix (settings.json.bak) is a copy: blocked.
 SETTINGS_RE='(\.cc-mirror/[^/[:space:]]+/config/settings\.json|CLAUDE_CONFIG_DIR\}?/settings\.json|(~|\$HOME|\$\{HOME\}|/home/[^/[:space:]]+|/root|/Users/[^/[:space:]]+)/\.claude/settings\.json)'
 echo "$CMD" | grep -qE "$SETTINGS_RE" && SETTINGS_HIT=1
+# CFG-959: a path BUILT at run time — os.environ['CLAUDE_CONFIG_DIR']+'/settings.json',
+# Path.home()/'.cc-mirror'/…/'settings.json', D=$CLAUDE_CONFIG_DIR; … $D/settings.json — never
+# spells the live path, so the match above misses it. A settings.json that is not a known
+# non-live spelling (the repo template, a <dir>/.claude/settings.json) counts as live when the
+# command also names a live location: CLAUDE_CONFIG_DIR, .cc-mirror, or a home-relative .claude.
+if [ "$SETTINGS_HIT" = 0 ]; then
+    REST=${CMD//"setup/config/settings.json"/}; REST=${REST//"/.claude/settings.json"/}
+    LIVE_RE='CLAUDE_CONFIG_DIR|\.cc-mirror|~/\.claude'; HOME_RE='HOME|Path\.home\(|expanduser\(|homedir\('
+    if [[ "$REST" == *settings.json* ]] && { [[ "$CMD" =~ $LIVE_RE ]] ||
+         { [[ "$CMD" =~ $HOME_RE ]] && [[ "$CMD" == *.claude* ]]; }; }; then
+        SETTINGS_HIT=1
+    fi
+fi
 
 [ "$VAULT_HIT" = 1 ] || [ "$SETTINGS_HIT" = 1 ] || exit 0
 
@@ -235,16 +248,11 @@ sys.stdout.write(strip_messages(strip_heredocs(s)))
     [ -n "$SCAN" ] || SCAN="$CMD"
 fi
 
-# Allow benign metadata ops (no content disclosure)
-# These commands are SAFE because they don't expose plaintext contents:
-#   rm, ls, stat, chmod, chown, file, find (when not -exec read)
-# We allow them as long as the command doesn't ALSO pipe into a read primitive.
-if echo "$SCAN" | grep -qE '(^|[[:space:];&|])(rm|ls|stat|chmod|chown|file|test|\[)[[:space:]]'; then
-    # Make sure there's no pipe-to-reader or read primitive elsewhere
-    if ! echo "$SCAN" | grep -qE '\|[[:space:]]*(cat|head|tail|less|more|grep|awk|sed|jq|xxd|od|python[23]?|node)\b'; then
-        exit 0
-    fi
-fi
+# No metadata exemption (CFG-959). Metadata ops (rm, ls, stat, test, readlink, chmod …) carry
+# no read primitive and fall through to the final exit 0 on their own. An exemption keyed on
+# their PRESENCE let `S=<live>; ls -la $S; readlink -f $S; python3 - <<EOF … open(S) … EOF`
+# through: it fired on the `ls` and looked only for a PIPE into a reader, and a heredoc read
+# is no pipe. A read primitive anywhere in SCAN blocks, whatever sits beside it.
 
 # Where is vault-manage.sh? Resolved at RUN TIME so that no copy of this hook — it
 # ships verbatim in the public template — spells out one deployment's vault location
