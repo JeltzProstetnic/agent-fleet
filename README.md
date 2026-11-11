@@ -16,12 +16,13 @@ The template ships 51 operational knowledge files (about 350 KB, in `global/know
 | Software development | Test-first protocol, test isolation, browser automation, LLM provider integration: `global/domains/software-development/`, `test-isolation-guards.md`, `dev-browser-ops.md`, `llm-provider-integration.md` |
 | Authoring, publishing and print production | Book publishing, print production, cover design, a register check for human-facing text: `kdp-publishing.md`, `print-production.md`, `prose-register.md`, `global/domains/publications/` |
 | Graphics and presentation | Slide design, an office template builder for DOCX, PPTX and PDF, cover design: `presentation-design.md`, `office-templates.md`, `cover-design.md` |
-| Simulation and manufacturing | Building and validating discrete-event models of real plants, shopfloor management and governance: `manufacturing-simulation-modelling.md`, `shopfloor-management-and-governance.md` |
+| Simulation and manufacturing | Building and validating discrete-event models of real plants, simulation-optimization runs, shopfloor management and governance: `manufacturing-simulation-modelling.md`, `simopt-ops.md`, the `simopt` skill, `shopfloor-management-and-governance.md` |
+| Paper mail (Austria) | Sending letters and registered mail through the Austrian hybrid-mail service, with the form traps already mapped: `postal-dispatch.md` |
 | Scientific work and audits | Regulatory audit simulation (for example FDA, ISO 13485), academic peer review, citation and link checks: `audit-domains.md`, `audit-protocol.md`, `web-acquisition-health.md` |
 | Infrastructure and security | Server and deployment rules, MCP server deployment, service memory accounting, secret-scanning guards on commit and push: `global/domains/it-infrastructure/`, `mcp-deployment.md`, `systemd-memory-accounting.md` |
 | Communication and social media | Community and social media etiquette, Gmail management, prose register: `global/domains/engagement/`, `gmail-management.md`, `prose-register.md` |
 
-Add-on: simopt, a simulation-optimization framework in .NET 9, lives in its own public repository under the same GitHub account.
+Add-on: simopt, a simulation-optimization framework in .NET 9, lives in its own public repository under the same GitHub account; the `simopt` skill drives it.
 
 Your own field: copy `global/domains/_template/`, fill it in, and reference it from your project's `CLAUDE.md`.
 
