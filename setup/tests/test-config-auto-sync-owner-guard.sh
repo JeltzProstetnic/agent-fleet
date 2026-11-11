@@ -93,11 +93,21 @@ STUB
     (cd "$cfg" && git add -A && git commit -q -m "cfg baseline" && git push -q origin main)
 }
 
-# A live foreign lock on the config repo: this test process's pid (alive for the
-# whole test), bound to ids the hook does not run with.
+# A live foreign lock on the config repo, held by a process that is NOT an
+# ancestor of the hook (a sibling `sleep`), bound to ids the hook does not run
+# with. $$ would be wrong under a fake CC tree: it is the fake leader's parent,
+# so check_lock's ancestry walk would read the hook as the lock's OWNER (rc 1).
+# The holder lives until _run returns (or the suite exits).
+_FOREIGN_HOLDER_PID=""
 _hold_cfg_lock_foreign() {
-    ( source "$LOCK_LIB"; _write_lock "$1/.claude/.session-lock" "af-cfg-owner" "cc-cfg-owner" "$$" )
+    sleep 120 & _FOREIGN_HOLDER_PID=$!
+    ( source "$LOCK_LIB"; _write_lock "$1/.claude/.session-lock" "af-cfg-owner" "cc-cfg-owner" "$_FOREIGN_HOLDER_PID" )
 }
+_release_foreign_holder() {
+    [[ -z "$_FOREIGN_HOLDER_PID" ]] || kill "$_FOREIGN_HOLDER_PID" 2>/dev/null || true
+    _FOREIGN_HOLDER_PID=""
+}
+trap '_release_foreign_holder' EXIT
 
 # Fake CC process tree for the nested-CC cases. session-lock.sh identifies CC
 # processes by cmdline (_CC_PROC_RE, env-overridable); pointing it at these
@@ -137,6 +147,7 @@ _run() {   # <config_repo> <project_dir> [tree] [af] [cc] [stdin_id]
     # The hook reads its CC session id from stdin JSON via lib-hook-stdin.sh,
     # sourced from its own directory — give the patched copy that library.
     cp "$REPO_ROOT/global/hooks/lib-hook-stdin.sh" "$TEST_TMPDIR/"
+    local rc=0
     (
         export AFLEET_SESSION_ID="$af" CC_SESSION_ID="$cc"
         if [[ "$tree" == none ]]; then
@@ -145,7 +156,9 @@ _run() {   # <config_repo> <project_dir> [tree] [af] [cc] [stdin_id]
             _mk_fake_cc_tree
             printf '{"session_id":"%s"}' "$stdin_id" | _under_tree "$tree" "$patched"
         fi
-    ) 2>/dev/null
+    ) 2>/dev/null || rc=$?
+    _release_foreign_holder   # the foreign holder, if any, outlives only the hook
+    return "$rc"
 }
 
 _commits() { git -C "$1" rev-list --count HEAD; }
@@ -444,6 +457,296 @@ test_blind_check_treats_cfg_repo_as_held() {
     assert_file_contains "$cfg/.sync-warnings.log" "unknown" "the record says the lock state is unknown"
 }
 run_test "CFG-673: blind lock check ⇒ config repo treated as held, lock kept, state recorded as unknown" test_blind_check_treats_cfg_repo_as_held
+
+# ── CFG-665 (Phase 0.8): a foreign-held config repo is never propagated ──────
+# template-push.sh copies the config repo's WORKING TREE — another live session's
+# uncommitted, half-built files included — into ~/agent-fleet, the PUBLIC
+# template, and pushes it. Phase 0.8 ran before Phase 3 had asked who holds the
+# repo, so another project's shutdown pushed a live cfg session's uncommitted
+# files twice on 2026-11-11 (agent-fleet c8e613c, 67df308). The verdict must be
+# taken BEFORE Phase 0.8 and must be the same one Phase 3 acts on.
+
+_TPL_ARGV=""
+_arm_template_push() {   # <config_repo> — mock template-push.sh recording argv, mock ~/agent-fleet
+    local cfg="$1"
+    _TPL_ARGV="$TEST_TMPDIR/tpl-argv.log"
+    rm -f "$_TPL_ARGV"
+    mkdir -p "$TEST_TMPDIR/home/agent-fleet/.git"
+    cat > "$cfg/setup/scripts/template-push.sh" << STUB
+#!/usr/bin/env bash
+echo "\$@" >> "$_TPL_ARGV"
+case "\$1" in --dry-run) echo "Would copy global/hooks/x.sh" ;; esac
+exit 0
+STUB
+    chmod +x "$cfg/setup/scripts/template-push.sh"
+}
+
+# The deferral is an AUDIT line under $HOME/.claude/logs, never a drift-log line:
+# checks/04-auto-fix.sh Check 4.5 surfaces every .sync-warnings.log line at the
+# next SessionStart of ANY project as drift to fix with `sync.sh deploy`.
+_DEFER_AUDIT_LOG=""
+_assert_not_propagated() {   # <config_repo> <before_commits> <why>
+    local cfg="$1" before="$2" why="$3"
+    local calls=0 n=0
+    [[ -f "$_TPL_ARGV" ]] && calls=$(grep -c . "$_TPL_ARGV" || true)
+    assert_eq "0" "$calls" "template-push.sh never invoked — not even --dry-run — $why (measured $calls call(s))" || return 1
+    _DEFER_AUDIT_LOG="$TEST_TMPDIR/home/.claude/logs/template-push-deferred.log"
+    assert_file_exists "$_DEFER_AUDIT_LOG" "the deferral is recorded in the audit log" || return 1
+    [[ -f "$_DEFER_AUDIT_LOG" ]] && n=$(grep -c "TEMPLATE_PUSH_DEFERRED" "$_DEFER_AUDIT_LOG" || true)
+    assert_eq "1" "$n" "exactly one TEMPLATE_PUSH_DEFERRED audit line (measured $n)" || return 1
+    if [[ -f "$cfg/.sync-warnings.log" ]]; then
+        assert_file_not_contains "$cfg/.sync-warnings.log" "TEMPLATE_PUSH_DEFERRED" "the deferral is NOT in the drift log (SessionStart would surface it as drift to deploy)" || return 1
+    fi
+    assert_file_not_exists "$cfg/.template-push-failed" "a deferral is not a failure: no marker, no streak" || return 1
+    local after; after=$(_commits "$cfg")
+    assert_eq "$before" "$after" "Phase 3 verdict unchanged: no Auto-sync commit (measured $before -> $after)" || return 1
+    local staged; staged=$(git -C "$cfg" diff --cached --name-only | wc -l | tr -d ' ')
+    assert_eq "0" "$staged" "Phase 3 verdict unchanged: nothing staged (measured $staged path(s))"
+}
+
+test_phase08_skipped_when_cfg_held_on_this_machine() {
+    # check_lock rc 2: another live session on this machine (this test process)
+    # holds the config repo; a foreign project's shutdown must not propagate.
+    local cfg="$TEST_TMPDIR/cfg" proj="$TEST_TMPDIR/life"
+    mkdir -p "$proj" "$TEST_TMPDIR/home"
+    _prep_cfg_repo "$cfg"
+    _arm_template_push "$cfg"
+    echo "half-built, uncommitted" >> "$cfg/global/hooks/x.sh"
+    _hold_cfg_lock_foreign "$cfg"
+    local before; before=$(_commits "$cfg")
+    _run "$cfg" "$proj" || true
+    _assert_not_propagated "$cfg" "$before" "while another live session on this machine holds the config repo (check_lock=2)"
+}
+run_test "CFG-665: Phase 0.8 is skipped when another live session on this machine holds the config repo (rc 2)" test_phase08_skipped_when_cfg_held_on_this_machine
+
+test_phase08_skipped_when_cfg_held_on_other_machine() {
+    # check_lock rc 3: the lock names another machine — unverifiable, held.
+    local cfg="$TEST_TMPDIR/cfg" proj="$TEST_TMPDIR/life"
+    mkdir -p "$proj" "$TEST_TMPDIR/home"
+    _prep_cfg_repo "$cfg"
+    _arm_template_push "$cfg"
+    printf '{"machine":"other-host-%s","pid":1,"sessionId":"af-cfg-owner","timestamp":"2026-11-11T00:00:00Z","user":"test","ccSessionId":"cc-cfg-owner"}\n' "$$" \
+        > "$cfg/.claude/.session-lock"
+    local before; before=$(_commits "$cfg")
+    _run "$cfg" "$proj" || true
+    _assert_not_propagated "$cfg" "$before" "while a lock from another machine holds the config repo (check_lock=3)"
+}
+run_test "CFG-665: Phase 0.8 is skipped when a lock from another machine holds the config repo (rc 3)" test_phase08_skipped_when_cfg_held_on_other_machine
+
+test_phase08_skipped_when_cfg_holder_unknown() {
+    # check_lock rc 4: a blind scan (no CC visible at all) — fail closed, as
+    # Phase 3 does (CFG-673): no propagation while the holder is unknown.
+    local cfg="$TEST_TMPDIR/cfg" proj="$TEST_TMPDIR/life"
+    mkdir -p "$proj" "$TEST_TMPDIR/home"
+    _prep_cfg_repo "$cfg"
+    _arm_template_push "$cfg"
+    sleep 0.01 & local dead=$!; wait "$dead" 2>/dev/null || true
+    ( source "$LOCK_LIB"; _write_lock "$cfg/.claude/.session-lock" "af-cfg-owner" "cc-cfg-owner" "$dead" )
+    local before; before=$(_commits "$cfg")
+    _CC_PROC_RE="(^|/)cfg673-no-such-cc-$$([[:space:]]|$)" _run "$cfg" "$proj" || true
+    _assert_not_propagated "$cfg" "$before" "while the config repo's holder is unknown (check_lock=4)" || return 1
+    assert_file_contains "$cfg/.sync-warnings.log" "unknown" "the unknown state is still recorded"
+}
+run_test "CFG-665: Phase 0.8 is skipped when the config repo's holder is unknown (rc 4, fail closed)" test_phase08_skipped_when_cfg_holder_unknown
+
+test_phase08_skipped_by_mismarked_nested_cc_in_cfg() {
+    # ORIGINAL_DIR == CONFIG_REPO: a nested CC in the config repo mis-marked
+    # leader ends while the leader's lock is still there. Phase 1's guard will
+    # refuse its rotation; Phase 0.8 must reach the same verdict EARLIER and not
+    # push the leader's working tree.
+    local cfg="$TEST_TMPDIR/cfg"
+    mkdir -p "$TEST_TMPDIR/home"
+    _prep_cfg_repo "$cfg"
+    _arm_template_push "$cfg"
+    echo "leader's half-built edit" >> "$cfg/global/hooks/x.sh"
+    sleep 120 & local lpid=$!
+    ( source "$LOCK_LIB"; _write_lock "$cfg/.claude/.session-lock" "af-cfg-owner" "cc-cfg-owner" "$lpid" )
+    printf 'leader\n' > "$cfg/.claude/.session-role.cc-nested"
+    local before; before=$(_commits "$cfg")
+    _run "$cfg" "$cfg" nested af-cfg-owner cc-nested || true
+    kill "$lpid" 2>/dev/null || true
+    _assert_not_propagated "$cfg" "$before" "by a nested CC mis-marked leader in the config repo itself"
+}
+run_test "CFG-665: Phase 0.8 is skipped by a nested CC mis-marked leader in the config repo (ORIGINAL_DIR == CONFIG_REPO)" test_phase08_skipped_by_mismarked_nested_cc_in_cfg
+
+test_phase08_deferral_leaves_failure_streak_alone() {
+    # A deferral is not a run: an existing failure marker keeps its streak
+    # byte-for-byte — neither advanced (no failure) nor cleared (no success).
+    local cfg="$TEST_TMPDIR/cfg" proj="$TEST_TMPDIR/life"
+    mkdir -p "$proj" "$TEST_TMPDIR/home"
+    _prep_cfg_repo "$cfg"
+    _arm_template_push "$cfg"
+    printf 'time=2026-11-10 01:00:00 UTC\nfirst_failed=2026-11-09 01:00:00 UTC\nfirst_failed_epoch=1794099600\nconsecutive=2\nexit_code=3\ndrift_files=1\noutput_tail=held\n' \
+        > "$cfg/.template-push-failed"
+    local seed; seed=$(cat "$cfg/.template-push-failed")
+    _hold_cfg_lock_foreign "$cfg"
+    _run "$cfg" "$proj" || true
+    local calls=0
+    [[ -f "$_TPL_ARGV" ]] && calls=$(grep -c . "$_TPL_ARGV" || true)
+    assert_eq "0" "$calls" "template-push.sh not invoked despite the marker (measured $calls call(s))" || return 1
+    assert_file_exists "$cfg/.template-push-failed" "the marker survives the deferral" || return 1
+    assert_eq "$seed" "$(cat "$cfg/.template-push-failed")" "the marker is byte-identical: streak neither advanced nor cleared"
+}
+run_test "CFG-665: a Phase 0.8 deferral neither advances nor clears the failure streak" test_phase08_deferral_leaves_failure_streak_alone
+
+_assert_no_deferral() {   # <config_repo> — a run that propagated recorded no deferral anywhere
+    assert_file_not_exists "$TEST_TMPDIR/home/.claude/logs/template-push-deferred.log" "no deferral audit line for a run that propagated" || return 1
+    if [[ -f "$1/.sync-warnings.log" ]]; then
+        assert_file_not_contains "$1/.sync-warnings.log" "TEMPLATE_PUSH_DEFERRED" "no deferral in the drift log" || return 1
+    fi
+    true
+}
+
+test_phase08_runs_when_cfg_unheld() {
+    # No over-reach: with nobody holding the config repo (own CC visible, no
+    # lock) a foreign project's shutdown still propagates exactly as before —
+    # dry-run first, then the real pass on drift.
+    local cfg="$TEST_TMPDIR/cfg" proj="$TEST_TMPDIR/life"
+    mkdir -p "$proj" "$TEST_TMPDIR/home"
+    _prep_cfg_repo "$cfg"
+    _arm_template_push "$cfg"
+    _run "$cfg" "$proj" leader || true
+    assert_file_exists "$_TPL_ARGV" "template-push.sh invoked for an unheld config repo" || return 1
+    local calls; calls=$(grep -c . "$_TPL_ARGV" || true)
+    assert_eq "2" "$calls" "dry-run then the real pass (measured $calls call(s))" || return 1
+    assert_eq "--dry-run" "$(sed -n 1p "$_TPL_ARGV")" "first call is the dry-run" || return 1
+    assert_eq "--commit" "$(sed -n 2p "$_TPL_ARGV")" "second call is the real pass (--commit: mock template has no origin)" || return 1
+    _assert_no_deferral "$cfg"
+}
+run_test "CFG-665: Phase 0.8 still propagates when nobody holds the config repo (no over-reach)" test_phase08_runs_when_cfg_unheld
+
+test_phase08_runs_for_cfg_own_shutdown() {
+    # The ending session IS the cfg session and owns the lock (its release
+    # failed: no cc id on stdin — the test_unreleased_genuine_leader shape).
+    # check_lock answers 1 (ours): propagation runs.
+    local cfg="$TEST_TMPDIR/cfg"
+    mkdir -p "$TEST_TMPDIR/home"
+    _prep_cfg_repo "$cfg"
+    _arm_template_push "$cfg"
+    sleep 120 & local lpid=$!
+    ( source "$LOCK_LIB"; _write_lock "$cfg/.claude/.session-lock" "af-mine" "cc-mine" "$lpid" )
+    printf 'leader\n' > "$cfg/.claude/.session-role.af-mine"
+    _run "$cfg" "$cfg" leader af-mine cc-mine "" || true
+    kill "$lpid" 2>/dev/null || true
+    assert_file_exists "$_TPL_ARGV" "template-push.sh invoked by the cfg session's own shutdown" || return 1
+    local calls; calls=$(grep -c . "$_TPL_ARGV" || true)
+    assert_eq "2" "$calls" "dry-run then the real pass (measured $calls call(s))" || return 1
+    _assert_no_deferral "$cfg"
+}
+run_test "CFG-665: Phase 0.8 runs for the cfg session's own shutdown (owner, lock still present)" test_phase08_runs_for_cfg_own_shutdown
+
+test_phase08_runs_for_cfg_own_shutdown_lock_released() {
+    # The ordinary cfg shutdown: the leader released its own lock in Phase -1,
+    # so no lock is present and nothing is foreign — propagation runs.
+    local cfg="$TEST_TMPDIR/cfg"
+    mkdir -p "$TEST_TMPDIR/home"
+    _prep_cfg_repo "$cfg"
+    _arm_template_push "$cfg"
+    _run "$cfg" "$cfg" leader || true
+    assert_file_exists "$_TPL_ARGV" "template-push.sh invoked by the released-lock cfg shutdown" || return 1
+    local calls; calls=$(grep -c . "$_TPL_ARGV" || true)
+    assert_eq "2" "$calls" "dry-run then the real pass (measured $calls call(s))" || return 1
+    _assert_no_deferral "$cfg"
+}
+run_test "CFG-665: Phase 0.8 runs for the cfg session's own shutdown (lock already released)" test_phase08_runs_for_cfg_own_shutdown_lock_released
+
+# ── CFG-665 review: the verdict's other two sources, and the lock-less holder ─
+
+# A template-push.sh mock whose --dry-run is the moment a cfg session APPEARS:
+# it writes a foreign lock held by <holder_pid> (and, with `also-edit`, that
+# session's first in-progress edit). The early probe ran before it, so Phase
+# 0.8 legitimately runs; what is under test is what Phase 3 does afterwards.
+_write_lock_from_template_push() {   # <config_repo> <holder_pid> [also-edit]
+    local cfg="$1" holder="$2" edit="${3:-}"
+    _TPL_ARGV="$TEST_TMPDIR/tpl-argv.log"
+    rm -f "$_TPL_ARGV"
+    mkdir -p "$TEST_TMPDIR/home/agent-fleet/.git"
+    cat > "$cfg/setup/scripts/template-push.sh" << STUB
+#!/usr/bin/env bash
+echo "\$@" >> "$_TPL_ARGV"
+if [[ "\$1" == --dry-run ]]; then
+    ( source "$LOCK_LIB"; _write_lock "$cfg/.claude/.session-lock" "af-cfg-owner" "cc-cfg-owner" "$holder" )
+    [[ -n "$edit" ]] && echo "new holder's in-progress edit" >> "$cfg/global/hooks/x.sh"
+    echo "Would copy global/hooks/x.sh"
+fi
+exit 0
+STUB
+    chmod +x "$cfg/setup/scripts/template-push.sh"
+}
+
+_assert_phase3_held_after_late_arrival() {   # <config_repo> <before_commits> <why>
+    local cfg="$1" before="$2" why="$3"
+    local calls; calls=$(grep -c . "$_TPL_ARGV" 2>/dev/null || true)
+    assert_eq "2" "$calls" "precondition: Phase 0.8 ran — nobody held the repo when the early probe looked (measured $calls call(s))" || return 1
+    local after; after=$(_commits "$cfg")
+    assert_eq "$before" "$after" "no Auto-sync commit — $why (measured $before -> $after)" || return 1
+    local staged; staged=$(git -C "$cfg" diff --cached --name-only | wc -l | tr -d ' ')
+    assert_eq "0" "$staged" "nothing staged (measured $staged path(s))" || return 1
+    assert_file_contains "$cfg/global/hooks/x.sh" "in-progress edit" "the arriving session's edit is still in the working tree"
+}
+
+test_phase3_takes_phase1_verdict_when_holder_gone_by_phase3() {
+    # E-ORIN: ORIGINAL_DIR == CONFIG_REPO. No lock when the early probe runs; a
+    # foreign session appears during Phase 0.8, so Phase 1's guard refuses the
+    # rotation (_ORIG_HELD_BY_OTHER=1); by Phase 3 that session is gone again
+    # (the rotate stub kills the holder as it returns), so the re-probe finds a
+    # stale lock and no holder. Only the OR-in of Phase 1's verdict keeps Phase
+    # 3 from staging and committing. Mutant check: `if false` there → red.
+    local cfg="$TEST_TMPDIR/cfg"
+    mkdir -p "$TEST_TMPDIR/home"
+    _prep_cfg_repo "$cfg"
+    sleep 120 & local lpid=$!
+    _write_lock_from_template_push "$cfg" "$lpid" also-edit
+    cat > "$cfg/setup/scripts/rotate-session.sh" << STUB
+#!/usr/bin/env bash
+bash "$ROTATE_REAL" "\$@"; rc=\$?
+kill "$lpid" 2>/dev/null
+exit \$rc
+STUB
+    local before; before=$(_commits "$cfg")
+    _run "$cfg" "$cfg" leader || true
+    kill "$lpid" 2>/dev/null || true
+    local goal; goal=$(_goal_lines "$cfg")
+    assert_eq "1" "$goal" "precondition: Phase 1's guard refused — the context is intact (measured $goal goal line(s))" || return 1
+    _assert_phase3_held_after_late_arrival "$cfg" "$before" "Phase 3 takes Phase 1's verdict although the re-probe no longer sees a holder"
+}
+run_test "CFG-665: Phase 3 keeps Phase 1's refusal when the holder is gone again by Phase 3 (ORIGINAL_DIR == CONFIG_REPO)" test_phase3_takes_phase1_verdict_when_holder_gone_by_phase3
+
+test_phase3_reprobe_catches_holder_arriving_during_phase08() {
+    # E-TOCTOU: a foreign project's shutdown. Nobody holds the config repo when
+    # the early probe looks; a cfg session appears during Phase 0.8 and is still
+    # live at Phase 3. The cfg context is ABSENT, so rotate-session.sh's guard
+    # cannot be what refuses: only the re-probe under the flock stops the sweep.
+    local cfg="$TEST_TMPDIR/cfg" proj="$TEST_TMPDIR/life"
+    mkdir -p "$proj" "$TEST_TMPDIR/home"
+    _prep_cfg_repo "$cfg"
+    git -C "$cfg" rm -q session-context.md && git -C "$cfg" commit -q -m "no cfg context" && git -C "$cfg" push -q origin main
+    sleep 120 & local lpid=$!
+    _write_lock_from_template_push "$cfg" "$lpid" also-edit
+    local before; before=$(_commits "$cfg")
+    _run "$cfg" "$proj" leader || true
+    kill "$lpid" 2>/dev/null || true
+    _assert_phase3_held_after_late_arrival "$cfg" "$before" "the re-probe under the flock sees the session that arrived during Phase 0.8"
+}
+run_test "CFG-665: Phase 3 re-probes under the flock and sees a holder that arrived during Phase 0.8" test_phase3_reprobe_catches_holder_arriving_during_phase08
+
+test_phase08_skipped_when_foreign_cc_lives_in_cfg_without_lock() {
+    # No lock file at all, but a live foreign CC is cwd'd in the config repo
+    # (CFG-468: a session whose lock was lost or never written). check_lock
+    # answers 2 from the process scan alone; Phase 0.8 must not propagate.
+    local cfg="$TEST_TMPDIR/cfg" proj="$TEST_TMPDIR/life"
+    mkdir -p "$proj" "$TEST_TMPDIR/home"
+    _prep_cfg_repo "$cfg"
+    _arm_template_push "$cfg"
+    [[ ! -f "$cfg/.claude/.session-lock" ]] || { echo "precondition: no lock file"; return 1; }
+    env -C "$cfg" bash -c 'exec -a fakecc-nested sleep 120' & local fpid=$!
+    sleep 0.2
+    local before; before=$(_commits "$cfg")
+    _run "$cfg" "$proj" leader || true
+    kill "$fpid" 2>/dev/null || true
+    _assert_not_propagated "$cfg" "$before" "while a lock-less foreign CC is cwd'd in the config repo (check_lock=2 from the process scan)"
+}
+run_test "CFG-665: Phase 0.8 is skipped when a lock-less foreign CC is cwd'd in the config repo" test_phase08_skipped_when_foreign_cc_lives_in_cfg_without_lock
 
 # ── Summary ──────────────────────────────────────────────────────────────────
 

@@ -7,9 +7,11 @@
 # 2. Commit session files in current project (if different from the config repo)
 # 3. Auto-rotate the config repo's own session
 # 4. Deploy repo → live, commit config repo changes, and push
-#    Step 3 and the commit in step 4 are skipped when a DIFFERENT live session
-#    holds the config repo (CFG-666 / CFG-665) — they are that session's own
-#    shutdown work; touching them from here blanked and swept a live session.
+#    Step 3, the commit in step 4 and the template propagation (Phase 0.8) are
+#    skipped when a DIFFERENT live session holds the config repo (CFG-666 /
+#    CFG-665) — they are that session's own shutdown work; touching them from
+#    here blanked and swept a live session, and pushed its half-built files to
+#    the public template.
 #
 # On failure: writes a marker to .sync-failed
 # The SessionStart hook (config-check.sh) reads this marker and alerts the user.
@@ -258,6 +260,53 @@ if [ -d "$CONFIG_REPO/.git" ]; then
     fi
 fi
 
+# --- CFG-666 / CFG-665: is the config repo held by a DIFFERENT live session? ---
+# If it is, everything below that touches the config repo's session files,
+# working tree or index is that session's job at its own shutdown: the template
+# propagation (Phase 0.8 — it copies the WORKING TREE into the public template),
+# rotation (Phase 3), the post-rotation marker (Phase 3.5) and staging/committing.
+# A non-empty session-context.md is evidence that somebody is using it, not
+# evidence that rotation is due. check_lock comes from session-lock.sh (sourced
+# in Phase -1); when it is unavailable, rotate-session.sh's own guard in Phase 3
+# is the fallback — its exit 3 sets the same flag.
+#
+# Decided ONCE, here, before Phase 0.8, and consumed by Phase 3 (CFG-665,
+# measured twice 2026-11-11: Phase 0.8 pushed a live cfg session's uncommitted
+# files to agent-fleet — c8e613c, 67df308 — because the verdict was only taken
+# in Phase 3, after the push).
+_CFG_HELD_BY_OTHER=0
+_cfg_held_notice() {
+    _shutdown_progress "Config repo is held by another live session — its context and work are left to it."
+}
+_cfg_held_probe() {
+    command -v check_lock >/dev/null 2>&1 || return 0
+    if [[ "$ORIGINAL_DIR" == "$CONFIG_REPO" ]]; then
+        # The project IS the config repo: Phase 1's guard verdict is the answer,
+        # and Phase 1 has not run yet. Ask what that guard (rotate-session.sh)
+        # asks: a lock still present — a genuine leader released its own in
+        # Phase -1 — that check_lock calls foreign. Phase 3 adds Phase 1's own
+        # verdict once it exists.
+        [[ -f "$CONFIG_REPO/.claude/.session-lock" ]] || return 0
+    fi
+    local rc=0
+    check_lock "$CONFIG_REPO" >/dev/null 2>&1 || rc=$?
+    # 2 = another live session on this machine, 3 = another machine (unverifiable)
+    if [[ "$rc" -eq 2 || "$rc" -eq 3 ]]; then
+        _CFG_HELD_BY_OTHER=1
+        _cfg_held_notice
+    elif [[ "$rc" -eq 4 ]]; then
+        # CFG-673 / GH#9: cannot determine — the lock check saw no Claude Code
+        # process at all, so "nobody live" is its blindness. Fail closed: treat
+        # the config repo as held (no propagation, no rotation, no staging, no
+        # commit) and record the unknown state where the next SessionStart
+        # surfaces it.
+        _CFG_HELD_BY_OTHER=1
+        _shutdown_progress "Config repo lock state unknown (no Claude Code process visible) — treated as held; its context and work are left alone."
+        echo "$(date -u +'%Y-%m-%d %H:%M:%S UTC') config repo lock state unknown (check_lock=4: no Claude Code process visible to the lock check) — treated as held, rotation and commit skipped, lock left in place" >> "$CONFIG_REPO/.sync-warnings.log"
+    fi
+}
+_cfg_held_probe
+
 # --- Phase 0.8: Automatic template propagation (CFG-242, CFG-391) ---
 # If template-push.sh exists and template repo is local, auto-propagate changes.
 # Category 1-2 files are auto-committed. Category 3 files are flagged only.
@@ -267,7 +316,22 @@ fi
 _TPL_SCRIPT="$CONFIG_REPO/setup/scripts/template-push.sh"
 _TPL_DIR="$HOME/agent-fleet"
 _TPL_FAIL_MARKER="$CONFIG_REPO/.template-push-failed"
-if [ -f "$_TPL_SCRIPT" ] && [ -d "$_TPL_DIR/.git" ]; then
+if [ -f "$_TPL_SCRIPT" ] && [ -d "$_TPL_DIR/.git" ] && [ "$_CFG_HELD_BY_OTHER" -eq 1 ]; then
+    # CFG-665: template-push copies the config repo's WORKING TREE — another
+    # live session's uncommitted, half-built files included — into the PUBLIC
+    # template and pushes it. The owner propagates at its own shutdown. Not
+    # even the dry-run runs: its exit code is a verdict that writes
+    # .template-push-failed, and that streak is the owner's too.
+    # Recorded in an audit log, NOT in the drift log: checks/04-auto-fix.sh
+    # surfaces every line of .sync-warnings.log at the next SessionStart of ANY
+    # project as "propagation drift … fix with sync.sh deploy" — wrong advice,
+    # and with a cfg session live most of the day it would fire on most shutdowns.
+    _shutdown_progress "Template propagation deferred — config repo held by another live session."
+    mkdir -p "$HOME/.claude/logs" 2>/dev/null
+    printf '%s TEMPLATE_PUSH_DEFERRED: config repo held by another live session — its owner propagates at its own shutdown (shutdown of %s)\n' \
+        "$(date -u +'%Y-%m-%d %H:%M:%S UTC')" "$(basename "$ORIGINAL_DIR")" \
+        >> "$HOME/.claude/logs/template-push-deferred.log" 2>/dev/null || true
+elif [ -f "$_TPL_SCRIPT" ] && [ -d "$_TPL_DIR/.git" ]; then
     # CFG-431: gate on REAL drift. The dry-run reports "Would copy/sanitize" only
     # for files that differ from the template (byte-identical targets print
     # "Identical:"), so the count is the number of files a push would change —
@@ -553,39 +617,18 @@ if ! flock -w 30 9; then
 fi
 
 # --- CFG-666 / CFG-665: is the config repo held by a DIFFERENT live session? ---
-# If it is, everything below that touches the config repo's session files,
-# working tree or index is that session's job at its own shutdown: rotation
-# (Phase 3), the post-rotation marker (Phase 3.5) and staging/committing. A
-# non-empty session-context.md is evidence that somebody is using it, not
-# evidence that rotation is due. check_lock comes from session-lock.sh (sourced
-# in Phase -1); when it is unavailable, rotate-session.sh's own guard below is
-# the fallback — its exit 3 sets the same flag.
-_CFG_HELD_BY_OTHER=0
-_cfg_held_notice() {
-    _shutdown_progress "Config repo is held by another live session — its context and work are left to it."
-}
-if [[ "$ORIGINAL_DIR" == "$CONFIG_REPO" ]]; then
-    # The project IS the config repo: Phase 1's guard verdict is the answer.
-    if [[ "$_ORIG_HELD_BY_OTHER" -eq 1 ]]; then
-        _CFG_HELD_BY_OTHER=1
-        _cfg_held_notice
-    fi
-elif command -v check_lock >/dev/null 2>&1; then
-    _cl_rc=0
-    check_lock "$CONFIG_REPO" >/dev/null 2>&1 || _cl_rc=$?
-    # 2 = another live session on this machine, 3 = another machine (unverifiable)
-    if [[ "$_cl_rc" -eq 2 || "$_cl_rc" -eq 3 ]]; then
-        _CFG_HELD_BY_OTHER=1
-        _cfg_held_notice
-    elif [[ "$_cl_rc" -eq 4 ]]; then
-        # CFG-673 / GH#9: cannot determine — the lock check saw no Claude Code
-        # process at all, so "nobody live" is its blindness. Fail closed: treat
-        # the config repo as held (no rotation, no staging, no commit) and
-        # record the unknown state where the next SessionStart surfaces it.
-        _CFG_HELD_BY_OTHER=1
-        _shutdown_progress "Config repo lock state unknown (no Claude Code process visible) — treated as held; its context and work are left alone."
-        echo "$(date -u +'%Y-%m-%d %H:%M:%S UTC') config repo lock state unknown (check_lock=4: no Claude Code process visible to the lock check) — treated as held, rotation and commit skipped, lock left in place" >> "$CONFIG_REPO/.sync-warnings.log"
-    fi
+# Decided before Phase 0.8 (_cfg_held_probe, which see): one verdict for the
+# template propagation and for everything below. Asked once more here, under
+# the flock, for a session that arrived during Phases 0.8–2: the probe only
+# ever turns "not held" into "held", and a repo already held is not probed
+# again, so its rc-4 record is written at most once. When the project IS the
+# config repo, Phase 1's guard verdict is added too — it exists now: the probe
+# ran the same guard early, so the two differ only when the holder changed
+# between them, and a hold from either side counts.
+[[ "$_CFG_HELD_BY_OTHER" -eq 0 ]] && _cfg_held_probe
+if [[ "$ORIGINAL_DIR" == "$CONFIG_REPO" && "$_ORIG_HELD_BY_OTHER" -eq 1 && "$_CFG_HELD_BY_OTHER" -eq 0 ]]; then
+    _CFG_HELD_BY_OTHER=1
+    _cfg_held_notice
 fi
 
 # Auto-rotate config repo's own session (if different from original project).
