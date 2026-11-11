@@ -20,8 +20,8 @@ The sweep kept losing to the main task. It is step 4, and no draft reaches the r
 
 1. Draft the substance. Fold each scope into the claim it bounds, and end sections on something other than the
    thesis (see *Structural slop*).
-2. Verify every citation entering the draft (title, authors, venue, volume, DOI) — and every citation
-   already in the passage you touched. If the project keeps hand-maintained sources alongside generated
+2. Verify every citation entering the draft (title, authors, venue, volume, DOI) and every factual detail
+   of a case example (names, numbers, dates, outcome) — and every citation already in the passage you touched. If the project keeps hand-maintained sources alongside generated
    ones (e.g. a `.tex` next to a `.md`), mirror the edit into every source the build actually reads; an edit
    that lands only in a file the build copies rather than generates never reaches the output.
 3. Run the project's own gate scripts, if it has any (register checker, structural-slop gate, draft linter).
