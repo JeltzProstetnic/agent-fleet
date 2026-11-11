@@ -38,11 +38,10 @@ Do NOT commit, push, or create PRs. Return findings as text.
 After the risk subagent returns an acceptable assessment:
 
 1. Review the subagent's findings
-2. If risk is acceptable, write the clearance file:
-   ```bash
-   touch /tmp/.risk-gate-clearance-<HASH>
-   ```
-   The hash is per-file: `echo "<file_path>" | md5sum | cut -c1-16`
+2. If risk is acceptable, write the clearance bound to the exact payload the subagent saw (CFG-949): put `old_string` and `new_string` (or the full Write content) into scratch files with the Write tool, byte-exact, hand those files to the subagent, then
+   `bash ~/.claude/hooks/risk-gate.sh clearance <file_path> edit <old-file> <new-file> [--replace-all]` or `bash ~/.claude/hooks/risk-gate.sh clearance <file_path> write <content-file>`
+   (the clearance file `/tmp/.risk-gate-clearance-<md5 of path>` then holds `sha256=<fingerprint>`; `risk-gate.sh fingerprint …` prints the value for the brief).
+   The gate recomputes the fingerprint from the Edit/Write it actually sees and blocks on any difference — a changed edit needs a fresh assessment. A bare `touch` clearance (no fingerprint) still passes until it expires, with a warning.
 3. Proceed with the edit (clearance valid for 10 minutes)
 4. After editing, verify the change works as intended
 
@@ -67,4 +66,4 @@ Never bypass risk-gate.sh by removing the hook. If the hook is blocking legitima
 2. Write the clearance file
 3. Proceed with the edit
 
-The 10-minute clearance window ensures each edit gets a fresh assessment.
+The 10-minute clearance window ensures each edit gets a fresh assessment; the fingerprint ensures the assessed payload is the one written.

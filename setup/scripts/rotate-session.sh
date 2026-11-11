@@ -381,6 +381,7 @@ cat > "$SESSION_FILE" <<'EOF'
 ## Next Session Task
 <!-- MANDATORY at shutdown — fill this in every session, including sessions with nothing in flight.
      Required fields: task: true|false, file: <path>, backlog: <ID|none>, description: <text>
+     Optional: resume: <the exact first command or step to run> — carried verbatim, shown in HANDOFF (CFG-948).
      The file: MUST point to a dedicated file (e.g., docs/pending-*.md), NEVER to session-context.md.
      rotate-session.sh extracts this section to next-session-task.md automatically. -->
 EOF

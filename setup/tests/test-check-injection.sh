@@ -915,6 +915,75 @@ test_due_today_act_in_act_pending() {
 }
 run_test "check 23b (CFG-896): act file due today is in ACT_PENDING" test_due_today_act_in_act_pending
 
+# ── CFG-948: parsed work-item state block in pending files ──────────────────
+# <!-- Work: stage=<word>; status=<open|blocked|awaiting-proof|done>; next=<one line>; approved=<YYYY-MM-DD who|none> -->
+# Reported compactly inside PENDING_FILES / ACT_PENDING; a malformed block and a
+# status=done on a still-live file (Action: act|present|await-user-decision)
+# are flagged in WARNINGS.
+_cfg948_run() {   # <file name> <line>... ; sets OUT
+    local name="$1"; shift
+    local config_repo="$TEST_TMPDIR/config-repo" mock_home="$TEST_TMPDIR/home" project_dir="$TEST_TMPDIR/project"
+    mkdir -p "$mock_home/.claude" "$project_dir/docs"
+    create_mock_config_repo "$config_repo"; touch "$config_repo/CLAUDE.md"
+    ln -sf "$config_repo/CLAUDE.md" "$mock_home/.claude/CLAUDE.md"
+    printf '%s\n' "$@" > "$project_dir/docs/$name"
+    local patched; patched=$(create_patched_script "$config_repo" "$mock_home" "$project_dir")
+    OUT=$(run_hook "$patched")
+}
+
+test_work_block_reported_in_pending_and_act() {
+    _cfg948_run "pending-work.md" "<!-- Action: act -->" \
+        "<!-- Work: stage=build; status=open; next=run E2E in podman; approved=2026-11-11 MG -->" "" "body"
+    local pf_field act_field
+    pf_field=$(echo "$OUT" | grep -oE 'PENDING_FILES:[^|]*' | head -1)
+    act_field=$(echo "$OUT" | grep -oE 'ACT_PENDING:[^|]*' | head -1)
+    echo "    measured: $pf_field / $act_field"
+    assert_contains "$pf_field" "pending-work.md (act; build/open: run E2E in podman)" "PENDING_FILES carries the compact work state after the action label"
+    assert_contains "$act_field" "pending-work.md (build/open: run E2E in podman)" "ACT_PENDING carries the compact work state"
+    assert_not_contains "$OUT" "WORK_MALFORMED" "a valid block raises no malformed warning"
+    assert_not_contains "$OUT" "WORK_DONE_CONFLICT" "status=open raises no done conflict"
+}
+run_test "check 23c (CFG-948): work block reported compactly in PENDING_FILES and ACT_PENDING" test_work_block_reported_in_pending_and_act
+
+test_work_block_malformed_flagged() {
+    _cfg948_run "pending-bad.md" "<!-- Action: act -->" "<!-- Work: stage=build; status=wip; next=x; approved=none -->"
+    local pf_field; pf_field=$(echo "$OUT" | grep -oE 'PENDING_FILES:[^|]*' | head -1)
+    echo "    measured: $pf_field"
+    assert_contains "$OUT" "WORK_MALFORMED: pending-bad.md" "a malformed block is flagged by file name"
+    assert_contains "$OUT" "status=wip" "the warning names the offending field"
+    assert_contains "$pf_field" "pending-bad.md (act)" "the PENDING_FILES entry falls back to the plain action label"
+}
+run_test "check 23c (CFG-948): malformed work block → WORK_MALFORMED, plain entry" test_work_block_malformed_flagged
+
+test_work_done_on_live_file_flagged() {
+    _cfg948_run "pending-done.md" "<!-- Action: act -->" "<!-- Work: stage=ship; status=done; next=; approved=2026-11-11 MG -->"
+    assert_contains "$OUT" "WORK_DONE_CONFLICT: pending-done.md" "status=done on an act file is flagged"
+    assert_contains "$OUT" "Action: act" "the warning names the live action it conflicts with"
+}
+run_test "check 23c (CFG-948): status=done on Action: act → WORK_DONE_CONFLICT" test_work_done_on_live_file_flagged
+
+test_work_done_on_reference_file_not_flagged() {
+    _cfg948_run "pending-ref.md" "<!-- Action: reference -->" "<!-- Work: stage=ship; status=done; next=; approved=2026-11-11 MG -->"
+    assert_not_contains "$OUT" "WORK_DONE_CONFLICT" "status=done on a reference file is not a conflict"
+    assert_contains "$OUT" "pending-ref.md (reference; ship/done)" "the reference entry still shows the work state"
+}
+run_test "check 23c (CFG-948): status=done on Action: reference is no conflict" test_work_done_on_reference_file_not_flagged
+
+test_handoff_resume_line_injected() {
+    local config_repo="$TEST_TMPDIR/config-repo" mock_home="$TEST_TMPDIR/home" project_dir="$TEST_TMPDIR/project"
+    mkdir -p "$mock_home/.claude" "$project_dir"
+    create_mock_config_repo "$config_repo"; touch "$config_repo/CLAUDE.md"
+    ln -sf "$config_repo/CLAUDE.md" "$mock_home/.claude/CLAUDE.md"
+    printf 'task: true\nfile: docs/pending-x.md\nbacklog: CFG-948\ndescription: Finish the work block.\nresume: bash setup/tests/test-check-injection.sh\n' > "$project_dir/next-session-task.md"
+    local patched; patched=$(create_patched_script "$config_repo" "$mock_home" "$project_dir")
+    local output; output=$(run_hook "$patched")
+    local ho; ho=$(echo "$output" | grep -oE 'HANDOFF:[^|]*\| file:[^|]*\| resume:[^|]*' | head -1)
+    echo "    measured: [$ho]"
+    assert_contains "$output" "HANDOFF: Finish the work block. | file: docs/pending-x.md | resume: bash setup/tests/test-check-injection.sh" \
+        "HANDOFF carries the resume: line after file:"
+}
+run_test "check 22b (CFG-948): HANDOFF carries the handover's resume: line" test_handoff_resume_line_injected
+
 # ── Summary ──────────────────────────────────────────────────────────────────
 
 suite_summary

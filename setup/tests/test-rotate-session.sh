@@ -835,6 +835,40 @@ LOGEOF
 }
 run_test "conflict markers cleaned from session-log before writing" test_conflict_markers_cleaned_from_session_log
 
+# ── CFG-948: the optional resume: line survives rotation ─────────────────────
+test_next_session_task_resume_carried() {
+    cat > "$TEST_TMPDIR/session-context.md" <<'EOF'
+# Session Context
+
+## Session Info
+- **Last Updated**: 2026-11-11T10:00Z
+- **Machine**: test-box
+- **Working Directory**: /tmp
+- **Session Goal**: Work block
+
+## Current State
+- **Progress** (use `- [x]` checkbox for each completed item):
+  - [x] Built the parser
+
+## Key Decisions
+- resume: names the first command
+
+## Next Session Task
+task: true
+file: docs/pending-work-block.md
+backlog: CFG-948
+description: Run the suite and commit.
+resume: bash setup/tests/run.sh
+EOF
+    mkdir -p "$TEST_TMPDIR/docs"
+    bash "$ROTATE_SCRIPT" "$TEST_TMPDIR" >/dev/null 2>&1
+    local line; line=$(grep '^resume:' "$TEST_TMPDIR/next-session-task.md" 2>/dev/null || true)
+    echo "    measured: [$line]"
+    assert_eq "resume: bash setup/tests/run.sh" "$line" "resume: line is carried verbatim into next-session-task.md"
+    assert_file_contains "$ROTATE_SCRIPT" "resume:" "the blank template names the optional resume: field"
+}
+run_test "resume: line carried into next-session-task.md (CFG-948)" test_next_session_task_resume_carried
+
 # ── Summary ──────────────────────────────────────────────────────────────────
 
 suite_summary
