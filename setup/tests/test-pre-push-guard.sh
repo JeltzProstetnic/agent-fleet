@@ -160,7 +160,7 @@ test_placeholders_do_not_block() {
     # The tokens a template legitimately contains: generic homes, loopback/any/
     # resolver/docker-bridge addresses, placeholder and service e-mail accounts.
     local d; d=$(make_repo)
-    local rc; rc=$(commit_and_run "$d" "see /home/user/.bashrc and /home/username/x; bind 127.0.0.1 or 0.0.0.0; dns 8.8.8.8; bridge 172.17.0.1; docs 192.0.2.10 and 203.0.113.9; mail you@example.com, your-email@gmail.com, name@domain.com, git@github.com, noreply@anthropic.com, notifications@github.com")
+    local rc; rc=$(commit_and_run "$d" "see /home/user/.bashrc and /home/username/x and /home/x/.claude; bind 127.0.0.1 or 0.0.0.0; dns 8.8.8.8; bridge 172.17.0.1; docs 192.0.2.10 and 203.0.113.9; mail you@example.com, your-email@gmail.com, name@domain.com, git@github.com, noreply@anthropic.com, notifications@github.com")
     assert_eq "0" "$rc" "placeholder tokens must not block (rc=$rc) — a false block trains the bypass"
 }
 run_test "shape: documentation placeholders do not block" test_placeholders_do_not_block
