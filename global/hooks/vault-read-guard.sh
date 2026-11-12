@@ -26,20 +26,28 @@ else
 fi
 [ -z "$CMD" ] && exit 0
 
-# Must mention a vault plaintext as a path (preceded by /, space, or start; followed by
-# space, end, or non-alnum). Catches `secrets/vault.json`, ` vault.json`,
-# `~/<config-repo>/secrets/vault.json`, `secrets/other-vault.json`, etc.
-# but NOT `test-vault-manage.sh` (no .json) or `vault.json.tmp` (alnum follows).
+# WHICH paths are credential stores lives in lib-credential-paths.sh (CFG-960), shared with
+# credential-read-guard.sh (Read/Grep/NotebookRead) so the two guards cannot drift apart:
+#   vault     a plaintext vault as a path (preceded by /, space, or start; followed by space,
+#             end, or non-alnum): `secrets/vault.json`, `secrets/other-vault.json` — NOT
+#             `test-vault-manage.sh` (no .json) or `vault.json.tmp` (alnum follows).
+#   settings  CFG-892: the LIVE settings.json is a credential store too — its env block
+#             carries tokens (AFD_TOKEN and others), and a subagent asked to "read the
+#             settings" printed them into its transcript (2026-10-30). Live =
+#             $CLAUDE_CONFIG_DIR/settings.json, a cc-mirror variant's config/settings.json,
+#             or ~/.claude/settings.json (live on hosts that symlink the two). NOT the repo
+#             template (setup/config/settings.json: no secrets by invariant) and NOT a
+#             project's <project>/.claude/settings.json. A suffix (.bak) is a copy: blocked.
+# Without the lib (a broken deploy — sync.sh ships hook and lib in one loop) every
+# vault.json / settings.json mention counts: a false block, never a read.
+if source "$(dirname "${BASH_SOURCE[0]}")/lib-credential-paths.sh" 2>/dev/null && [ -n "${CRED_SETTINGS_RE:-}" ]; then
+    VAULT_RE="$CRED_VAULT_RE"; SETTINGS_RE="$CRED_SETTINGS_RE"
+    LIVE_RE="$CRED_LIVE_MARKER_RE"; HOME_RE="$CRED_HOME_MARKER_RE"
+else
+    VAULT_RE='vault\.json'; SETTINGS_RE='settings\.json'; LIVE_RE='.'; HOME_RE='.'
+fi
 VAULT_HIT=0; SETTINGS_HIT=0
-echo "$CMD" | grep -qE '(^|[[:space:]/])([A-Za-z0-9_]+-)?vault\.json([[:space:]]|$|[^a-zA-Z0-9.])' && VAULT_HIT=1
-
-# CFG-892: the LIVE settings.json is a credential store too — its env block carries tokens
-# (AFD_TOKEN and others), and a subagent asked to "read the settings" printed them into its
-# transcript (2026-10-30). Live = $CLAUDE_CONFIG_DIR/settings.json, a cc-mirror
-# variant's config/settings.json, or ~/.claude/settings.json (live on hosts that symlink the
-# two). NOT the repo template (setup/config/settings.json: no secrets by invariant) and NOT a
-# project's <project>/.claude/settings.json. A suffix (settings.json.bak) is a copy: blocked.
-SETTINGS_RE='(\.cc-mirror/[^/[:space:]]+/config/settings\.json|CLAUDE_CONFIG_DIR\}?/settings\.json|(~|\$HOME|\$\{HOME\}|/home/[^/[:space:]]+|/root|/Users/[^/[:space:]]+)/\.claude/settings\.json)'
+echo "$CMD" | grep -qE "$VAULT_RE" && VAULT_HIT=1
 echo "$CMD" | grep -qE "$SETTINGS_RE" && SETTINGS_HIT=1
 # CFG-959: a path BUILT at run time — os.environ['CLAUDE_CONFIG_DIR']+'/settings.json',
 # Path.home()/'.cc-mirror'/…/'settings.json', D=$CLAUDE_CONFIG_DIR; … $D/settings.json — never
@@ -48,7 +56,6 @@ echo "$CMD" | grep -qE "$SETTINGS_RE" && SETTINGS_HIT=1
 # command also names a live location: CLAUDE_CONFIG_DIR, .cc-mirror, or a home-relative .claude.
 if [ "$SETTINGS_HIT" = 0 ]; then
     REST=${CMD//"setup/config/settings.json"/}; REST=${REST//"/.claude/settings.json"/}
-    LIVE_RE='CLAUDE_CONFIG_DIR|\.cc-mirror|~/\.claude'; HOME_RE='HOME|Path\.home\(|expanduser\(|homedir\('
     if [[ "$REST" == *settings.json* ]] && { [[ "$CMD" =~ $LIVE_RE ]] ||
          { [[ "$CMD" =~ $HOME_RE ]] && [[ "$CMD" == *.claude* ]]; }; }; then
         SETTINGS_HIT=1
@@ -65,187 +72,16 @@ if [ "$SETTINGS_HIT" = 0 ]; then
 fi
 
 # ── What the verb match may see (CFG-621) ────────────────────────────────────
-# The blocked-verb list contains the English words `more` and `less`, and the
-# match used to run over the whole command string with no positional relation
-# to the path — so a commit whose MESSAGE read "describe secrets/vault.json more
-# usefully" was blocked although it read nothing. A guard that false-blocks
-# trains the bypass (CFG-513). The verbs are not the defect (`more secrets/…`
-# must stay blocked); the matching scope is. So the verb checks below run on
-# SCAN: the command with commit-message bodies removed. The path check above
-# stays on the full string.
-#
-# Only a GIT COMMIT's message counts as prose, and only in two shapes: the value
-# of `-m`/`--message` on a `git … commit` clause (a `$(cat <<EOF … EOF)` there
-# included), and a heredoc read by `git commit` itself (`-F - <<EOF`). The first
-# CFG-621 fix treated every `$(cat <<EOF)` as prose because its own command is
-# `cat`, but what consumes the substitution decides: `bash -c "$(cat <<…)"`,
-# `eval`, `perl -e`, `x=$(…)` and `… | sh` run the body. The -m match is also
-# tied to a git commit clause, so `unshare -m cat …` and a " -m \"" inside some
-# other string hide nothing. Kept even inside a message, because they execute:
-#   - a $(...) or `...` in an -m body — `-m "$(cat secrets/vault.json)"` puts
-#     the plaintext into the commit message;
-#   - body lines of an unquoted-tag heredoc that hold $(...) or `...`.
-# Without python3 nothing is stripped and the match runs as before: that
-# degrades toward a false block, never toward a read.
+# The blocked-verb list contains the English words `more` and `less`; a commit whose MESSAGE
+# read "describe secrets/vault.json more usefully" was blocked although it read nothing. So
+# the verb checks below run on SCAN: the command with git commit-message bodies removed
+# (lib-commit-message-strip.sh carries the rules and their rationale). The path check above
+# stays on the full string. Without the lib or python3 nothing is stripped and the match
+# runs over the raw command: that degrades toward a false block, never toward a read.
 SCAN="$CMD"
-if command -v python3 &>/dev/null; then
-    SCAN=$(printf '%s' "$CMD" | python3 -c '
-import re, sys
-s = sys.stdin.read()
-
-HEREDOC = re.compile(r"<<(-?)\s*([\x27\"]?)(\w+)\2")
-# A `git … commit` clause: env prefixes, then git global options, then commit.
-COMMIT = re.compile(r"[\s({]*(?:[A-Za-z_]\w*=\S*\s+)*git(?:\s+(?:-[Cc]\s+\S+|--?[\w-]+(?:=\S+)?))*\s+commit\b")
-MSGOPT = re.compile(r"(?:^|\s)(?:-[A-Za-z]*m|--message=?)\s*$")
-
-def frames(t):
-    # Nesting at the end of t, one [kind, clause_start, open_pos] per level with
-    # kind cmd|dq|sub; heredoc bodies are skipped. None: t ends inside single quotes.
-    st = [["cmd", 0, 0]]; pend = []; i = 0; n = len(t)
-    while i < n:
-        c = t[i]; top = st[-1]
-        if c == "\\":
-            i += 2; continue
-        if c == "`":
-            e = t.find("`", i + 1); i = n if e < 0 else e + 1; continue
-        if top[0] == "dq":
-            if c == "\"": st.pop()
-            elif t.startswith("$(", i): st.append(["sub", i + 2, i]); i += 1
-            i += 1; continue
-        if c == "\x27":
-            e = t.find("\x27", i + 1)
-            if e < 0: return None
-            i = e + 1; continue
-        if t.startswith("<<<", i):
-            i += 3; continue
-        m = HEREDOC.match(t, i)
-        if m:
-            pend.append((m.group(3), m.group(1) == "-")); i = m.end(); continue
-        if c == "\"": st.append(["dq", i + 1, i])
-        elif t.startswith("$(", i): st.append(["sub", i + 2, i]); i += 1
-        elif c == ")" and top[0] == "sub": st.pop()
-        elif c == "#" and (i == 0 or t[i - 1] in " \t\n;&|("):
-            e = t.find("\n", i); i = n if e < 0 else e; continue
-        elif c in ";&|()\n":
-            top[1] = i + 1
-            if c == "\n" and pend:
-                i += 1
-                for tag, strip in pend:
-                    while i < n:
-                        e = t.find("\n", i); e = n if e < 0 else e
-                        line = t[i:e]; i = e + 1
-                        if (line.lstrip("\t") if strip else line) == tag: break
-                pend = []; top[1] = min(i, n); continue
-        i += 1
-    return st
-
-def prose(before):
-    # Is the heredoc that starts at the end of `before` a commit message?
-    #   "commit": git commit itself reads it (git commit -F - <<EOF);
-    #   "cat":    $(cat <<EOF) is the -m/--message value of a git commit.
-    # Anything else consumes the output some other way (bash -c, eval, perl -e,
-    # x=…, | sh), so its body stays visible to the verb match.
-    st = frames(before)
-    if not st or st[-1][0] == "dq": return None
-    top = st[-1]; own = before[top[1]:]
-    if COMMIT.match(own) and not re.search(r"[$`|;&<>]", own): return "commit"
-    if top[0] != "sub" or not re.fullmatch(r"\s*cat(?:\s+-)?\s*", own): return None
-    outer, end = (st[-3], st[-2][2]) if st[-2][0] == "dq" else (st[-2], top[2])
-    if outer[0] == "dq": return None
-    lead = before[outer[1]:end]
-    return "cat" if COMMIT.match(lead) and MSGOPT.search(lead) else None
-
-def strip_heredocs(s):
-    lines = s.split("\n"); out = []; i = 0
-    while i < len(lines):
-        line = lines[i]
-        m = HEREDOC.search(line)
-        if m:
-            pre = line[:m.start()]
-            kind = prose("\n".join(out + [pre]))
-            # Prose only if nothing but `)`, `"` or end-of-line follows the tag:
-            # a redirect or pipe after it sends the body somewhere.
-            if kind and re.match(r"\s*(?:\)|\"|$)", line[m.end():]):
-                dash, quoted, tag = m.group(1), bool(m.group(2)), m.group(3)
-                j = i + 1
-                while j < len(lines) and (lines[j].lstrip("\t") if dash else lines[j]) != tag:
-                    j += 1
-                if j < len(lines):
-                    if kind == "cat":
-                        pre = re.sub(r"cat(?:\s+-)?\s*$", "", pre)   # cat only echoes the prose
-                    out.append(pre + line[m.start():])
-                    for b in lines[i + 1:j]:
-                        if not quoted and ("$(" in b or "`" in b):   # unquoted tag expands
-                            out.append(b)
-                    out.append(lines[j])
-                    i = j + 1
-                    continue
-        out.append(line)
-        i += 1
-    return "\n".join(out)
-
-OPT = re.compile(r"(?:(?<=\s)|^)(?:--message(?:=|\s+)|-(?!-)[a-ln-zA-Z]*m(?:\s+|(?=\S)))")
-
-def strip_messages(s):
-    res = []; i = 0; n = len(s)
-    while True:
-        m = OPT.search(s, i)
-        if not m:
-            res.append(s[i:]); break
-        res.append(s[i:m.end()])
-        st = frames(s[:m.start()])     # an option of git commit, not text in a string
-        if not st or st[-1][0] == "dq" or not COMMIT.match(s[st[-1][1]:m.start()]):
-            i = m.end(); continue
-        j = m.end()
-        if j >= n:
-            break
-        c = s[j]
-        if c == "\"":
-            k = j + 1; depth = 0; keep = []; buf = None
-            while k < n:
-                ch = s[k]
-                if depth > 0:
-                    buf += ch
-                    if ch == "\\":
-                        buf += s[k + 1:k + 2]; k += 2; continue
-                    if s.startswith("$(", k):
-                        buf += "("; depth += 1; k += 2; continue
-                    if ch == ")":
-                        depth -= 1
-                        if depth == 0:
-                            keep.append(buf); buf = None
-                    k += 1; continue
-                if ch == "\\":
-                    k += 2; continue
-                if s.startswith("$(", k):
-                    buf = "$("; depth = 1; k += 2; continue
-                if ch == "`":
-                    e = s.find("`", k + 1)
-                    e = n - 1 if e < 0 else e
-                    keep.append(s[k:e + 1]); k = e + 1; continue
-                if ch == "\"":
-                    break
-                k += 1
-            if buf is not None:
-                keep.append(buf)
-            res.append("\"" + " ".join(keep) + "\"")
-            i = k + 1
-        elif c == "\x27":
-            e = s.find("\x27", j + 1)
-            e = n - 1 if e < 0 else e
-            res.append("\x27\x27"); i = e + 1
-        else:
-            e = j
-            while e < n and not s[e].isspace():
-                e += 1
-            word = s[j:e]
-            res.append(word if ("$(" in word or "`" in word) else "\"\"")
-            i = e
-    return "".join(res)
-
-sys.stdout.write(strip_messages(strip_heredocs(s)))
-' 2>/dev/null) || SCAN="$CMD"
-    [ -n "$SCAN" ] || SCAN="$CMD"
+if source "$(dirname "${BASH_SOURCE[0]}")/lib-commit-message-strip.sh" 2>/dev/null \
+   && type strip_commit_messages &>/dev/null; then
+    _stripped=$(strip_commit_messages "$CMD") && [ -n "$_stripped" ] && SCAN="$_stripped"
 fi
 
 # No metadata exemption (CFG-959). Metadata ops (rm, ls, stat, test, readlink, chmod …) carry
@@ -287,8 +123,12 @@ _settings_view_path() {
     printf '%s' '<config-repo>/setup/scripts/settings-view.sh'
 }
 
-# Block: command contains a read primitive or copy-elsewhere primitive
-if [ "$SETTINGS_HIT" = 1 ] && echo "$SCAN" | grep -qE '\b(cat|head|tail|less|more|grep|awk|sed|jq|xxd|od|python[23]?|node|cp|mv|tee|tar|zip)\b'; then
+# Block: command contains a read primitive or a copy-elsewhere primitive. CFG-960: ln (a
+# hardlink twin shares the credential's inode under a name no shape knows), install, rsync
+# and dd (if=) mint an alias or a copy — the file guard catches the twin by inode, this
+# closes the side that creates it.
+READ_VERB_RE='\b(cat|head|tail|less|more|grep|awk|sed|jq|xxd|od|python[23]?|node|cp|mv|tee|tar|zip|ln|install|rsync|dd)\b'
+if [ "$SETTINGS_HIT" = 1 ] && echo "$SCAN" | grep -qE "$READ_VERB_RE"; then
     SV=$(_settings_view_path)
     cat >&2 <<BLOCKED_SETTINGS
 BLOCKED (CFG-892): the live settings.json is a credential store — its env block holds
@@ -302,7 +142,7 @@ ls/stat/test on the file stay allowed. Never print a credential's value.
 BLOCKED_SETTINGS
     exit 2
 fi
-if [ "$VAULT_HIT" = 1 ] && echo "$SCAN" | grep -qE '\b(cat|head|tail|less|more|grep|awk|sed|jq|xxd|od|python[23]?|node|cp|mv|tee|tar|zip)\b'; then
+if [ "$VAULT_HIT" = 1 ] && echo "$SCAN" | grep -qE "$READ_VERB_RE"; then
     VM=$(_vault_manage_path)
     cat >&2 <<BLOCKED_MSG
 BLOCKED: Direct read/copy of secrets/vault.json bypasses vault-manage.sh and risks

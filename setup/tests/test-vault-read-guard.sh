@@ -660,4 +660,27 @@ test_cfg959_allow_template_grep_with_marker_word() {
 run_test "CFG-959 allows: grep CLAUDE_CONFIG_DIR setup/config/settings.json; grep HOME <project>/.claude/settings.json" \
     test_cfg959_allow_template_grep_with_marker_word
 
+# ── CFG-960 fix round: minting an alias or a copy is a read ───────────────────
+# A hardlink (ln) shares the credential's inode under a name no shape knows; install, rsync
+# and dd (if=) copy the bytes. The file guard catches the twin by inode; the creation side
+# is closed here so the alias cannot be minted through Bash in the first place.
+
+test_cfg960_block_alias_and_copy_verbs() {
+    local cmd
+    for cmd in "ln $_LIVE ~/copy.json" "install -m 600 $_LIVE ~/copy.json" "rsync $_LIVE ~/copy.json" \
+               "dd if=$_LIVE of=~/copy.json" "ln secrets/vault.json /tmp/x" "dd if=secrets/vault.json of=/tmp/x" \
+               "rsync -a secrets/vault.json /tmp/" "install secrets/vault.json /tmp/x"; do
+        _settings_hook "$cmd"
+        assert_eq "2" "$RC" "[$cmd] mints an alias or a copy of the credential store and must be blocked" || return 1
+    done
+}
+run_test "CFG-960 blocks: ln / install / rsync / dd if= of the live settings.json and of secrets/vault.json" \
+    test_cfg960_block_alias_and_copy_verbs
+
+test_cfg960_metadata_forms_still_pass() {
+    _settings_hook "ls -la $_LIVE; readlink -f $_LIVE; stat $_LIVE"
+    assert_eq "0" "$RC" "metadata-only forms stay allowed next to the new verbs"
+}
+run_test "CFG-960 allows: ls/readlink/stat of the live settings.json still pass" test_cfg960_metadata_forms_still_pass
+
 suite_summary
