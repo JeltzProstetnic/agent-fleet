@@ -480,7 +480,7 @@ check_settings_health() {
 
     if ! grep -q '"permissions"' "$live_settings" 2>/dev/null; then
         log_warn "settings.json is missing 'permissions' block — all tool calls will require manual approval"
-        log_warn "  Fix: redeploy from template: sed 's|__HOME__|$HOME|g' setup/config/settings.json > $live_settings"
+        log_warn "  Fix: redeploy from template: bash sync.sh deploy"
         issues=$((issues + 1))
     fi
 
