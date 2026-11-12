@@ -29,6 +29,9 @@ fi
 MOCK
     chmod +x "$repo/sync.sh"
     (cd "$repo" && git add sync.sh && git commit -m "Add sync.sh" >/dev/null 2>&1 && git push --quiet 2>/dev/null)
+    # This repo plays the config repo: since CFG-981 only the config repo
+    # auto-deploys, and live sessions export CONFIG_REPO, which would win.
+    export CONFIG_REPO="$repo"
 
     # Clone "other machine" for pushing changes
     git clone "$remote" "$other" --quiet 2>/dev/null

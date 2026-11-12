@@ -359,14 +359,17 @@ test_pop_conflict_skips_auto_deploy() {
         > "$TEST_TMPDIR/repo/sync.sh"
     chmod +x "$TEST_TMPDIR/repo/sync.sh"
 
+    # CFG-981: the sandbox repo IS the config repo here, so the only thing that
+    # can stop the deploy is the conflict — not the not-the-config-repo skip.
     local out rc=0
-    out=$(cd "$TEST_TMPDIR/repo" && bash "$SYNC_SCRIPT" --pull 2>&1) || rc=$?
+    out=$(cd "$TEST_TMPDIR/repo" && CONFIG_REPO="$TEST_TMPDIR/repo" bash "$SYNC_SCRIPT" --pull 2>&1) || rc=$?
     assert_eq "2" "$rc" || return 1
     assert_contains "$out" "CONFLICT" || return 1
     assert_contains "$out" "global/hooks/guard.sh" "the conflicted hook is named" || return 1
     assert_file_not_exists "$TEST_TMPDIR/repo/.deploy-marker" \
         "no auto-deploy over a tree with conflict markers" || return 1
-    assert_contains "$out" "deploy" "the skipped deploy is said out loud, so it is re-run after resolving"
+    assert_contains "$out" "deploy" "the skipped deploy is said out loud, so it is re-run after resolving" || return 1
+    assert_not_contains "$out" "is not the config repo" "the skip is the conflict's, not CFG-981's"
 }
 run_test "pop conflict skips the CFG-208 auto-deploy and says so" test_pop_conflict_skips_auto_deploy
 
@@ -708,8 +711,9 @@ test_gh8_behind_report_and_deploy_intact() {
         > "$TEST_TMPDIR/repo/sync.sh"
     chmod +x "$TEST_TMPDIR/repo/sync.sh"
 
+    # CFG-981: only the config repo auto-deploys — name the sandbox repo as it.
     local out rc=0
-    out=$(cd "$TEST_TMPDIR/repo" && bash "$SYNC_SCRIPT" --pull 2>&1) || rc=$?
+    out=$(cd "$TEST_TMPDIR/repo" && CONFIG_REPO="$TEST_TMPDIR/repo" bash "$SYNC_SCRIPT" --pull 2>&1) || rc=$?
     assert_eq "0" "$rc" || return 1
     assert_contains "$out" "BEHIND remote by 1" "incoming report must not be suppressed" || return 1
     assert_contains "$out" "Incoming changes:" || return 1
@@ -741,8 +745,8 @@ test_sync_lib_pull_auto_deploys() {
     printf '#!/usr/bin/env bash\n[ "$1" = deploy ] && touch .deploy-marker\nexit 0\n' \
         > "$TEST_TMPDIR/repo/sync.sh"
     chmod +x "$TEST_TMPDIR/repo/sync.sh"
-    local out rc=0
-    out=$(cd "$TEST_TMPDIR/repo" && bash "$SYNC_SCRIPT" --pull 2>&1) || rc=$?
+    local out rc=0   # CFG-981: the sandbox repo is named as the config repo
+    out=$(cd "$TEST_TMPDIR/repo" && CONFIG_REPO="$TEST_TMPDIR/repo" bash "$SYNC_SCRIPT" --pull 2>&1) || rc=$?
     assert_eq "0" "$rc" "pull succeeds (out: $out)" || return 1
     assert_file_exists "$TEST_TMPDIR/repo/.deploy-marker" \
         "a pulled sync-lib/ change triggers the CFG-208 auto-deploy"
@@ -986,6 +990,180 @@ test_gh8_tracked_work_blocks_recovery() {
     assert_contains "$dirt" "README.md" "work in progress must be left alone"
 }
 run_test "gh-8: tracked work in progress blocks recovery" test_gh8_tracked_work_blocks_recovery
+
+# ── CFG-981 (a): only the config repo auto-deploys ───────────────────────────
+# afleet runs this script over EVERY repo, the public template checkout
+# included, and that checkout carries a sync.sh of its own: a behind template
+# pull used to run the TEMPLATE's deploy over the live config. Every run below
+# sets CONFIG_REPO explicitly — a live session exports the real one and tests
+# inherit it — or unsets it to exercise the hosting-repo fallback.
+
+# Untracked deploy stub: leaves .deploy-marker beside itself when it deploys.
+_cfg981_stub_sync() {
+    mkdir -p "$1"
+    printf '#!/usr/bin/env bash\n[ "$1" = deploy ] && touch "$(dirname "$0")/.deploy-marker"\nexit 0\n' > "$1/sync.sh"
+    chmod +x "$1/sync.sh"
+}
+
+# A repo one deploy-sensitive commit behind its remote, with the deploy stub.
+_cfg981_behind_deployable() {
+    local repo="$1"
+    create_tracked_repo "$repo" "$TEST_TMPDIR/remote.git"
+    git clone "$TEST_TMPDIR/remote.git" "$TEST_TMPDIR/other" --quiet 2>/dev/null
+    (
+        cd "$TEST_TMPDIR/other"
+        mkdir -p global/hooks
+        echo "hook" > global/hooks/new-hook.sh
+        git add global/hooks/new-hook.sh
+        git commit -qm "deploy-sensitive hook change"
+        git push --quiet 2>/dev/null
+    )
+    _cfg981_stub_sync "$repo"
+}
+
+_cfg981_deployed() { [[ -f "$1/.deploy-marker" ]] && echo yes || echo no; }
+
+test_cfg981_foreign_repo_never_deploys() {
+    _cfg981_behind_deployable "$TEST_TMPDIR/tmpl"
+    _cfg981_stub_sync "$TEST_TMPDIR/cfg"
+    local out rc=0 tp
+    tp=$(cd "$TEST_TMPDIR" && pwd -P)
+    out=$(cd "$TEST_TMPDIR/tmpl" && CONFIG_REPO="$TEST_TMPDIR/cfg" bash "$SYNC_SCRIPT" --pull 2>&1) || rc=$?
+    echo "    measured: rc=$rc deployed=$(_cfg981_deployed "$TEST_TMPDIR/tmpl")"
+    assert_eq "0" "$rc" "the pull itself succeeds (out: $out)" || return 1
+    assert_contains "$out" "Pulled successfully" "the pull still happens" || return 1
+    assert_file_not_exists "$TEST_TMPDIR/tmpl/.deploy-marker" \
+        "a repo that is not the config repo must never run its sync.sh deploy" || return 1
+    assert_file_not_exists "$TEST_TMPDIR/cfg/.deploy-marker" "nor deploy the config repo" || return 1
+    assert_contains "$out" "Auto-deploy SKIPPED — $tp/tmpl is not the config repo ($tp/cfg)" \
+        "the skip is said, naming both paths"
+}
+run_test "CFG-981: a behind pull of a repo that is not the config repo never auto-deploys and says so" test_cfg981_foreign_repo_never_deploys
+
+test_cfg981_config_repo_still_deploys() {
+    _cfg981_behind_deployable "$TEST_TMPDIR/repo"
+    local out rc=0
+    out=$(cd "$TEST_TMPDIR/repo" && CONFIG_REPO="$TEST_TMPDIR/repo" bash "$SYNC_SCRIPT" --pull 2>&1) || rc=$?
+    echo "    measured: rc=$rc deployed=$(_cfg981_deployed "$TEST_TMPDIR/repo")"
+    assert_eq "0" "$rc" "(out: $out)" || return 1
+    assert_file_exists "$TEST_TMPDIR/repo/.deploy-marker" "the config repo keeps its CFG-208 auto-deploy" || return 1
+    assert_not_contains "$out" "Auto-deploy SKIPPED"
+}
+run_test "CFG-981: the same pull of the config repo still auto-deploys" test_cfg981_config_repo_still_deploys
+
+# Paths are compared physically: CONFIG_REPO reached through a symlink is the same repo.
+test_cfg981_config_repo_via_symlink_deploys() {
+    _cfg981_behind_deployable "$TEST_TMPDIR/repo"
+    ln -s "$TEST_TMPDIR/repo" "$TEST_TMPDIR/cfg-link"
+    local out rc=0
+    out=$(cd "$TEST_TMPDIR/repo" && CONFIG_REPO="$TEST_TMPDIR/cfg-link" bash "$SYNC_SCRIPT" --pull 2>&1) || rc=$?
+    echo "    measured: rc=$rc deployed=$(_cfg981_deployed "$TEST_TMPDIR/repo")"
+    assert_eq "0" "$rc" "(out: $out)" || return 1
+    assert_file_exists "$TEST_TMPDIR/repo/.deploy-marker" "a symlinked CONFIG_REPO names the same repo"
+}
+run_test "CFG-981: CONFIG_REPO through a symlink is compared by physical path" test_cfg981_config_repo_via_symlink_deploys
+
+# CONFIG_REPO unset: the lib falls back to the repo hosting this script, which
+# is never a sandbox repo — so the sandbox repo must not deploy.
+test_cfg981_unset_env_uses_hosting_repo() {
+    _cfg981_behind_deployable "$TEST_TMPDIR/repo"
+    local out rc=0 host
+    host=$(cd "$REPO_ROOT" && pwd -P)
+    out=$(cd "$TEST_TMPDIR/repo" && env -u CONFIG_REPO bash "$SYNC_SCRIPT" --pull 2>&1) || rc=$?
+    echo "    measured: rc=$rc deployed=$(_cfg981_deployed "$TEST_TMPDIR/repo")"
+    assert_eq "0" "$rc" "(out: $out)" || return 1
+    assert_file_not_exists "$TEST_TMPDIR/repo/.deploy-marker" \
+        "with CONFIG_REPO unset a foreign sandbox repo is not the config repo" || return 1
+    assert_contains "$out" "is not the config repo ($host)" "the fallback names the hosting repo"
+}
+run_test "CFG-981: with CONFIG_REPO unset, the hosting-repo fallback does not adopt a foreign repo" test_cfg981_unset_env_uses_hosting_repo
+
+# The lib resolves this script's own path, which a relative start makes
+# cwd-relative; the script cd's into the target first, so a detection made
+# after that cd took a template-shaped target (setup/scripts/ + sync.sh) for
+# the config repo. Detection must happen before the cd.
+test_cfg981_relative_start_resolves_before_cd() {
+    _cfg981_behind_deployable "$TEST_TMPDIR/tmpl"
+    mkdir -p "$TEST_TMPDIR/tmpl/setup/scripts"
+    local out rc=0 rel="${SYNC_SCRIPT#"$REPO_ROOT"/}"
+    out=$(cd "$REPO_ROOT" && env -u CONFIG_REPO bash "$rel" --pull "$TEST_TMPDIR/tmpl" 2>&1) || rc=$?
+    echo "    measured: rc=$rc deployed=$(_cfg981_deployed "$TEST_TMPDIR/tmpl") started-as=$rel"
+    assert_eq "0" "$rc" "(out: $out)" || return 1
+    assert_file_not_exists "$TEST_TMPDIR/tmpl/.deploy-marker" \
+        "a relative start must not make the pulled template the config repo" || return 1
+    assert_contains "$out" "is not the config repo"
+}
+run_test "CFG-981: a relative start resolves the config repo before cd-ing into the target" test_cfg981_relative_start_resolves_before_cd
+
+# No lib, no answer: the deploy fails CLOSED and says why.
+test_cfg981_missing_lib_fails_closed() {
+    _cfg981_behind_deployable "$TEST_TMPDIR/repo"
+    mkdir -p "$TEST_TMPDIR/libless/setup/scripts"
+    cp "$SYNC_SCRIPT" "$TEST_TMPDIR/libless/setup/scripts/git-sync-check.sh"
+    local out rc=0
+    out=$(cd "$TEST_TMPDIR/repo" && CONFIG_REPO="$TEST_TMPDIR/repo" \
+        bash "$TEST_TMPDIR/libless/setup/scripts/git-sync-check.sh" --pull 2>&1) || rc=$?
+    echo "    measured: rc=$rc deployed=$(_cfg981_deployed "$TEST_TMPDIR/repo")"
+    assert_eq "0" "$rc" "(out: $out)" || return 1
+    assert_contains "$out" "Pulled successfully" "the pull is unaffected" || return 1
+    assert_file_not_exists "$TEST_TMPDIR/repo/.deploy-marker" "an unloadable lib means no deploy" || return 1
+    assert_contains "$out" "Auto-deploy SKIPPED" || return 1
+    assert_contains "$out" "lib-detect-repo.sh" "the skip names the lib that failed"
+}
+run_test "CFG-981: an unloadable lib-detect-repo.sh fails closed and says so" test_cfg981_missing_lib_fails_closed
+
+# ── CFG-981 (b): the behind path honours the Session-Goal guard ──────────────
+# The behind path's own rotation recovery committed any all-session-file dirt,
+# a LIVE session's included (populated Session Goal) — which the up-to-date and
+# ahead recovery has always refused (gh-8 point 7). Populated goal → stash path.
+_cfg981_remote_moves_on() {
+    git clone "$TEST_TMPDIR/remote.git" "$TEST_TMPDIR/other" --quiet 2>/dev/null
+    add_commit "$TEST_TMPDIR/other" "unrelated remote work"
+    (cd "$TEST_TMPDIR/other" && git push --quiet 2>/dev/null)
+}
+
+test_cfg981_behind_inflight_session_not_committed() {
+    _mk_rotation_repo "$TEST_TMPDIR/repo" "$TEST_TMPDIR/remote.git"
+    _cfg981_remote_moves_on
+    printf '# Session Context\n\n- **Session Goal**: implementing feature X\n- notes\n' \
+        > "$TEST_TMPDIR/repo/session-context.md"
+    printf '\n### live edit\n' >> "$TEST_TMPDIR/repo/docs/session-log.md"
+
+    local out rc=0 log remote_log stashes
+    out=$(cd "$TEST_TMPDIR/repo" && bash "$SYNC_SCRIPT" --pull 2>&1) || rc=$?
+    log=$(git -C "$TEST_TMPDIR/repo" log --format=%s)
+    remote_log=$(git -C "$TEST_TMPDIR/remote.git" log --format=%s)
+    stashes=$(git -C "$TEST_TMPDIR/repo" stash list | wc -l | tr -d ' ')
+    echo "    measured: rc=$rc head=\"$(echo "$log" | head -1)\" stashes=$stashes"
+    assert_eq "0" "$rc" "(out: $out)" || return 1
+    assert_contains "$log" "unrelated remote work" "the pull still happens" || return 1
+    assert_not_contains "$log" "Auto-sync: recovered rotation" \
+        "in-flight session state is never committed on the behind path" || return 1
+    assert_not_contains "$remote_log" "Auto-sync: recovered rotation" "nor pushed" || return 1
+    assert_file_contains "$TEST_TMPDIR/repo/session-context.md" "implementing feature X" \
+        "the live edit survives the pull" || return 1
+    assert_contains "$(_tracked_dirt "$TEST_TMPDIR/repo")" "session-context.md" "and stays uncommitted" || return 1
+    assert_eq "0" "$stashes" "the auto-stash was popped, not left behind"
+}
+run_test "CFG-981: behind path with a populated Session Goal stashes instead of committing" test_cfg981_behind_inflight_session_not_committed
+
+test_cfg981_behind_rotated_session_still_recovered() {
+    _mk_rotation_repo "$TEST_TMPDIR/repo" "$TEST_TMPDIR/remote.git"
+    _cfg981_remote_moves_on
+    _rotate_dirt "$TEST_TMPDIR/repo"
+
+    local out rc=0 log remote_log
+    out=$(cd "$TEST_TMPDIR/repo" && bash "$SYNC_SCRIPT" --pull 2>&1) || rc=$?
+    log=$(git -C "$TEST_TMPDIR/repo" log --format=%s)
+    remote_log=$(git -C "$TEST_TMPDIR/remote.git" log --format=%s)
+    echo "    measured: rc=$rc head=\"$(echo "$log" | head -1)\""
+    assert_eq "0" "$rc" "(out: $out)" || return 1
+    assert_contains "$log" "unrelated remote work" "the pull still happens" || return 1
+    assert_contains "$log" "Auto-sync: recovered rotation" "rotation leftovers are still recovered" || return 1
+    assert_contains "$remote_log" "Auto-sync: recovered rotation" "and pushed" || return 1
+    assert_eq "" "$(_tracked_dirt "$TEST_TMPDIR/repo")" "nothing is left dirty"
+}
+run_test "CFG-981: behind path with an empty Session Goal still recovers and commits" test_cfg981_behind_rotated_session_still_recovered
 
 # ── Summary ──────────────────────────────────────────────────────────────────
 

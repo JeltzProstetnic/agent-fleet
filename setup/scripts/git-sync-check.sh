@@ -15,6 +15,33 @@ set -euo pipefail
 # Never use a pager — this script is non-interactive
 export GIT_PAGER=cat
 
+# ── Config repo, resolved before the cd below (CFG-981) ─────────────────────
+# Only the config repo may auto-deploy: afleet runs this script over every repo,
+# the public template checkout included, whose own sync.sh would put the
+# TEMPLATE's tree live. lib-detect-repo.sh decides ($CONFIG_REPO, else the repo
+# hosting this script); its fallback resolves this script's own path, which a
+# relative start makes cwd-relative — hence here, before any cd. Physical path;
+# empty = unknown, and an unknown config repo never deploys (fail closed).
+_DETECT_LIB="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)/../../global/hooks/lib-detect-repo.sh"
+_CFG_REPO=""
+# shellcheck source=/dev/null
+if source "$_DETECT_LIB" 2>/dev/null && declare -F _detect_config_repo >/dev/null; then
+  _CFG_REPO=$(_detect_config_repo)
+  [ -n "$_CFG_REPO" ] && _CFG_REPO=$(cd "$_CFG_REPO" 2>/dev/null && pwd -P) || _CFG_REPO=""
+fi
+_deploys_here() {
+  local _here
+  _here=$(cd "$REPO_ROOT" && pwd -P)
+  if [ -z "$_CFG_REPO" ]; then
+    echo "Auto-deploy SKIPPED — the config repo could not be resolved ($_DETECT_LIB); nothing was deployed."
+  elif [ "$_here" != "$_CFG_REPO" ]; then
+    echo "Auto-deploy SKIPPED — $_here is not the config repo ($_CFG_REPO); only the config repo deploys."
+  else
+    return 0
+  fi
+  return 1
+}
+
 # ── Clone-if-missing: lookup registry and clone into empty project dir ─────
 # Returns 0 on success (repo cloned), 1 on failure (no match, no URL, clone failed)
 _try_clone_from_registry() {
@@ -203,6 +230,14 @@ if [ -z "$REMOTE" ]; then
   exit 0
 fi
 
+# True only for the state rotate-session.sh leaves: session-context.md present,
+# Session Goal EMPTY. A populated goal is a live session's state. Shared by both
+# rotation recoveries below — this one and the behind path's (CFG-981).
+_session_goal_empty() {
+  [ -f "$REPO_ROOT/session-context.md" ] || return 1
+  [ -z "$(sed -n 's/.*\*\*Session Goal\*\*: \(.\+\)/\1/p' "$REPO_ROOT/session-context.md" 2>/dev/null | head -1)" ]
+}
+
 # ── Rotation-artifact recovery (agent-fleet issue #8) ───────────────────────
 # Commits session-rotation artifacts left behind by an interrupted shutdown.
 # Called ONLY from the up-to-date and ahead-only exit paths below — the behind
@@ -233,11 +268,7 @@ fi
 # Returns 0 only if a recovery commit was actually created.
 _recover_rotation_artifacts() {
   [ "$AUTO_PULL" = true ] || return 1
-  [ -f "$REPO_ROOT/session-context.md" ] || return 1
-
-  local _goal
-  _goal=$(sed -n 's/.*\*\*Session Goal\*\*: \(.\+\)/\1/p' "$REPO_ROOT/session-context.md" 2>/dev/null | head -1)
-  [ -z "$_goal" ] || return 1
+  _session_goal_empty || return 1
 
   [ -z "$(git -C "$REPO_ROOT" ls-files -u 2>/dev/null)" ] || return 1
 
@@ -365,6 +396,8 @@ if [ "$BEHIND" -gt 0 ]; then
 
     # Recover interrupted rotation: if dirty files are only session rotation
     # artifacts, commit them instead of stashing (prevents stash-pop conflicts).
+    # Only with an empty Session Goal (CFG-981): a populated one is a live
+    # session's state, which takes the stash path below, never a commit.
     STASHED=false
     if ! git diff --quiet 2>/dev/null || ! git diff --cached --quiet 2>/dev/null; then
       _DIRTY_FILES=$(git diff --name-only 2>/dev/null; git diff --cached --name-only 2>/dev/null)
@@ -377,7 +410,7 @@ if [ "$BEHIND" -gt 0 ]; then
         esac
       done <<< "$_DIRTY_FILES"
 
-      if [ "$_ALL_SESSION" = true ]; then
+      if [ "$_ALL_SESSION" = true ] && _session_goal_empty; then
         echo "Recovering interrupted session rotation..."
         # Stage each file separately (git add fails atomically on multi-pathspec)
         git add session-context.md 2>/dev/null || true
@@ -489,7 +522,7 @@ if [ "$BEHIND" -gt 0 ]; then
       fi
       if [ "$NEEDS_DEPLOY" = true ]; then
         SYNC_SCRIPT_PATH="$REPO_ROOT/sync.sh"
-        if [ -x "$SYNC_SCRIPT_PATH" ]; then
+        if [ -x "$SYNC_SCRIPT_PATH" ] && _deploys_here; then   # CFG-981
           echo "Deploy-sensitive files changed — running sync.sh deploy..."
           bash "$SYNC_SCRIPT_PATH" deploy 2>&1 || echo "WARNING: sync.sh deploy failed (non-blocking)."
         fi

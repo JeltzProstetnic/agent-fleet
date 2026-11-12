@@ -3,7 +3,8 @@
 
 Usage: python3 json-merge.py <base> <live> <override>
 
-- hooks, statusLine, spinnerTipsEnabled, enabledPlugins: base wins (authoritative)
+- hooks, statusLine, spinnerTipsEnabled, enabledPlugins, feedbackDrafts: base wins
+  when base sets them (authoritative; feedbackDrafts "off" disables SendFeedback, CFG-909)
 - env: live preserved, base merged on top (secrets survive, new vars added)
 - permissions.allow: union of both (deduped)
 - permissions.defaultMode: base wins when base sets it (CFG-756)
@@ -79,7 +80,7 @@ def main():
         result['permissions']['defaultMode'] = base['permissions']['defaultMode']
 
     # These sections: base is authoritative (latest hooks, structure)
-    for key in ['hooks', 'statusLine', 'spinnerTipsEnabled', 'enabledPlugins']:
+    for key in ['hooks', 'statusLine', 'spinnerTipsEnabled', 'enabledPlugins', 'feedbackDrafts']:
         if key in base:
             result[key] = base[key]
 
