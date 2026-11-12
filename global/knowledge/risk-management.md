@@ -37,6 +37,8 @@ Unified risk classification and enforcement for agent fleet infrastructure chang
 
 **Podman runner, and testing edits BEFORE they ship (2026-09-28, CFG-675 a):** `bash setup/scripts/e2e-podman.sh` clones the PUBLISHED template, so it never sees a local edit. `e2e-podman.sh --source ~/agent-fleet` ships the local working tree instead (uncommitted edits included, extracted `--no-same-owner`), and the marker records `source=… head=… dirty=…`. Working order used 2026-09-28: edit in cfg → `sync.sh template-push --commit` (local template commit, unpushed) → `e2e-podman.sh --source ~/agent-fleet --keep` via `tmux-launch.sh` → behavioural check inside the kept container (`podman cp` a script, `podman exec`) → push. ⚠ A green E2E does not prove the upgrade phase ran — read the log for `Upgraded:` (CFG-675 d).
 
+**Guards (CFG-785):** When a guard change refuses a route that a documented workflow uses — including a prose step that leaves the command to the agent — give that workflow an allowed command, its updated recipe and a guard test pinning the command as allowed, in the same change.
+
 **Automated detection:** The SessionEnd hook checks `git diff --name-only` for T2 file patterns and warns if E2E tests weren't run.
 
 ## T3 — Propagation
