@@ -62,15 +62,56 @@ for _p in "$CONFIG_REPO/global/hooks/lib-portable.sh" "$HOME/.claude/hooks/lib-p
 done
 # Library missing: keep the old behaviour rather than drop the bound altogether.
 type _timeout &>/dev/null || _timeout() { timeout "$@"; }
-# `afleet transfer` shows no picker and runs from inside live sessions: it must not pull
-# (and on divergence rebase/stash) the config repo as a side effect (CFG-427).
-_PRE_PICKER_TIMEOUT="${AFLEET_PRE_PICKER_TIMEOUT:-10}"
-if [[ "${1:-}" != "transfer" && -f "$SYNC_SCRIPT" && -d "$CONFIG_REPO/.git" ]]; then
-    _timeout "$_PRE_PICKER_TIMEOUT" bash "$SYNC_SCRIPT" --pull "$CONFIG_REPO" >/dev/null 2>&1 || true
-fi
 
 # ── Portable readlink -f (needed before any library is sourced) ───────────────
 _readlink_f() { readlink -f "$1" 2>/dev/null && return; local t="$1"; [ "${t#/}" = "$t" ] && t="$PWD/$t"; while [ -L "$t" ]; do local l; l=$(readlink "$t") || break; [ "${l#/}" = "$l" ] && l="$(dirname "$t")/$l"; t="$l"; done; local d; d=$(cd "$(dirname "$t")" 2>/dev/null && pwd -P) || return 1; echo "$d/$(basename "$t")"; }
+
+# `afleet transfer` shows no picker and runs from inside live sessions: it must not pull
+# (and on divergence rebase/stash) the config repo as a side effect (CFG-427). Nor do the
+# recovery subcommands and --list, which show no picker either (CFG-977).
+#
+# CFG-977: never while another live session holds the config repo — its working tree is
+# that session's in-progress work, which the pull stashes and pops and can auto-deploy
+# (CFG-208). That auto-deploy is off in any case: the launcher deploys after the picker.
+# The verdict comes from afleet-cfg-held.sh, RUN as its own process so a broken copy —
+# even one that exits at its top — cannot take the launcher down; no usable answer ⇒ a
+# lock file alone means held (fail closed).
+_AFLEET_HELD_MOD="$(dirname "$(_readlink_f "${BASH_SOURCE[0]}" 2>/dev/null || echo "${BASH_SOURCE[0]}")")/afleet-cfg-held.sh"
+AFLEET_CFG_HELD_WHY="" AFLEET_CFG_HELD_FIX="" AFLEET_CFG_PULL_SKIPPED="" AFLEET_LAUNCH_DEPLOY_NOTE="" _AFLEET_CFG_VERDICT=""
+_afleet_cfg_held() {   # <repo> — rc 0 held (AFLEET_CFG_HELD_WHY, _FIX: reason, remedy), 1 free
+    local out rest
+    out=$(bash "$_AFLEET_HELD_MOD" held "$1" 2>/dev/null) || true
+    case "$out" in
+        free) AFLEET_CFG_HELD_WHY="" AFLEET_CFG_HELD_FIX=""; return 1 ;;
+        held$'\t'?*) rest="${out#held$'\t'}"; AFLEET_CFG_HELD_WHY="${rest%%$'\t'*}"
+                     AFLEET_CFG_HELD_FIX="${rest#*$'\t'}"
+                     [[ "$AFLEET_CFG_HELD_FIX" == "$rest" ]] && AFLEET_CFG_HELD_FIX=""
+                     return 0 ;;
+    esac
+    AFLEET_CFG_HELD_WHY="possibly held (afleet-cfg-held.sh unusable, and a session lock is present)"
+    AFLEET_CFG_HELD_FIX="If no session is live there: rm -f $1/.claude/.session-lock"
+    [[ -f "$1/.claude/.session-lock" ]]
+}
+_afleet_cfg_defer() {   # <repo> <project> — one audit line, and the console note
+    AFLEET_LAUNCH_DEPLOY_NOTE=$(bash "$_AFLEET_HELD_MOD" defer "$1" "$2" "$AFLEET_CFG_HELD_WHY" \
+        "$AFLEET_CFG_HELD_FIX" "$AFLEET_CFG_PULL_SKIPPED" 2>/dev/null) || true
+    [[ "$AFLEET_LAUNCH_DEPLOY_NOTE" == *"working tree"* ]] \
+        || AFLEET_LAUNCH_DEPLOY_NOTE="  ⚠ $(basename "$1") is $AFLEET_CFG_HELD_WHY — not deploying its working tree. $AFLEET_CFG_HELD_FIX"
+}
+_PRE_PICKER_TIMEOUT="${AFLEET_PRE_PICKER_TIMEOUT:-10}"
+_afleet_pre_picker=1
+for _a in "$@"; do
+    case "$_a" in transfer|doctor|recover|rollback|safe-mode|safemode|--list|-l) _afleet_pre_picker=0 ;; esac
+done
+if [[ "$_afleet_pre_picker" == 1 && -f "$SYNC_SCRIPT" && -d "$CONFIG_REPO/.git" ]]; then
+    if _afleet_cfg_held "$CONFIG_REPO"; then
+        _AFLEET_CFG_VERDICT=held AFLEET_CFG_PULL_SKIPPED=1
+    else
+        _AFLEET_CFG_VERDICT=free
+        GIT_SYNC_NO_DEPLOY="afleet deploys after the picker" \
+            _timeout "$_PRE_PICKER_TIMEOUT" bash "$SYNC_SCRIPT" --pull "$CONFIG_REPO" >/dev/null 2>&1 || true
+    fi
+fi
 
 # ── Source library (symlink-safe, with fallback) ─────────────────────────────
 _AFLEET_DIR="$(dirname "$(_readlink_f "${BASH_SOURCE[0]}" 2>/dev/null || echo "${BASH_SOURCE[0]}")")"
@@ -668,23 +709,43 @@ pre_launch_sync() {
     # ── Git sync ─────────────────────────────────────────────────────────────
     start_spinner "Syncing repos…"
 
+    # CFG-977: one verdict for this launch's pulls and its deploy. The pre-picker one is
+    # reused when no picker ran (taken seconds ago; each probe scans the process table,
+    # ~1 s); after a picker, which may have taken minutes, it is asked again.
+    local _cfg_held=""
+    if [[ -n "$_AFLEET_CFG_VERDICT" && "${SHOW_PICKER:-false}" != true && "${SHOW_MODEL_PICKER:-false}" != true ]]; then
+        [[ "$_AFLEET_CFG_VERDICT" == held ]] && _cfg_held="config repo $AFLEET_CFG_HELD_WHY"
+    elif _afleet_cfg_held "$CONFIG_REPO"; then
+        _cfg_held="config repo $AFLEET_CFG_HELD_WHY"
+    fi
+
     # Config repo already pulled pre-picker — only pull target if it's a different repo.
+    # While the config repo is held no pull may auto-deploy (CFG-208): the deploy below
+    # no longer runs to overwrite what such a deploy (e.g. ~/agent-fleet's) put live.
     if [[ "$TARGET_DIR" != "$CONFIG_REPO" && -f "$SYNC_SCRIPT" && -d "$TARGET_DIR/.git" ]]; then
-        bash "$SYNC_SCRIPT" --pull "$TARGET_DIR" >/dev/null 2>&1 || true
+        GIT_SYNC_NO_DEPLOY="$_cfg_held" bash "$SYNC_SCRIPT" --pull "$TARGET_DIR" >/dev/null 2>&1 || true
     fi
 
     # Pre-pull all other local repos (CFG-129) — prevents stale cross-project state.
-    AFLEET_SKIP_REPOS="$TARGET_DIR|$CONFIG_REPO" pre_pull_all_repos || true
+    GIT_SYNC_NO_DEPLOY="$_cfg_held" AFLEET_SKIP_REPOS="$TARGET_DIR|$CONFIG_REPO" pre_pull_all_repos || true
 
     # Full deploy: hooks, settings, project rules, rosters, statusline, etc.
     # Replaces the old hook-only repair — sync.sh deploy is idempotent and
     # ensures settings.json env vars (CONFIG_REPO), hooks, and all config
     # are current after git pull. Suppressed output — errors still surface.
+    # CFG-977 / Q-965-DEPLOY: SKIPPED while another live session holds the config
+    # repo — its working tree is that session's in-progress work, deployed at its own
+    # shutdown. One audit line, one console line; no HEAD-only deploy.
     if [[ -f "$CONFIG_REPO/sync.sh" ]]; then
-        bash "$CONFIG_REPO/sync.sh" deploy >/dev/null 2>&1 || true
+        if [[ -n "$_cfg_held" ]]; then
+            _afleet_cfg_defer "$CONFIG_REPO" "$TARGET_NAME"
+        else
+            bash "$CONFIG_REPO/sync.sh" deploy >/dev/null 2>&1 || true
+        fi
     fi
 
     stop_spinner
+    [[ -n "$AFLEET_LAUNCH_DEPLOY_NOTE" ]] && echo "$AFLEET_LAUNCH_DEPLOY_NOTE" >&2
 
     # ── Telegram-to-inbox (CFG-238) ──────────────────────────────────────────
     # Check AFD for unprocessed Telegram messages from between sessions.

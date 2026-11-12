@@ -328,6 +328,96 @@ test_rollback_preserves_head_on_dry_run() {
 }
 run_test "rollback --dry-run makes no changes" test_rollback_preserves_head_on_dry_run
 
+# ── 3b. Held config repo (CFG-977): hand-run commands stay ungated, but warn ─
+
+# HEAD of the mock config repo carries lib-cfg-held.sh and a session-lock.sh whose
+# check_lock answers 2 (a live session here); a lock file names pid 4242.
+_hold_cfg() {   # <config repo>
+    mkdir -p "$1/global/hooks" "$1/setup/scripts" "$1/.claude"
+    cp "$REPO_ROOT/global/hooks/lib-cfg-held.sh" "$1/global/hooks/lib-cfg-held.sh"
+    cat > "$1/setup/scripts/session-lock.sh" <<'EOF'
+_read_lock() { _LOCK_MACHINE=m; _LOCK_PID=4242; return 0; }
+check_lock() { return 2; }
+EOF
+    # Only these two: the mock sync.sh stays untracked, so a rollback keeps it.
+    git -C "$1" add global/hooks/lib-cfg-held.sh setup/scripts/session-lock.sh
+    git -C "$1" commit -q -m "held fixture"
+    echo '{"machine":"m","pid":4242,"sessionId":"s"}' > "$1/.claude/.session-lock"
+}
+
+_recover() {   # <home> <args…>
+    local home="$1"; shift
+    HOME="$home" CONFIG_REPO="$home/cfg-agent-fleet" \
+        CLAUDE_CONFIG_DIR="$home/.cc-mirror/mclaude/config" \
+        PATH="$home/.local/bin:$PATH" \
+        bash "$SCRIPT" "$@" 2>&1
+}
+
+test_recover_warns_when_cfg_held() {
+    local home output warn_line deploy_line
+    home=$(create_mock_fleet); _hold_cfg "$home/cfg-agent-fleet"
+    output=$(_recover "$home" recover) || true
+    warn_line=$(grep -n "is held by a live session" <<< "$output" | head -1 | cut -d: -f1)
+    deploy_line=$(grep -n "Running sync.sh deploy" <<< "$output" | head -1 | cut -d: -f1)
+    echo "    measured: warning at line ${warn_line:-none}, deploy at line ${deploy_line:-none}"
+    assert_contains "$output" "WARN" "a held config repo is warned about" || return 1
+    assert_contains "$output" "cfg-agent-fleet is held by a live session on this machine (lock pid 4242) — this deploy copies its working tree" "naming the holder and what the deploy does" || return 1
+    assert_contains "$output" "MOCK_DEPLOY_CALLED" "recover stays ungated: it still deploys" || return 1
+    [[ -n "$warn_line" && -n "$deploy_line" && "$warn_line" -lt "$deploy_line" ]] || { assert_eq "warning before deploy" "warning at ${warn_line:-none}, deploy at ${deploy_line:-none}" "the warning comes before the deploy"; return 1; }
+}
+run_test "CFG-977: recover warns when the config repo is held, then deploys" test_recover_warns_when_cfg_held
+
+test_rollback_warns_when_cfg_held() {
+    local home dry real before after
+    home=$(create_mock_fleet); _hold_cfg "$home/cfg-agent-fleet"
+    dry=$(_recover "$home" rollback --dry-run 1) || true
+    before=$(git -C "$home/cfg-agent-fleet" rev-parse HEAD)
+    real=$(_recover "$home" rollback --yes 1) || true
+    after=$(git -C "$home/cfg-agent-fleet" rev-parse HEAD)
+    echo "    measured: dry-run warns=$(grep -c 'discarding that session' <<< "$dry") yes warns=$(grep -c 'discarding that session' <<< "$real") reset=$([[ "$before" != "$after" ]] && echo yes || echo no)"
+    assert_contains "$dry" "rollback resets its working tree (discarding that session's uncommitted edits)" "the dry run warns" || return 1
+    assert_contains "$real" "rollback resets its working tree (discarding that session's uncommitted edits)" "the real run warns" || return 1
+    assert_neq "$before" "$after" "rollback stays ungated: it still resets" || return 1
+    assert_contains "$real" "MOCK_DEPLOY_CALLED" "and deploys"
+}
+run_test "CFG-977: rollback warns when the config repo is held, stays ungated" test_rollback_warns_when_cfg_held
+
+test_recover_quiet_when_cfg_free() {
+    local home rec rb
+    home=$(create_mock_fleet)
+    rec=$(_recover "$home" recover) || true
+    rb=$(_recover "$home" rollback --dry-run 1) || true
+    assert_not_contains "$rec" "is held by" "a free config repo ⇒ no held warning from recover" || return 1
+    assert_not_contains "$rb" "is held by" "nor from rollback"
+}
+run_test "CFG-977: no held warning for a free config repo" test_recover_quiet_when_cfg_free
+
+# A copy of this script beside an afleet-cfg-held.sh whose first line is `exit 3`.
+_recover_with_exiting_module() {   # → path of the script to run
+    local d="$TEST_TMPDIR/rbin"
+    mkdir -p "$d"
+    ln -s "$SCRIPT" "$d/afleet-recover.sh"
+    { echo 'exit 3'; cat "$REPO_ROOT/setup/scripts/afleet-cfg-held.sh"; } > "$d/afleet-cfg-held.sh"
+    echo "$d/afleet-recover.sh"
+}
+
+test_exiting_module_ends_nothing() {
+    local home script doctor recover rc_d=0 rc_r=0
+    home=$(create_mock_fleet); _hold_cfg "$home/cfg-agent-fleet"
+    script=$(_recover_with_exiting_module)
+    doctor=$(HOME="$home" CONFIG_REPO="$home/cfg-agent-fleet" CLAUDE_CONFIG_DIR="$home/.cc-mirror/mclaude/config" \
+        PATH="$home/.local/bin:$PATH" bash "$script" doctor 2>&1) || rc_d=$?
+    recover=$(HOME="$home" CONFIG_REPO="$home/cfg-agent-fleet" CLAUDE_CONFIG_DIR="$home/.cc-mirror/mclaude/config" \
+        PATH="$home/.local/bin:$PATH" bash "$script" recover 2>&1) || rc_r=$?
+    echo "    measured: doctor rc=$rc_d recover rc=$rc_r recover-warns=$(grep -c 'afleet-cfg-held.sh unusable' <<< "$recover")"
+    assert_neq "3" "$rc_d" "a module whose first line is 'exit 3' does not end doctor" || return 1
+    assert_contains "$doctor" "Summary:" "doctor runs to its end" || return 1
+    assert_contains "$recover" "possibly held (afleet-cfg-held.sh unusable, and a session lock is present)" "recover fails closed on the lock file" || return 1
+    assert_contains "$recover" "rm -f $home/cfg-agent-fleet/.claude/.session-lock" "with a runnable remedy" || return 1
+    assert_contains "$recover" "MOCK_DEPLOY_CALLED" "and still deploys (ungated)"
+}
+run_test "CFG-977: a module that exits at its top ends neither doctor nor recover" test_exiting_module_ends_nothing
+
 # ── 4. Safe-mode ─────────────────────────────────────────────────────────────
 
 test_safe_mode_creates_temp_config() {

@@ -795,11 +795,12 @@ fi
 # session holds the config repo. `sync.sh deploy` copies the WORKING TREE — that
 # session's half-edited hooks, settings and knowledge — over the live ~/.claude,
 # from any project's shutdown. No HEAD-only or temporary-checkout deploy either:
-# the holder deploys at its own shutdown, and every SessionStart deploys anyway.
+# the holder deploys at its own shutdown, and the next launch that finds the repo
+# free deploys too (a launch while it is held skips its deploy as well, CFG-977).
 # An expected skip: audit line, not drift.
 if [[ "$_CFG_HELD_BY_OTHER" -eq 1 ]]; then
     _shutdown_progress "Deploy skipped — config repo held by another live session."
-    _cfg_defer_audit DEPLOY_DEFERRED "config repo held by another live session — sync.sh deploy skipped; the holder deploys at its own shutdown and every SessionStart deploys"
+    _cfg_defer_audit DEPLOY_DEFERRED "config repo held by another live session — sync.sh deploy skipped; the holder deploys at its own shutdown, as does the next launch that finds the repo free"
 else
     DEPLOY_OUTPUT=$(bash "$CONFIG_REPO/sync.sh" deploy 2>&1)
     if [ $? -ne 0 ]; then

@@ -8,6 +8,8 @@ After entering the worktree, **resume the normal startup protocol** (session boo
 
 **Path warning:** In a worktree, absolute paths to the main repo (e.g., `/home/user/project/file`) bypass the worktree and edit main directly. Use **relative paths** or the **worktree's absolute path** (shown by `pwd`) for all file operations.
 
+**Held config repo (CFG-977):** while a live session holds cfg-agent-fleet, `af` neither pulls nor deploys its working tree — any launch prints `⚠ cfg-agent-fleet is held by … — not pulling or deploying its working tree` and logs `LAUNCH_DEPLOY_DEFERRED` to `~/.claude/logs/template-push-deferred.log`, and SessionStart drops `DEPLOYED_DRIFT` to a `DEPLOYED_DRIFT_DEFERRED` audit line; the holder deploys at its own shutdown, so never run `sync.sh deploy` from a follower.
+
 ## Remote Lock Override (CFG-101a)
 
 When the lock is held by **another machine** (`SESSION_LOCKED_REMOTE`), the SessionStart hook automatically sends a Telegram notification to the user requesting override approval.

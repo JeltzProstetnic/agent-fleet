@@ -243,6 +243,35 @@ test_deploy_triggered_on_mixed_changes() {
 }
 run_test "deploy triggered on mixed changes (deploy-sensitive + other)" test_deploy_triggered_on_mixed_changes
 
+# ── Test: GIT_SYNC_NO_DEPLOY switches the auto-deploy off (CFG-977) ─────────
+# The launcher sets it while another live session holds the config repo: its
+# own deploy is skipped then, so nothing it pulls may put a tree live either.
+
+test_no_deploy_when_caller_forbids_it() {
+    setup_deploy_test_repos "$TEST_TMPDIR/repo" "$TEST_TMPDIR/remote.git" "$TEST_TMPDIR/other"
+    push_file_from_other "$TEST_TMPDIR/other" "global/hooks/config-check.sh" "hook update"
+    local before after out rc=0
+    before=$(git -C "$TEST_TMPDIR/repo" rev-parse HEAD)
+    out=$(GIT_SYNC_NO_DEPLOY="config repo held by a live session" bash "$SYNC_SCRIPT" --pull "$TEST_TMPDIR/repo" 2>&1) || rc=$?
+    after=$(git -C "$TEST_TMPDIR/repo" rev-parse HEAD)
+    echo "    measured: rc=$rc pulled=$([[ "$before" != "$after" ]] && echo yes || echo no) deploy=$([[ -f "$TEST_TMPDIR/repo/.deploy-triggered" ]] && echo yes || echo no)"
+    assert_eq "0" "$rc" "the pull itself succeeds" || return 1
+    assert_neq "$before" "$after" "the pull still happens" || return 1
+    assert_file_not_exists "$TEST_TMPDIR/repo/.deploy-triggered" "but the auto-deploy does not run" || return 1
+    assert_contains "$out" "Auto-deploy SKIPPED — config repo held by a live session" "and the output says why"
+}
+run_test "GIT_SYNC_NO_DEPLOY: pull happens, auto-deploy skipped with its reason (CFG-977)" test_no_deploy_when_caller_forbids_it
+
+test_empty_knob_changes_nothing() {
+    setup_deploy_test_repos "$TEST_TMPDIR/repo" "$TEST_TMPDIR/remote.git" "$TEST_TMPDIR/other"
+    push_file_from_other "$TEST_TMPDIR/other" "global/hooks/config-check.sh" "hook update"
+    local out rc=0
+    out=$(GIT_SYNC_NO_DEPLOY="" bash "$SYNC_SCRIPT" --pull "$TEST_TMPDIR/repo" 2>&1) || rc=$?
+    assert_eq "0" "$rc" "should pull successfully" || return 1
+    assert_file_exists "$TEST_TMPDIR/repo/.deploy-triggered" "an empty GIT_SYNC_NO_DEPLOY deploys as before"
+}
+run_test "GIT_SYNC_NO_DEPLOY empty: auto-deploy as before" test_empty_knob_changes_nothing
+
 # ── Test: deploy NOT triggered without --pull ───────────────────────────────
 
 test_no_deploy_without_pull_flag() {

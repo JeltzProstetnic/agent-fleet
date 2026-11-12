@@ -481,6 +481,12 @@ if [ "$BEHIND" -gt 0 ]; then
         done
       done
 
+      # CFG-977: the caller forbids it (afleet, while another live session holds
+      # the config repo and its own deploy is skipped). The pull above still ran.
+      if [ "$NEEDS_DEPLOY" = true ] && [ -n "${GIT_SYNC_NO_DEPLOY:-}" ]; then
+        echo "Auto-deploy SKIPPED — ${GIT_SYNC_NO_DEPLOY}."
+        NEEDS_DEPLOY=false
+      fi
       if [ "$NEEDS_DEPLOY" = true ]; then
         SYNC_SCRIPT_PATH="$REPO_ROOT/sync.sh"
         if [ -x "$SYNC_SCRIPT_PATH" ]; then

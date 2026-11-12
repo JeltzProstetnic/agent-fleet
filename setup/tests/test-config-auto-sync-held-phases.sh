@@ -15,7 +15,7 @@
 #
 # MG's decision Q-965-DEPLOY (2026-11-11): a held repo is NOT deployed at all —
 # no HEAD-only or temporary-checkout deploy; the holder deploys at its own
-# shutdown and every SessionStart deploys anyway.
+# shutdown, as does the next launch that finds the repo free (CFG-977).
 set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 source "$REPO_ROOT/setup/tests/test-helpers.sh"

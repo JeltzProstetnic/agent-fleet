@@ -48,6 +48,28 @@ _warn() { printf "  ${C_YELLOW}WARN${C_RESET} %s\n" "$1"; }
 _fix()  { printf "  ${C_GREEN}FIX${C_RESET}  %s\n" "$1"; }
 _info() { printf "  ${C_BOLD}INFO${C_RESET} %s\n" "$1"; }
 
+# ── Held config repo (CFG-977) ──────────────────────────────────────────────
+# recover and rollback are hand-run repairs and stay ungated, but they deploy
+# (and rollback resets) the config repo's working tree — while another live
+# session holds it, that tree is its in-progress work. Say so first. Verdict:
+# afleet-cfg-held.sh, run only here and as its own process, so a broken copy —
+# even one that exits at its top — cannot end doctor/recover/rollback; no usable
+# answer ⇒ a lock file alone warns.
+_warn_if_cfg_held() {   # <what the command is about to do to it>
+    [[ -n "$CONFIG_REPO" ]] || return 0
+    local out why fix lock="$CONFIG_REPO/.claude/.session-lock"
+    out=$(bash "$SCRIPT_DIR/afleet-cfg-held.sh" held "$CONFIG_REPO" 2>/dev/null) || true
+    case "$out" in
+        free) return 0 ;;
+        held$'\t'?*) why="${out#held$'\t'}"; fix="${why#*$'\t'}"; why="${why%%$'\t'*}"
+                     [[ "$fix" == "$why" ]] && fix="" ;;
+        *) [[ -f "$lock" ]] || return 0
+           why="possibly held (afleet-cfg-held.sh unusable, and a session lock is present)"
+           fix="If no session is live there: rm -f $lock" ;;
+    esac
+    _warn "Config repo $(basename "$CONFIG_REPO") is $why — $1${fix:+ $fix}"
+}
+
 # ── Check functions ─────────────────────────────────────────────────────────
 # Each returns 0=ok, 1=fail, 2=warn. Sets CHECK_MSG.
 # When fix_mode=1, attempt auto-repair.
@@ -285,6 +307,7 @@ cmd_recover() {
 
     # Run sync.sh deploy if available
     if [[ -n "$CONFIG_REPO" && -f "$CONFIG_REPO/sync.sh" ]]; then
+        _warn_if_cfg_held "this deploy copies its working tree (that session's in-progress edits) to ~/.claude."
         _info "Running sync.sh deploy..."
         bash "$CONFIG_REPO/sync.sh" deploy 2>&1 | sed 's/^/    /'
     fi
@@ -329,6 +352,7 @@ cmd_rollback() {
     local target
     target=$(git -C "$CONFIG_REPO" rev-parse "HEAD~${count}" 2>/dev/null)
     printf "Target: %s\n" "$target"
+    _warn_if_cfg_held "rollback resets its working tree (discarding that session's uncommitted edits) and deploys it."
 
     if [[ "$dry_run" == "1" ]]; then
         printf "\n${C_YELLOW}Dry run — no changes made.${C_RESET}\n\n"
