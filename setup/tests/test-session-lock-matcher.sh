@@ -108,9 +108,13 @@ run_test "does not match incidental claude paths or arguments" test_does_not_mat
 # is precisely why the bug survived: it cannot be caught by stubs.
 
 test_live_session_is_self_recognised() {
-    local pid found=""
+    local pid found="" argv0
+    # A process NAMED claude is not necessarily a session: Claude Code runs its embedded
+    # grep as the same binary under argv[0] "ugrep" (comm still "claude") — e.g. a peer
+    # session's Monitor `tail | grep` (2026-11-12). Only a claude/claude.exe argv[0] is a candidate.
     for pid in $(pgrep -x claude 2>/dev/null; pgrep -x claude.exe 2>/dev/null); do
-        found="$pid"; break
+        argv0=$(tr '\0' '\n' < "/proc/$pid/cmdline" 2>/dev/null | head -1)
+        case "${argv0##*/}" in claude|claude.exe) found="$pid"; break ;; esac
     done
     if [ -z "$found" ]; then
         skip_test "no live Claude Code process to test against"

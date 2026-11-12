@@ -42,7 +42,7 @@ python3 ~/cfg-agent-fleet/setup/scripts/azure-ai.py --prompt-file prompt.md \
 - Inputs are appended in full inside `<file name="…">` tags; the model sees nothing else, so put
   every fact it needs in the prompt or an input. Check the answer before you use it.
 - Model: `claude-opus-4-5`, the only deployment on the resource (weaker than the session model).
-  Hence final creative prose stays with the writer subagent; Azure gets bulk and mechanical text.
+  Hence final creative prose stays with the `writer` agent (Opus 4.6); Azure gets bulk and mechanical text.
 - Never send personal data: the owner's profile, contacts, family or health, other private projects' content.
 - Key: `~/.config/azure-ai/key`, written by `secrets/vault-manage.sh deploy` from vault key
   `azure_ai_foundry`. Exit 2 = config/usage (missing key, not allowlisted), 1 = provider error.
