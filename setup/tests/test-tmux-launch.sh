@@ -550,6 +550,135 @@ test_mem_real_cgroup_kills_runaway() {
 }
 run_test "real user cgroup: a job over its cap is killed" test_mem_real_cgroup_kills_runaway
 
+# ── --resource (CFG-996 slice 1, design §8 S1) ──────────────────────────────
+# A throwaway loopback AFD and a fake nvidia-smi; the live daemon is never touched (§8 S6).
+# The pane inherits the tmux SERVER's environment, so tmux-launch hands the AFD/test settings
+# over in a 600-mode env file it deletes; these tests prove that by running real panes.
+RES_PORT=19884 RES_TOKEN="test-tl-token" RES_SERVER_PID=""  # pragma: allowlist secret
+RES_TMP="$(mktemp -d)"
+_res_start() {
+    command -v node >/dev/null 2>&1 || return 1
+    AFD_PORT=$RES_PORT AFD_TOKEN=$RES_TOKEN AFD_DB_PATH="$RES_TMP/afd.db" AFD_NOTIFY=false \
+        node "$REPO_ROOT/afd/server/index.js" >"$RES_TMP/server.log" 2>&1 &
+    RES_SERVER_PID=$!
+    local i; for i in $(seq 1 50); do curl -s "http://127.0.0.1:$RES_PORT/health" >/dev/null 2>&1 && break; sleep 0.1; done
+    kill -0 "$RES_SERVER_PID" 2>/dev/null || return 1
+    export AFD_URL="http://127.0.0.1:$RES_PORT" AFD_TOKEN="$RES_TOKEN" AFD_RES_MACHINE=testbox \
+        AFD_RES_LIB="$REPO_ROOT/afd/lib/afd-res-lib.sh" LR_POLL_S=0.2 LR_STATE_DIR="$RES_TMP/state" \
+        LR_NOTIFY_CMD="$RES_TMP/notify.sh" AFD_RES_NVSMI="cat $RES_TMP/card" XDG_RUNTIME_DIR="$RES_TMP/run"
+    printf '#!/usr/bin/env bash\necho "$*" >> %q\n' "$RES_TMP/notify.log" > "$RES_TMP/notify.sh"; chmod +x "$RES_TMP/notify.sh"
+    echo "3000, 24564" > "$RES_TMP/card"; mkdir -p "$RES_TMP/run"
+    printf '#!/usr/bin/env bash\necho "$*" >> "$(dirname "$0")/gpi.log"\n' > "$MOCK_BIN/gpi"; : > "$MOCK_BIN/gpi.log"
+    source "$AFD_RES_LIB"
+    curl -s -X POST "$AFD_URL/api/resources" -H "Authorization: Bearer $RES_TOKEN" -H 'Content-Type: application/json' \
+        -d '{"id":"gpu:test","kind":"gpu","machine":"testbox","capacity":16384,"unit":"MiB","ttl_default_s":30}' >/dev/null
+    curl -s -X POST "$AFD_URL/api/resources" -H "Authorization: Bearer $RES_TOKEN" -H 'Content-Type: application/json' \
+        -d '{"id":"cpu:test","kind":"cpu","machine":"testbox","capacity":24,"unit":"slot","ttl_default_s":30}' >/dev/null
+}
+_res_count() { _afd_res_field "$(curl -s "$AFD_URL/api/resources/gpu%3Atest" -H "Authorization: Bearer $RES_TOKEN")" "len(d['$1'])"; }
+RES_OK=0
+# Downstream (the agent-fleet template) carries neither the AFD server nor the lease library until
+# CFG-996 slice 1 ships, so there these cases skip instead of failing.
+if [[ -f "$REPO_ROOT/afd/server/index.js" && -f "$REPO_ROOT/afd/lib/afd-res-lib.sh" ]]; then _res_start && RES_OK=1; fi
+
+test_res_granted_runs_and_releases() {
+    (( RES_OK )) || { skip_test "--resource granted" "no AFD lease server/library in this tree, or no node"; return 0; }
+    local s="tl-res-g-$$" log="$TEST_TMPDIR/res-g.log" out
+    out=$(bash "$TMUX_LAUNCH" "$s" "res" --log "$log" --mem none --resource gpu:test=4000 "echo JOB-RAN; sleep 2" 2>&1) \
+        || { echo "launch failed: $out"; return 1; }
+    assert_contains "$out" "granted gpu:test" "the launch line says the claim was granted" || return 1
+    local cmd; cmd=$(tmux list-panes -t="$s" -F '#{pane_start_command}' 2>/dev/null)
+    assert_contains "$cmd" "--lease-file" "the pane takes the foreground claim from a file" || return 1
+    assert_not_contains "$cmd" "$RES_TOKEN" "the AFD token never appears on a command line" || return 1
+    _wait_exit_code "$log"; kill_session "$s"
+    assert_file_contains "$log" "JOB-RAN" "the job ran" || return 1
+    assert_file_contains "$log" "EXIT_CODE: 0" "the job's exit code is the pane's" || return 1
+    assert_eq 0 "$(_res_count active)" "the lease is released after the job" || return 1
+    assert_eq "" "$(ls -A "$XDG_RUNTIME_DIR/tmux-launch" 2>/dev/null)" "lease and env files (secret, token) are deleted once read" || return 1
+    assert_eq 700 "$(stat -c %a "$XDG_RUNTIME_DIR/tmux-launch")" "their directory is private" || return 1
+}
+run_test "--resource: granted claim runs the job, then releases; no secret on a command line" test_res_granted_runs_and_releases
+
+test_res_queued_waits_then_runs() {   # the slice-1 outcome: a second job queues behind the holder, starts when it ends
+    (( RES_OK )) || { skip_test "--resource queue" "no loopback AFD"; return 0; }
+    local s="tl-res-q-$$" log="$TEST_TMPDIR/res-q.log" out h hid hkey
+    h=$(afd_res_claim gpu:test 12000 --job holder --project proj-a); hid=$(_afd_res_field "$h" "d['id']"); hkey=$(_afd_res_field "$h" "d['secret']")
+    echo "16000, 24564" > "$RES_TMP/card"; : > "$MOCK_BIN/gpi.log"
+    out=$(bash "$TMUX_LAUNCH" "$s" "queued" --log "$log" --mem none --resource gpu:test=8192 "echo QUEUED-RAN; sleep 1" 2>&1) \
+        || { echo "launch failed: $out"; afd_res_release "$hid" "$hkey" >/dev/null; return 1; }
+    assert_contains "$out" "queued #1 for gpu:test" "the launch line names the queue position" || return 1
+    sleep 1
+    assert_file_not_contains "$log" "QUEUED-RAN" "the job does not start while the holder has the card" || return 1
+    assert_file_contains "$MOCK_BIN/gpi.log" "update $s --detail queued #1 for gpu:test" "the statusline op shows the queue" || return 1
+    afd_res_release "$hid" "$hkey" >/dev/null
+    echo "3000, 24564" > "$RES_TMP/card"   # card memory falls once the holder unloads
+    _wait_exit_code "$log"; kill_session "$s"
+    assert_file_contains "$log" "QUEUED-RAN" "after the release the queued job runs" || return 1
+    assert_file_contains "$MOCK_BIN/gpi.log" "update $s --detail running on gpu:test" "the statusline op then shows it running" || return 1
+    assert_eq 0 "$(_res_count active)" "nothing left holding the card" || return 1
+}
+run_test "--resource: queued behind a holder, starts after its release and the card frees" test_res_queued_waits_then_runs
+
+test_res_unknown_refused_before_anything() {
+    (( RES_OK )) || { skip_test "--resource typo" "no loopback AFD"; return 0; }
+    local s="tl-res-u-$$" log="$TEST_TMPDIR/res-u.log" out rc=0
+    tmux new-session -d -s "$s" "sleep 30"
+    out=$(bash "$TMUX_LAUNCH" "$s" "typo" --log "$log" --resource gpu:tset=1 "echo NO" 2>&1) || rc=$?
+    local alive=0; tmux has-session -t="$s" 2>/dev/null && alive=1; kill_session "$s"
+    assert_eq 2 "$rc" "a typo in the resource name is refused (exit 2)" || return 1
+    assert_contains "$out" "unknown resource" "and named" || return 1
+    assert_eq 1 "$alive" "an existing session of that name is NOT killed by a refused launch" || return 1
+    assert_file_not_exists "$log" "no log was created" || return 1
+}
+run_test "--resource: unknown resource refused before any session is killed or launched" test_res_unknown_refused_before_anything
+
+test_res_afd_down_warns_and_runs() {
+    (( RES_OK )) || { skip_test "--resource AFD down" "no loopback AFD"; return 0; }
+    local s="tl-res-d-$$" log="$TEST_TMPDIR/res-d.log" out
+    out=$(AFD_URL="http://127.0.0.1:1" bash "$TMUX_LAUNCH" "$s" "down" --log "$log" --mem none --resource gpu:test=1000 "echo DOWN-RAN; sleep 1" 2>&1) \
+        || { echo "launch failed: $out"; return 1; }
+    assert_contains "$out" "AFD unreachable" "one warning at launch" || return 1
+    _wait_exit_code "$log"; kill_session "$s"
+    assert_file_contains "$log" "DOWN-RAN" "the job still runs (warn-and-run)" || return 1
+}
+run_test "--resource: AFD unreachable → warn and run" test_res_afd_down_warns_and_runs
+
+test_res_failed_launch_releases_claim() {
+    (( RES_OK )) || { skip_test "--resource failed launch" "no loopback AFD"; return 0; }
+    local s="tl-res-f-$$" log="$TEST_TMPDIR/res-f.log" rc=0
+    TMUX_LAUNCH_LEASE_RUN="$TEST_TMPDIR/no-such-lease-run.sh" \
+        bash "$TMUX_LAUNCH" "$s" "fail" --log "$log" --mem none --resource gpu:test=2000 "sleep 5" >/dev/null 2>&1 || rc=$?
+    kill_session "$s"
+    assert_eq 1 "$rc" "the pane died at once → launch fails" || return 1
+    assert_eq 0 "$(_res_count active)" "the foreground claim is released, not left to expire" || return 1
+    assert_eq 0 "$(_res_count queue)" "and nothing is queued" || return 1
+}
+run_test "--resource: a launch that dies immediately releases its claim" test_res_failed_launch_releases_claim
+
+test_res_bad_input_and_too_large() {
+    (( RES_OK )) || { skip_test "--resource input" "no loopback AFD"; return 0; }
+    local s="tl-res-x-$$" out rc=0
+    out=$(bash "$TMUX_LAUNCH" "$s" "x" --resource gpu:test=abc "true" 2>&1) || rc=$?
+    assert_eq 2 "$rc" "a non-numeric amount is refused" || return 1
+    rc=0; out=$(bash "$TMUX_LAUNCH" "$s" "x" --expect 1h "true" 2>&1) || rc=$?
+    assert_eq 2 "$rc" "--expect without --resource is refused" || return 1
+    rc=0; out=$(bash "$TMUX_LAUNCH" "$s" "x" --resource gpu:test=99999 "true" 2>&1) || rc=$?
+    assert_eq 2 "$rc" "an amount above capacity is refused" || return 1
+    assert_contains "$out" "--force" "with the hint to use --force" || return 1
+    # --force skips the queue and the capacity check; on a GPU the bounded memory wait still applies
+    # (lease-run, Q-996-MEMWAIT), so the override is proven on a CPU resource.
+    local log="$TEST_TMPDIR/res-x.log"
+    out=$(bash "$TMUX_LAUNCH" "$s" "x" --log "$log" --mem none --resource cpu:test=99 --force "echo FORCED-RAN; sleep 1" 2>&1) \
+        || { echo "forced launch failed: $out"; return 1; }
+    _wait_exit_code "$log"; kill_session "$s"
+    assert_file_contains "$log" "FORCED-RAN" "--force starts it anyway" || return 1
+}
+run_test "--resource: bad amount, stray --expect, too large refused; --force overrides" test_res_bad_input_and_too_large
+
+# `wait` returns the server's 143 after the kill; under errexit that would end the file before its summary
+[[ -n "$RES_SERVER_PID" ]] && { kill "$RES_SERVER_PID" 2>/dev/null; wait "$RES_SERVER_PID" 2>/dev/null || true; }
+rm -rf "$RES_TMP"
+
 # ── Summary ─────────────────────────────────────────────────────────────────
 
 suite_summary

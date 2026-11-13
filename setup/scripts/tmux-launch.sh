@@ -2,7 +2,14 @@
 # tmux-launch.sh — Launch a tmux session with automatic GPI registration.
 # Replaces raw `tmux new-session -d` for long-running ops.
 #
-# Usage: tmux-launch.sh <session-name> "<gpi-label>" [--log <path>] [--mem <SIZE>|none] "<command>"
+# Usage: tmux-launch.sh <session-name> "<gpi-label>" [--log <path>] [--mem <SIZE>|none]
+#                       [--resource RES[=AMOUNT] [--expect DUR] [--force] [--wait-max DUR]] "<command>"
+#
+# CFG-996 slice 1: --resource runs the job under an AFD lease (e.g. gpu:wsl-4090=8192, MiB). One
+# claim from here (5 s): a 401, an unknown name or an amount above capacity is refused (exit 2)
+# before any session is touched; otherwise it prints granted / queued #N / AFD unreachable (then
+# warn-and-run) and the pane runs setup/scripts/lease-run.sh around the job, outside its memory
+# scope, so the pane waits its turn, renews, and releases when the job ends.
 #
 # CFG-741: every job runs in its own user cgroup (systemd-run --user --scope) with
 # MemoryMax and MemorySwapMax=0, so a runaway is OOM-killed instead of freezing the box
@@ -33,10 +40,15 @@ fi
 
 LOG_PATH=""
 MEM=""
+RESOURCE="" EXPECT="" FORCE="" WAIT_MAX=""
 while [[ $# -gt 1 ]]; do
     case "$1" in
         --log) LOG_PATH="$2"; shift 2 ;;
         --mem) MEM="$2"; shift 2 ;;
+        --resource) RESOURCE="$2"; shift 2 ;;
+        --expect) EXPECT="$2"; shift 2 ;;
+        --force) FORCE=1; shift ;;
+        --wait-max) WAIT_MAX="$2"; shift 2 ;;
         *) break ;;
     esac
 done
@@ -49,6 +61,45 @@ fi
 if [[ -n "$MEM" && "$MEM" != none && ! "$MEM" =~ ^[0-9]+[KMGT]?$ ]]; then
     echo "tmux-launch: --mem '$MEM' is not a size (e.g. 512M, 16G) or 'none'" >&2
     exit 2
+fi
+
+# ── CFG-996: one foreground claim (design §8 S1) ── the pane does the waiting.
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+RES_STATUS="" CLAIM_JSON="" RES_DIR="" RELEASE_ON_EXIT=0
+if [[ -z "$RESOURCE" && -n "$EXPECT$FORCE$WAIT_MAX" ]]; then
+    echo "tmux-launch: --expect/--force/--wait-max need --resource" >&2; exit 2
+fi
+if [[ -n "$RESOURCE" ]]; then
+    RES_NAME="${RESOURCE%%=*}" RES_AMOUNT=""
+    [[ "$RESOURCE" == *=* ]] && RES_AMOUNT="${RESOURCE#*=}"
+    if [[ -z "$RES_NAME" || ( -n "$RES_AMOUNT" && ! "$RES_AMOUNT" =~ ^[0-9]+$ ) ]]; then
+        echo "tmux-launch: --resource '$RESOURCE' is not RES[=AMOUNT] (e.g. gpu:wsl-4090=8192)" >&2; exit 2
+    fi
+    _res_lib="${AFD_RES_LIB:-$SCRIPT_DIR/../../afd/lib/afd-res-lib.sh}"
+    [[ -f "$_res_lib" ]] || _res_lib="$HOME/.local/lib/afd-res-lib.sh"
+    # shellcheck source=/dev/null
+    source "$_res_lib" || { echo "tmux-launch: cannot load $_res_lib" >&2; exit 2; }
+    _dur() { case "$1" in *d) echo $(( ${1%d} * 86400 ));; *h) echo $(( ${1%h} * 3600 ));; *m) echo $(( ${1%m} * 60 ));;
+             *s) echo "${1%s}";; *) [[ "$1" =~ ^[0-9]+$ ]] && echo "$1" || return 1;; esac; }
+    _claim=("$RES_NAME"); [[ -n "$RES_AMOUNT" ]] && _claim+=("$RES_AMOUNT")
+    _claim+=(--job "$SESSION")
+    if [[ -n "$EXPECT" ]]; then _s=$(_dur "$EXPECT") || { echo "tmux-launch: bad --expect '$EXPECT'" >&2; exit 2; }; _claim+=(--expect "$_s"); fi
+    [[ -n "$FORCE" ]] && _claim+=(--force --reason "tmux-launch --force")
+    _rc=0; CLAIM_JSON=$(afd_res_claim "${_claim[@]}" 2>/dev/null) || _rc=$?
+    case $_rc in
+        0)  RES_STATUS=", granted $RES_NAME${RES_AMOUNT:+ ($RES_AMOUNT)}" ;;
+        10) RES_STATUS=", queued #$(_afd_res_field "$CLAIM_JSON" "d.get('position')") for $RES_NAME (the pane waits its turn)" ;;
+        20) CLAIM_JSON=""; RES_STATUS=", AFD unreachable — no lease on $RES_NAME"
+            echo "WARNING: tmux-launch: AFD unreachable — '$SESSION' starts without a lease on $RES_NAME (it registers once AFD answers)" >&2 ;;
+        30) echo "tmux-launch: AFD rejected the token (401) — '$SESSION' not launched; fix ~/.afd-env" >&2; exit 2 ;;
+        40) echo "tmux-launch: unknown resource '$RES_NAME' (a typo?) — not launched; 'afd res status' lists them" >&2; exit 2 ;;
+        41) echo "tmux-launch: $RES_AMOUNT exceeds the capacity of $RES_NAME — not launched; --force starts it anyway" >&2; exit 2 ;;
+        *)  echo "tmux-launch: claim on $RES_NAME failed (code $_rc) — not launched" >&2; exit 2 ;;
+    esac
+    if [[ -n "$CLAIM_JSON" ]]; then
+        RELEASE_ON_EXIT=1   # until the pane is verified alive, the claim is ours to release
+        trap '[[ $RELEASE_ON_EXIT == 1 ]] && afd_res_release "$(_afd_res_field "$CLAIM_JSON" "d[\"id\"]")" "$(_afd_res_field "$CLAIM_JSON" "d[\"secret\"]")" >/dev/null 2>&1' EXIT
+    fi
 fi
 
 # default_mem_cap — MemAvailable - 4 GiB, capped at 75% of MemTotal, floor 1 GiB, in MiB
@@ -171,6 +222,32 @@ GPI_BIN=$(command -v gpi 2>/dev/null || true)
 GPI_DONE=""
 [[ -n "$GPI_BIN" ]] && GPI_DONE="; $(printf '%q' "$GPI_BIN") done $(printf '%q' "$SESSION") >/dev/null 2>&1"
 
+# CFG-996: wrap the (already scoped) job in lease-run.sh, so the wrapper stays OUTSIDE the job's
+# cgroup and can release after a cgroup kill (§8 B3). The claim and the settings the pane needs
+# (it inherits the tmux server's environment, not ours) go into 600-mode files in a 700 directory,
+# which the pane deletes: the lease secret and the AFD token never appear on a command line.
+if [[ -n "$RESOURCE" ]]; then
+    RES_DIR="${XDG_RUNTIME_DIR:-/tmp}/tmux-launch"
+    (umask 077; mkdir -p "$RES_DIR"); chmod 700 "$RES_DIR"
+    _envf="$RES_DIR/$SESSION.env"
+    (umask 077   # the umask must be set BEFORE the redirection creates the file
+     { for _v in AFD_URL AFD_TOKEN AFD_RES_LIB AFD_RES_MACHINE AFD_RES_NVSMI LR_POLL_S LR_RENEW_S LR_STATE_DIR LR_NOTIFY_CMD LR_MEM_MARGIN; do
+           [[ -n "${!_v:-}" ]] && printf 'export %s=%q\n' "$_v" "${!_v}"
+       done
+       [[ -n "$GPI_BIN" ]] && printf 'export LR_GPI_BIN=%q\n' "$GPI_BIN"
+       true; } > "$_envf")
+    _lr=(bash "${TMUX_LAUNCH_LEASE_RUN:-$SCRIPT_DIR/lease-run.sh}" --resource "$RESOURCE" --job "$SESSION")
+    if [[ -n "$CLAIM_JSON" ]]; then
+        (umask 077; printf '%s\n' "$CLAIM_JSON" > "$RES_DIR/$SESSION.lease")
+        _lr+=(--lease-file "$RES_DIR/$SESSION.lease")
+    fi
+    [[ -n "$EXPECT" ]] && _lr+=(--expect "$EXPECT")
+    [[ -n "$FORCE" ]] && _lr+=(--force)
+    [[ -n "$WAIT_MAX" ]] && _lr+=(--wait-max "$WAIT_MAX")
+    [[ -n "$GPI_BIN" ]] && _lr+=(--gpi "$SESSION")
+    COMMAND=". $(printf '%q' "$_envf"); rm -f $(printf '%q' "$_envf"); $(printf '%q ' "${_lr[@]}")-- bash -c $(printf '%q' "$COMMAND")"
+fi
+
 launch_session "$SESSION" "$COMMAND" "$LOG_PATH"
 
 # Verify session survived (detect immediate death)
@@ -192,8 +269,10 @@ verify_session() {
 }
 
 if ! verify_session "$SESSION" "$LOG_PATH"; then
-    exit 1
+    [[ -n "$RES_DIR" ]] && rm -f "$RES_DIR/$SESSION.lease" "$RES_DIR/$SESSION.env"
+    exit 1   # the EXIT trap releases a foreground claim the dead pane never took over
 fi
+RELEASE_ON_EXIT=0   # the pane (lease-run) owns the lease now
 
 # Record the launch so a later kill can PROVE ownership (CFG-694). A tmux pane is a child
 # of the TMUX SERVER, not of the session that asked for it, so this is the only place the
@@ -204,4 +283,4 @@ if [[ -f "$_registry" ]]; then
     [[ -n "$_pane_pid" ]] && bash "$_registry" add "$_pane_pid" "tmux:$SESSION" "$COMMAND" 2>/dev/null || true
 fi
 
-echo "tmux '$SESSION' launched ($GPI_STATUS$MEM_STATUS)"
+echo "tmux '$SESSION' launched ($GPI_STATUS$MEM_STATUS$RES_STATUS)"
