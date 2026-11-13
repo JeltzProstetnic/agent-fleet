@@ -319,6 +319,11 @@ deploy_afd() {
         cp "$afd_dir/lib/afd-lib.sh" "$HOME/.local/lib/afd-lib.sh"
         log_info "Deployed: afd-lib.sh → ~/.local/lib/"
     fi
+
+    if [ -f "$afd_dir/lib/afd-res-lib.sh" ]; then
+        cp "$afd_dir/lib/afd-res-lib.sh" "$HOME/.local/lib/afd-res-lib.sh"
+        log_info "Deployed: afd-res-lib.sh → ~/.local/lib/ (afd res, CFG-996)"
+    fi
 }
 
 # deploy_repro — SteamOS only: ~/.local/bin/repro → setup/reprovision-steamos.sh, so an OS
