@@ -276,6 +276,12 @@ Projects communicate through `cross-project/inbox.md`. When one project needs an
 
 Direct file writes between projects are forbidden -- the inbox keeps projects decoupled and prevents silent data corruption.
 
+### Shared Resources (fleet-internal)
+
+Several sessions can share one GPU without crowding each other out. A job claims a lease on a named resource from the Agent Fleet Daemon (AFD), for example `gpu:<host>=8192` for 8 GiB of graphics memory, waits in a queue while other leases hold that memory, runs, and releases the lease when it exits. Background jobs get this through `tmux-launch.sh --resource gpu:<host>=8192`, and foreground commands through `lease-run.sh`. A misspelled resource name is refused rather than run unguarded.
+
+This is fleet-internal for now: it needs your own AFD server with the lease endpoints, and the template ships neither that server nor `lease-run.sh` yet. Without them, `tmux-launch --resource` refuses to launch and tells you why. CPUs, AI subscriptions and devices such as a robot or a printer are planned on the same lease system.
+
 ### Multi-Persona System
 
 Define multiple named personalities with automatic context-based switching:
