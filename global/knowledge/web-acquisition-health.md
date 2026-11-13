@@ -116,7 +116,14 @@ the redirect was refused by the auto-mode classifier — read Springer journal f
 submission time. **(7)** PhiMiSci (`philosophymindscience.org`) and IJoDR sit behind an **Anubis
 proof-of-work wall**; a headless-Chrome render was refused by the classifier as bot-check circumvention and
 must not be retried — use a Wayback copy (mark it as such) or a real browser. **(8)** `academic.oup.com`
-author pages (SLEEP) read fine via WebFetch. (measured on WSL 2026-11-09)
+author pages (SLEEP) read fine via WebFetch. (measured on WSL 2026-11-09) **(9)** **ScienceDirect**
+article pages — open-access ones too — answer the Playwright MCP browser with a Cloudflare *"Just a
+moment..."* page (HTTP 403), curl gets 403, and a headless-Chrome or spoofed-UA fetch is refused by the
+classifier as bot-check circumvention; do not work around it. Confirm OA status via OpenAlex
+(`works/doi:<doi>` → `best_oa_location`, licence), then open the article in MG's own browser from a `/mnt`
+cwd (`env -C /mnt/c powershell.exe -NoProfile -Command "Start-Process '<url>'"`), let MG click *View PDF*,
+and pick the file up from `/mnt/c/Users/Matthias/Downloads` (an issue download arrives as
+`ScienceDirect_articles_<date>.zip`). (measured on WSL 2026-11-13)
 
 ## Scope
 
