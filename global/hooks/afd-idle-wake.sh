@@ -8,6 +8,7 @@
 # exits 2 the moment one is queued for THIS project — Claude Code then wakes the model
 # with this hook's stderr. No other session has to be reading.
 #
+# It also records the session's crons for context-budget.sh's detectors (CFG-911), first.
 # One waiter per session: a newer one (next turn) supersedes the older via a pid file.
 # Exits 0 (no wake) when Claude Code is gone, when superseded, or after AFD_IDLE_MAX
 # seconds; settings.json gives the hook a timeout 60 s longer than that.
@@ -16,6 +17,10 @@
 
 INPUT=""
 [[ -t 0 ]] || INPUT=$(timeout 2 cat 2>/dev/null)
+
+# CFG-911: record this session's cron prompts (the payload's session_crons) so the prompt
+# hook can tell a scheduled fire from typed text. Before the afd check: it needs no afd.
+source "$(dirname "${BASH_SOURCE[0]}")/lib-hook-stdin.sh" 2>/dev/null && record_session_crons "$INPUT"
 
 AFD_CLI="${HOME}/.local/bin/afd"
 [[ -x "$AFD_CLI" ]] || exit 0

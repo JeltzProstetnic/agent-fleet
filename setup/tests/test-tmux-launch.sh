@@ -4,6 +4,12 @@ source "$(dirname "$0")/test-helpers.sh"
 
 TMUX_LAUNCH="$REPO_ROOT/setup/scripts/tmux-launch.sh"
 
+# Every test runs on a PRIVATE tmux server, never the user's default one (CFG-1007). TMUX goes too: in a
+# pane it names the live server and wins over TMUX_TMPDIR. Short path: a socket path is limited to ~108 bytes.
+unset TMUX
+TL_TMUX_BASE="$(mktemp -d /tmp/tl-tmux.XXXXXX)"
+export TMUX_TMPDIR="$TL_TMUX_BASE"
+
 # Mock gpi globally to prevent test pollution of ~/.claude/.gpi-state.json
 MOCK_BIN="$(mktemp -d)"
 cat > "$MOCK_BIN/gpi" << 'MOCKEOF'
@@ -329,7 +335,7 @@ _private_tmux() {
 _private_tmux_cleanup() {
     # TMUX_TMPDIR is the private dir here, so this can only reach our own server.
     [[ "${TMUX_TMPDIR:-}" == "$TEST_TMPDIR/tmuxsock" ]] && tmux kill-server 2>/dev/null || true
-    unset TMUX_TMPDIR
+    export TMUX_TMPDIR="$TL_TMUX_BASE"   # back to the file's private server, never the default one
 }
 
 _mock_setsid() {
@@ -530,6 +536,8 @@ test_mem_quoting_survives() {
 }
 run_test "job command quoting survives the cgroup wrapper" test_mem_quoting_survives
 
+# Project pinning (CFG-1007) lives in test-tmux-launch-project.sh.
+
 test_mem_real_cgroup_kills_runaway() {
     # Product test on a box with a working user systemd: a job that outgrows its cap dies,
     # the launcher survives. Skipped where systemd-run --user does not work.
@@ -554,15 +562,16 @@ run_test "real user cgroup: a job over its cap is killed" test_mem_real_cgroup_k
 # A throwaway loopback AFD and a fake nvidia-smi; the live daemon is never touched (§8 S6).
 # The pane inherits the tmux SERVER's environment, so tmux-launch hands the AFD/test settings
 # over in a 600-mode env file it deletes; these tests prove that by running real panes.
-RES_PORT=19884 RES_TOKEN="test-tl-token" RES_SERVER_PID=""  # pragma: allowlist secret
+# The server runs under the machine-wide AFD test lock, on a free guarded port (19884 when free), bound
+# to 127.0.0.1 (lib-afd-test-guard.sh): on a fixed port outside the lock it met another run's server.
+RES_PORT=19884 RES_TOKEN="test-tl-token" RES_WHY=""  # pragma: allowlist secret
 RES_TMP="$(mktemp -d)"
+# shellcheck source=/dev/null
+source "$REPO_ROOT/setup/tests/lib-afd-test-guard.sh"
 _res_start() {
-    command -v node >/dev/null 2>&1 || return 1
-    AFD_PORT=$RES_PORT AFD_TOKEN=$RES_TOKEN AFD_DB_PATH="$RES_TMP/afd.db" AFD_NOTIFY=false \
-        node "$REPO_ROOT/afd/server/index.js" >"$RES_TMP/server.log" 2>&1 &
-    RES_SERVER_PID=$!
-    local i; for i in $(seq 1 50); do curl -s "http://127.0.0.1:$RES_PORT/health" >/dev/null 2>&1 && break; sleep 0.1; done
-    kill -0 "$RES_SERVER_PID" 2>/dev/null || return 1
+    afd_test_server "$REPO_ROOT/afd/server/index.js" "$RES_TMP/server.log" "$RES_PORT" \
+        AFD_TOKEN="$RES_TOKEN" AFD_DB_PATH="$RES_TMP/afd.db" || { RES_WHY=$AFD_GUARD_WHY; return 1; }
+    RES_PORT=$AFD_TEST_PORT
     export AFD_URL="http://127.0.0.1:$RES_PORT" AFD_TOKEN="$RES_TOKEN" AFD_RES_MACHINE=testbox \
         AFD_RES_LIB="$REPO_ROOT/afd/lib/afd-res-lib.sh" LR_POLL_S=0.2 LR_STATE_DIR="$RES_TMP/state" \
         LR_NOTIFY_CMD="$RES_TMP/notify.sh" AFD_RES_NVSMI="cat $RES_TMP/card" XDG_RUNTIME_DIR="$RES_TMP/run"
@@ -570,16 +579,29 @@ _res_start() {
     echo "3000, 24564" > "$RES_TMP/card"; mkdir -p "$RES_TMP/run"
     printf '#!/usr/bin/env bash\necho "$*" >> "$(dirname "$0")/gpi.log"\n' > "$MOCK_BIN/gpi"; : > "$MOCK_BIN/gpi.log"
     source "$AFD_RES_LIB"
-    curl -s -X POST "$AFD_URL/api/resources" -H "Authorization: Bearer $RES_TOKEN" -H 'Content-Type: application/json' \
+    curl -s -m 10 -X POST "$AFD_URL/api/resources" -H "Authorization: Bearer $RES_TOKEN" -H 'Content-Type: application/json' \
         -d '{"id":"gpu:test","kind":"gpu","machine":"testbox","capacity":16384,"unit":"MiB","ttl_default_s":30}' >/dev/null
-    curl -s -X POST "$AFD_URL/api/resources" -H "Authorization: Bearer $RES_TOKEN" -H 'Content-Type: application/json' \
+    curl -s -m 10 -X POST "$AFD_URL/api/resources" -H "Authorization: Bearer $RES_TOKEN" -H 'Content-Type: application/json' \
         -d '{"id":"cpu:test","kind":"cpu","machine":"testbox","capacity":24,"unit":"slot","ttl_default_s":30}' >/dev/null
 }
-_res_count() { _afd_res_field "$(curl -s "$AFD_URL/api/resources/gpu%3Atest" -H "Authorization: Bearer $RES_TOKEN")" "len(d['$1'])"; }
-RES_OK=0
+_res_count() { _afd_res_field "$(curl -s -m 10 "$AFD_URL/api/resources/gpu%3Atest" -H "Authorization: Bearer $RES_TOKEN")" "len(d['$1'])"; }
+RES_OK=0 RES_SKIP=""
 # Downstream (the agent-fleet template) carries neither the AFD server nor the lease library until
-# CFG-996 slice 1 ships, so there these cases skip instead of failing.
-if [[ -f "$REPO_ROOT/afd/server/index.js" && -f "$REPO_ROOT/afd/lib/afd-res-lib.sh" ]]; then _res_start && RES_OK=1; fi
+# CFG-996 slice 1 ships, so there these cases skip. A server that cannot start HERE is a failure.
+if [[ ! -f "$REPO_ROOT/afd/server/index.js" || ! -f "$REPO_ROOT/afd/lib/afd-res-lib.sh" ]]; then
+    RES_SKIP="no AFD lease server/library in this tree"
+elif ! command -v node >/dev/null 2>&1; then
+    RES_SKIP="node not on PATH"
+elif [[ ! -d "$REPO_ROOT/afd/server/node_modules" ]]; then
+    RES_SKIP="afd/server/node_modules not installed (npm ci --prefix $REPO_ROOT/afd/server)"
+elif _res_start; then
+    RES_OK=1
+fi
+test_res_server_started() {
+    echo "    measured: ${RES_WHY:-AFD test server on 127.0.0.1:$RES_PORT}"
+    assert_eq "1" "$RES_OK" "the loopback AFD test server starts (lock, free guarded port, /health)"
+}
+if [[ -n "$RES_SKIP" ]]; then RES_WHY=$RES_SKIP; else run_test "--resource: the loopback AFD test server starts" test_res_server_started; fi
 
 test_res_granted_runs_and_releases() {
     (( RES_OK )) || { skip_test "--resource granted" "no AFD lease server/library in this tree, or no node"; return 0; }
@@ -675,9 +697,12 @@ test_res_bad_input_and_too_large() {
 }
 run_test "--resource: bad amount, stray --expect, too large refused; --force overrides" test_res_bad_input_and_too_large
 
-# `wait` returns the server's 143 after the kill; under errexit that would end the file before its summary
-[[ -n "$RES_SERVER_PID" ]] && { kill "$RES_SERVER_PID" 2>/dev/null; wait "$RES_SERVER_PID" 2>/dev/null || true; }
+# The lease's project (CFG-1007) is tested in test-tmux-launch-project.sh.
+
+afd_test_server_stop   # stops the server, gives the AFD test lock back
 rm -rf "$RES_TMP"
+TMUX_TMPDIR="$TL_TMUX_BASE" tmux kill-server 2>/dev/null || true
+rm -rf "$TL_TMUX_BASE"
 
 # ── Summary ─────────────────────────────────────────────────────────────────
 

@@ -915,7 +915,7 @@ test_cfg536_owner_by_afleet_session_id() {
 run_test "CFG-536: check_lock — ownership by afleet sessionId (degraded matcher)" test_cfg536_owner_by_afleet_session_id
 
 # ── CFG-672: a tmux-launched CC carries the leader's AFLEET_SESSION_ID ──────
-# tmux-launch.sh passes no `-e`, so `tmux new-session -d` hands the server's
+# tmux-launch.sh pins only AFLEET_PROJECT (`-e`, CFG-1007), so `tmux new-session -d` hands the server's
 # global environment — inherited from whichever session started the server —
 # to every pane. A CC started in a pane is parented to the TMUX SERVER, not to
 # the leader's CC, so _cc_is_nested (ancestry-only) cannot see it, and the

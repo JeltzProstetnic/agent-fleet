@@ -17,6 +17,10 @@
 # Default cap: MemAvailable at launch minus 4 GiB, at most 75% of MemTotal, at least 1 GiB.
 # --mem 16G sets it, --mem none opts out. No working user systemd -> runs uncapped + warning.
 #
+# CFG-1007: every session starts with AFLEET_PROJECT = the CALLER's (fallback: basename of the
+# caller's cwd). A pane otherwise inherits the tmux SERVER's value — whichever project started the
+# server — and jobs and GPU leases were filed under that project (measured: proj-stale for proj-a).
+#
 # Example:
 #   tmux-launch.sh chaos-scan "Scanning _chaos" --log /tmp/scan.log "bash scan.sh"
 
@@ -63,6 +67,10 @@ if [[ -n "$MEM" && "$MEM" != none && ! "$MEM" =~ ^[0-9]+[KMGT]?$ ]]; then
     exit 2
 fi
 
+# CFG-1007: resolved HERE, from the caller — the same rule afd-res-lib applies — because the
+# pane's own AFLEET_PROJECT would be the tmux server's.
+PROJECT="${AFLEET_PROJECT:-$(basename "$PWD")}"
+
 # ── CFG-996: one foreground claim (design §8 S1) ── the pane does the waiting.
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 RES_STATUS="" CLAIM_JSON="" RES_DIR="" RELEASE_ON_EXIT=0
@@ -82,7 +90,7 @@ if [[ -n "$RESOURCE" ]]; then
     _dur() { case "$1" in *d) echo $(( ${1%d} * 86400 ));; *h) echo $(( ${1%h} * 3600 ));; *m) echo $(( ${1%m} * 60 ));;
              *s) echo "${1%s}";; *) [[ "$1" =~ ^[0-9]+$ ]] && echo "$1" || return 1;; esac; }
     _claim=("$RES_NAME"); [[ -n "$RES_AMOUNT" ]] && _claim+=("$RES_AMOUNT")
-    _claim+=(--job "$SESSION")
+    _claim+=(--job "$SESSION" --project "$PROJECT")
     if [[ -n "$EXPECT" ]]; then _s=$(_dur "$EXPECT") || { echo "tmux-launch: bad --expect '$EXPECT'" >&2; exit 2; }; _claim+=(--expect "$_s"); fi
     [[ -n "$FORCE" ]] && _claim+=(--force --reason "tmux-launch --force")
     _rc=0; CLAIM_JSON=$(afd_res_claim "${_claim[@]}" 2>/dev/null) || _rc=$?
@@ -208,10 +216,10 @@ launch_session() {
     local session="$1" command="$2" log_path="$3"
     if [[ -n "$log_path" ]]; then
         # Capture real exit code via PIPESTATUS before tee masks it
-        "${TMUX_CMD[@]}" new-session -d -s "$session" \
+        "${TMUX_CMD[@]}" new-session -d -s "$session" ${SESSION_ENV[@]+"${SESSION_ENV[@]}"} \
             "($command) 2>&1 | tee -a $log_path; _rc=\${PIPESTATUS[0]}; echo \"EXIT_CODE: \$_rc\" >> $log_path$GPI_DONE"
     else
-        "${TMUX_CMD[@]}" new-session -d -s "$session" "($command)$GPI_DONE"
+        "${TMUX_CMD[@]}" new-session -d -s "$session" ${SESSION_ENV[@]+"${SESSION_ENV[@]}"} "($command)$GPI_DONE"
     fi
 }
 
@@ -236,7 +244,7 @@ if [[ -n "$RESOURCE" ]]; then
        done
        [[ -n "$GPI_BIN" ]] && printf 'export LR_GPI_BIN=%q\n' "$GPI_BIN"
        true; } > "$_envf")
-    _lr=(bash "${TMUX_LAUNCH_LEASE_RUN:-$SCRIPT_DIR/lease-run.sh}" --resource "$RESOURCE" --job "$SESSION")
+    _lr=(bash "${TMUX_LAUNCH_LEASE_RUN:-$SCRIPT_DIR/lease-run.sh}" --resource "$RESOURCE" --job "$SESSION" --project "$PROJECT")
     if [[ -n "$CLAIM_JSON" ]]; then
         (umask 077; printf '%s\n' "$CLAIM_JSON" > "$RES_DIR/$SESSION.lease")
         _lr+=(--lease-file "$RES_DIR/$SESSION.lease")
@@ -246,6 +254,22 @@ if [[ -n "$RESOURCE" ]]; then
     [[ -n "$WAIT_MAX" ]] && _lr+=(--wait-max "$WAIT_MAX")
     [[ -n "$GPI_BIN" ]] && _lr+=(--gpi "$SESSION")
     COMMAND=". $(printf '%q' "$_envf"); rm -f $(printf '%q' "$_envf"); $(printf '%q ' "${_lr[@]}")-- bash -c $(printf '%q' "$COMMAND")"
+fi
+
+# CFG-1007: pin the caller's project on the session. new-session -e (tmux 3.2+) puts it in the
+# SESSION environment, so later windows of the session get it too; older tmux has no such flag,
+# so there the pane's command exports it — outermost, so lease-run and the job both see it.
+tmux_has_session_env() {
+    local v
+    v=$(tmux -V 2>/dev/null) || return 1
+    [[ "$v" =~ ([0-9]+)\.([0-9]+) ]] || return 0   # "tmux master": a source build, current
+    (( BASH_REMATCH[1] > 3 || (BASH_REMATCH[1] == 3 && BASH_REMATCH[2] >= 2) ))
+}
+SESSION_ENV=()
+if tmux_has_session_env; then
+    SESSION_ENV=(-e "AFLEET_PROJECT=$PROJECT")
+else
+    COMMAND="export AFLEET_PROJECT=$(printf '%q' "$PROJECT"); $COMMAND"
 fi
 
 launch_session "$SESSION" "$COMMAND" "$LOG_PATH"

@@ -5,9 +5,10 @@
 # Any network call MUST have a timeout — a hang here = "Interrupted..." for the user.
 #
 # CFG-770: AFK stays on through console typing until the user says "afk off"
-# (decided 2026-10-18). Task notifications and cross-session messages also fire
-# UserPromptSubmit and never end AFK, whatever they quote. Every deactivation is
-# logged to ~/.claude/logs/afk.log.
+# (decided 2026-10-18). Task notifications, subagent hand-backs, cross-session messages
+# and scheduled fires also fire UserPromptSubmit and never end AFK, whatever they quote
+# (hook_prompt_is_synthetic, lib-hook-stdin.sh). Every deactivation is logged to
+# ~/.claude/logs/afk.log.
 
 AFD_CLI="${HOME}/.local/bin/afd"
 AFK_LOG="$HOME/.claude/logs/afk.log"
@@ -30,13 +31,27 @@ CWD=$(_field cwd)
 [[ -n "$CWD" ]] || CWD="$PWD"
 
 source "$(dirname "${BASH_SOURCE[0]}")/lib-afd-msg.sh" 2>/dev/null || true
+source "$(dirname "${BASH_SOURCE[0]}")/lib-hook-stdin.sh" 2>/dev/null || true  # hook_prompt_is_synthetic
 ME=$(afd_project_of "$CWD" 2>/dev/null || basename "$CWD")
 
 # --- 1. Only a typed "afk off" ends AFK ---
-SYNTHETIC=false
-[[ "$PROMPT" =~ ^[[:space:]]*\<(task-notification|cross-session-message|agent-message) ]] && SYNTHETIC=true
-if ! $SYNTHETIC && [[ -f "$HOME/.afd-afk" ]] \
-   && printf '%s' "$PROMPT" | grep -qiE '(^|[^[:alnum:]_])afk[[:space:]]+off([^[:alnum:]_]|$)'; then
+# A harness-delivered turn never does, whatever it quotes: hand-backs, notifications,
+# cross-session messages, and scheduled fires, known by the payload's `source` or a cron
+# the Stop hook recorded. The test is shared with context-budget.sh's detectors (CFG-911).
+# A partial deploy keeps a text test: an older lib-hook-stdin.sh its prompt_is_synthetic,
+# no lib the pre-CFG-911 inline test; either way a typed "afk off" still ends AFK.
+_afk_turn_synthetic() {
+  if declare -F hook_prompt_is_synthetic >/dev/null; then
+    hook_prompt_is_synthetic "$INPUT"
+  elif declare -F prompt_is_synthetic >/dev/null; then
+    prompt_is_synthetic "$PROMPT"
+  else
+    [[ "$PROMPT" =~ ^[[:space:]]*\<(task-notification|cross-session-message|agent-message) ]]
+  fi
+}
+if [[ -f "$HOME/.afd-afk" ]] \
+   && printf '%s' "$PROMPT" | grep -qiE '(^|[^[:alnum:]_])afk[[:space:]]+off([^[:alnum:]_]|$)' \
+   && ! _afk_turn_synthetic; then
   rm -f "$HOME/.afd-afk"
   mkdir -p "$(dirname "$AFK_LOG")" 2>/dev/null
   echo "$(date +%Y-%m-%dT%H:%M:%S%z) deactivated by=afk-deactivate project=$ME trigger=afk-off" >> "$AFK_LOG" 2>/dev/null

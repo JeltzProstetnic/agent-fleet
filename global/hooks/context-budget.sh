@@ -6,6 +6,7 @@
 # Outputs plain text lines for injection (UserPromptSubmit uses stdout, not JSON)
 
 source "$(dirname "${BASH_SOURCE[0]}")/lib-portable.sh" 2>/dev/null || true
+source "$(dirname "${BASH_SOURCE[0]}")/lib-hook-stdin.sh" 2>/dev/null || true  # hook_prompt_user_text
 
 OUTPUT=""
 
@@ -101,7 +102,19 @@ fi
 #   when user reports a real-time failure; agent loads knowledge/live-issue-capture.md.
 # stdin was consumed at the top of this script — reuse the captured payload.
 if [[ -n "$_hook_input" ]]; then
-    _user_msg=$(printf '%s' "$_hook_input" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('prompt') or d.get('message',''))" 2>/dev/null) || true  # CC sends .prompt
+    # CFG-911: subagent hand-backs, task notifications, cross-session messages and scheduled
+    # fires run UserPromptSubmit too; their text is a report or a task, never the user's. The
+    # detectors read only the user's own words: typed text, or the Telegram lines of a CFG-777
+    # idle wake. A partial deploy keeps what it can: an older lib-hook-stdin.sh still drops
+    # framed turns (prompt_user_text); without the lib every prompt is read, as before CFG-911.
+    if declare -F hook_prompt_user_text >/dev/null; then
+        _user_msg=$(hook_prompt_user_text "$_hook_input")
+    else
+        _user_msg=$(printf '%s' "$_hook_input" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('prompt') or d.get('message',''))" 2>/dev/null) || true  # CC sends .prompt
+        if declare -F prompt_user_text >/dev/null; then
+            _user_msg=$(prompt_user_text "$_user_msg")
+        fi
+    fi
     if [[ "$_user_msg" =~ (^|[[:space:]])(lrn|LRN)($|[[:space:]]) ]]; then
         OUTPUT="${OUTPUT:+$OUTPUT | }LRN_TRIGGERED: Invoke the lrn skill via Skill tool. Load SKILL.md + references/known-faulty-patterns.md before responding."
     fi

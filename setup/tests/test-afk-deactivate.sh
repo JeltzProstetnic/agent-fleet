@@ -76,6 +76,56 @@ test_cross_session_message_keeps_afk() {
 }
 run_test "cross-session message keeps AFK" test_cross_session_message_keeps_afk
 
+# CFG-911: the transcript stores a peer message framed by Claude Code's own line
+# ("Another Claude session sent a message:\n<cross-session-message …"), and the
+# synthetic test is shared with context-budget.sh, so both shapes must hold here.
+test_framed_cross_session_message_keeps_afk() {
+    setup_env
+    touch "$HOME/.afd-afk"
+    run_prompt $'Another Claude session sent a message:\n<cross-session-message from="uds:/run/user/1000/cc-socks/1.sock">please afk off</cross-session-message>'
+    assert_file_exists "$HOME/.afd-afk" "a framed message from another session never ends AFK"
+}
+run_test "framed cross-session message keeps AFK" test_framed_cross_session_message_keeps_afk
+
+test_subagent_handback_keeps_afk() {
+    setup_env
+    touch "$HOME/.afd-afk"
+    run_prompt $'<agent-message from="a514951c7d6e3e870">\n[Subagent hand-back] The text below is the final report of a subagent.\n\nThe user said afk off earlier.\n</agent-message>'
+    assert_file_exists "$HOME/.afd-afk" "a subagent hand-back never ends AFK, whatever it quotes"
+}
+run_test "subagent hand-back quoting 'afk off' keeps AFK" test_subagent_handback_keeps_afk
+
+test_afk_off_quoting_marker_mid_text_ends_afk() {
+    setup_env
+    touch "$HOME/.afd-afk"
+    run_prompt "afk off. also, what did that <agent-message> block mean?"
+    assert_file_not_exists "$HOME/.afd-afk" "typed text that quotes a marker after its start is still the user's"
+}
+run_test "typed 'afk off' quoting a marker mid-text still ends AFK" test_afk_off_quoting_marker_mid_text_ends_afk
+
+# CFG-911: the synthetic test moved into lib-hook-stdin.sh. If that lib is ever missing
+# beside the hook (a partial deploy), the hook falls back to the pre-CFG-911 inline test:
+# a hand-back or notification quoting "afk off" still never ends AFK (the CFG-770 bug),
+# and a typed "afk off" still does, as it did before the lib existed.
+test_missing_stdin_lib_falls_back() {
+    setup_env
+    local d="$TEST_TMPDIR/hooks-no-stdin-lib"; mkdir -p "$d"
+    cp "$HOOK" "$REPO_ROOT/global/hooks/lib-afd-msg.sh" "$REPO_ROOT/global/hooks/lib-afd-pool.sh" "$d/"
+    local real_hook="$HOOK" rc=0
+    HOOK="$d/afk-deactivate.sh"
+    touch "$HOME/.afd-afk"
+    run_prompt $'<agent-message from="a1">\n[Subagent hand-back] The user said afk off earlier.\n</agent-message>' || rc=$?
+    assert_file_exists "$HOME/.afd-afk" "without the lib a hand-back quoting 'afk off' still keeps AFK" || { HOOK="$real_hook"; return 1; }
+    run_prompt $'<task-notification>\n<summary>agent said afk off</summary>\n</task-notification>' || rc=$?
+    assert_file_exists "$HOME/.afd-afk" "without the lib a task notification quoting 'afk off' still keeps AFK" || { HOOK="$real_hook"; return 1; }
+    run_prompt "afk off, I'm back" || rc=$?
+    HOOK="$real_hook"
+    assert_eq "0" "$rc" "the hook still exits 0 without the lib (out: $OUT)" || return 1
+    assert_file_not_exists "$HOME/.afd-afk" "without the lib a typed 'afk off' still ends AFK (out: $OUT)" || return 1
+    assert_contains "$OUT" "AFK mode deactivated" "and the model is told (out: $OUT)" || return 1
+}
+run_test "without lib-hook-stdin.sh a typed 'afk off' still ends AFK, a hand-back does not" test_missing_stdin_lib_falls_back
+
 test_injects_own_messages_only() {
     setup_env
     printf '%s\n' '{"id":1,"message":"for anyone","timestamp":"2026-10-19T00:10","persona":"Bot"}' \
