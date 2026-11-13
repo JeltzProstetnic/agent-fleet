@@ -48,6 +48,7 @@ Conditionally loaded files containing operational knowledge for specific tools a
 | `office-templates.md` | Producing any DOCX / PDF / PPTX deliverable | Fleet office template: palette, fonts, logo, builders |
 | `audit-domains.md` | Regulatory audit simulation, academic peer review, multi-domain audit personas | Meta-pattern, domain catalog D1-D6, cross-domain principles |
 | `presentation-design.md` | Building or reviewing any slide deck / `.pptx` | ≤7 words per slide, deck-vs-companion-document, tooling reality, image-cap-safe render verification |
+| `tts-voice-cloning.md` | Text-to-speech, voice cloning, producing spoken lines or audio cues | Reference recording, engines (IndexTTS-2, Chatterbox) compared, unattended batch, Whisper verify gate, carrier-sentence cue cutting, new-voice checklist |
 | `word-editing-extraction.md` | Word inline editing, .docx review extraction, author review round | Three Mark Types, Extraction Protocol, Generation Protocol (.docx output) |
 | `test-isolation-guards.md` | Test isolation, live service leak, env var prod default, conftest guard | The Bug, The Fix: conftest.py Autouse Guard, The Anti-Pattern |
 | `pglite-bootstrap.md` | PGlite bootstrap, IndexedDB idempotency, PGlite-in-vitest, Recharts mock | Bootstrap Idempotency (IndexedDB Persistence), PGlite-in-Vitest Harness, Schema-Version Reset-on-Upgrade Migration |

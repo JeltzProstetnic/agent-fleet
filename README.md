@@ -8,7 +8,7 @@ Agent Fleet is a layer of protocols, hooks, scripts and knowledge files on top o
 
 ## What it can do
 
-The template ships 51 operational knowledge files (about 350 KB, in `global/knowledge/`), 17 reference docs, 10 foundation protocols and 5 domains plus a template for your own, and the agent loads each one only when a project or situation calls for it.
+The template ships 55 operational knowledge files (about 400 KB, in `global/knowledge/`), 17 reference docs, 10 foundation protocols and 5 domains plus a template for your own, and the agent loads each one only when a project or situation calls for it.
 
 | Area | What ships |
 |------|-----------|
@@ -20,6 +20,7 @@ The template ships 51 operational knowledge files (about 350 KB, in `global/know
 | Paper mail (Austria) | Sending letters and registered mail through the Austrian hybrid-mail service, with the form traps already mapped: `postal-dispatch.md` |
 | Scientific work and audits | Regulatory audit simulation (for example FDA, ISO 13485), academic peer review, citation and link checks: `audit-domains.md`, `audit-protocol.md`, `web-acquisition-health.md` |
 | Infrastructure and security | Server and deployment rules, MCP server deployment, service memory accounting, secret-scanning guards on commit and push: `global/domains/it-infrastructure/`, `mcp-deployment.md`, `systemd-memory-accounting.md` |
+| Audio and speech | Cloned-voice line production with local open-weight TTS: reference windows, engine settings and keep rates, an unattended resumable batch, a Whisper verify gate so a human only hears checked takes, carrier-sentence cue cutting: `tts-voice-cloning.md` |
 | Communication and social media | Community and social media etiquette, Gmail management, prose register: `global/domains/engagement/`, `gmail-management.md`, `prose-register.md` |
 
 Add-on: simopt, a simulation-optimization framework in .NET 9, lives in its own public repository under the same GitHub account; the `simopt` skill drives it.
