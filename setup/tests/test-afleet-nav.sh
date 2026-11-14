@@ -163,6 +163,8 @@ test_platform_detect_wsl() {
              AFLEET_NAV_DRY_RUN=1 \
              bash "$SCRIPT" tab project-alpha --config-repo "$config_dir" 2>&1)
     assert_contains "$output" "wt.exe" "should use Windows Terminal for WSL"
+    assert_contains "$output" "nt --title project-alpha --suppressApplicationTitle wsl.exe" \
+        "the tab is titled with the project name and Claude Code's own title does not replace it"
 }
 run_test "platform detection identifies WSL via /proc/version" test_platform_detect_wsl
 

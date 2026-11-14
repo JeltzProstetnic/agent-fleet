@@ -9,6 +9,10 @@
 # and scheduled fires also fire UserPromptSubmit and never end AFK, whatever they quote
 # (hook_prompt_is_synthetic, lib-hook-stdin.sh). Every deactivation is logged to
 # ~/.claude/logs/afk.log.
+#
+# CFG-1021: a typed `care` / `care off` that is the WHOLE message arms or ends session caretaking
+# (§1b, lib-care.sh, its own state ~/.afd-care that AFK never changes); a Telegram-only
+# `care off` ends it too (lib-afd-msg.sh).
 
 AFD_CLI="${HOME}/.local/bin/afd"
 AFK_LOG="$HOME/.claude/logs/afk.log"
@@ -58,6 +62,18 @@ if [[ -f "$HOME/.afd-afk" ]] \
   echo "AFK mode deactivated."
 fi
 
+# --- 1b. CFG-1021: a typed `care` / `care off` (the whole message) arms or ends caretaking ---
+# lib-care.sh holds the state machine; a harness-delivered turn never arms or disarms (the same
+# strict test as §1). On any turn it reminds the caretaker when its watch stopped beating. No
+# care file and no care command: pure bash, nothing spawned. A partial deploy without the lib,
+# or a bash older than 4.2, skips this step and changes nothing else.
+SID=""
+[[ "$INPUT" =~ \"session_id\"[[:space:]]*:[[:space:]]*\"([^\"]+)\" ]] && SID="${BASH_REMATCH[1]}"
+if (( BASH_VERSINFO[0] > 4 || (BASH_VERSINFO[0] == 4 && BASH_VERSINFO[1] >= 2) )) \
+   && source "$(dirname "${BASH_SOURCE[0]}")/lib-care.sh" 2>/dev/null; then
+  care_on_prompt "$PROMPT" "$ME" "$SID" _afk_turn_synthetic
+fi
+
 # --- 2. Inject this project's Telegram messages (others are queued for theirs) ---
 MESSAGES=""
 if [[ -x "$AFD_CLI" ]]; then
@@ -69,6 +85,10 @@ if [[ -x "$AFD_CLI" ]]; then
       case "$t" in
         afk:on)  echo "AFK switched ON from Telegram. Confirm it there: afd notify all \"[$ME] AFK is on\" --channel telegram" ;;
         afk:off) echo "AFK switched OFF from Telegram. Confirm it there: afd notify all \"[$ME] AFK is off\" --channel telegram" ;;
+        care:off) echo "CARE_OFF: caretaking switched OFF from Telegram; AFK is unchanged. The caretaker is told by its watch or on its next turn, and runs §Stop of ~/.claude/knowledge/session-care.md. Confirm it there: afd notify all \"[$ME] care is off\" --channel telegram" ;;
+        care:off:owner) echo "CARE_OFF: caretaking switched OFF from Telegram; AFK is unchanged. You were the caretaker: run §Stop of ~/.claude/knowledge/session-care.md now (TaskStop the watch first). Confirm it there: afd notify all \"[$ME] care is off\" --channel telegram" ;;
+        care:off:none) echo "CARE_OFF from Telegram: caretaking was not on; nothing changed. Tell it there: afd notify all \"[$ME] care was not on\" --channel telegram" ;;
+        care:off:failed) echo "CARE_OFF from Telegram FAILED: the care lock was busy, caretaking is unchanged. Tell it there: afd notify all \"[$ME] care off failed (busy) - send care off again\" --channel telegram" ;;
         *) echo "Telegram message(s) for @$t were queued for that project, not this one. Do not act on them. If a $t session is live (ListAgents), wake it with SendMessage: \"Telegram message(s) are queued for you; your prompt hook delivers them.\"" ;;
       esac
     done
@@ -124,8 +144,7 @@ if [[ -x "$AFD_CLI" ]]; then
 fi
 
 # --- 3. CFG-776: another project's queue nobody picked up → tell this model to wake it ---
-SID=""
-[[ "$INPUT" =~ \"session_id\"[[:space:]]*:[[:space:]]*\"([^\"]+)\" ]] && SID="${BASH_REMATCH[1]}"
+# (SID was read from the payload in §1b.)
 if declare -F afd_wake_hint >/dev/null; then
   afd_wake_hint "$ME" "$SID"
 fi

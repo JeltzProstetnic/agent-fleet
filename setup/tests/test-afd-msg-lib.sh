@@ -413,6 +413,60 @@ test_telegram_afk_in_sentence_is_a_message() {
 }
 run_test "'afk' inside a sentence is an ordinary message" test_telegram_afk_in_sentence_is_a_message
 
+# CFG-1021: a Telegram-only `care off` ends session caretaking (lib-care.sh) like `afk off` ends
+# AFK; a Telegram `care` never arms it and stays an ordinary message.
+test_telegram_care_off() {
+    setup_env
+    local CARE_PROC="$TEST_TMPDIR/proc" CARE_CLAUDE_PID=1001   # in-shell knobs for lib-care.sh
+    mkdir -p "$CARE_PROC/4242"
+    printf 'active 1700000000 4242 alpha sess-x 75\n' > "$HOME/.afd-care"
+    touch "$HOME/.afd-afk"
+    pending '{"id":23,"message":"@alpha care off!","timestamp":"t","persona":"Bot"}'
+    local out; out=$(afd_route_messages "config-repo")
+    assert_file_not_exists "$HOME/.afd-care" "a Telegram 'care off' ends caretaking"
+    assert_file_exists "$HOME/.afd-afk" "and never touches AFK"
+    assert_eq "care:off" "$out" "routing reports it, caretaker elsewhere (got: $out)"
+    assert_eq "" "$(afd_take_messages "config-repo")$(afd_take_messages "alpha")" "the command is not queued as a message"
+    assert_file_contains "$HOME/.claude/logs/afk.log" "care-off by=telegram project=alpha" "it is logged"
+    pending '{"id":26,"message":"care off","timestamp":"t","persona":"Bot"}'
+    out=$(afd_route_messages "config-repo")
+    assert_eq "care:off:none" "$out" "with nothing armed it reports 'was not on' (got: $out)"
+    printf 'armed 1700000000 1001 config-repo sess-y 75\n' > "$HOME/.afd-care"
+    pending '{"id":27,"message":"care off","timestamp":"t","persona":"Bot"}'
+    out=$(afd_route_messages "config-repo")
+    assert_eq "care:off:owner" "$out" "consumed by the caretaker itself it says so (got: $out)"
+}
+if [[ -f "$REPO_ROOT/global/hooks/lib-care.sh" ]]; then
+    run_test "CFG-1021: Telegram 'care off' ends caretaking and says whether it was on" test_telegram_care_off
+else
+    skip_test "CFG-1021: Telegram 'care off' ends caretaking and says whether it was on" "lib-care.sh is not part of this repo"
+fi
+
+# Where lib-care.sh is not deployed (the template), a Telegram `care off` stays an ordinary message.
+test_telegram_care_off_inert_without_lib() {
+    setup_env
+    local d="$TEST_TMPDIR/hooks-no-care" out
+    mkdir -p "$d"; cp "$LIB" "$REPO_ROOT/global/hooks/lib-afd-pool.sh" "$d/"
+    printf 'active 1700000000 4242 alpha sess-x 75\n' > "$HOME/.afd-care"
+    pending '{"id":28,"message":"care off","timestamp":"t","persona":"Bot"}'
+    out=$(bash -c 'source "$1"; afd_route_messages config-repo; afd_take_messages config-repo' _ "$d/lib-afd-msg.sh")
+    assert_contains "$out" '"message":"care off"' "without lib-care.sh it is delivered as a message (got: $out)"
+    assert_not_contains "$out" "care:off" "and no care status is printed"
+    assert_file_exists "$HOME/.afd-care" "nothing else is touched"
+}
+run_test "CFG-1021: without lib-care.sh a Telegram 'care off' is an ordinary message" test_telegram_care_off_inert_without_lib
+
+test_telegram_care_is_a_message() {
+    setup_env
+    pending '{"id":24,"message":"care","timestamp":"t","persona":"Bot"}' '{"id":25,"message":"afk","timestamp":"t","persona":"Bot"}'
+    local out; out=$(afd_route_messages "config-repo")
+    assert_file_not_exists "$HOME/.afd-care" "a Telegram 'care' never arms caretaking"
+    assert_contains "$(afd_take_messages "config-repo")" '"message":"care"' "it is delivered as a message"
+    assert_contains "$out" "afk:on" "the AFK switch next to it still works (got: $out)"
+    assert_not_contains "$out" "care:" "and no care status is printed"
+}
+run_test "CFG-1021: Telegram 'care' is an ordinary message" test_telegram_care_is_a_message
+
 # ── CFG-776: an idle session never drains its queue; another session must wake it ──
 # 2026-10-19: the user's @aiware messages sat 10+ min in aiware.jsonl because aiware was
 # idle and the session that routed them was blocked in an AFK wait loop.

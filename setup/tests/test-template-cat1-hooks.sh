@@ -127,11 +127,13 @@ run_test "template-push.conf: neither hook is flag_only" test_conf_does_not_flag
 test_manifest_lists_them_as_identical() {
     local list
     list="$(_identical_files)"
-    printf '%s\n' "$list" | grep -Fxq "$HOOK_07B" \
+    # Here-strings, not `printf | grep -q`: under pipefail grep -q exiting at the first match
+    # SIGPIPEs printf (141) and failed this at random (2 runs in 8, measured 2026-11-14).
+    grep -Fxq "$HOOK_07B" <<< "$list" \
         || { echo "FAIL: $HOOK_07B is not under 'Must Be Identical'"; return 1; }
-    printf '%s\n' "$list" | grep -Fxq "$HOOK_07C" \
+    grep -Fxq "$HOOK_07C" <<< "$list" \
         || { echo "FAIL: $HOOK_07C is not under 'Must Be Identical'"; return 1; }
-    printf '%s\n' "$list" | grep -Fxq "$HOOK_CAS" \
+    grep -Fxq "$HOOK_CAS" <<< "$list" \
         || { echo "FAIL: $HOOK_CAS is not under 'Must Be Identical'"; return 1; }
     echo "  both hooks found under 'Must Be Identical' ($(printf '%s\n' "$list" | grep -c .) rows in section)"
 }

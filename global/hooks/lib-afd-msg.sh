@@ -16,6 +16,10 @@
 #   - unknown `@name` → the consumer, text intact (e.g. a bot mention)
 #   - a message that is only `afk` / `afk on` / `afk off` (optionally after an
 #     @tag) switches the global AFK flag instead of being queued
+#   - a message that is only `care off` (optionally after an @tag) ends session caretaking
+#     (lib-care.sh, CFG-1021) instead of being queued; it never touches AFK. A Telegram
+#     `care` does NOT arm caretaking: it is an ordinary message. Without lib-care.sh beside
+#     this file `care off` is queued like any other message.
 #
 # Queue: $AFD_MSG_DIR/<project>.jsonl (default ~/.afd-msgs), one `afd messages`
 # JSON line per message. Project = lowercased name of the main git repo of a dir.
@@ -123,11 +127,29 @@ _afd_afk_switch() {
     echo "$(date +%Y-%m-%dT%H:%M:%S%z) afk-$1 by=telegram" >> "$HOME/.claude/logs/afk.log" 2>/dev/null
 }
 
+# _afd_care_off — a Telegram-only `care off`: end caretaking through lib-care.sh (logged
+# by=telegram). _AFD_CARE_TOKEN = care:off (another session was the caretaker), care:off:owner
+# (this one was), care:off:none (it was not on) or care:off:failed (the care lock was busy).
+# 1 when the lib cannot be loaded (or bash < 4.2): the caller queues the text.
+_afd_care_off() {
+    (( BASH_VERSINFO[0] > 4 || (BASH_VERSINFO[0] == 4 && BASH_VERSINFO[1] >= 2) )) || return 1
+    declare -F care_disarm >/dev/null \
+        || source "$(dirname "${BASH_SOURCE[0]}")/lib-care.sh" 2>/dev/null || return 1
+    declare -F care_disarm >/dev/null || return 1
+    care_disarm telegram >/dev/null 2>&1 || true
+    case "${CARE_OFF_RESULT:-}" in
+        owner|none|failed) _AFD_CARE_TOKEN="care:off:$CARE_OFF_RESULT" ;;
+        *) _AFD_CARE_TOKEN="care:off" ;;
+    esac
+    return 0
+}
+
 # afd_route_messages <me> — consume pending messages, file each into its queue.
-# Prints "afk:on"/"afk:off" for a Telegram AFK switch, then every OTHER project
-# it queued messages for, once each (the pool is not a project and is not printed).
+# Prints "afk:on"/"afk:off" for a Telegram AFK switch and "care:off[:owner|:none|:failed]"
+# for a Telegram `care off` (CFG-1021, see _afd_care_off), then every OTHER project it
+# queued messages for, once each (the pool is not a project and is not printed).
 afd_route_messages() {
-    local me="$1" cli="$HOME/.local/bin/afd" dir line text target waiters raw foreign="" cmd status="" bare
+    local me="$1" cli="$HOME/.local/bin/afd" dir line text target waiters raw foreign="" cmd status="" care="" bare
     [[ -x "$cli" && -n "$me" ]] || return 0
     dir=$(_afd_msg_dir)
     raw=$(timeout -k 2 3 "$cli" messages 2>/dev/null) || true
@@ -142,6 +164,7 @@ afd_route_messages() {
             afk|"afk on") _afd_afk_switch on;  status="afk:on";  continue ;;
             "afk off")    _afd_afk_switch off; status="afk:off"; continue ;;
         esac
+        if [[ "$cmd" =~ ^care[[:space:]]+off$ ]] && _afd_care_off; then care="$_AFD_CARE_TOKEN"; continue; fi
         # A bare "@project" (nothing, or only a "#number", after the tag) while a relay waits
         # is a redirect verdict for that relay's ask-back, not a message for the project: it
         # is pooled too. An explicit @tag wins over the project a Reply points at.
@@ -161,6 +184,7 @@ afd_route_messages() {
         [[ "$target" != "$me" && " $foreign " != *" $target "* ]] && foreign="$foreign $target"
     done <<< "$raw"
     [[ -n "$status" ]] && echo "$status"
+    [[ -n "$care" ]] && echo "$care"
     for target in $foreign; do echo "$target"; done
     return 0
 }

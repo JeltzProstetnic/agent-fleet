@@ -217,7 +217,8 @@ open_project_tab() {
 
     case "$platform" in
         wsl)
-            local cmd="wt.exe -w 0 nt wsl.exe --cd $project_path -- bash -l -c \"afleet $project_name\""
+            # The tab carries the project name; --suppressApplicationTitle keeps Claude Code's own title out.
+            local cmd="wt.exe -w 0 nt --title $project_name --suppressApplicationTitle wsl.exe --cd $project_path -- bash -l -c \"afleet $project_name\""
             if [[ "$DRY_RUN" == "1" ]]; then
                 echo "DRY_RUN: $cmd"
             else
