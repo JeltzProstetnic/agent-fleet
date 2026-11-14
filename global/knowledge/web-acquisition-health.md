@@ -123,7 +123,11 @@ classifier as bot-check circumvention; do not work around it. Confirm OA status 
 (`works/doi:<doi>` → `best_oa_location`, licence), then open the article in MG's own browser from a `/mnt`
 cwd (`env -C /mnt/c powershell.exe -NoProfile -Command "Start-Process '<url>'"`), let MG click *View PDF*,
 and pick the file up from `/mnt/c/Users/Matthias/Downloads` (an issue download arrives as
-`ScienceDirect_articles_<date>.zip`). (measured on WSL 2026-11-13)
+`ScienceDirect_articles_<date>.zip`). (measured on WSL 2026-11-13) **(10)** **Google Books print-page images** load
+on `books.google.at` through the Playwright MCP browser without the captcha that blocks google.com's search-inside
+box; the running heads give the printed page numbers, so a page citation can be verified that way. **(11)**
+**figshare's** bot wall blocks every scripted download; PhilArchive (`philpapers.org/archive/<ID>.pdf`) often holds a
+byte-identical CC BY copy — confirm by MD5 against figshare's API. (measured on WSL 2026-11-14)
 
 ## Scope
 

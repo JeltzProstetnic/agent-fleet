@@ -240,6 +240,11 @@ generic form `<Cue>. Do it now.` / `Do it now. <Cue>.` / `<Cue>. Right now.` —
   themselves); check the tmux session with exact match `-t=<name>`.
 - **Resume semantics:** "done" = a complete file (size floor + atomic rename), never "a file exists"; a
   verdict cache keys on the config that produced it, so a changed threshold re-evaluates [B, G].
+- **Three later traps (2026-11-14):** (1) the ASR check needs a tolerance list beyond digits and spelling —
+  homophones (base/bass, peak/peek) and a plural -s merged into a following s-word reject good takes
+  otherwise; (2) IndexTTS-2 with the same seed renders byte-identical audio, so a re-render needs a NEW seed
+  base, not just a re-run; (3) a gate cache keyed on the config replays its old verdicts for the same files —
+  re-judge re-rendered takes in a NEW stage directory.
 
 ## 9. Starting a new voice — checklist
 
