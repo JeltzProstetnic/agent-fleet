@@ -273,6 +273,17 @@ t_allows_moved_to_target_added_in_same_call() {
 }
 run_test "allows moved-to when the target is staged by a git add in the same call" t_allows_moved_to_target_added_in_same_call
 
+t_allows_moved_to_dot_claude_target() {  # CFG-1040: the leading dot of .claude/ was stripped
+    _repo; _drop_quiet
+    printf -- '- **Quiet hooks:** Hooks print nothing on success, so a silent hook is a healthy hook.\n' >> "$R/.claude/reference/r.md"
+    git -C "$R" add CLAUDE.md .claude/reference/r.md
+    local a b out_a
+    _rc "git -C $R commit -m 'move' -m '$QUIET moved-to .claude/reference/r.md'" >/dev/null; a=$RC; out_a="$HOOK_STDERR"
+    _rc "git -C $R commit -m 'move' -m '$QUIET moved-to ./.claude/reference/r.md'" >/dev/null; b=$RC
+    assert_eq "0 0" "$a $b" "exits were '$a $b': moved-to a staged .claude/ target, plain and ./ form (0 0); hook said: ${out_a:0:200}${HOOK_STDERR:0:200}"
+}
+run_test "allows moved-to a .claude/ target (dot kept, CFG-1040)" t_allows_moved_to_dot_claude_target
+
 t_allows_merged_into_verified() {
     _repo; _drop_quiet
     sed -i 's/before deleting the source\./before deleting the source. Hooks print nothing on success./' "$R/CLAUDE.md"

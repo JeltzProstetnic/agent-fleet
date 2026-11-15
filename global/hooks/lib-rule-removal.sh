@@ -227,7 +227,8 @@ class Job:
             m, titles = norm(mg), {norm(a or b) for t in new.values() for a, b in TITLE.findall(t)}
             if len(m) < TITLE_MIN: return 'title "%s" is shorter than %d chars' % (mg, TITLE_MIN)
             return "" if any(t == m or t.startswith(m) for t in titles) else 'title "%s" is no heading or **bold label** in a staged rule file' % mg
-        t = mv if os.path.isabs(mv) else re.sub(r"^(~|\$HOME)/\.claude/", "global/", mv).lstrip("./")
+        # Drop only leading "./" segments: lstrip("./") also ate the dot of .claude/ (CFG-1040).
+        t = mv if os.path.isabs(mv) else re.sub(r"^(\./)+", "", re.sub(r"^(~|\$HOME)/\.claude/", "global/", mv))
         if os.path.isabs(t): t = os.path.relpath(t, self.root)
         # The staged target: what this commit records for it; the tree as well when the commit
         # records tree content (a `git add <target>` in the same call has not happened yet).
