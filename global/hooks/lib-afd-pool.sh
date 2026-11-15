@@ -60,18 +60,38 @@ d = json.load(sys.stdin); d["pooled"] = int(time.time()); print(json.dumps(d))' 
     return 0
 }
 
-# afd_queue_first_after <file> <id> — the first line newer than <id> that has text once a
-# leading @tag is stripped (a bare "@project" can never be an answer), or nothing.
+# afd_queue_first_after <file> <id> [me] — the first line newer than <id> that has text once a
+# leading @tag is stripped (a bare "@project" can never be an answer), or nothing. A late answer
+# to an older, timed-out question (late_answer_to, CFG-1034) is never the answer to <id>, nor is a
+# Telegram Reply to any OTHER message of the project (reply_to set and not <id>; the user ordered
+# this wrong-answer path fixed, 2026-11-15) — unless the user redirected it here, or its text
+# starts with an explicit @tag for <me> (exact or unique prefix, as routing resolves it: "@tag
+# wins", Q-REPLY-TAG 2026-11-15). Skipped lines stay queued and reach the session as ordinary messages.
 afd_queue_first_after() {
     [[ -f "$1" ]] || return 0
-    python3 -c '
-import json, re, sys
+    local known=""
+    declare -F _afd_known_projects >/dev/null && known=$(_afd_known_projects)
+    KNOWN="$known" python3 -c '
+import json, os, re, sys
+me = sys.argv[3] if len(sys.argv) > 3 else ""
+known = [k for k in os.environ.get("KNOWN", "").split("\n") if k]
+def tagged_for_me(text):
+    m = re.match(r"@([A-Za-z0-9_.-]+)", text)
+    if not (m and me): return False
+    t = m.group(1).lower()
+    if t == me: return True
+    hits = [k for k in known if k.startswith(t)]
+    return hits == [me]
 for l in open(sys.argv[1]):
     try: d = json.loads(l)
     except Exception: continue
     if int(d.get("id", 0) or 0) <= int(sys.argv[2]): continue
+    if d.get("late_answer_to"): continue
+    rt = d.get("reply_to")
+    if rt not in (None, "", 0) and str(rt) != sys.argv[2] and not d.get("redirected") \
+       and not tagged_for_me(str(d.get("message", ""))): continue
     if not re.sub(r"^@[A-Za-z0-9_.-]+[\s:,]*", "", str(d.get("message", ""))).strip(): continue
-    print(l.rstrip("\n")); break' "$1" "$2" 2>/dev/null
+    print(l.rstrip("\n")); break' "$1" "$2" "${3:-}" 2>/dev/null
 }
 
 # _afd_pool_take_rejected <live waiters, newline-separated> — print and remove every pooled

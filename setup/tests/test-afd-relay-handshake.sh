@@ -489,14 +489,17 @@ test_empty_bare_tag_line_is_not_consumed() {
 run_test "MINOR 5: a text-less bare-tag line is never consumed as an answer" test_empty_bare_tag_line_is_not_consumed
 
 # MINOR 7: reply_to naming no live question or ask-back (e.g. a reply to the "working on"
-# message) is an ordinary untagged line.
-test_reply_to_nothing_live_is_untagged() {
+# message). Changed 2026-11-15 (the user: a Reply to an older message is never the answer to a
+# newer question): it used to be claimed like an untagged line; now it stays pooled and reaches
+# the next consumer as an ordinary message.
+test_reply_to_nothing_live_is_not_the_answer() {
     setup_env
     pending "$(msg 105 'skip' '"reply_to":77')"
-    run_relay "$(ask_json alpha)"
-    assert_eq "Skip" "$(answer_of 'Add the caveat to P4?')" "a reply to a message nobody waits on is claimed like an untagged line (out: $OUT, err: $ERR)"
+    HOOK_AFK_TIMEOUT=3 run_relay "$(ask_json alpha)"
+    assert_eq "" "$(answer_of 'Add the caveat to P4?')" "a reply to a message nobody waits on is not claimed as the answer (out: $OUT)"
+    pool_has 105 && r=0 || r=1; assert_eq "0" "$r" "it stays pooled"
 }
-run_test "MINOR 7: reply_to pointing at nothing live is treated as untagged" test_reply_to_nothing_live_is_untagged
+run_test "MINOR 7: reply_to pointing at nothing live is not the answer" test_reply_to_nothing_live_is_not_the_answer
 
 test_incident_institute_redirects_to_aiware() {
     SEQ0=469 setup_env                      # institute's question becomes #470
@@ -517,17 +520,20 @@ run_test "2026-10-24: institute asks back and the user redirects #484 to aiware"
 # relay reads it: a Reply to its question stays pooled (tier 0), and any Reply while its ask-back
 # is out stays pooled for the verdict scan — otherwise "y" to the ask-back would be taken as the answer.
 
-test_reply_to_own_older_message_is_taken_without_askback() {
+# Changed 2026-11-15 (the user ordered the wrong-answer path fixed): such a Reply used to be taken
+# as the answer, like a tagged line. It is still filed into alpha's queue without an ask-back, but
+# it is no longer the answer to alpha's newer question: it waits there as an ordinary message.
+test_reply_to_own_older_message_is_queued_not_taken() {
     setup_env
     other_waiter institute 90
     pending "$(msg 105 'skip' '"reply_to":77,"reply_to_project":"alpha"')"   # a Reply to alpha's earlier info message
-    run_relay "$(ask_json alpha)"
-    assert_eq "0" "$RC" "answered (rc=$RC, err: $ERR)"
-    assert_eq "Skip" "$(answer_of 'Add the caveat to P4?')" "a Reply to one of alpha's other messages is alpha's answer, like a tagged line (out: $OUT)"
+    HOOK_AFK_TIMEOUT=3 run_relay "$(ask_json alpha)"
+    assert_eq "2" "$RC" "no answer: the wait ends unanswered (rc=$RC)"
+    assert_eq "" "$(answer_of 'Add the caveat to P4?')" "a Reply to one of alpha's other messages is not alpha's answer (out: $OUT)"
     assert_eq "0" "$(notifies 'was #')" "no ask-back although another relay waits: the Reply named its project"
-    assert_file_exists "$AFD_MSG_DIR/alpha.jsonl" "it came through alpha's own queue, not the pool"
+    assert_file_contains "$AFD_MSG_DIR/alpha.jsonl" '"id":105' "it waits in alpha's own queue, not the pool"
 }
-run_test "CFG-838: a Reply to the project's other message answers without ask-back" test_reply_to_own_older_message_is_taken_without_askback
+run_test "CFG-838: a Reply to the project's other message goes to its queue without ask-back, not as the answer" test_reply_to_own_older_message_is_queued_not_taken
 
 test_reply_to_question_with_origin_stays_tier0() {
     setup_env
@@ -556,20 +562,95 @@ run_test "CFG-838: y as a Reply to the ask-back is the verdict, not the answer" 
 # sandboxed shell (the lib resolves project names under $HOME).
 take_as() { HOME="$MOCK_HOME" AFD_PROJECT_ROOTS="$MOCK_HOME" bash -c 'source "$1"; afd_take_messages "$2"' _ "$REPO_ROOT/global/hooks/lib-afd-msg.sh" "$1"; }
 
-test_reply_to_unrelated_message_mid_askback_is_alphas_answer() {
+# Changed 2026-11-15 (the user ordered the wrong-answer path fixed): a Reply to an OLDER message of
+# the project is no longer this question's answer. It still goes to alpha's queue, never the pool.
+test_reply_to_unrelated_message_mid_askback_stays_in_alphas_queue() {
     setup_env
     other_waiter institute 90
     pending "$(msg 105 '1 and maybe 2')"
     verdict "$(msg 110 '2' '"reply_to":77,"reply_to_project":"alpha"')" "$(msg 111 'y' '"reply_to":106')"
     run_relay "$(ask_json alpha)"
     assert_eq "0" "$RC" "answered (rc=$RC, err: $ERR)"
-    assert_eq "Skip" "$(answer_of 'Add the caveat to P4?')" "a Reply '2' to alpha's older info #77, sent mid-ask-back, is alpha's answer via its queue — never pooled — and the digit picks option 2 (CFG-773) (out: $OUT)"
-    assert_eq "0" "$(notifies '[alpha] working on')" "it was not the ask-back's y: no confirmation is sent"
+    assert_eq "1 and maybe 2" "$(answer_of 'Add the caveat to P4?')" "a Reply '2' to alpha's older info #77 is not the answer; the y to the ask-back confirms #105 (out: $OUT)"
+    assert_file_contains "$AFD_MSG_DIR/alpha.jsonl" '"id": *110' "the Reply stays in alpha's queue, for delivery as an ordinary message"
     rm -f "$AFD_MSG_DIR/.waiting/institute"           # the other relay is gone too: the next consumer drains the pool
     local got; got=$(take_as institute)
     assert_not_contains "$got" '"id":110' "so no later consumer can take it from the drained pool (got: $got)"
 }
-run_test "MAJOR 1(a): a Reply to the project's unrelated message mid-ask-back goes to its queue, not the pool" test_reply_to_unrelated_message_mid_askback_is_alphas_answer
+run_test "MAJOR 1(a): a Reply to the project's unrelated message mid-ask-back goes to its queue, not the pool" test_reply_to_unrelated_message_mid_askback_stays_in_alphas_queue
+
+# ── The wrong-answer path (user order 2026-11-15): only a line meant for THIS question answers it ──
+queue() { mkdir -p "$AFD_MSG_DIR"; printf '%s\n' "$@" > "$AFD_MSG_DIR/alpha.jsonl"; }   # alpha's own queue
+
+test_reply_to_older_message_is_not_the_answer() {
+    setup_env
+    queue "$(msg 105 '2' '"reply_to":50,"reply_to_project":"alpha"')" "$(msg 106 '@alpha Add')"
+    run_relay "$(ask_json alpha)"
+    assert_eq "0" "$RC" "answered (rc=$RC, err: $ERR)"
+    assert_eq "Add" "$(answer_of 'Add the caveat to P4?')" "the Reply to alpha's older #50 is skipped; the plain tagged line after it is the answer (out: $OUT)"
+    assert_file_contains "$AFD_MSG_DIR/alpha.jsonl" '"id":105' "the skipped Reply stays queued for alpha's next prompt"
+    assert_file_not_contains "$AFD_MSG_DIR/alpha.jsonl" '"id":106' "the answer was taken"
+}
+run_test "a Telegram Reply to an older message of the project is not the answer to a newer question" test_reply_to_older_message_is_not_the_answer
+
+test_reply_to_the_question_in_queue_is_the_answer() {
+    setup_env
+    queue "$(msg 105 '2' '"reply_to":101,"reply_to_project":"alpha"')"
+    run_relay "$(ask_json alpha)"
+    assert_eq "Skip" "$(answer_of 'Add the caveat to P4?')" "a Reply to the question itself (#101) in the queue is its answer (out: $OUT, err: $ERR)"
+}
+run_test "a Reply to the question itself in the project's queue is still its answer" test_reply_to_the_question_in_queue_is_the_answer
+
+# Re-review item 1: the same rule through the POOL. A Reply to a message no project tag routes —
+# the [re-ask] summary, the [<host>] DND acknowledgement — is pooled while a relay waits, and must
+# not be claimed as the answer (it was tier 1 for a single question).
+pooled_reply_not_taken() { # <reply_to_project> — one Reply "ok thanks" to such a message
+    setup_env
+    pending "$(msg 105 'ok thanks' "\"reply_to\":99,\"reply_to_project\":\"$1\"")"
+    HOOK_AFK_TIMEOUT=3 run_relay "$(ask_json alpha)"
+    assert_eq "2" "$RC" "no answer: the wait ends unanswered (rc=$RC)"
+    assert_eq "" "$(answer_of 'Add the caveat to P4?')" "a Reply to [$1] #99 is not the answer (out: $OUT)"
+    pool_has 105 && r=0 || r=1
+    assert_eq "0" "$r" "it stays in the pool for the next consumer, as an ordinary message"
+}
+test_reply_to_reask_summary_is_not_the_answer() { pooled_reply_not_taken re-ask; }
+run_test "a pooled Reply to the [re-ask] summary is not the answer" test_reply_to_reask_summary_is_not_the_answer
+test_reply_to_dnd_ack_is_not_the_answer() { pooled_reply_not_taken desktop-32ilurb; }
+run_test "a pooled Reply to the [<host>] DND acknowledgement is not the answer" test_reply_to_dnd_ack_is_not_the_answer
+
+# MG decided 2026-11-15 (Q-REPLY-TAG): "@tag wins" — a Reply to another message that starts with an
+# explicit @tag for the asking project IS its answer; without the tag it is not.
+test_tagged_reply_to_older_message_is_the_answer() {
+    setup_env
+    queue "$(msg 105 '@alpha Skip' '"reply_to":50,"reply_to_project":"alpha"')"
+    run_relay "$(ask_json alpha)"
+    assert_eq "Skip" "$(answer_of 'Add the caveat to P4?')" "a Reply to alpha's older #50 that starts with @alpha is the answer (out: $OUT, err: $ERR)"
+}
+run_test "Q-REPLY-TAG: a Reply that starts with @alpha is alpha's answer" test_tagged_reply_to_older_message_is_the_answer
+
+test_tagged_reply_prefix_tag_is_the_answer() {
+    setup_env
+    queue "$(msg 105 '@alp Skip' '"reply_to":50,"reply_to_project":"alpha"')"
+    run_relay "$(ask_json alpha)"
+    assert_eq "Skip" "$(answer_of 'Add the caveat to P4?')" "a unique-prefix tag (@alp) counts as alpha's tag, as routing resolves it (out: $OUT, err: $ERR)"
+}
+run_test "Q-REPLY-TAG: a unique-prefix @tag counts too" test_tagged_reply_prefix_tag_is_the_answer
+
+test_tagged_reply_through_routing_is_the_answer() {
+    setup_env
+    pending "$(msg 105 '@alpha Add' '"reply_to":77,"reply_to_project":"institute"')"   # a Reply to institute's message, tagged for alpha
+    run_relay "$(ask_json alpha)"
+    assert_eq "Add" "$(answer_of 'Add the caveat to P4?')" "the explicit @alpha wins over the replied-to project, end to end (out: $OUT, err: $ERR)"
+}
+run_test "Q-REPLY-TAG: an @alpha Reply to another project's message reaches alpha as its answer" test_tagged_reply_through_routing_is_the_answer
+
+test_redirected_reply_is_still_the_answer() {
+    setup_env
+    queue "$(msg 105 'Add' '"reply_to":50,"redirected":true')"
+    run_relay "$(ask_json alpha)"
+    assert_eq "Add" "$(answer_of 'Add the caveat to P4?')" "a line the user redirected here is the answer whatever it replied to (out: $OUT, err: $ERR)"
+}
+run_test "a line the user redirected here is still the answer" test_redirected_reply_is_still_the_answer
 
 test_pooled_reply_left_behind_is_refiled_not_drained() {
     setup_env

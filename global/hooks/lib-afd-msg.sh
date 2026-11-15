@@ -20,13 +20,21 @@
 #     (lib-care.sh, CFG-1021) instead of being queued; it never touches AFK. A Telegram
 #     `care` does NOT arm caretaking: it is an ordinary message. Without lib-care.sh beside
 #     this file `care off` is queued like any other message.
+#   - a message that is only `dnd` / `dnd on` / `dnd off` (optionally after an @tag) switches
+#     DND through `afd dnd on|off` (CFG-1035; off sends the digest) instead of being queued
+#   - a message that is only `re-ask` (optionally after an @tag) re-sends every timed-out AFK
+#     question still open and one summary of the defaults taken (lib-afd-asked.sh, CFG-1034)
+#     instead of being queued; a Telegram Reply to such a question or its re-send is labelled
+#     late_answer_to before it is queued, so no waiting relay takes it for a newer question.
 #
 # Queue: $AFD_MSG_DIR/<project>.jsonl (default ~/.afd-msgs), one `afd messages`
 # JSON line per message. Project = lowercased name of the main git repo of a dir.
 # Every function is a silent no-op when the afd CLI is absent.
 #
 # LIMITATION: the queue is per machine. A message consumed on one machine cannot
-# reach a session on another; that needs a server-side project filter (CFG-770).
+# reach a session on another; that needs a server-side project filter (CFG-770). The same holds
+# for the commands: a Telegram `afk`, `dnd` or `re-ask` acts on whichever machine polls first,
+# so `dnd` is acknowledged with that host and every re-ask message names it.
 
 [[ "${_LIB_AFD_MSG_LOADED:-}" == "true" ]] && return 0
 
@@ -116,15 +124,33 @@ _afd_live_waiters() {
     return 0
 }
 
-# _afd_afk_switch <on|off> — set or clear the AFK flag from Telegram, logged.
+# _afd_afk_switch <on|off> — set or clear the AFK flag from Telegram, logged. A switch-off leaves
+# its time in ~/.afd-afk.off, which the other sessions' AFK_CHANGED line shows (CFG-1036).
 _afd_afk_switch() {
     if [[ "$1" == on ]]; then
         date -Iseconds > "$HOME/.afd-afk" 2>/dev/null
     else
         rm -f "$HOME/.afd-afk"
+        date '+%Y-%m-%dT%H:%M:%S%z' > "$HOME/.afd-afk.off" 2>/dev/null
     fi
     mkdir -p "$HOME/.claude/logs" 2>/dev/null
     echo "$(date +%Y-%m-%dT%H:%M:%S%z) afk-$1 by=telegram" >> "$HOME/.claude/logs/afk.log" 2>/dev/null
+}
+
+# _afd_dnd_switch <cli> <on|off> — a Telegram-only `dnd` / `dnd off` (CFG-1035): the CLI sets or
+# clears ~/.afd-dnd and, at off, sends the digest (bounded: one network call per persona; a kill
+# loses nothing, the CLI recovers the claim next time). --ack: the flag is per machine and the
+# command landed on whichever one polled first, so the CLI tells the user which host it took
+# effect on. Logged. _AFD_DND_TOKEN = dnd:on | dnd:off; :noack when the switch took effect but the
+# acknowledgement could not be sent (CLI exit 3), :failed when the CLI did not succeed.
+_afd_dnd_switch() {
+    local rc=0
+    _AFD_DND_TOKEN="dnd:$2"
+    timeout -k 2 45 "$1" dnd "$2" --ack >/dev/null 2>&1 || rc=$?
+    case "$rc" in 0) ;; 3) _AFD_DND_TOKEN="dnd:$2:noack" ;; *) _AFD_DND_TOKEN="dnd:$2:failed" ;; esac
+    mkdir -p "$HOME/.claude/logs" 2>/dev/null
+    echo "$(date +%Y-%m-%dT%H:%M:%S%z) dnd-$2 by=telegram${_AFD_DND_TOKEN##dnd:$2}" >> "$HOME/.claude/logs/afk.log" 2>/dev/null
+    return 0
 }
 
 # _afd_care_off — a Telegram-only `care off`: end caretaking through lib-care.sh (logged
@@ -144,12 +170,45 @@ _afd_care_off() {
     return 0
 }
 
+# _afd_asked_lib — load lib-afd-asked.sh (CFG-1034) on first need; 1 when it cannot load.
+_afd_asked_lib() {
+    declare -F afd_reask >/dev/null || source "$(dirname "${BASH_SOURCE[0]}")/lib-afd-asked.sh" 2>/dev/null
+    declare -F afd_reask >/dev/null
+}
+
+# _afd_reask <cli> — a Telegram-only `re-ask`: _AFD_REASK_TOKEN = reask:<re-sent>:<defaults
+# summarised>. 1 when the lib cannot be loaded: the caller queues the text.
+_afd_reask() {
+    local n="" m=""
+    _afd_asked_lib || return 1
+    read -r n m <<< "$(afd_reask "$1")"
+    _AFD_REASK_TOKEN="reask:${n:-0}:${m:-0}"
+}
+
+# _afd_run_later <cli> <command>… — the slow Telegram commands (a dnd switch with its digest, re-ask
+# with one call per question), in order, only once every consumed line is filed: `afd messages`
+# has already acknowledged the batch on the server, so a kill while they ran lost the lines after
+# them (review #6). Sets _AFD_LATER_DND and _AFD_LATER_REASK to their status tokens.
+_afd_run_later() {
+    local cli="$1" c; shift
+    _AFD_LATER_DND="" _AFD_LATER_REASK=""
+    for c in "$@"; do
+        case "$c" in
+            dnd:*) _afd_dnd_switch "$cli" "${c#dnd:}"; _AFD_LATER_DND="$_AFD_DND_TOKEN" ;;
+            reask) _afd_reask "$cli" && _AFD_LATER_REASK="$_AFD_REASK_TOKEN" ;;
+        esac
+    done
+    return 0
+}
+
 # afd_route_messages <me> — consume pending messages, file each into its queue.
-# Prints "afk:on"/"afk:off" for a Telegram AFK switch and "care:off[:owner|:none|:failed]"
-# for a Telegram `care off` (CFG-1021, see _afd_care_off), then every OTHER project it
-# queued messages for, once each (the pool is not a project and is not printed).
+# Prints "afk:on"/"afk:off" for a Telegram AFK switch, "dnd:on|dnd:off[:failed]" for a Telegram
+# DND switch (CFG-1035), "care:off[:owner|:none|:failed]"
+# for a Telegram `care off` (CFG-1021, see _afd_care_off) and "reask:<n>:<m>" for a Telegram
+# `re-ask` (CFG-1034), then every OTHER project it queued messages for, once each (the pool is
+# not a project and is not printed).
 afd_route_messages() {
-    local me="$1" cli="$HOME/.local/bin/afd" dir line text target waiters raw foreign="" cmd status="" care="" bare
+    local me="$1" cli="$HOME/.local/bin/afd" dir line text target waiters raw foreign="" cmd status="" care="" bare later=""
     [[ -x "$cli" && -n "$me" ]] || return 0
     dir=$(_afd_msg_dir)
     raw=$(timeout -k 2 3 "$cli" messages 2>/dev/null) || true
@@ -163,8 +222,11 @@ afd_route_messages() {
         case "$cmd" in
             afk|"afk on") _afd_afk_switch on;  status="afk:on";  continue ;;
             "afk off")    _afd_afk_switch off; status="afk:off"; continue ;;
+            dnd|"dnd on") later="$later dnd:on";  continue ;;   # slow: after the loop (_afd_run_later)
+            "dnd off")    later="$later dnd:off"; continue ;;
         esac
         if [[ "$cmd" =~ ^care[[:space:]]+off$ ]] && _afd_care_off; then care="$_AFD_CARE_TOKEN"; continue; fi
+        if [[ "$cmd" == re-ask ]] && _afd_asked_lib; then later="$later reask"; continue; fi
         # A bare "@project" (nothing, or only a "#number", after the tag) while a relay waits
         # is a redirect verdict for that relay's ask-back, not a message for the project: it
         # is pooled too. An explicit @tag wins over the project a Reply points at.
@@ -180,11 +242,17 @@ afd_route_messages() {
             fi
         fi
         target="${target:-$me}"
+        # CFG-1034: a Reply to a timed-out AFK question (or its re-ask) is labelled with it.
+        [[ "$line" == *'"reply_to"'* ]] && _afd_asked_lib && line=$(afd_asked_annotate "$line")
         _afd_locked _afd_append_line "$dir/$target.jsonl" "$line"
         [[ "$target" != "$me" && " $foreign " != *" $target "* ]] && foreign="$foreign $target"
     done <<< "$raw"
+    # shellcheck disable=SC2086 — the command words are ours, space-separated
+    _afd_run_later "$cli" $later
     [[ -n "$status" ]] && echo "$status"
+    [[ -n "$_AFD_LATER_DND" ]] && echo "$_AFD_LATER_DND"
     [[ -n "$care" ]] && echo "$care"
+    [[ -n "$_AFD_LATER_REASK" ]] && echo "$_AFD_LATER_REASK"
     for target in $foreign; do echo "$target"; done
     return 0
 }

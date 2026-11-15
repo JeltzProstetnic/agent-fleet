@@ -9,6 +9,8 @@
 # with this hook's stderr. No other session has to be reading.
 #
 # It also records the session's crons for context-budget.sh's detectors (CFG-911), first.
+# A wake also carries any AFK/DND switch made since the session's last turn (CFG-1036,
+# lib-afd-mode.sh); a switch alone never wakes a session.
 # One waiter per session: a newer one (next turn) supersedes the older via a pid file.
 # Exits 0 (no wake) when Claude Code is gone, when superseded, or after AFD_IDLE_MAX
 # seconds; settings.json gives the hook a timeout 60 s longer than that.
@@ -22,9 +24,24 @@ INPUT=""
 # hook can tell a scheduled fire from typed text. Before the afd check: it needs no afd.
 source "$(dirname "${BASH_SOURCE[0]}")/lib-hook-stdin.sh" 2>/dev/null && record_session_crons "$INPUT"
 
+# CFG-1034: after an AFK question timed out, the session states its default in one line
+# (AFK_DEFAULT #<id>: …); record it for `re-ask`. Only a session with such a marker spawns python.
+if compgen -G "${AFD_MSG_DIR:-$HOME/.afd-msgs}/.asked-default/*" >/dev/null 2>&1 \
+   && source "$(dirname "${BASH_SOURCE[0]}")/lib-afd-asked.sh" 2>/dev/null; then
+    afd_asked_capture "$INPUT"
+fi
+
 AFD_CLI="${HOME}/.local/bin/afd"
 [[ -x "$AFD_CLI" ]] || exit 0
 source "$(dirname "${BASH_SOURCE[0]}")/lib-afd-msg.sh" 2>/dev/null || exit 0
+# CFG-1036: a wake also carries any AFK/DND switch made since the session's last turn.
+source "$(dirname "${BASH_SOURCE[0]}")/lib-afd-mode.sh" 2>/dev/null || true
+mode_note() {
+    declare -F afd_mode_check >/dev/null || return 0
+    afd_mode_check "$SID"
+    [[ -n "$AFD_MODE_LINES" ]] && echo "$AFD_MODE_LINES" >&2
+    return 0
+}
 
 SID="nosession"; CWD="$PWD"
 [[ "$INPUT" =~ \"session_id\"[[:space:]]*:[[:space:]]*\"([^\"]+)\" ]] && SID="${BASH_REMATCH[1]}"
@@ -106,6 +123,7 @@ while (( $(date +%s) < DEADLINE )); do
         if [[ -n "$PCT" ]] && (( PCT < ${AFD_IDLE_INBOX_PCT:-45} )); then
             session_ending && stop_quietly
             release_pidfile
+            mode_note
             # Count + path only, like inbox-watch.sh: item bodies come from other sessions
             # and must not reach the model unread as part of a wake frame (Fable F1).
             echo "INBOX_PENDING: $(grep -c . <<< "$NEW_ITEMS") new inbox item(s) for $INBOX_PROJECT (woke this idle session at ${PCT}% context, CFG-797) — read $(inbox_project_file "$INBOX_PROJECT") and dispatch per startup step 1 now" >&2
@@ -122,6 +140,7 @@ while (( $(date +%s) < DEADLINE )); do
     if [[ -n "$MESSAGES" ]]; then
         session_ending && stop_quietly   # marked between the check and the take: requeue, no wake
         release_pidfile
+        mode_note
         {
             echo "=== Telegram message(s) for this project (woke this idle session, CFG-777) ==="
             while IFS= read -r line; do
@@ -131,6 +150,7 @@ import sys, json
 d = json.loads(sys.stdin.read())
 ch = '(persona: %s)' % d['persona'] if d.get('persona') else ''
 if d.get('redirected'): ch += ' (redirected here by the user, CFG-779)'
+if d.get('late_answer_to'): ch += ' (late answer to your AFK question #%s \"%s\", which timed out: revisit the default you took)' % (d['late_answer_to'], d.get('late_question', ''))
 print('[%s] %s %s' % (str(d.get('timestamp', ''))[:16], ch, d.get('message', '')))" 2>/dev/null
             done <<< "$MESSAGES"
             echo "Reply via: afd notify all \"[$ME] your reply\" --channel telegram"

@@ -12,8 +12,10 @@
 # @project (exact or unique prefix, as routing resolves it); any other first token leaves the
 # line in place as nobody's verdict. Any other pooled line is a verdict only as a sole y/n
 # token or a sole @tag (the ask-back grammar is "@project": a bare project name is not a
-# redirect), and only while no OTHER ask-back is open ("require a target"). No apostrophes
-# inside the program below: it lives in a single-quoted bash string.
+# redirect), and only while no OTHER ask-back is open ("require a target"). Candidate rule (the
+# user, 2026-11-15): a Telegram Reply is a candidate only when it replies to this question (tier
+# 0); a Reply to anything else stays pooled for an ordinary delivery. No apostrophes inside the
+# program below: it lives in a single-quoted bash string.
 
 [[ "${_LIB_AFD_SCAN_LOADED:-}" == "true" ]] && return 0
 _LIB_AFD_SCAN_LOADED="true"
@@ -117,6 +119,10 @@ def candidate():
         body = TAG.sub("", text).strip()
         if i <= Q or not body or me in (d.get("rejected") or []) or claimed_by_other(i): continue
         if rt == Q: return (0, i, len(pend))
+        # The user, 2026-11-15: a Reply to any OTHER message is never the answer to this question
+        # (a Reply to the [re-ask] summary or a [<host>] DND acknowledgement was tier 1). A Reply
+        # with a leading @tag never reaches the pool: routing files it into that queue.
+        if rt is not None: continue
         if only0 or rt in foreign or reserved(d, i, text, pend): continue
         if qn <= 1 or len(body.split()) == qn: tier = 1
         elif now - float(d.get("pooled") or 0) >= grace: tier = 2

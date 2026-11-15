@@ -101,11 +101,13 @@ _afd_ask_direct_reply() {
 }
 
 # The first line newer than the question in ME's own queue: tagged for ME, or redirected here.
-# A line without text is never taken (and never deleted): afd_queue_first_after skips it.
+# A line without text, a late answer to an older question, and a Telegram Reply to any other
+# message without a leading @tag for ME are never taken (nor deleted): afd_queue_first_after
+# skips them (2026-11-15; "@tag wins", Q-REPLY-TAG).
 _afd_ask_own_answer() {
     local q line text
     q="$(_afd_msg_dir)/$ME.jsonl"
-    line=$(afd_queue_first_after "$q" "$NOTIF_ID"); [[ -n "$line" ]] || return 1
+    line=$(afd_queue_first_after "$q" "$NOTIF_ID" "$ME"); [[ -n "$line" ]] || return 1
     text=$(afd_message_text "$line"); [[ -n "$text" ]] || return 1
     ANSWER_ID=$(afd_message_id "$line"); ANSWER="$text"; ANSWER_HOW=tagged
     _afd_line_true "$line" redirected && ANSWER_HOW=redirected
