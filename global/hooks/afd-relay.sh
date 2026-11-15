@@ -163,10 +163,10 @@ print('\n'.join(out))" 2>/dev/null)
     # user's answer instead of "PreToolUse hook error" (afd_ask_map). Unmappable → the
     # block-reason delivery below, which works on every CC version.
     if declare -F afd_ask_map >/dev/null; then
-        MAPPED=$(afd_ask_map "$INPUT" "$ANSWER") && [[ -n "$MAPPED" ]] && { printf '%s\n' "$MAPPED"; exit 0; }
+        MAPPED=$(afd_ask_map "$INPUT" "$ANSWER" "${ANSWER_NOTE:-}") && [[ -n "$MAPPED" ]] && { printf '%s\n' "$MAPPED"; exit 0; }
     fi
-    # Fallback: hand the answer to the model as the block reason.
-    echo "The user answered via Telegram (AFK): \"$ANSWER\" — treat this as the user's answer to your question and continue; do not ask it again." >&2
+    # Fallback: hand the answer to the model as the block reason (CFG-1039: with where it came from).
+    echo "The user answered via Telegram (AFK)${ANSWER_NOTE:+, $ANSWER_NOTE}: \"$ANSWER\" — treat this as the user's answer to your question and continue; do not ask it again." >&2
     exit 2
 fi
 

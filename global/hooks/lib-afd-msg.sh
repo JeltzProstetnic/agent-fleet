@@ -13,6 +13,10 @@
 #   - untagged        → the shared pool while any relay waits on a Telegram question
 #                        (marker $AFD_MSG_DIR/.waiting/<project>, CFG-779: the waiting
 #                        relays claim from it, lib-afd-pool.sh), else the consumer
+#   - a message naming the number of the OPEN question of a waiting relay → that relay's project,
+#                        bound to the question, also when its @tag or Reply points at a project
+#                        without that open question (CFG-1039, lib-afd-forward.sh; loaded lazily,
+#                        and without it routing is as before). `afd forward` lives there too.
 #   - unknown `@name` → the consumer, text intact (e.g. a bot mention)
 #   - a message that is only `afk` / `afk on` / `afk off` (optionally after an
 #     @tag) switches the global AFK flag instead of being queued
@@ -185,12 +189,44 @@ _afd_reask() {
     _AFD_REASK_TOKEN="reask:${n:-0}:${m:-0}"
 }
 
+# _afd_fwd_lib — load lib-afd-forward.sh (CFG-1039) on first need; 1 when it cannot load.
+_afd_fwd_lib() {
+    declare -F afd_question_route >/dev/null || source "$(dirname "${BASH_SOURCE[0]}")/lib-afd-forward.sh" 2>/dev/null
+    declare -F afd_question_route >/dev/null
+}
+
+# afd_delivery_label <json line> <me> — "<time>\x1f<persona>\x1f<label>", then the text, for a line
+# the prompt hook or the idle waiter delivers (lib-afd-forward.sh); without that lib, no label.
+afd_delivery_label() {
+    _afd_fwd_lib && { _afd_fwd_delivery "$@"; return; }
+    printf '%s' "$1" | python3 -c 'import json,sys; d=json.load(sys.stdin); print("%s\x1f%s\x1f" % (str(d.get("timestamp",""))[:16], d.get("persona") or "")); print(d.get("message",""))' 2>/dev/null
+}
+
+# _afd_question_reroute <json line> <text> <live waiters> — CFG-1039: 0 with _AFD_RR_TARGET (the
+# project) and _AFD_RR_LINE (the line, bound to its question or marked ambiguous) when the text starts
+# with a question number of a waiting relay (lib-afd-forward.sh); 1 otherwise. An ambiguous line's
+# notice for the user is added to afd_route_messages' _AFD_RR_NOTICES, which _afd_run_later sends.
+# Fast path: no relay waiting or no digit in the text, no python.
+_afd_question_reroute() {
+    local out first
+    [[ -n "$3" && "$2" =~ [0-9] ]] || return 1
+    _afd_fwd_lib || return 1
+    out=$(afd_question_route "$1" "$3"); first="${out%%$'\n'*}"
+    [[ "$first" == *' {'* ]] || return 1
+    _AFD_RR_TARGET="${first%% *}"; _AFD_RR_LINE="${first#* }"
+    [[ "$out" == *$'\n'"NOTICE "* ]] && _AFD_RR_NOTICES+="${out#*$'\n'NOTICE }"$'\n'
+    return 0
+}
+
 # _afd_run_later <cli> <command>… — the slow Telegram commands (a dnd switch with its digest, re-ask
 # with one call per question), in order, only once every consumed line is filed: `afd messages`
 # has already acknowledged the batch on the server, so a kill while they ran lost the lines after
-# them (review #6). Sets _AFD_LATER_DND and _AFD_LATER_REASK to their status tokens.
+# them (review #6). Sets _AFD_LATER_DND and _AFD_LATER_REASK to their status tokens. Then it sends the
+# notices of messages that answered neither of two waiting questions (CFG-1039, Q-1039-4), one line
+# each from afd_route_messages' _AFD_RR_NOTICES, each already tagged with the project the message
+# pointed at (review 3 N-1), so a Telegram Reply to it goes there.
 _afd_run_later() {
-    local cli="$1" c; shift
+    local cli="$1" c n; shift
     _AFD_LATER_DND="" _AFD_LATER_REASK=""
     for c in "$@"; do
         case "$c" in
@@ -198,6 +234,9 @@ _afd_run_later() {
             reask) _afd_reask "$cli" && _AFD_LATER_REASK="$_AFD_REASK_TOKEN" ;;
         esac
     done
+    while IFS= read -r n; do
+        [[ -n "$n" ]] && timeout -k 2 45 "$cli" notify all "$n" --channel telegram --type info >/dev/null 2>&1
+    done <<< "${_AFD_RR_NOTICES:-}"
     return 0
 }
 
@@ -208,7 +247,7 @@ _afd_run_later() {
 # `re-ask` (CFG-1034), then every OTHER project it queued messages for, once each (the pool is
 # not a project and is not printed).
 afd_route_messages() {
-    local me="$1" cli="$HOME/.local/bin/afd" dir line text target waiters raw foreign="" cmd status="" care="" bare later=""
+    local me="$1" cli="$HOME/.local/bin/afd" dir line text target waiters raw foreign="" cmd status="" care="" bare later="" _AFD_RR_NOTICES=""
     [[ -x "$cli" && -n "$me" ]] || return 0
     dir=$(_afd_msg_dir)
     raw=$(timeout -k 2 3 "$cli" messages 2>/dev/null) || true
@@ -227,12 +266,13 @@ afd_route_messages() {
         esac
         if [[ "$cmd" =~ ^care[[:space:]]+off$ ]] && _afd_care_off; then care="$_AFD_CARE_TOKEN"; continue; fi
         if [[ "$cmd" == re-ask ]] && _afd_asked_lib; then later="$later reask"; continue; fi
-        # A bare "@project" (nothing, or only a "#number", after the tag) while a relay waits
-        # is a redirect verdict for that relay's ask-back, not a message for the project: it
-        # is pooled too. An explicit @tag wins over the project a Reply points at.
-        target=""; bare=false
-        [[ "$cmd" =~ ^(#[0-9]+[[:space:]]*)*$ ]] && bare=true
-        if [[ "$text" =~ ^@([A-Za-z0-9_.-]+) ]] && { ! $bare || [[ -z "$waiters" ]]; }; then
+        # A bare "@project" (nothing, or only a "#number", after the tag) while a relay waits is a
+        # redirect verdict for that relay's ask-back: pooled too. Otherwise a line naming a waiting
+        # relay's open question goes to it (CFG-1039); an explicit @tag wins over a Reply's project.
+        target=""; bare=false; [[ "$cmd" =~ ^(#[0-9]+[[:space:]]*)*$ ]] && bare=true
+        if ! $bare && _afd_question_reroute "$line" "$text" "$waiters"; then
+            target="$_AFD_RR_TARGET"; line="$_AFD_RR_LINE"
+        elif [[ "$text" =~ ^@([A-Za-z0-9_.-]+) ]] && { ! $bare || [[ -z "$waiters" ]]; }; then
             target=$(_afd_resolve_target "$(printf '%s' "${BASH_REMATCH[1]}" | tr '[:upper:]' '[:lower:]')")
             target="${target:-$me}"              # unknown @name: the consumer, text intact
         else
@@ -242,7 +282,7 @@ afd_route_messages() {
             fi
         fi
         target="${target:-$me}"
-        # CFG-1034: a Reply to a timed-out AFK question (or its re-ask) is labelled with it.
+        # CFG-1034: a Reply to a timed-out question or its re-ask is labelled (a bound line: by its own).
         [[ "$line" == *'"reply_to"'* ]] && _afd_asked_lib && line=$(afd_asked_annotate "$line")
         _afd_locked _afd_append_line "$dir/$target.jsonl" "$line"
         [[ "$target" != "$me" && " $foreign " != *" $target "* ]] && foreign="$foreign $target"

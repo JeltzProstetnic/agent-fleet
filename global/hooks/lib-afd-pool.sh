@@ -67,14 +67,34 @@ d = json.load(sys.stdin); d["pooled"] = int(time.time()); print(json.dumps(d))' 
 # this wrong-answer path fixed, 2026-11-15) — unless the user redirected it here, or its text
 # starts with an explicit @tag for <me> (exact or unique prefix, as routing resolves it: "@tag
 # wins", Q-REPLY-TAG 2026-11-15). Skipped lines stay queued and reach the session as ordinary messages.
+# A line BOUND to a question (for_question: routed or forwarded for it, CFG-1039 lib-afd-forward.sh)
+# is the answer to that question only, whatever its id. A line routing marked ambiguous (it answers
+# neither of two waiting questions, Q-1039-4) is no answer, nor is one that is only the number of an
+# open question: <id> itself or the question a live relay waits on (Q-1039-F6). Any other number —
+# also one that equals an old, closed question id — still answers (review 3 S-3).
 afd_queue_first_after() {
     [[ -f "$1" ]] || return 0
     local known=""
     declare -F _afd_known_projects >/dev/null && known=$(_afd_known_projects)
-    KNOWN="$known" python3 -c '
+    KNOWN="$known" WAITING="$(_afd_msg_dir)/.waiting" python3 -c '
 import json, os, re, sys
 me = sys.argv[3] if len(sys.argv) > 3 else ""
 known = [k for k in os.environ.get("KNOWN", "").split("\n") if k]
+def open_ids():
+    """<id> and the question each live relay waits on (.waiting/<project>: "<pid> <Q> ...")."""
+    out, d = {sys.argv[2]}, os.environ["WAITING"]
+    try: names = os.listdir(d)
+    except OSError: return out
+    for n in names:
+        if n.startswith("."): continue
+        try:
+            f = open(os.path.join(d, n)).read().split()
+            if len(f) >= 2 and f[1].isdigit(): os.kill(int(f[0]), 0); out.add(str(int(f[1])))
+        except Exception: pass
+    return out
+def only_question_number(body):
+    m = re.fullmatch(r"#?(\d+)[:,.)]?", body.strip(), re.ASCII)
+    return bool(m) and str(int(m.group(1))) in open_ids()
 def tagged_for_me(text):
     m = re.match(r"@([A-Za-z0-9_.-]+)", text)
     if not (m and me): return False
@@ -85,12 +105,18 @@ def tagged_for_me(text):
 for l in open(sys.argv[1]):
     try: d = json.loads(l)
     except Exception: continue
-    if int(d.get("id", 0) or 0) <= int(sys.argv[2]): continue
-    if d.get("late_answer_to"): continue
-    rt = d.get("reply_to")
-    if rt not in (None, "", 0) and str(rt) != sys.argv[2] and not d.get("redirected") \
-       and not tagged_for_me(str(d.get("message", ""))): continue
-    if not re.sub(r"^@[A-Za-z0-9_.-]+[\s:,]*", "", str(d.get("message", ""))).strip(): continue
+    if d.get("ambiguous"): continue
+    fq = d.get("for_question")
+    if fq not in (None, ""):
+        if str(fq) != sys.argv[2]: continue
+    else:
+        if int(d.get("id", 0) or 0) <= int(sys.argv[2]): continue
+        if d.get("late_answer_to"): continue
+        rt = d.get("reply_to")
+        if rt not in (None, "", 0) and str(rt) != sys.argv[2] and not d.get("redirected") \
+           and not tagged_for_me(str(d.get("message", ""))): continue
+    body = re.sub(r"^@[A-Za-z0-9_.-]+[\s:,]*", "", str(d.get("message", ""))).strip()
+    if not body or only_question_number(body): continue
     print(l.rstrip("\n")); break' "$1" "$2" "${3:-}" 2>/dev/null
 }
 

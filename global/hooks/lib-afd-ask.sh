@@ -21,19 +21,23 @@
 #
 # Sourced by afd-relay.sh, whose globals it reads: ME, NOTIF_ID (Q), INPUT, MARKER, AFD_CLI.
 # Keeps ASK_M / ASK_C (the pending claim and ask-back) and sets ANSWER, ANSWER_ID,
-# ANSWER_HOW (tagged | redirected | reply_to | single | confirmed).
+# ANSWER_HOW (tagged | redirected | forwarded | rerouted | reply_to | single | confirmed) and, for a
+# forwarded or rerouted answer (CFG-1039), ANSWER_NOTE (where it came from) and ANSWER_FROM.
 
 [[ "${_LIB_AFD_ASK_LOADED:-}" == "true" ]] && return 0
 source "$(dirname "${BASH_SOURCE[0]}")/lib-afd-msg.sh" || return 1
 source "$(dirname "${BASH_SOURCE[0]}")/lib-afd-scan.sh" || return 1   # the pool scan
+source "$(dirname "${BASH_SOURCE[0]}")/lib-afd-forward.sh" || return 1   # afd_answer_meta (CFG-1039)
 _LIB_AFD_ASK_LOADED="true"
 
-# afd_ask_map <hook input json> <answer> — CFG-773: the allow decision with updatedInput.answers,
+# afd_ask_map <hook input json> <answer> [note] — CFG-773: the allow decision with updatedInput.answers,
 # so CC shows the user's answer instead of "PreToolUse hook error". A digit picks that option,
 # a reply matching a label (any case) is that label, anything else is free text; with several
 # questions the reply must be one token per question. Prints nothing and fails when unmappable.
+# [note] (CFG-1039: who forwarded the answer, or why it was routed here) goes into the decision
+# reason and, as additionalContext, to the model.
 afd_ask_map() {
-    printf '%s' "$1" | ANSWER="$2" python3 -c '
+    printf '%s' "$1" | ANSWER="$2" NOTE="${3:-}" python3 -c '
 import json, os, sys
 t = json.load(sys.stdin).get("tool_input", {})
 qs, a = t.get("questions") or [], os.environ["ANSWER"].strip()
@@ -54,11 +58,12 @@ else:
     if len(toks) != len(qs):
         sys.exit(1)
     answers = {q["question"]: pick(q, tok) for q, tok in zip(qs, toks)}
-out = dict(t, answers=answers)
-print(json.dumps({"hookSpecificOutput": {"hookEventName": "PreToolUse",
-      "permissionDecision": "allow",
-      "permissionDecisionReason": "Answered via Telegram (AFK)",
-      "updatedInput": out}}))' 2>/dev/null
+out, note = dict(t, answers=answers), os.environ.get("NOTE", "")
+hso = {"hookEventName": "PreToolUse", "permissionDecision": "allow",
+       "permissionDecisionReason": "Answered via Telegram (AFK)" + (", " + note if note else ""),
+       "updatedInput": out}
+if note: hso["additionalContext"] = "The Telegram answer to this question was " + note + "."
+print(json.dumps({"hookSpecificOutput": hso}))' 2>/dev/null
 }
 
 # _afd_ask_send <text> — "[ME] <text>" to Telegram as an info notification; prints its id.
@@ -74,14 +79,10 @@ _afd_ask_mark() {
     return 0
 }
 
-_afd_line_true() { # _afd_line_true <json line> <field> — 0 when the field is truthy
-    [[ "$(printf '%s' "$1" | python3 -c 'import json,sys; print(1 if json.load(sys.stdin).get(sys.argv[1]) else "")' "$2" 2>/dev/null)" == 1 ]]
-}
-
 # afd_ask_begin — once the question is sent: count its questions, no claim pending yet.
 afd_ask_begin() {
     ASK_QN=$(printf '%s' "$INPUT" | python3 -c 'import json,sys; print(len(json.load(sys.stdin).get("tool_input",{}).get("questions") or []) or 1)' 2>/dev/null || echo 1)
-    ASK_M=""; ASK_C=""; ANSWER=""; ANSWER_ID=""; ANSWER_HOW=""
+    ASK_M=""; ASK_C=""; ANSWER=""; ANSWER_ID=""; ANSWER_HOW=""; ANSWER_NOTE=""; ANSWER_FROM=""
 }
 
 # afd_ask_step — one wait-loop cycle after afd_route_messages: 0 with ANSWER set, else 1.
@@ -103,14 +104,15 @@ _afd_ask_direct_reply() {
 # The first line newer than the question in ME's own queue: tagged for ME, or redirected here.
 # A line without text, a late answer to an older question, and a Telegram Reply to any other
 # message without a leading @tag for ME are never taken (nor deleted): afd_queue_first_after
-# skips them (2026-11-15; "@tag wins", Q-REPLY-TAG).
+# skips them (2026-11-15; "@tag wins", Q-REPLY-TAG). A line forwarded or routed here for this
+# question (CFG-1039) keeps where it came from, and "1154 2" answers #1154 with "2" (afd_answer_meta).
 _afd_ask_own_answer() {
-    local q line text
+    local q line text how
     q="$(_afd_msg_dir)/$ME.jsonl"
     line=$(afd_queue_first_after "$q" "$NOTIF_ID" "$ME"); [[ -n "$line" ]] || return 1
-    text=$(afd_message_text "$line"); [[ -n "$text" ]] || return 1
-    ANSWER_ID=$(afd_message_id "$line"); ANSWER="$text"; ANSWER_HOW=tagged
-    _afd_line_true "$line" redirected && ANSWER_HOW=redirected
+    { IFS=$'\x1f' read -r how ANSWER_ID ANSWER_FROM ANSWER_NOTE; text=$(cat); } < <(afd_answer_meta "$line" "$NOTIF_ID")
+    [[ -n "$text" && -n "$how" ]] || return 1
+    ANSWER="$text"; ANSWER_HOW="$how"
     afd_queue_delete "$q" "$ANSWER_ID"
     [[ -n "$ASK_M" ]] && { afd_release_claim "$ASK_M"; ASK_M=""; ASK_C=""; }   # back to the pool
     return 0
@@ -178,9 +180,13 @@ _afd_ask_verdict() {
 }
 
 # afd_ask_confirm — design point 2 (decided 2026-10-25): after a confirmed or redirected
-# answer, tell Telegram this session is working again.
+# answer, tell Telegram this session is working again. A forwarded or rerouted answer (CFG-1039)
+# names the question and the message taken, so the user sees which session took it.
 afd_ask_confirm() {
-    case "$ANSWER_HOW" in confirmed|redirected) _afd_ask_send "working on #$ANSWER_ID" >/dev/null ;; esac
+    case "$ANSWER_HOW" in
+        confirmed|redirected) _afd_ask_send "working on #$ANSWER_ID" >/dev/null ;;
+        forwarded|rerouted) _afd_ask_send "working on #$NOTIF_ID: took your message #$ANSWER_ID as its answer${ANSWER_FROM:+ (forwarded by the $ANSWER_FROM session)}" >/dev/null ;;
+    esac
     return 0
 }
 

@@ -82,10 +82,12 @@ afd_asked_capture() {
 }
 
 # afd_asked_annotate <json line> — the line, labelled late_answer_to/late_question when it is a
-# Telegram Reply to a timed-out question or to a re-send of it (and that question is closed).
+# Telegram Reply to a timed-out question or to a re-send of it (and that question is closed), or a
+# line bound to a timed-out question (for_question, CFG-1039 lib-afd-forward.sh: judged by that
+# question alone, whatever it replies to).
 afd_asked_annotate() {
     local out=""
-    [[ "$1" == *'"reply_to"'* && -f "$(_afd_asked_dir)/.asked.jsonl" ]] \
+    [[ ( "$1" == *'"reply_to"'* || "$1" == *'"for_question"'* ) && -f "$(_afd_asked_dir)/.asked.jsonl" ]] \
         && out=$(AFD_ASKED_LINE="$1" _afd_asked_py annotate)
     printf '%s\n' "${out:-$1}"
 }
@@ -244,9 +246,9 @@ def cmd_capture(marker):
 
 def cmd_annotate():
     line = os.environ["AFD_ASKED_LINE"]
-    d = json.loads(line); rt = str(d.get("reply_to") or "")
+    d = json.loads(line); fq = str(d.get("for_question") or ""); rt = "" if fq else str(d.get("reply_to") or "")
     for q, r in fold(load()).items():
-        if r.get("outcome") == "timeout" and not r["late"] and rt and (rt == q or rt in r["reasked"]):
+        if r.get("outcome") == "timeout" and not r["late"] and (fq == q or (rt and (rt == q or rt in r["reasked"]))):
             d["late_answer_to"] = int(q)
             d["late_question"] = str(r.get("question", "")).split("\n")[0][:120]
             append({"ev": "late", "q": int(q), "via": d.get("id")})

@@ -143,15 +143,12 @@ while (( $(date +%s) < DEADLINE )); do
         mode_note
         {
             echo "=== Telegram message(s) for this project (woke this idle session, CFG-777) ==="
+            # One "[time] (persona: X) (label) text" each; the label (redirected, forwarded, routed, late
+            # answer, reply) and indented continuation lines come from afd_delivery_label (CFG-1039).
             while IFS= read -r line; do
                 [[ -n "$line" ]] || continue
-                printf '%s' "$line" | python3 -c "
-import sys, json
-d = json.loads(sys.stdin.read())
-ch = '(persona: %s)' % d['persona'] if d.get('persona') else ''
-if d.get('redirected'): ch += ' (redirected here by the user, CFG-779)'
-if d.get('late_answer_to'): ch += ' (late answer to your AFK question #%s \"%s\", which timed out: revisit the default you took)' % (d['late_answer_to'], d.get('late_question', ''))
-print('[%s] %s %s' % (str(d.get('timestamp', ''))[:16], ch, d.get('message', '')))" 2>/dev/null
+                { IFS=$'\x1f' read -r ts persona label; msg=$(cat); } < <(afd_delivery_label "$line" "$ME")
+                echo "[$ts] ${persona:+(persona: $persona) }${label:+$label }$msg"
             done <<< "$MESSAGES"
             echo "Reply via: afd notify all \"[$ME] your reply\" --channel telegram"
             echo "==="

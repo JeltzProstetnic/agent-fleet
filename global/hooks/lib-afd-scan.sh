@@ -110,6 +110,12 @@ def reserved(d, i, text, pend):
         if i > c and rt is None and ref is None and verdict(text): return True
     return False
 
+def lone_open_number(body, oth):
+    """CFG-1039 (Q-1039-F6, review 3 S-2): a body that is only the number of an open question (Q, or
+    the one another live relay waits on), by the routing ending rule, is no answer."""
+    m = re.fullmatch(r"#?(\d+)[:,.)]?", body, re.ASCII)
+    return bool(m) and int(m.group(1)) in {Q} | {o[0] for o in oth}
+
 def candidate():
     now, oth, best = time.time(), others(), None
     pend = [o for o in oth if o[2]]
@@ -118,6 +124,7 @@ def candidate():
         i, text, rt = int(d.get("id", 0) or 0), str(d.get("message", "")), num(d.get("reply_to"))
         body = TAG.sub("", text).strip()
         if i <= Q or not body or me in (d.get("rejected") or []) or claimed_by_other(i): continue
+        if lone_open_number(body, oth): continue
         if rt == Q: return (0, i, len(pend))
         # The user, 2026-11-15: a Reply to any OTHER message is never the answer to this question
         # (a Reply to the [re-ask] summary or a [<host>] DND acknowledgement was tier 1). A Reply

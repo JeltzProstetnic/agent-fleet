@@ -154,18 +154,17 @@ if [[ -x "$AFD_CLI" ]]; then
     # Persona-agnostic: the channel a message arrived on is read from the message
     # itself, never hardcoded, so this works with whatever personas are configured
     # in foundation/personas.md. The server tags EVERY message with its bot's persona;
-    # only one other than AFD_DEFAULT_PERSONA asks the model to switch persona.
-    # A line the user redirected here through an ask-back (CFG-779) is addressed to
-    # this project: labelled, and exempt from the untagged triage note.
+    # only one other than AFD_DEFAULT_PERSONA asks the model to switch persona. A labelled line
+    # (redirected, forwarded, routed for an AFK question, late answer, Reply to this project's
+    # message; afd_delivery_label, CFG-779/839/1034/1039) is exempt from the untagged triage note.
     while IFS= read -r line; do
-      msg=$(echo "$line" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('message',''))" 2>/dev/null)
-      ts=$(echo "$line" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('timestamp','')[:16])" 2>/dev/null)
-      persona=$(echo "$line" | python3 -c "import sys,json; print(json.load(sys.stdin).get('persona','') or '')" 2>/dev/null)
-      redirected=$(echo "$line" | python3 -c "import sys,json; print('(redirected here by the user) ' if json.load(sys.stdin).get('redirected') else '')" 2>/dev/null)
-      # CFG-1034: a late answer to this session's timed-out AFK question (or to its re-ask).
-      [[ -z "$redirected" && "$line" == *late_answer_to* ]] && redirected=$(echo "$line" | python3 -c "import sys,json; d=json.load(sys.stdin); print('(late answer to your AFK question #%s \"%s\", which timed out: revisit the default you took) ' % (d['late_answer_to'], d.get('late_question','')))" 2>/dev/null)
-      # CFG-839: a Reply to this project's own message is addressed here too.
-      [[ -z "$redirected" ]] && redirected=$(echo "$line" | ME="$ME" python3 -c "import sys,json,os; d=json.load(sys.stdin); print('(reply to #%s) ' % d.get('reply_to') if d.get('reply_to') and d.get('reply_to_project') == os.environ['ME'] else '')" 2>/dev/null)
+      ts="" persona="" redirected="" msg=""
+      if declare -F afd_delivery_label >/dev/null; then
+        { IFS=$'\x1f' read -r ts persona redirected; msg=$(cat); } < <(afd_delivery_label "$line" "$ME")
+      else
+        msg=$(echo "$line" | python3 -c "import sys,json; print(json.load(sys.stdin).get('message',''))" 2>/dev/null)
+      fi
+      redirected="${redirected:+$redirected }"
       if [[ -n "$msg" ]]; then
         [[ "$msg" == @* || -n "$redirected" ]] || HAS_UNTAGGED=true
         if [[ -n "$persona" ]]; then
