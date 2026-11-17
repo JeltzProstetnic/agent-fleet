@@ -645,6 +645,8 @@ cp setup/secrets/vault.json.example setup/secrets/vault.json
 bash setup/secrets/vault-manage.sh encrypt
 # On another machine:
 bash setup/secrets/vault-manage.sh deploy
+# Change one value later — read from stdin, no plaintext on disk:
+printf '%s' "$VALUE" | bash setup/secrets/vault-manage.sh set <dotted.key>
 ```
 
 `vault.json` and `vault.json.enc` are both gitignored. Committing the ciphertext so it travels with your repo is opt-in — `setup/secrets/.gitignore` says how.

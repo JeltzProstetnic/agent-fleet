@@ -253,6 +253,15 @@
         ]
       },
       {
+        "matcher": "Read|Grep|NotebookRead",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash ~/.claude/hooks/safe-run.sh credential-read-guard.sh"
+          }
+        ]
+      },
+      {
         "matcher": "mcp__playwright__browser_evaluate|mcp__playwright__browser_run_code_unsafe",
         "hooks": [
           {
@@ -280,7 +289,7 @@
         ]
       },
       {
-        "matcher": "mcp__.*|WebSearch|WebFetch",
+        "matcher": "mcp__.*|WebSearch|WebFetch|Bash|Write",
         "hooks": [
           {
             "type": "command",
