@@ -26,7 +26,8 @@ make_mock_repo() {
 |------|-------------|
 | `sync.sh` | Personal hostname case |
 EOF
-    mkdir -p "$repo/setup" "$repo/global/hooks"
+    mkdir -p "$repo/setup/config" "$repo/global/hooks"
+    echo "# template-push conf" > "$repo/setup/config/template-push.conf"
     echo "lib" > "$repo/setup/lib.sh"
     echo "guard" > "$repo/global/hooks/cfg-boundary-guard.sh"
     echo "sync" > "$repo/sync.sh"
@@ -145,6 +146,21 @@ test_no_manifest_file_passes_silently() {
     assert_eq "0" "$rc" "repo with no manifest should pass (hook only enforces in cfg)"
 }
 
+# CFG-1054 (2026-11-17): downstream repos (agent-fleet, iv-agent-fleet) ship template-sync-manifest.md but cannot
+# run template-push; the gate blocked an iv-agent-fleet upstream merge commit. Only a repo that has template-push's
+# own config (setup/config/template-push.conf, cfg-only) is enforced.
+test_downstream_repo_without_template_push_conf_passes() {
+    local repo="$TEST_TMPDIR/repo-downstream"
+    make_mock_repo "$repo"
+    git -C "$repo" rm -q setup/config/template-push.conf
+    git -C "$repo" commit -q -m "downstream: no template-push conf"
+    echo "lib2" >> "$repo/setup/lib.sh"
+    git -C "$repo" add setup/lib.sh >/dev/null
+    local out rc=0
+    out=$(run_hook "git commit -m fix" "$repo") || rc=$?
+    assert_eq "0" "$rc" "downstream repo (manifest, no template-push.conf) committing a tracked file passes (measured rc=$rc)"
+}
+
 test_non_bash_tool_ignored() {
     local out rc=0
     out=$(echo '{"tool_name":"Write","tool_input":{"file_path":"/tmp/x"}}' | bash "$HOOK") || rc=$?
@@ -162,6 +178,7 @@ run_test "commit with stale marker → block"                  test_commit_with_
 run_test "bash -c escape hatch → pass"                       test_bash_dash_c_escape_hatch_passes
 run_test "git -C <path> commit form inspected"               test_git_dash_C_form_inspected
 run_test "repo without manifest → silent pass"               test_no_manifest_file_passes_silently
+run_test "downstream repo without template-push.conf → pass" test_downstream_repo_without_template_push_conf_passes
 run_test "non-Bash tool → ignored"                           test_non_bash_tool_ignored
 
 suite_summary

@@ -44,13 +44,14 @@ SECRET_PATTERNS='sk-ant-[A-Za-z0-9-]{20,}|sk-[A-Za-z0-9]{20,}|(^|[^A-Za-z0-9+/])
 # value is exempt only when it is shaped like an ALL_CAPS placeholder, e.g.
 # CHANGE_ME_PASSWORD or YOUR_PASSWORD_HERE: a capital, then capitals and underscores
 # with at most two digits, six chars or more, optionally quoted, optionally followed
-# by closing punctuation. A lowercase letter, a symbol or a third digit makes it a
-# value, and it blocks. Each assignment is judged alone: never the whole line (a
-# placeholder beside a real value does not cover it) and never the filename (a
-# .example name proves nothing). ERE has no lookahead, so the value is extracted
-# with -o and tested on its own.
+# by closing punctuation (including a closing shell quote — Q-IV-HIST / CFG-1054).
+# A lowercase letter, a symbol or a third digit makes it a value, and it blocks.
+# Each assignment is judged alone: never the whole line (a placeholder beside a
+# real value does not cover it) and never the filename (a .example name proves
+# nothing). ERE has no lookahead, so the value is extracted with -o and tested
+# on its own.
 SECRET_KEY_PREFIX='(password|passphrase|secret|private_key)"?[[:space:]]*[:=][[:space:]]*'  # pragma: allowlist secret
-SECRET_PLACEHOLDER='^"?[A-Z][A-Z0-9_]{5,}"?[]}),;]*$'
+SECRET_PLACEHOLDER='^"?[A-Z][A-Z0-9_]{5,}"?[]}),;'"'"']*$'
 
 # Candidate tokens: anything that could be a credential. Splitting on whitespace
 # alone misses a value inside quotes, a table cell or a sentence ending in a period,

@@ -41,9 +41,11 @@ if [[ "$cmd" =~ git[[:space:]]+-C[[:space:]]+([^[:space:]]+) ]]; then
 fi
 repo="${repo/#\~/$HOME}"
 
-# Only enforce inside the cfg-agent-fleet repo
+# Only enforce inside the cfg-agent-fleet repo: downstream repos ship the manifest but have no template-push to run
+# (CFG-1054) — template-push's own config is the cfg-only marker
 manifest="$repo/template-sync-manifest.md"
 [ -f "$manifest" ] || exit 0
+[ -f "$repo/setup/config/template-push.conf" ] || exit 0
 
 # Collect manifest-tracked file list (parse "Tracked Files — Must Be Identical" + "Intentional Diffs" tables)
 # Lines like: "| `path/to/file` | reason |"

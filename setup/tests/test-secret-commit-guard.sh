@@ -330,6 +330,55 @@ test_placeholder_exemption_is_per_value_not_per_line() {
 }
 run_test "CFG-890: the placeholder exemption is per matched value, not per line" test_placeholder_exemption_is_per_value_not_per_line
 
+# ── 4e. Q-IV-HIST / CFG-1054: a closing shell quote is closing punctuation ──
+# A JSON fixture wrapped in a shell single-quoted string ends with "}]}'" — the
+# trailing "'" is a closing SHELL quote, not part of the value. The placeholder
+# regex excluded it from the closer class []}),;], so the placeholder was read as
+# a real value and the pre-push hook refused any push carrying those commits.
+
+test_allows_placeholder_followed_by_shell_closing_quote() {
+    local repo; repo="$(_mkrepo)"
+    # Build the line at runtime so this test file itself does not carry the shape
+    # the old detector blocks (a placeholder followed by ' on one line).
+    local q="'"
+    local kw="password"
+    local line; line="{\"${kw}\": \"HOSTINGER_PW\"}]}"
+    line="${line}${q}"
+    _stage "$repo" "tests/fixture.sh" "    local body=${q}${line}"
+    local rc=0; _run_guard "$repo" "git commit -m fixture" 2>/dev/null || rc=$?
+    assert_eq "0" "$rc" "a JSON ALL_CAPS placeholder followed by closing shell quote must pass (measured rc=$rc)"
+}
+run_test "Q-IV-HIST: a placeholder followed by a closing shell quote passes" \
+    test_allows_placeholder_followed_by_shell_closing_quote
+
+test_blocks_real_value_followed_by_shell_closing_quote() {
+    local repo; repo="$(_mkrepo)"
+    # A mixed-case real-looking value in the same position must still block.
+    local q="'"
+    local val; val="Xk$(printf '9vQ2mLp')4Rt"
+    local line; line="{\"password\": \"${val}\"}]}${q}"
+    _stage "$repo" "tests/fixture.sh" "    local body=${q}${line}"  # pragma: allowlist secret
+    local rc=0; _run_guard "$repo" "git commit -m fixture" 2>/dev/null || rc=$?
+    assert_eq "2" "$rc" "a real-looking value followed by a closing shell quote must still BLOCK (measured rc=$rc)"
+}
+run_test "Q-IV-HIST: a real-looking value followed by a closing shell quote still blocks" \
+    test_blocks_real_value_followed_by_shell_closing_quote
+
+test_placeholder_followed_by_quote_then_junk_still_blocks() {
+    local repo; repo="$(_mkrepo)"
+    # A placeholder followed by ' then more non-closer text should not pass,
+    # because the regex is anchored at $. Ensures the fix is narrow.
+    local q="'"
+    local kw="password"
+    local line; line="{\"${kw}\": \"HOSTINGER_PW\"}]}"
+    line="${line}${q}xyz"
+    _stage "$repo" "tests/fixture.sh" "    local body=${q}${line}"
+    local rc=0; _run_guard "$repo" "git commit -m fixture" 2>/dev/null || rc=$?
+    assert_eq "2" "$rc" "a placeholder followed by a quote then non-closer text still blocks (measured rc=$rc)"
+}
+run_test "Q-IV-HIST: a placeholder then quote then trailing text still blocks" \
+    test_placeholder_followed_by_quote_then_junk_still_blocks
+
 # ── 5. CFG-621 lesson: never match the commit MESSAGE ─────────────────────────
 # vault-read-guard.sh blocks commits because the word "more" appears in an -m
 # body. This guard must read the staged diff only, so a message that quotes a
