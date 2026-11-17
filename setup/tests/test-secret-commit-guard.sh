@@ -227,7 +227,8 @@ run_test "CFG-662: a shell prompt string ('read -rsp \"… password: \"') passes
 test_allows_allcaps_placeholders_by_value() {   # infrastructure mail-relay config.json.example shape
     local repo; repo="$(_mkrepo)"
     local body='{"gmail": {"address": "alice@example.com", "app_password": "GMAIL_APP_PASSWORD_HERE"},
- "accounts": [{"address": "bob@example.com", "password": "HOSTINGER_PW"}]}'
+ "accounts": [{"address": "bob@example.com", "password": "HOSTINGER_PW"}]}
+'
     _stage "$repo" "scripts/config.json.example" "$body"
     local rc=0; _run_guard "$repo" "git commit -m example" 2>/dev/null || rc=$?
     assert_eq "0" "$rc" "ALL_CAPS placeholder values pass in a .example file (measured rc=$rc)"
