@@ -1,106 +1,57 @@
 #!/usr/bin/env bash
-# PreToolUse hook: block direct reads of the plaintext vault (secrets/vault.json,
-# or any <prefix>-vault.json). Direct plaintext reads bypass vault-manage.sh and
-# may hit stale data (LRN S210 — agent read stale plaintext that had drifted from
-# the encrypted source-of-truth for months).
+# PreToolUse hook (Bash): block a command that READS a credential store (CFG-960) — the
+# plaintext vault (secrets/vault.json or any <prefix>-vault.json: a direct read bypasses
+# vault-manage.sh and may hit stale data, LRN S210), the live settings.json (its env block
+# carries tokens, CFG-892), the live .mcp.json copies, Claude Code's .credentials.json,
+# .git-credentials and /etc/nas-credentials.
 #
-# Allowed: any command that goes through vault-manage.sh.
-# Blocked: cat/head/tail/less/more/grep/awk/sed/jq/xxd/od/python/python3 of vault.json,
-#          or cp/mv that would copy plaintext elsewhere.
-# Exit 2 = block with message. Exit 0 = allow.
+# WHICH paths those are lives in lib-credential-paths.sh, shared with credential-read-guard.sh
+# (the Read/Grep/NotebookRead tools). WHAT a command line does to one — reader verbs, `< f`
+# redirects, `source`, interpreters, recursive searches over a directory, quote/glob/brace
+# spellings — lives in lib-cred-command-scan.sh. The refusal texts (the masked reader for a
+# settings.json, "name the vault key, never the value" for the rest) come from cred_refusal.
+#
+# Allowed: metadata (ls, stat, test, readlink, rm), a credential's consumers (mount -o
+# credentials=, smbclient -A), vault-manage.sh and settings-view.sh on their own, and a git
+# commit MESSAGE that only mentions a path (CFG-621: the message is stripped before the
+# reader match; the path match runs on the full text). A read primitive anywhere in the
+# command blocks, whatever metadata sits beside it (CFG-959: `S=<live>; ls $S; python3 - <<EOF
+# open(S) EOF` printed the env block through a metadata exemption).
+#
+# Without the libs (a broken deploy — sync.sh ships hook and libs in one loop) the legacy
+# path at the end runs on crude regexes and the pre-CFG-960 verb list: every vault.json or
+# settings.json mention beside a reader verb counts — a false block, never a read.
+# Exit 2 + stderr = block. Exit 0 = allow.
 
 INPUT=$(cat)
-
-# Only care about Bash tool
 case "$INPUT" in
     *'"tool_name":"Bash"'*|*'"tool_name": "Bash"'*) ;;
     *) exit 0 ;;
 esac
-
-# Extract command
-CMD=""
+CMD=""; CWD=""
 if command -v jq &>/dev/null; then
-    CMD=$(echo "$INPUT" | jq -r '.tool_input.command // empty' 2>/dev/null)
+    CMD=$(printf '%s' "$INPUT" | jq -r '.tool_input.command // empty' 2>/dev/null)
+    CWD=$(printf '%s' "$INPUT" | jq -r '.cwd // empty' 2>/dev/null)
 else
     CMD=$(echo "$INPUT" | grep -oE '"command"[[:space:]]*:[[:space:]]*"[^"]*"' | head -1 | sed 's/.*"command"[^"]*"\([^"]*\)"/\1/')
 fi
 [ -z "$CMD" ] && exit 0
+[ -n "$CWD" ] || CWD="$PWD"
 
-# WHICH paths are credential stores lives in lib-credential-paths.sh (CFG-960), shared with
-# credential-read-guard.sh (Read/Grep/NotebookRead) so the two guards cannot drift apart:
-#   vault     a plaintext vault as a path (preceded by /, space, or start; followed by space,
-#             end, or non-alnum): `secrets/vault.json`, `secrets/other-vault.json` — NOT
-#             `test-vault-manage.sh` (no .json) or `vault.json.tmp` (alnum follows).
-#   settings  CFG-892: the LIVE settings.json is a credential store too — its env block
-#             carries tokens (AFD_TOKEN and others), and a subagent asked to "read the
-#             settings" printed them into its transcript (2026-10-30). Live =
-#             $CLAUDE_CONFIG_DIR/settings.json, a cc-mirror variant's config/settings.json,
-#             or ~/.claude/settings.json (live on hosts that symlink the two). NOT the repo
-#             template (setup/config/settings.json: no secrets by invariant) and NOT a
-#             project's <project>/.claude/settings.json. A suffix (.bak) is a copy: blocked.
-# Without the lib (a broken deploy — sync.sh ships hook and lib in one loop) every
-# vault.json / settings.json mention counts: a false block, never a read.
-if source "$(dirname "${BASH_SOURCE[0]}")/lib-credential-paths.sh" 2>/dev/null && [ -n "${CRED_SETTINGS_RE:-}" ]; then
-    VAULT_RE="$CRED_VAULT_RE"; SETTINGS_RE="$CRED_SETTINGS_RE"
-    LIVE_RE="$CRED_LIVE_MARKER_RE"; HOME_RE="$CRED_HOME_MARKER_RE"
-else
-    VAULT_RE='vault\.json'; SETTINGS_RE='settings\.json'; LIVE_RE='.'; HOME_RE='.'
-fi
-VAULT_HIT=0; SETTINGS_HIT=0
-echo "$CMD" | grep -qE "$VAULT_RE" && VAULT_HIT=1
-echo "$CMD" | grep -qE "$SETTINGS_RE" && SETTINGS_HIT=1
-# CFG-959: a path BUILT at run time — os.environ['CLAUDE_CONFIG_DIR']+'/settings.json',
-# Path.home()/'.cc-mirror'/…/'settings.json', D=$CLAUDE_CONFIG_DIR; … $D/settings.json — never
-# spells the live path, so the match above misses it. A settings.json that is not a known
-# non-live spelling (the repo template, a <dir>/.claude/settings.json) counts as live when the
-# command also names a live location: CLAUDE_CONFIG_DIR, .cc-mirror, or a home-relative .claude.
-if [ "$SETTINGS_HIT" = 0 ]; then
-    REST=${CMD//"setup/config/settings.json"/}; REST=${REST//"/.claude/settings.json"/}
-    if [[ "$REST" == *settings.json* ]] && { [[ "$CMD" =~ $LIVE_RE ]] ||
-         { [[ "$CMD" =~ $HOME_RE ]] && [[ "$CMD" == *.claude* ]]; }; }; then
-        SETTINGS_HIT=1
-    fi
-fi
+_HERE=$(dirname "${BASH_SOURCE[0]}")
+source "$_HERE/lib-credential-paths.sh" 2>/dev/null || true
+source "$_HERE/lib-cred-command-scan.sh" 2>/dev/null || true
 
-[ "$VAULT_HIT" = 1 ] || [ "$SETTINGS_HIT" = 1 ] || exit 0
-
-# Allow the legitimate intermediary (the vault's — it says nothing about the settings)
-if [ "$SETTINGS_HIT" = 0 ]; then
-    case "$CMD" in
-        *"vault-manage.sh"*) exit 0 ;;
-    esac
-fi
-
-# ── What the verb match may see (CFG-621) ────────────────────────────────────
-# The blocked-verb list contains the English words `more` and `less`; a commit whose MESSAGE
-# read "describe secrets/vault.json more usefully" was blocked although it read nothing. So
-# the verb checks below run on SCAN: the command with git commit-message bodies removed
-# (lib-commit-message-strip.sh carries the rules and their rationale). The path check above
-# stays on the full string. Without the lib or python3 nothing is stripped and the match
-# runs over the raw command: that degrades toward a false block, never toward a read.
-SCAN="$CMD"
-if source "$(dirname "${BASH_SOURCE[0]}")/lib-commit-message-strip.sh" 2>/dev/null \
-   && type strip_commit_messages &>/dev/null; then
-    _stripped=$(strip_commit_messages "$CMD") && [ -n "$_stripped" ] && SCAN="$_stripped"
-fi
-
-# No metadata exemption (CFG-959). Metadata ops (rm, ls, stat, test, readlink, chmod …) carry
-# no read primitive and fall through to the final exit 0 on their own. An exemption keyed on
-# their PRESENCE let `S=<live>; ls -la $S; readlink -f $S; python3 - <<EOF … open(S) … EOF`
-# through: it fired on the `ls` and looked only for a PIPE into a reader, and a heredoc read
-# is no pipe. A read primitive anywhere in SCAN blocks, whatever sits beside it.
-
-# Where is vault-manage.sh? Resolved at RUN TIME so that no copy of this hook — it
-# ships verbatim in the public template — spells out one deployment's vault location
+# Where is vault-manage.sh / settings-view.sh? Resolved at RUN TIME so that no copy of this
+# hook — it ships verbatim in the public template — spells out one deployment's paths
 # (CFG-869). Order: CC_VAULT_MANAGE; the config repo this hook was deployed from
-# (~/.claude/foundation is a symlink into <repo>/global/, and from a checkout the
-# hook's own parent is <repo>/global/hooks); the conventional checkout names. Each
-# root is tried in both layouts, secrets/ (private config repo) and setup/secrets/
-# (template clone). Nothing found: a placeholder, never a hard-coded path.
+# (~/.claude/foundation is a symlink into <repo>/global/; from a checkout the hook's own parent
+# is <repo>/global/hooks); the conventional checkout names, in both layouts, secrets/ (private
+# config repo) and setup/secrets/ (template clone). Nothing found: a placeholder.
 _vault_manage_path() {
     local root c
     [ -n "${CC_VAULT_MANAGE:-}" ] && [ -f "$CC_VAULT_MANAGE" ] && { printf '%s' "$CC_VAULT_MANAGE"; return; }
-    root=$(readlink -f "$(dirname "${BASH_SOURCE[0]}")/../foundation" 2>/dev/null) || root=""
+    root=$(readlink -f "$_HERE/../foundation" 2>/dev/null) || root=""
     root="${root%/global/foundation}"
     for root in "$root" "$HOME/cfg-agent-fleet" "$HOME/agent-fleet"; do
         [ -n "$root" ] || continue
@@ -110,11 +61,9 @@ _vault_manage_path() {
     done
     printf '%s' '<config-repo>/secrets/vault-manage.sh'
 }
-
-# The masked settings reader, resolved like vault-manage.sh above (no deployment path baked in).
 _settings_view_path() {
     local root
-    root=$(readlink -f "$(dirname "${BASH_SOURCE[0]}")/../foundation" 2>/dev/null) || root=""
+    root=$(readlink -f "$_HERE/../foundation" 2>/dev/null) || root=""
     root="${root%/global/foundation}"
     for root in "$root" "$HOME/cfg-agent-fleet" "$HOME/agent-fleet"; do
         [ -n "$root" ] && [ -f "$root/setup/scripts/settings-view.sh" ] && {
@@ -123,10 +72,55 @@ _settings_view_path() {
     printf '%s' '<config-repo>/setup/scripts/settings-view.sh'
 }
 
-# Block: command contains a read primitive or a copy-elsewhere primitive. CFG-960: ln (a
-# hardlink twin shares the credential's inode under a name no shape knows), install, rsync
-# and dd (if=) mint an alias or a copy — the file guard catches the twin by inode, this
-# closes the side that creates it.
+# ── What the reader match may see (CFG-621) ──────────────────────────────────
+# A commit whose MESSAGE read "describe secrets/vault.json more usefully" was blocked although
+# it read nothing (`more` is a pager). The reader checks run on SCAN: the command with git
+# commit-message bodies removed (lib-commit-message-strip.sh carries the rules). Without the
+# lib or python3 nothing is stripped: a false block, never a read.
+_scan_of() {
+    local s
+    if source "$_HERE/lib-commit-message-strip.sh" 2>/dev/null && type strip_commit_messages &>/dev/null \
+       && s=$(strip_commit_messages "$1") && [ -n "$s" ]; then printf '%s' "$s"; else printf '%s' "$1"; fi
+}
+
+# ── The shared-lib path ──────────────────────────────────────────────────────
+if type cred_cmd_reader &>/dev/null && type cred_refusal &>/dev/null && [ -n "${CRED_SETTINGS_RE:-}" ]; then
+    UNQ=$(cred_cmd_unquote "$CMD")
+    KIND=$(cred_cmd_kinds "$UNQ" "$CMD") || KIND=""
+    # Nothing credential-shaped, no recursive searcher or enumeration, and no reader beside a
+    # path-like operand: allow at once, without the python strip.
+    if [ -z "$KIND" ] && ! printf '%s' "$UNQ" | LC_ALL=C grep -qE "$CRED_RECURSIVE_RE|$CRED_ENUM_RE" \
+       && ! { [[ "$UNQ" == *[/~\$\*\?\[\{]* ]] && cred_cmd_reader "$UNQ"; }; then
+        exit 0
+    fi
+    SCAN=$(_scan_of "$CMD"); UNQS=$(cred_cmd_unquote "$SCAN")
+    READER=0; cred_cmd_reader "$UNQS" && READER=1
+    SHOWN=$(cred_cmd_match "$UNQ") || SHOWN=""
+    if [ -z "$KIND" ] && [ "$READER" = 1 ] && HIT=$(cred_cmd_operand_kinds "$UNQS" "$CWD"); then
+        KIND="${HIT%%$'\t'*}"; SHOWN="${HIT#*$'\t'}"
+        case "$KIND" in
+            dir)      mapfile -t _lines <<<"$SHOWN"; cred_refusal dir "${_lines[0]}" "${_lines[@]:1}" >&2; exit 2 ;;
+            overflow) cred_refusal overflow "$SHOWN" >&2; exit 2 ;;
+        esac
+    fi
+    if [ -n "$KIND" ] && [ "$READER" = 1 ]; then
+        cred_refusal "$KIND" "${SHOWN:-$KIND}" >&2
+        exit 2
+    fi
+    if [ -z "$KIND" ] && DIRHIT=$(cred_cmd_recursive_dirs "$UNQS" "$CWD" "$SCAN"); then
+        mapfile -t _lines <<<"$DIRHIT"
+        cred_refusal dir "${_lines[0]}" "${_lines[@]:1}" >&2
+        exit 2
+    fi
+    exit 0
+fi
+
+# ── Legacy path: no libs beside this hook ────────────────────────────────────
+VAULT_HIT=0; SETTINGS_HIT=0
+echo "$CMD" | grep -qE 'vault\.json' && VAULT_HIT=1
+echo "$CMD" | grep -qE 'settings\.json' && SETTINGS_HIT=1
+[ "$VAULT_HIT" = 1 ] || [ "$SETTINGS_HIT" = 1 ] || exit 0
+SCAN=$(_scan_of "$CMD")
 READ_VERB_RE='\b(cat|head|tail|less|more|grep|awk|sed|jq|xxd|od|python[23]?|node|cp|mv|tee|tar|zip|ln|install|rsync|dd)\b'
 if [ "$SETTINGS_HIT" = 1 ] && echo "$SCAN" | grep -qE "$READ_VERB_RE"; then
     SV=$(_settings_view_path)
@@ -138,7 +132,9 @@ Use the masked reader (env values masked unless the fleet template declares the 
   bash $SV                # the whole file, env values masked
   bash $SV | jq .hooks    # any part of it
 
-ls/stat/test on the file stay allowed. Never print a credential's value.
+(lib-credential-paths.sh is missing next to this hook — redeploy with sync.sh deploy; until
+then every settings.json mention counts.) ls/stat/test on the file stay allowed. Never print
+a credential's value.
 BLOCKED_SETTINGS
     exit 2
 fi
@@ -159,6 +155,4 @@ the matching PreToolUse entry from settings.json temporarily and restart CC.
 BLOCKED_MSG
     exit 2
 fi
-
-# Any other op against vault.json that isn't whitelisted — allow but with warning to stderr
 exit 0
