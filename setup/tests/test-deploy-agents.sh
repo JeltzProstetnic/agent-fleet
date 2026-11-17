@@ -63,3 +63,33 @@ test_deploy_agents_falls_back_to_claude_home() {
     assert_file_exists "$TEST_TMPDIR/fakehome/.claude/agents/fable.md"
 }
 run_test "deploy_agents falls back to ~/.claude/agents when CLAUDE_CONFIG_DIR unset" test_deploy_agents_falls_back_to_claude_home
+
+test_cheap_coder_ships_fleet_wide() {
+    # CFG-1047: the REAL repo definition, deployed, is the fleet-wide Opus 4.6 coder with no project paths in it
+    # (its first copy lived in one project; those specifics belong in the brief)
+    mkdir -p "$TEST_TMPDIR/config3"
+    (
+        SCRIPT_DIR="$REPO_ROOT"
+        CLAUDE_CONFIG_DIR="$TEST_TMPDIR/config3"
+        _load_deploy_agents
+        deploy_agents
+    ) >/dev/null
+    local f="$TEST_TMPDIR/config3/agents/cheap-coder.md"
+    assert_file_exists "$f" || return 1
+    local body; body=$(cat "$f")
+    assert_contains "$body" "name: cheap-coder" || return 1
+    assert_contains "$body" "model: claude-opus-4-6" || return 1
+    local leak
+    for leak in /home/ vds-stack session-rules.yaml config/strings 8090 hyper-coder; do
+        if grep -qF -- "$leak" "$f"; then
+            echo "    project-specific text in cheap-coder.md: $leak"
+            return 1
+        fi
+    done
+}
+CHEAP_CODER_TEST="cheap-coder.md deploys with the Opus 4.6 pin and no project-specific paths"
+if [[ -f "$REPO_ROOT/global/agents/cheap-coder.md" ]]; then
+    run_test "$CHEAP_CODER_TEST" test_cheap_coder_ships_fleet_wide
+else
+    skip_test "$CHEAP_CODER_TEST" "this fleet ships no global/agents/cheap-coder.md"
+fi
