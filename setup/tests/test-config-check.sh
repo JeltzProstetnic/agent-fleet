@@ -207,7 +207,7 @@ EOF
 
     assert_contains "$output" "INBOX TASKS for myproject" "should surface inbox tasks for current project"
     assert_contains "$output" "Deploy new auth module" "should include the task description"
-    assert_contains "$output" "2 pending task" "should report total pending tasks"
+    assert_contains "$output" "total: 2" "should report total pending tasks"
 }
 run_test "inbox: surfaces tasks for current project" test_inbox_task_surfacing
 
@@ -236,7 +236,7 @@ EOF
 
     assert_not_contains "$output" "INBOX TASKS for unrelated" "should NOT surface tasks for other projects"
     # But it should still mention the inbox has pending tasks
-    assert_contains "$output" "1 pending task" "should mention total inbox count"
+    assert_contains "$output" "1 task(s) for other projects" "should mention total inbox count"
 }
 run_test "inbox: no project-specific tasks, but still reports total count" test_inbox_no_tasks_for_project
 
@@ -387,12 +387,13 @@ test_json_output_format() {
     echo "$output" | python3 -c "import json,sys; json.load(sys.stdin)" 2>/dev/null || json_valid=1
     assert_eq "0" "$json_valid" "output should be valid JSON"
 
-    # Should have systemMessage key
+    # Should have additionalContext key (the hookSpecificOutput envelope replaced the
+    # top-level systemMessage, which Claude Code discards for SessionStart)
     local has_key
-    has_key=$(echo "$output" | python3 -c "import json,sys; d=json.load(sys.stdin); print('yes' if 'systemMessage' in d else 'no')" 2>/dev/null)
-    assert_eq "yes" "$has_key" "JSON should have systemMessage key"
+    has_key=$([ -n "$(extract_additional_context "$output")" ] && echo yes || echo no)
+    assert_eq "yes" "$has_key" "JSON should have additionalContext key"
 }
-run_test "JSON output: valid JSON with systemMessage key when warnings exist" test_json_output_format
+run_test "JSON output: valid JSON with additionalContext key when warnings exist" test_json_output_format
 
 test_json_output_contains_warning_text() {
     local config_repo="$TEST_TMPDIR/config-repo"
@@ -408,13 +409,13 @@ test_json_output_contains_warning_text() {
     local output
     output=$(run_hook "$patched")
 
-    # Extract the systemMessage value
+    # Extract the additionalContext value
     local msg
-    msg=$(echo "$output" | python3 -c "import json,sys; print(json.load(sys.stdin)['systemMessage'])" 2>/dev/null)
-    assert_contains "$msg" "WARNING:" "systemMessage should start with WARNING:"
-    assert_contains "$msg" "CLAUDE.md" "systemMessage should contain the actual warning"
+    msg=$(extract_additional_context "$output")
+    assert_contains "$msg" "WARNING:" "additionalContext should start with WARNING:"
+    assert_contains "$msg" "CLAUDE.md" "additionalContext should contain the actual warning"
 }
-run_test "JSON output: systemMessage contains warning text" test_json_output_contains_warning_text
+run_test "JSON output: additionalContext contains warning text" test_json_output_contains_warning_text
 
 # ── 11. Clean state produces no output ───────────────────────────────────────
 
@@ -447,8 +448,9 @@ test_clean_state_no_output() {
 
     assert_eq "0" "$rc" "should exit 0"
     # git pull may output "Already up to date." — that's expected non-JSON noise.
-    # The key assertion: no JSON warning output (no systemMessage).
-    assert_not_contains "$output" "systemMessage" "should produce no JSON warnings when everything is clean"
+    # The key assertion: no warnings. The identity payload (HOSTNAME/TIME/PERSONA/...) is
+    # ALWAYS emitted in additionalContext, so "no systemMessage" could never fail.
+    assert_contains "$output" "HOSTNAME:" "identity payload is emitted"
     assert_not_contains "$output" "WARNING" "should produce no WARNING text when everything is clean"
 }
 run_test "clean state: no JSON warnings and exit 0" test_clean_state_no_output
@@ -508,11 +510,11 @@ EOF
     assert_eq "0" "$json_valid" "combined output should be valid JSON"
 
     local msg
-    msg=$(echo "$output" | python3 -c "import json,sys; print(json.load(sys.stdin)['systemMessage'])" 2>/dev/null)
+    msg=$(extract_additional_context "$output")
     assert_contains "$msg" "CONFIG SYNC FAILED" "should contain sync failure warning"
     assert_contains "$msg" "CLAUDE.md is not symlinked" "should contain symlink warning"
 }
-run_test "multiple warnings: combined into single JSON systemMessage" test_multiple_warnings_combined
+run_test "multiple warnings: combined into single JSON additionalContext" test_multiple_warnings_combined
 
 # ── 14. Empty session-context.md does NOT trigger warning ─────────────────────
 
@@ -580,7 +582,9 @@ EOF
     output=$(_FORCE_WSL=0 run_hook "$patched")
 
     # git pull may output "Already up to date." — that's expected non-JSON noise.
-    assert_not_contains "$output" "systemMessage" "should produce no JSON warnings when inbox is done"
+    # The identity payload is always emitted in additionalContext, so "no systemMessage"
+    # could never fail; the real claim is: no warnings.
+    assert_contains "$output" "HOSTNAME:" "identity payload is emitted"
     assert_not_contains "$output" "WARNING" "should produce no WARNING when inbox is done"
 }
 run_test "inbox: no warnings when all tasks are completed" test_inbox_all_done
@@ -816,7 +820,7 @@ test_claude_local_broken_import() {
     output=$(run_hook "$patched")
 
     local msg
-    msg=$(echo "$output" | python3 -c "import json,sys; print(json.load(sys.stdin)['systemMessage'])" 2>/dev/null)
+    msg=$(extract_additional_context "$output")
     assert_contains "$msg" "CLAUDE.local.md" "should mention CLAUDE.local.md"
     assert_contains "$msg" "NonExistent.md" "should mention the missing target file"
 }
@@ -835,8 +839,8 @@ test_claude_local_valid_import() {
     ln -sf "$config_repo/CLAUDE.md" "$mock_home/.claude/CLAUDE.md"
 
     # Create valid machine file and CLAUDE.local.md pointing to it
-    echo "# Steam Deck" > "$mock_home/.claude/machines/steamdeck.md"
-    echo '@~/.claude/machines/steamdeck.md' > "$mock_home/CLAUDE.local.md"
+    echo "# Test Host 01" > "$mock_home/.claude/machines/testhost-01.md"
+    echo '@~/.claude/machines/testhost-01.md' > "$mock_home/CLAUDE.local.md"
 
     local patched
     patched=$(create_patched_script "$config_repo" "$mock_home" "$project_dir")
@@ -894,7 +898,7 @@ EOF
     output=$(run_hook "$patched")
 
     local msg
-    msg=$(echo "$output" | python3 -c "import json,sys; print(json.load(sys.stdin)['systemMessage'])" 2>/dev/null)
+    msg=$(extract_additional_context "$output")
     assert_contains "$msg" "Propagation drift" "should surface drift warning"
     assert_contains "$msg" "drifted" "should include drift details"
 
@@ -1081,8 +1085,8 @@ test_bash_permission_auto_added() {
     ln -sf "$config_repo/CLAUDE.md" "$mock_home/.claude/CLAUDE.md"
 
     # Create settings.json WITHOUT Bash(bash:*)
-    mkdir -p "$mock_home/.claude"
-    cat > "$mock_home/.claude/settings.json" << 'EOF'
+    mkdir -p "$mock_home/.cc-mirror/mclaude/config"
+    cat > "$mock_home/.cc-mirror/mclaude/config/settings.json" << 'EOF'
 {
   "permissions": {
     "allow": [
@@ -1099,19 +1103,20 @@ EOF
     patched=$(create_patched_script "$config_repo" "$mock_home" "$project_dir")
     run_hook "$patched" >/dev/null
 
-    # Verify Bash(bash:*) was added
-    assert_file_contains "$mock_home/.claude/settings.json" 'Bash(bash:*)' \
+    # Verify Bash(bash:*) was added. assert_file_contains greps a BRE, where an unescaped
+    # ':*' means "zero or more ':'" and could never match the literal permission.
+    assert_file_contains "$mock_home/.cc-mirror/mclaude/config/settings.json" 'Bash(bash:\*)' \
         "should auto-add Bash(bash:*) to permissions.allow"
 
     # Verify existing permissions preserved
-    assert_file_contains "$mock_home/.claude/settings.json" 'Read(*)' \
+    assert_file_contains "$mock_home/.cc-mirror/mclaude/config/settings.json" 'Read(\*)' \
         "should preserve existing Read(*) permission"
-    assert_file_contains "$mock_home/.claude/settings.json" 'Bash(git:*)' \
+    assert_file_contains "$mock_home/.cc-mirror/mclaude/config/settings.json" 'Bash(git:\*)' \
         "should preserve existing Bash(git:*) permission"
 
     # Verify valid JSON
     local json_valid=0
-    python3 -c "import json; json.load(open('$mock_home/.claude/settings.json'))" 2>/dev/null || json_valid=1
+    python3 -c "import json; json.load(open('$mock_home/.cc-mirror/mclaude/config/settings.json'))" 2>/dev/null || json_valid=1
     assert_eq "0" "$json_valid" "settings.json should remain valid JSON after auto-add"
 }
 run_test "check 14: auto-adds Bash(bash:*) when missing from settings.json" test_bash_permission_auto_added
@@ -1127,8 +1132,8 @@ test_bash_permission_already_present() {
     ln -sf "$config_repo/CLAUDE.md" "$mock_home/.claude/CLAUDE.md"
 
     # Create settings.json WITH Bash(bash:*) already
-    mkdir -p "$mock_home/.claude"
-    cat > "$mock_home/.claude/settings.json" << 'EOF'
+    mkdir -p "$mock_home/.cc-mirror/mclaude/config"
+    cat > "$mock_home/.cc-mirror/mclaude/config/settings.json" << 'EOF'
 {
   "permissions": {
     "allow": [
@@ -1142,14 +1147,14 @@ test_bash_permission_already_present() {
 EOF
 
     local original
-    original=$(cat "$mock_home/.claude/settings.json")
+    original=$(cat "$mock_home/.cc-mirror/mclaude/config/settings.json")
 
     local patched
     patched=$(create_patched_script "$config_repo" "$mock_home" "$project_dir")
     run_hook "$patched" >/dev/null
 
     local after
-    after=$(cat "$mock_home/.claude/settings.json")
+    after=$(cat "$mock_home/.cc-mirror/mclaude/config/settings.json")
     assert_eq "$original" "$after" "settings.json should be unchanged when Bash(bash:*) already present"
 }
 run_test "check 14: no change when Bash(bash:*) already present" test_bash_permission_already_present
@@ -1165,8 +1170,8 @@ test_bash_permission_no_permissions_block() {
     ln -sf "$config_repo/CLAUDE.md" "$mock_home/.claude/CLAUDE.md"
 
     # Create settings.json without permissions block at all
-    mkdir -p "$mock_home/.claude"
-    cat > "$mock_home/.claude/settings.json" << 'EOF'
+    mkdir -p "$mock_home/.cc-mirror/mclaude/config"
+    cat > "$mock_home/.cc-mirror/mclaude/config/settings.json" << 'EOF'
 {
   "hooks": {},
   "statusLine": {}
@@ -1174,7 +1179,7 @@ test_bash_permission_no_permissions_block() {
 EOF
 
     local original
-    original=$(cat "$mock_home/.claude/settings.json")
+    original=$(cat "$mock_home/.cc-mirror/mclaude/config/settings.json")
 
     local patched
     patched=$(create_patched_script "$config_repo" "$mock_home" "$project_dir")
@@ -1183,7 +1188,7 @@ EOF
     # Should warn about missing permissions block (Check 8 handles this),
     # but should NOT crash trying to add Bash(bash:*)
     local after
-    after=$(cat "$mock_home/.claude/settings.json")
+    after=$(cat "$mock_home/.cc-mirror/mclaude/config/settings.json")
     assert_eq "$original" "$after" "settings.json should be unchanged when no permissions block exists"
 }
 run_test "check 14: no crash when settings.json has no permissions block" test_bash_permission_no_permissions_block
@@ -1316,10 +1321,12 @@ EOF
     local output
     output=$(run_hook "$patched")
 
-    assert_contains "$output" "Stale pending files" "should still warn about staleness"
+    # Tracked and old is normal (check 5.3): a pending file its backlog references gets no
+    # generic stale warning at all; only "all tracked items closed" is actionable.
+    assert_not_contains "$output" "Stale pending files:" "a tracked stale file should not trigger the generic stale warning"
     assert_not_contains "$output" "no backlog item" "should NOT say 'no backlog item' when backlog references the file"
 }
-run_test "check 17: stale pending file with matching backlog item — no 'no backlog' warning" test_stale_pending_with_backlog_item
+run_test "check 17: stale pending file with matching backlog item — no stale warning" test_stale_pending_with_backlog_item
 
 test_stale_pending_without_backlog_item() {
     local config_repo="$TEST_TMPDIR/config-repo"
@@ -1365,8 +1372,8 @@ test_plugins_auto_disabled() {
     ln -sf "$config_repo/CLAUDE.md" "$mock_home/.claude/CLAUDE.md"
 
     # Create settings.json with non-empty enabledPlugins
-    mkdir -p "$mock_home/.claude"
-    cat > "$mock_home/.claude/settings.json" << 'EOF'
+    mkdir -p "$mock_home/.cc-mirror/mclaude/config"
+    cat > "$mock_home/.cc-mirror/mclaude/config/settings.json" << 'EOF'
 {
   "permissions": {
     "allow": ["Read(*)", "Bash(bash:*)"]
@@ -1387,7 +1394,7 @@ EOF
 
     # Verify plugins were disabled (enabledPlugins should be empty object)
     local plugins_count
-    plugins_count=$(python3 -c "import json; d=json.load(open('$mock_home/.claude/settings.json')); print(len(d.get('enabledPlugins',{})))" 2>/dev/null)
+    plugins_count=$(python3 -c "import json; d=json.load(open('$mock_home/.cc-mirror/mclaude/config/settings.json')); print(len(d.get('enabledPlugins',{})))" 2>/dev/null)
     assert_eq "0" "$plugins_count" "enabledPlugins should be empty after auto-disable"
 
     # Verify warning was emitted
@@ -1395,13 +1402,13 @@ EOF
 
     # Verify valid JSON
     local json_valid=0
-    python3 -c "import json; json.load(open('$mock_home/.claude/settings.json'))" 2>/dev/null || json_valid=1
+    python3 -c "import json; json.load(open('$mock_home/.cc-mirror/mclaude/config/settings.json'))" 2>/dev/null || json_valid=1
     assert_eq "0" "$json_valid" "settings.json should remain valid JSON after plugin disable"
 
     # Verify other settings preserved
-    assert_file_contains "$mock_home/.claude/settings.json" '"hooks"' \
+    assert_file_contains "$mock_home/.cc-mirror/mclaude/config/settings.json" '"hooks"' \
         "should preserve hooks block"
-    assert_file_contains "$mock_home/.claude/settings.json" '"allow"' \
+    assert_file_contains "$mock_home/.cc-mirror/mclaude/config/settings.json" '"allow"' \
         "should preserve permissions"
 }
 run_test "check 19: auto-disables non-empty global enabledPlugins" test_plugins_auto_disabled
@@ -1417,8 +1424,8 @@ test_plugins_already_empty() {
     ln -sf "$config_repo/CLAUDE.md" "$mock_home/.claude/CLAUDE.md"
 
     # Create settings.json with empty enabledPlugins
-    mkdir -p "$mock_home/.claude"
-    cat > "$mock_home/.claude/settings.json" << 'EOF'
+    mkdir -p "$mock_home/.cc-mirror/mclaude/config"
+    cat > "$mock_home/.cc-mirror/mclaude/config/settings.json" << 'EOF'
 {
   "permissions": {
     "allow": ["Read(*)", "Bash(bash:*)"]
@@ -1429,7 +1436,7 @@ test_plugins_already_empty() {
 EOF
 
     local original
-    original=$(cat "$mock_home/.claude/settings.json")
+    original=$(cat "$mock_home/.cc-mirror/mclaude/config/settings.json")
 
     local patched
     patched=$(create_patched_script "$config_repo" "$mock_home" "$project_dir")
@@ -1437,7 +1444,7 @@ EOF
     output=$(run_hook "$patched")
 
     local after
-    after=$(cat "$mock_home/.claude/settings.json")
+    after=$(cat "$mock_home/.cc-mirror/mclaude/config/settings.json")
     assert_eq "$original" "$after" "settings.json should be unchanged when enabledPlugins is empty"
     assert_not_contains "$output" "enabledPlugins" "should NOT warn when plugins already empty"
 }
@@ -1454,8 +1461,8 @@ test_plugins_no_key() {
     ln -sf "$config_repo/CLAUDE.md" "$mock_home/.claude/CLAUDE.md"
 
     # Create settings.json without enabledPlugins key at all
-    mkdir -p "$mock_home/.claude"
-    cat > "$mock_home/.claude/settings.json" << 'EOF'
+    mkdir -p "$mock_home/.cc-mirror/mclaude/config"
+    cat > "$mock_home/.cc-mirror/mclaude/config/settings.json" << 'EOF'
 {
   "permissions": {
     "allow": ["Read(*)", "Bash(bash:*)"]
@@ -1465,14 +1472,14 @@ test_plugins_no_key() {
 EOF
 
     local original
-    original=$(cat "$mock_home/.claude/settings.json")
+    original=$(cat "$mock_home/.cc-mirror/mclaude/config/settings.json")
 
     local patched
     patched=$(create_patched_script "$config_repo" "$mock_home" "$project_dir")
     run_hook "$patched" >/dev/null
 
     local after
-    after=$(cat "$mock_home/.claude/settings.json")
+    after=$(cat "$mock_home/.cc-mirror/mclaude/config/settings.json")
     assert_eq "$original" "$after" "settings.json should be unchanged when enabledPlugins key is missing"
 }
 run_test "check 19: no crash when enabledPlugins key is absent" test_plugins_no_key
@@ -1579,15 +1586,17 @@ test_persona_injection_trims_whitespace() {
     ln -sf "$config_repo/CLAUDE.md" "$mock_home/.claude/CLAUDE.md"
 
     # Persona file with trailing newline and spaces
-    printf "  Elsa  \n\n" > "$mock_home/.claude/.active-persona"
+    printf "  Persona2  \n\n" > "$mock_home/.claude/.active-persona"
 
     local patched
     patched=$(create_patched_script "$config_repo" "$mock_home" "$project_dir")
     local output
     output=$(run_hook "$patched")
 
-    assert_contains "$output" "PERSONA: Supporter" "should trim whitespace from persona name"
-    assert_not_contains "$output" "PERSONA:   Elsa" "should not have leading spaces in persona name"
+    # The fixture writes and the assert reads the same name (a partial rename had left
+    # them disagreeing, so the trim could never be observed).
+    assert_contains "$output" "PERSONA: Persona2" "should trim whitespace from persona name"
+    assert_not_contains "$output" "PERSONA:   Persona2" "should not have leading spaces in persona name"
 }
 run_test "check 20: persona trims whitespace" test_persona_injection_trims_whitespace
 

@@ -58,14 +58,20 @@ run_test "CFG-63: install-base.sh defense-in-depth also removes .template-repo" 
 # ── CFG-63: config-check.sh fallback message mentions .template-repo ─────────
 
 test_config_check_mentions_template_repo() {
+    # Repo detection moved out of config-check.sh into the shared lib-detect-repo.sh,
+    # which config-check.sh sources; the .template-repo handling lives there now.
     local hook="$REPO_ROOT/global/hooks/config-check.sh"
-    assert_file_contains "$hook" ".template-repo" \
-        "config-check.sh should reference .template-repo in repo detection"
-    # The hook excludes repos with .template-repo marker (! -f check)
-    assert_file_contains "$hook" "! -f" \
-        "config-check.sh should exclude repos that still have .template-repo"
+    local lib="$REPO_ROOT/global/hooks/lib-detect-repo.sh"
+    assert_file_contains "$hook" "lib-detect-repo.sh" \
+        "config-check.sh should take its repo detection from lib-detect-repo.sh"
+    assert_file_contains "$lib" ".template-repo" \
+        "repo detection should reference .template-repo"
+    # A repo that still has the .template-repo marker is passed over while one without it
+    # exists (! -f check); it is only the later fallback for a template user's config repo.
+    assert_file_contains "$lib" '! -f "$d/.template-repo"' \
+        "repo detection should prefer repos without a .template-repo marker"
 }
-run_test "CFG-63: config-check.sh excludes repos with .template-repo marker" test_config_check_mentions_template_repo
+run_test "CFG-63: repo detection passes over repos with a .template-repo marker" test_config_check_mentions_template_repo
 
 # ── CFG-65: Non-TTY auto-detection ──────────────────────────────────────────
 

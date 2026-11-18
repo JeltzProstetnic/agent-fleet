@@ -14,8 +14,11 @@
     "FORCE_COLOR": "1",
     "COLORTERM": "truecolor",
     "TERM_PROGRAM": "konsole",
-    "CLAUDE_CODE_SESSIONEND_HOOKS_TIMEOUT_MS": "10000",
-    "CONFIG_REPO": "__HOME__/agent-fleet"
+    "CLAUDE_CODE_SESSIONEND_HOOKS_TIMEOUT_MS": "60000",
+    "CLAUDE_CODE_IDLE_COMPACT_MIN_TOKENS": "100000000",
+    "CONFIG_REPO": "__HOME__/agent-fleet",
+    "CC_SECRET_FINGERPRINTS": "__HOME__/agent-fleet/setup/secrets/.secret-fingerprints",
+    "CC_SECRET_SALT": "__HOME__/agent-fleet/setup/secrets/.fingerprint-salt"
   },
   "permissions": {
     "defaultMode": "auto",

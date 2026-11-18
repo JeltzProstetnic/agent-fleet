@@ -14,8 +14,10 @@ This file tracks all upstream dependencies — things we don't control that can 
 | **Installed** | Check: find `package.json` in your Claude Code install dir and read the `version` field |
 | **Latest** | Check: `npm view @anthropic-ai/claude-code version` |
 | **Auto-updates** | Depends on your setup (`DISABLE_AUTOUPDATER=1` in settings.json to prevent) |
-| **Update method** | Manual: `npm install @anthropic-ai/claude-code@<version>` in your install directory |
+| **Update method** | `bash ~/agent-fleet/setup/scripts/cc-update.sh --version <x.y.z>` from a plain shell after `end` — it backs up, refuses a downgrade, verifies and rolls back. A bare `npm install @anthropic-ai/claude-code@<version>` into the install directory is the emergency repair path only, and leaves `variant.json` and the launcher stale. |
 | **Impact** | HIGH — changes tool schemas, system prompts, hook behavior, permissions model, statusline API |
+
+**CC update procedure:** `bash ~/agent-fleet/setup/scripts/cc-update.sh --version <x.y.z>` from a plain shell after `end`, never inside a session. Never a `cc-mirror` verb: `update`/`create`/`quick` re-provision the variant from its creation-time version pin rather than bumping the version, which can silently downgrade Claude Code and leave the launcher pointing at an entry point that no longer exists. `cc-mirror-guard.sh` refuses them.
 
 **Before updating:**
 1. Read changelog/release notes on GitHub

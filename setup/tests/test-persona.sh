@@ -106,7 +106,7 @@ run_test "global CLAUDE.md contains persona rendering rules" test_global_rules
 test_onboarding_persona() {
     local onboard="$REPO_ROOT/global/foundation/first-run-refinement.md"
     assert_file_contains "$onboard" "Configure Agent Personas"
-    assert_file_contains "$onboard" "multi-personality"
+    assert_file_contains "$onboard" "persona patterns"
 }
 run_test "first-run onboarding includes persona configuration step" test_onboarding_persona
 

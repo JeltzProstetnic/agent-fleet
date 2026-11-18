@@ -358,14 +358,18 @@ test_no_personal_domains_files() {
     setup_smoke_clone
     trap cleanup_smoke_clone RETURN
 
-    # domains/life-management/ should not exist in template
-    # (career.md, family.md, etc. are personal)
+    # domains/life-management/ must carry no personal content (career, family, etc.).
+    # The template ships generic placeholders there (a heading plus HTML comments) so the
+    # conditional-loading rows in global/CLAUDE.md resolve; any other line is content.
     local life_mgmt="$SMOKE_DIR/global/domains/life-management"
     if [[ -d "$life_mgmt" ]]; then
-        local files
-        files=$(ls "$life_mgmt"/*.md 2>/dev/null | wc -l)
-        assert_eq "0" "$files" \
-            "life-management domain should not have personal files in template"
+        local f content=""
+        for f in "$life_mgmt"/*.md; do
+            [[ -f "$f" ]] || continue
+            content+=$(grep -vE '^[[:space:]]*$|^# |^<!--.*-->[[:space:]]*$' "$f" | sed "s|^|$(basename "$f"): |")
+        done
+        assert_eq "" "$content" \
+            "life-management domain should hold placeholders only, no personal content"
     fi
     # Pass if dir doesn't exist
 }
@@ -457,7 +461,7 @@ test_first_run_has_verification_checklist() {
 
     local frr="$SMOKE_DIR/global/foundation/first-run-refinement.md"
     assert_file_exists "$frr"
-    assert_file_contains "$frr" "verification" \
+    assert_file_contains "$frr" "Verification and Clean-Up" \
         "first-run-refinement.md should have verification checklist"
     assert_file_contains "$frr" ".setup-pending" \
         "first-run-refinement.md should reference .setup-pending"
@@ -495,9 +499,15 @@ test_config_check_handles_template_repo() {
     setup_smoke_clone
     trap cleanup_smoke_clone RETURN
 
+    # The SessionStart hook's .template-repo handling moved out of config-check.sh: repo
+    # detection into lib-detect-repo.sh, the "template-only deployment" warning into check 01.
     local hook="$SMOKE_DIR/global/hooks/config-check.sh"
-    assert_file_contains "$hook" ".template-repo" \
-        "config-check.sh should detect .template-repo marker"
+    assert_file_contains "$hook" "lib-detect-repo.sh" \
+        "config-check.sh should take its repo detection from lib-detect-repo.sh"
+    assert_file_contains "$SMOKE_DIR/global/hooks/lib-detect-repo.sh" ".template-repo" \
+        "repo detection should know the .template-repo marker"
+    assert_file_contains "$SMOKE_DIR/global/hooks/checks/01-sync-state.sh" ".template-repo" \
+        "the SessionStart checks should detect the .template-repo marker"
 }
 run_test "config-check.sh handles .template-repo" test_config_check_handles_template_repo
 
@@ -549,9 +559,11 @@ test_memory_architecture_section() {
     setup_smoke_clone
     trap cleanup_smoke_clone RETURN
 
+    # The two-system "Memory Architecture" table was replaced by a routing rule (it
+    # conflicted with the never-auto-memory rule); the guarantee is that routing rule.
     local claude_md="$SMOKE_DIR/global/CLAUDE.md"
-    assert_file_contains "$claude_md" "Memory Architecture" \
-        "CLAUDE.md should have Memory Architecture section"
+    assert_file_contains "$claude_md" "MEMORY.md is NOT the answer" \
+        "CLAUDE.md should route persistence requests away from auto-memory"
 }
 run_test "CLAUDE.md has Memory Architecture section" test_memory_architecture_section
 

@@ -14,6 +14,23 @@
 
 AFD_URL="${AFD_URL:-}"
 
+# _afd_json_escape — escape a string for safe JSON embedding
+# Uses jq if available, falls back to manual escaping of \, ", newlines, tabs
+_afd_json_escape() {
+  local input="${1:-}"
+  if command -v jq >/dev/null 2>&1; then
+    printf '%s' "$input" | jq -Rs '.'
+  else
+    local escaped="$input"
+    escaped="${escaped//\\/\\\\}"
+    escaped="${escaped//\"/\\\"}"
+    escaped="${escaped//$'\n'/\\n}"
+    escaped="${escaped//$'\r'/\\r}"
+    escaped="${escaped//$'\t'/\\t}"
+    printf '"%s"' "$escaped"
+  fi
+}
+
 afd_push() {
   local task_id="${1:-}"
   local description="${2:-}"
@@ -89,7 +106,12 @@ afd_complete() {
 
 afd_lock_acquire() {
   local project="${1:-}"
-  local machine="${2:-$(hostname)}"
+  # An omitted machine must never become an EMPTY name in the mutex (a double leader waiting
+  # to happen): `hostname` is not installed on every system, so fall back through the chain.
+  local machine="${2:-}"
+  [[ -n "$machine" ]] || machine="$(hostname 2>/dev/null || uname -n 2>/dev/null \
+      || cat /proc/sys/kernel/hostname 2>/dev/null || cat /etc/hostname 2>/dev/null \
+      || echo "${HOSTNAME:-unknown}")"
   local session_id="${3:-$$}"
   local pid="${4:-$$}"
 
@@ -105,18 +127,36 @@ afd_lock_acquire() {
 
   [[ -z "$AFD_URL" ]] && return 1
 
+  local json_payload
+  if command -v jq >/dev/null 2>&1; then
+    json_payload=$(jq -n \
+      --arg proj "$project" \
+      --arg mach "$machine" \
+      --arg sid "$session_id" \
+      --argjson p "$pid" \
+      '{project: $proj, machine: $mach, sessionId: $sid, pid: $p}')
+  else
+    json_payload="{\"project\":$(_afd_json_escape "$project"),\"machine\":$(_afd_json_escape "$machine"),\"sessionId\":$(_afd_json_escape "$session_id"),\"pid\":${pid}}"
+  fi
+
   local response
   local http_code
-  response=$(curl -s -w "\n%{http_code}" -X POST "${AFD_URL}/api/locks" \
+  response=$(curl -s --connect-timeout 5 --max-time 10 -w "\n%{http_code}" -X POST "${AFD_URL}/api/locks" \
     -H "Content-Type: application/json" \
     -H "Authorization: Bearer ${AFD_TOKEN}" \
-    -d "{\"project\":\"${project}\",\"machine\":\"${machine}\",\"sessionId\":\"${session_id}\",\"pid\":${pid}}")
+    -d "$json_payload")
   http_code=$(echo "$response" | tail -1)
+  local body
+  body=$(echo "$response" | sed '$d')
   if [[ "$http_code" == "201" ]]; then
     return 0
   elif [[ "$http_code" == "409" ]]; then
-    echo "afd_lock_acquire: project already locked" >&2
-    return 1
+    # Name the lock holder from the response body; afleet.sh treats rc 2 as "both stop".
+    local holder_machine holder_session
+    holder_machine=$(echo "$body" | grep -oP '"machine"\s*:\s*"\K[^"]+' 2>/dev/null || echo "unknown")
+    holder_session=$(echo "$body" | grep -oP '"sessionId"\s*:\s*"\K[^"]+' 2>/dev/null || echo "unknown")
+    echo "afd_lock_acquire: project locked by ${holder_machine} (session: ${holder_session})" >&2
+    return 2  # Distinct return code for 409 conflict
   else
     echo "afd_lock_acquire: failed (HTTP $http_code)" >&2
     return 1
