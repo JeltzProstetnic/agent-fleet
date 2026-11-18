@@ -14,6 +14,11 @@ PASS=0; FAIL=0
 ok()  { PASS=$((PASS+1)); printf '  PASS  %s\n' "$1"; }
 bad() { FAIL=$((FAIL+1)); printf '  FAIL  %s\n     %s\n' "$1" "${2:-}"; }
 chk() { if [[ "$2" == "$3" ]]; then ok "$1"; else bad "$1" "expected [$3] got [$2]"; fi; }
+SKIP=0
+skip() { SKIP=$((SKIP+1)); printf '  SKIP  %s (%s)\n' "$1" "$2"; }
+# local-models.conf is a personal model table and is not propagated; a checkout without
+# it (every template clone) skips the cases that read the real conf, loudly.
+NO_CONF="no setup/config/local-models.conf in this checkout — personal model table, not shipped"
 
 TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
 printf '\n== afleet local-model mode ==\n'
@@ -22,7 +27,7 @@ printf '\n== afleet local-model mode ==\n'
 bash -n "$DRIVER"  2>/dev/null && ok "driver syntax valid"  || bad "driver syntax valid"
 bash -n "$AFLEET"  2>/dev/null && ok "afleet.sh syntax valid" || bad "afleet.sh syntax valid"
 bash -n "$INSTALL" 2>/dev/null && ok "install.sh syntax valid" || bad "install.sh syntax valid"
-[[ -f "$CONF" ]] && ok "local-models.conf exists" || bad "local-models.conf exists"
+if [[ -f "$CONF" ]]; then ok "local-models.conf exists"; else skip "local-models.conf exists" "$NO_CONF"; fi
 
 # --- lean profile ------------------------------------------------------------
 for f in CLAUDE.md settings.json .mcp.json; do
@@ -73,6 +78,7 @@ grep -q "claude-code/bin/claude" "$AFLEET" && ok "local mode execs the CC entryp
   || bad "local mode execs the CC entrypoint directly"
 
 # --- real conf sanity --------------------------------------------------------
+if [[ -f "$CONF" ]]; then
 BADROW=""
 while IFS='|' read -r a k c g t p; do
   [[ -z "${a// }" ]] && continue
@@ -84,6 +90,10 @@ chk "every real conf row has an integer ctx and a valid profile" "${BADROW:-none
 # "max" as a context value is the exact mistake --estimate-only invites.
 grep -vE '^\s*(#|$)' "$CONF" | awk -F'|' '{gsub(/ /,"",$3); print $3}' | grep -qx "max" \
   && bad "context must never be the string 'max'" || ok "context must never be the string 'max'"
+else
+  skip "every real conf row has an integer ctx and a valid profile" "$NO_CONF"
+  skip "context must never be the string 'max'" "$NO_CONF"
+fi
 
 # --- af shortcut (CFG-507) ---------------------------------------------------
 grep -q 'bin/af"' "$INSTALL" && ok "install.sh creates the af shortcut" || bad "install.sh creates the af shortcut"
@@ -123,7 +133,9 @@ if [ -n "$MINL" ] && [ -n "$STARL" ] && [ "$MINL" -lt "$STARL" ]; then
   ok "mcp- is matched before the positional catch-all"
 else bad "mcp- is matched before the positional catch-all" "min=$MINL star=$STARL"; fi
 grep -q 'ALM_MCP_MINIMAL' "$AFLEET" && ok "minimal set is configurable" || bad "minimal set is configurable"
-grep -q 'mcp-' "$CONF" && ok "conf documents the MCP flags" || bad "conf documents the MCP flags"
+if [[ -f "$CONF" ]]; then
+  grep -q 'mcp-' "$CONF" && ok "conf documents the MCP flags" || bad "conf documents the MCP flags"
+else skip "conf documents the MCP flags" "$NO_CONF"; fi
 
 
 # --- read-only profile (CFG-506) -------------------------------------------
@@ -190,8 +202,10 @@ grep -q -- 'disallowedTools Workflow' "$AFLEET" \
 # a minute loading. Refuse up front and say why, like the VRAM preflight does.
 grep -q 'ALM_MIN_CTX' "$DRIVER" \
   && ok "driver enforces a minimum usable context" || bad "driver enforces a minimum usable context"
-grep -q '37035\|37,035' "$CONF" \
-  && ok "conf records the measured floor, not a guess" || bad "conf records the measured floor, not a guess"
+if [[ -f "$CONF" ]]; then
+  grep -q '37035\|37,035' "$CONF" \
+    && ok "conf records the measured floor, not a guess" || bad "conf records the measured floor, not a guess"
+else skip "conf records the measured floor, not a guess" "$NO_CONF"; fi
 
 # --- context readout (CRI) must exist in local mode -------------------------
 # A local window is 16k-256k, not 1M, so knowing what is left matters MORE here
@@ -214,5 +228,5 @@ grep -q 'AFLEET_LOCAL_CTX' "$STATUSLINE" \
 grep -q 'AFLEET_LOCAL_CTX' "$DRIVER" \
   && ok "driver exports the resolved context" || bad "driver exports the resolved context"
 
-printf '\n  %d passed, %d failed\n\n' "$PASS" "$FAIL"
+printf '\n  %d passed, %d failed, %d skipped\n\n' "$PASS" "$FAIL" "$SKIP"
 [[ $FAIL -eq 0 ]]

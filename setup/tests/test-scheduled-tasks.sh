@@ -565,6 +565,13 @@ test_fleet_config_prompts_dmarc_review_in_infrastructure_only() {
     w=$(_dmarc_warnings_for some-other-project)
     assert_not_contains "$w" "dmarc-review" "other projects are not prompted"
 }
-run_test "fleet config: monthly DMARC review prompts infrastructure only" test_fleet_config_prompts_dmarc_review_in_infrastructure_only
+# The DMARC task is one fleet's own schedule; a scheduled-tasks.sh without it (every
+# template clone) has nothing for this case to check.
+if grep -q 'dmarc-review' "$REPO_ROOT/setup/config/scheduled-tasks.sh" 2>/dev/null; then
+    run_test "fleet config: monthly DMARC review prompts infrastructure only" test_fleet_config_prompts_dmarc_review_in_infrastructure_only
+else
+    skip_test "fleet config: monthly DMARC review prompts infrastructure only" \
+        "this checkout's setup/config/scheduled-tasks.sh defines no dmarc-review task"
+fi
 
 suite_summary

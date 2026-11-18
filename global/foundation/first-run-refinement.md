@@ -138,6 +138,8 @@ Process whatever the user chose from the menu above. For each:
 - **Jira:** API token → https://id.atlassian.com/manage-profile/security/api-tokens
 - **LinkedIn, Slack, Postgres:** credentials as needed
 
+**Never ask the user to paste tokens in this chat session.** Session transcripts may be logged or cached, so a pasted token is a leaked token. Add each server entry to `~/.mcp.json` with a placeholder value and have the user put the real credential in with their own editor, or store it in the encrypted vault with `vault-manage.sh`. If a token is pasted anyway, tell the user to rotate it and treat it as compromised.
+
 Update `~/.mcp.json` for each. Remind user to restart CC for new servers.
 
 ### 4. Features Showcase

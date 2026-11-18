@@ -79,6 +79,12 @@ cmd_recover() {
             [ -f "$hook" ] || continue
             base=$(basename "$hook")
             if [ -f "$GLOBAL_DIR/hooks/$base" ]; then
+                # Identical files have nothing to collect — skip silently, before the
+                # guards below, as the knowledge-dir loop above does. Otherwise a deployed
+                # copy older than the commit draws a false "repo version is newer" warning.
+                if diff -q "$hook" "$GLOBAL_DIR/hooks/$base" >/dev/null 2>&1; then
+                    continue
+                fi
                 # Safety 1: skip if the source has uncommitted changes (editing hazard)
                 if git -C "$SCRIPT_DIR" diff --name-only 2>/dev/null | grep -q "global/hooks/$base"; then
                     log_warn "Skipping hook collect: $base has uncommitted edits in repo"

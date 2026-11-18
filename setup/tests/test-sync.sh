@@ -562,6 +562,9 @@ echo "same version"' > "$TEST_TMPDIR/config-repo/global/hooks/test-hook.sh"
         git commit -m "Add hook" >/dev/null 2>&1
     )
     cp "$TEST_TMPDIR/config-repo/global/hooks/test-hook.sh" "$TEST_TMPDIR/claude-home/hooks/test-hook.sh"
+    # Deployed copy OLDER than the commit: identical content must still be silent. Without
+    # the backdate this case depended on the clock not stepping between commit and cp.
+    touch -t 202603010000.00 "$TEST_TMPDIR/claude-home/hooks/test-hook.sh"
 
     local out
     out=$(

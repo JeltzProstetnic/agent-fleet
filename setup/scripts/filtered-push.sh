@@ -20,6 +20,30 @@ set -euo pipefail
 # missing library aborts before any push — fail closed.
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib-leak-gate.sh"
 
+# sanitize_text — redact personal/infrastructure data from text (the commit message the
+# public mirror receives; the leak gate above covers the tree, not the message).
+# Redacts: email addresses (except noreply@), IPv4 addresses, DESKTOP-*/srv* hostnames,
+# /home/<user>/ and /mnt/c/Users/<user>/ paths.
+sanitize_text() {
+    local text="$1"
+    # Redact /home/<user>/ paths (but not /home/ alone)
+    text=$(printf '%s' "$text" | sed -E 's|/home/[a-zA-Z0-9_.-]+/|/home/[REDACTED-USER]/|g')
+    # Redact /mnt/c/Users/<user>/ paths
+    text=$(printf '%s' "$text" | sed -E 's|/mnt/c/Users/[a-zA-Z0-9_.-]+/|/mnt/c/Users/[REDACTED-USER]/|g')
+    # Redact DESKTOP-* hostnames
+    text=$(printf '%s' "$text" | sed -E 's/DESKTOP-[A-Za-z0-9]+/[REDACTED-HOST]/g')
+    # Redact srv* hostnames (srv followed by digits)
+    text=$(printf '%s' "$text" | sed -E 's/\bsrv[0-9]+/[REDACTED-HOST]/g')
+    # Redact IPv4 addresses
+    text=$(printf '%s' "$text" | sed -E 's/[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}/[REDACTED-IP]/g')
+    # Redact email addresses, but preserve noreply@ addresses
+    # Strategy: replace noreply@ with a safe placeholder, redact all other emails, restore
+    text=$(printf '%s' "$text" | sed -E 's/noreply@/__NOREPLY_AT__/g')
+    text=$(printf '%s' "$text" | sed -E 's/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9._-]+\.[a-zA-Z]{2,}/[REDACTED-EMAIL]/g')
+    text=$(printf '%s' "$text" | sed -E 's/__NOREPLY_AT__/noreply@/g')
+    printf '%s\n' "$text"
+}
+
 DRY_RUN=false
 [[ "${1:-}" == "--dry-run" ]] && DRY_RUN=true
 
@@ -201,6 +225,28 @@ leak_gate_public_tree() {   # <tree-ish>
     exit 1
 }
 
+# leak_gate_message — the same vocabulary as leak_gate_public_tree, applied to the
+# commit message the public mirror receives (CFG-1065: the tree was gated, the
+# message went out verbatim). Refuses without echoing the matched text.
+leak_gate_message() {   # <message>
+    local patterns="$LEAK_GATE_SECRET_PATTERNS" lp tmp rc=0 hits
+    for lp in "${LEAK_PATTERNS[@]+"${LEAK_PATTERNS[@]}"}"; do
+        patterns="$patterns|$lp"
+    done
+    tmp=$(mktemp)
+    printf '%s\n' "$1" > "$tmp"
+    hits=$(check_leaks "$patterns" "$tmp" 2>&1) || rc=$?
+    rm -f "$tmp"
+    [[ "$rc" -eq 0 ]] && return 0
+    if [[ "$rc" -eq 1 ]]; then
+        echo "FATAL: the commit message bound for $PUBLIC_REMOTE matches a leak pattern — refusing to push (fail-closed)." >&2
+    else
+        echo "FATAL: the leak gate refused to scan the commit message (rc $rc) — refusing to push to $PUBLIC_REMOTE (fail-closed)." >&2
+    fi
+    echo "Reword the latest commit message (git commit --amend) and retry." >&2
+    exit 1
+}
+
 # --- Step 3: Build filtered tree for public ---
 echo ""
 echo "=== Preparing filtered push to $PUBLIC_REMOTE ==="
@@ -311,8 +357,10 @@ if git rev-parse --verify "refs/remotes/$PUBLIC_REMOTE/$BRANCH" &>/dev/null; the
     fi
 fi
 
-# Use the branch's latest commit message
+# Use the branch's latest commit message, sanitized for public consumption
 MAIN_MSG=$(git log -1 --format=%B "$BRANCH")
+MAIN_MSG=$(sanitize_text "$MAIN_MSG")
+leak_gate_message "$MAIN_MSG"
 COMMIT=$(echo "$MAIN_MSG" | git commit-tree "$TREE" "${PARENT_ARGS[@]}")
 
 echo "=== Pushing to $PUBLIC_REMOTE (filtered) ==="

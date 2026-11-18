@@ -324,26 +324,39 @@ run_test "13d: asking prunes old questions and drops dead sessions' default mark
 # Re-review 6: the timeout append (afd_asked_end), the Stop hook's rewrite (capture) and the sweep
 # share .asked-default/.lock, so an os.replace can never drop a concurrent append. Proven by
 # holding the lock from outside: every writer waits for it.
-ms_now() { echo $(( $(date +%s%N) / 1000000 )); }
+# Timing is taken against the holder's OWN clock, not a fixed sleep after starting it: the
+# holder stamps when it holds the lock and, still holding it, when it lets go. A writer that
+# takes the lock cannot finish before that release stamp; one that ignores it finishes ~2 s
+# early. (A fixed `sleep 0.3` head start under a loaded full-suite run returned late enough
+# to eat the old 500 ms margin and fail a writer that did wait.)
+ns_now() { date +%s%N; }
+hold_lock() { # hold_lock <secs> — hold .asked-default/.lock from outside; returns once it is held
+    rm -f "$HOME/lock-held" "$HOME/lock-released"
+    flock "$L" bash -c 'touch "$1/lock-held"; sleep "$2"; date +%s%N > "$1/lock-released"' _ "$HOME" "$1" & holder=$!
+    local i; for i in $(seq 100); do [[ -e "$HOME/lock-held" ]] && return 0; sleep 0.05; done
+    echo "    the outside holder never got the lock" >&2; return 1
+}
+# waited <start-ns> <end-ns> — 0 when the writer started inside the hold and finished after it
+waited() { local rel; rel=$(cat "$HOME/lock-released" 2>/dev/null || echo 0); (( $1 < rel && $2 >= rel )) && echo 0 || echo 1; }
 test_marker_writers_take_the_lock() {
     setup_env
     seed_timeout 42 s1
-    local L="$AFD_MSG_DIR/.asked-default/.lock" t0 w1 w2 w3 holder
-    flock "$L" sleep 2 & holder=$!; sleep 0.3
-    t0=$(ms_now); bash -c 'source "$1"; afd_asked_end 43 timeout s1 told' _ "$LIB"; w1=$(( $(ms_now) - t0 ))
-    wait "$holder"
+    local L="$AFD_MSG_DIR/.asked-default/.lock" s e r1 r2 r3 holder
+    hold_lock 2 || return 1
+    s=$(ns_now); bash -c 'source "$1"; afd_asked_end 43 timeout s1 told' _ "$LIB"; e=$(ns_now)
+    wait "$holder"; r1=$(waited "$s" "$e")
     assert_contains "$(cat "$AFD_MSG_DIR/.asked-default/s1")" "43 0" "the appended row is there"
-    flock "$L" sleep 2 & holder=$!; sleep 0.3
-    t0=$(ms_now); stop s1 '{"last_assistant_message":"AFK_DEFAULT #42: keep it"}'; w2=$(( $(ms_now) - t0 ))
-    wait "$holder"
+    hold_lock 2 || return 1
+    s=$(ns_now); stop s1 '{"last_assistant_message":"AFK_DEFAULT #42: keep it"}'; e=$(ns_now)
+    wait "$holder"; r2=$(waited "$s" "$e")
     assert_eq "43 1" "$(cat "$AFD_MSG_DIR/.asked-default/s1")" "the rewrite kept the other row (marker: $(cat "$AFD_MSG_DIR/.asked-default/s1"))"
     echo "Alpha" > "$HOME/poll-answer"
-    flock "$L" sleep 3 & holder=$!; sleep 0.3
-    t0=$(ms_now); ask s2 "Sweep?"; w3=$(( $(ms_now) - t0 ))
-    wait "$holder"
-    (( w1 >= 1200 )) && r=0 || r=1; assert_eq "0" "$r" "afd_asked_end waits for the lock (waited ${w1} ms)"
-    (( w2 >= 1200 )) && r=0 || r=1; assert_eq "0" "$r" "the Stop hook's rewrite waits for the lock (waited ${w2} ms)"
-    (( w3 >= 2200 )) && r=0 || r=1; assert_eq "0" "$r" "the sweep at ask waits for the lock (waited ${w3} ms)"
+    hold_lock 2 || return 1
+    s=$(ns_now); ask s2 "Sweep?"; e=$(ns_now)
+    wait "$holder"; r3=$(waited "$s" "$e")
+    assert_eq "0" "$r1" "afd_asked_end waits for the lock"
+    assert_eq "0" "$r2" "the Stop hook's rewrite waits for the lock"
+    assert_eq "0" "$r3" "the sweep at ask waits for the lock"
 }
 run_test "13e: every writer of the default markers takes their lock" test_marker_writers_take_the_lock
 

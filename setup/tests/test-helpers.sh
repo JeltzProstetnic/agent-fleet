@@ -27,6 +27,9 @@ unset DISPLAY WAYLAND_DISPLAY
 # values inherited here (a value the suite sets itself is a fixture and stays); a read-only
 # check of the live config uses REAL_CC_MIRROR_DIR / REAL_CLAUDE_CONFIG_DIR, as REAL_HOME.
 export REAL_CC_MIRROR_DIR="${CC_MIRROR_DIR:-}" REAL_CLAUDE_CONFIG_DIR="${CLAUDE_CONFIG_DIR:-}"
+# A hot-swapped session (CFG-922) also carries CLAUDE_SECURESTORAGE_CONFIG_DIR, which outranks
+# CLAUDE_CONFIG_DIR wherever the account is read (statusline cswap segment): drop it the same way.
+export REAL_CLAUDE_SECURESTORAGE_CONFIG_DIR="${CLAUDE_SECURESTORAGE_CONFIG_DIR:-}"
 _CFGTEST_DROPPED=()
 
 # ── Colors ───────────────────────────────────────────────────────────────────
@@ -118,7 +121,7 @@ setup_test() {
 _drop_inherited_config_dirs() {
     local _v _real
     _CFGTEST_DROPPED=()
-    for _v in CC_MIRROR_DIR CLAUDE_CONFIG_DIR; do
+    for _v in CC_MIRROR_DIR CLAUDE_CONFIG_DIR CLAUDE_SECURESTORAGE_CONFIG_DIR; do
         _real="REAL_$_v"
         if [[ -n "${!_v:-}" && "${!_v}" == "${!_real}" ]]; then
             _CFGTEST_DROPPED+=("$_v")

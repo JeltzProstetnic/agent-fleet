@@ -591,6 +591,48 @@ test_ls_files_failure_fails_closed() {
 }
 run_test "CFG-901: a failing git ls-files aborts the push (fail-closed)" test_ls_files_failure_fails_closed
 
+# ── CFG-1065: the commit MESSAGE bound for the public mirror ────────────────
+# The leak gate covered the tree only; the private commit message went out verbatim.
+
+_cfg1065_repo() {   # <message> [extra conf line]
+    setup_dual_remote_repo "$TEST_TMPDIR"
+    {
+        # exclude the conf itself, as the real repos do — this also takes the filtered (commit-tree) path
+        printf 'private_remote=private\npublic_remote=public\nbranch=main\nexclude=.push-filter.conf\n'
+        [[ -n "${2:-}" ]] && printf '%s\n' "$2"
+    } > "$TEST_TMPDIR/repo/.push-filter.conf"
+    (cd "$TEST_TMPDIR/repo" && echo "clean content" > notes.txt \
+        && git add -A && git commit -m "$1" --quiet 2>/dev/null)
+}
+
+test_public_message_is_sanitized() {
+    _cfg1065_repo "fix reported by alice@example.org on 10.1.2.3 in /home/someuser/notes"
+    local out rc=0
+    out=$(cd "$TEST_TMPDIR/repo" && bash "$SCRIPT" 2>&1) || rc=$?
+    assert_eq "0" "$rc" "a push with a clean tree must succeed" || return 1
+    local msg; msg=$(git -C "$TEST_TMPDIR/public.git" log -1 --format=%B main 2>/dev/null)
+    echo "    measured: public message=[$msg]"
+    assert_not_contains "$msg" "alice@example.org" "the email must not reach the public mirror" || return 1
+    assert_not_contains "$msg" "10.1.2.3" "the IP must not reach the public mirror" || return 1
+    assert_not_contains "$msg" "/home/someuser/" "the home path must not reach the public mirror" || return 1
+    assert_contains "$msg" "[REDACTED-EMAIL]" "the redaction marker must be visible"
+}
+run_test "CFG-1065: the public commit message is sanitized (email, IP, home path)" test_public_message_is_sanitized
+
+test_public_message_leak_pattern_refused() {
+    _cfg1065_repo "work on PrivateCodename for the client" "leak_pattern=PrivateCodename"
+    local before; before=$(git -C "$TEST_TMPDIR/public.git" rev-parse main 2>/dev/null)
+    local out rc=0
+    out=$(cd "$TEST_TMPDIR/repo" && bash "$SCRIPT" 2>&1) || rc=$?
+    local after; after=$(git -C "$TEST_TMPDIR/public.git" rev-parse main 2>/dev/null)
+    echo "    measured: rc=$rc FATAL line=[$(printf '%s\n' "$out" | grep -m1 FATAL || echo none)] public moved=$([[ "$before" == "$after" ]] && echo no || echo yes)"
+    assert_neq "0" "$rc" "a leak_pattern hit in the commit message must refuse the push" || return 1
+    assert_contains "$out" "commit message" "the refusal must name the commit message" || return 1
+    assert_not_contains "$out" "PrivateCodename" "the refusal must not echo the matched text" || return 1
+    assert_eq "$before" "$after" "the public mirror must not move"
+}
+run_test "CFG-1065: a leak_pattern hit in the commit message refuses the public push" test_public_message_leak_pattern_refused
+
 # ── Summary ──────────────────────────────────────────────────────────────────
 
 suite_summary
