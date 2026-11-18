@@ -4,7 +4,7 @@ Load this when: creating a new project backlog, managing task IDs, or reviewing 
 
 ## Format
 
-Every project has `backlog.md` at root. Do NOT read at session start — only when active tasks are done or user asks.
+Every project has `backlog.md` at root. Do NOT read at session start — only when active tasks are done, the user asks, or before telling the user nothing is open on a topic.
 
 ```
 # Backlog — <project-name>

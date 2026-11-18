@@ -24,7 +24,7 @@ Tweet drafts, reply options, and anything the user needs to copy-paste goes in p
 
 ## Email Draft Rule
 
-Email drafts go to Gmail Drafts via `draft_gmail_message` MCP tool, never to any file. The Gmail draft is the workspace — it's editable, sendable, and doesn't create orphan files.
+Email drafts go to Gmail Drafts via `draft_gmail_message` MCP tool, never to any file. The Gmail draft is the workspace — it's editable, sendable, and doesn't create orphan files. Create a draft only once the user has signalled readiness to draft — until then, propose the content in the reply.
 
 ## Subagent File Delivery Rule
 

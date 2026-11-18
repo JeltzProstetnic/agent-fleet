@@ -83,3 +83,11 @@ Claude Code has two independent tip/suggestion systems. Both must be disabled in
 **Common mistake:** Setting only one of these and thinking tips are fully disabled. They are different features with different config mechanisms. The env var is a string `"0"`, the other is a boolean `false`.
 
 **Settings path:** Check your launcher's config directory for `settings.json`. Fixes applied to the wrong path are silently ignored.
+
+## Auto-Mode Refusals Come in Two Kinds
+
+**Conversation-sticky.** When auto mode refuses with *"could not evaluate … because of earlier conversation content"*, every later write in that conversation is refused and allow rules do not help. Recommend `cls` and a fresh session, not a mode switch — and do not ask the user to authorize it, because authorization does not lift this kind.
+
+**Per-action, by design.** Other refusals target one action class: Self-Modification (an agent editing its own permissions or settings), Sensitive-Source Provenance (moving confidential files to a NAS or GitHub), Real-World Transactions (printing, applying a signature). A per-action block (*"Permission for this action was denied by the Claude Code auto mode classifier"*) clears once the user authorizes that action in words — ask for that and retry (global Output rule); never ask the user to run it themselves.
+
+**Only text the user types into the session counts.** Measured 2026-10-30 in AFK mode: neither an AskUserQuestion answer relayed from a phone nor a relayed message delivered as Stop-hook feedback lifted a per-action block — the action was refused three times, including a reversible retry in a different form. In AFK mode, ask the user to type the go-ahead at the console when back, and do not retry in other forms meanwhile.
