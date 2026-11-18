@@ -116,6 +116,8 @@ If hostname doesn't match any pattern, state the hostname and ask. If `CLAUDE.lo
    | GLib/GTK idle or timeout callback busy-loop, 100% CPU in GTK app | `knowledge/glib-idle-callback-pattern.md` |
    | Risk tiers, E2E test requirements, privacy scrub, IT security compliance | `knowledge/risk-management.md` |
    | SimOpt, simulation, optimization, queueing, throughput, capacity planning | `knowledge/simopt-ops.md` |
+   | Building or validating a discrete-event model of a real plant from its records | `knowledge/manufacturing-simulation-modelling.md` |
+   | Shopfloor management, KPI boards, A3/8D, Hoshin Kanri, stage-gate or PDP governance | `knowledge/shopfloor-management-and-governance.md` |
    | Before the first draft of any stakeholder-facing deliverable (needs, requirements, proposals, reports, board papers) | `knowledge/deliverable-authoring.md` |
    | Eliciting or writing user needs, system requirements, an MVP scope or a build plan; restructuring a requirements set | `knowledge/needs-to-requirements.md` |
    | Writing user needs, personas, audience analysis, role-scoped UI/permissions/notifications, "the user wants…" | `knowledge/user-roles-and-personas.md` |
@@ -128,6 +130,7 @@ If hostname doesn't match any pattern, state the hostname and ask. If `CLAUDE.lo
    | Producing any DOCX / PDF / PPTX deliverable | `knowledge/office-templates.md` |
    | Text-to-speech, voice cloning, producing spoken lines or audio cues | `knowledge/tts-voice-cloning.md` |
    | Regulatory audit simulation (FDA, TÜV, ISO 13485), academic peer review, multi-domain audit personas | `knowledge/audit-domains.md` |
+   | Work under a QMS, regulatory filing, clinical or legal process (`rigor=regulated`) | `knowledge/regulated-work.md` |
    | Publishing a book on Amazon KDP; designing or reviewing a book cover | `knowledge/kdp-publishing.md`, `knowledge/cover-design.md` |
    | Building papers, books or PDFs (LaTeX/pandoc pipelines, fonts, PDF verification, DOI deposits) | `domains/publications/publication-build.md` |
    | Test isolation, live service leak, env var prod default, conftest guard | `knowledge/test-isolation-guards.md` |

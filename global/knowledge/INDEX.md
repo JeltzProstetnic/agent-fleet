@@ -47,12 +47,15 @@ Conditionally loaded files containing operational knowledge for specific tools a
 | `cover-design.md` | Designing or reviewing a book cover | Genre conventions, title legibility, positioning |
 | `office-templates.md` | Producing any DOCX / PDF / PPTX deliverable | Fleet office template: palette, fonts, logo, builders |
 | `audit-domains.md` | Regulatory audit simulation, academic peer review, multi-domain audit personas | Meta-pattern, domain catalog D1-D6, cross-domain principles |
+| `regulated-work.md` | Work under a QMS, regulatory filing, clinical or legal process (`rigor=regulated` in a pending file's Work block) | Scope, seven additive gates (approval + sha256, document control, traceability, evidence, independent review, no third-party processor, standard + clause), closing |
 | `presentation-design.md` | Building or reviewing any slide deck / `.pptx` | ≤7 words per slide, deck-vs-companion-document, tooling reality, image-cap-safe render verification |
 | `tts-voice-cloning.md` | Text-to-speech, voice cloning, producing spoken lines or audio cues | Reference recording, engines (IndexTTS-2, Chatterbox) compared, unattended batch, Whisper verify gate, carrier-sentence cue cutting, new-voice checklist |
 | `word-editing-extraction.md` | Word inline editing, .docx review extraction, author review round | Three Mark Types, Extraction Protocol, Generation Protocol (.docx output) |
 | `test-isolation-guards.md` | Test isolation, live service leak, env var prod default, conftest guard | The Bug, The Fix: conftest.py Autouse Guard, The Anti-Pattern |
 | `pglite-bootstrap.md` | PGlite bootstrap, IndexedDB idempotency, PGlite-in-vitest, Recharts mock | Bootstrap Idempotency (IndexedDB Persistence), PGlite-in-Vitest Harness, Schema-Version Reset-on-Upgrade Migration |
 | `risk-management.md` | Risk tiers, E2E test requirements, privacy scrub, IT security compliance | Risk Tiers, T1 — Critical Infrastructure, T2 — Deployment Pipeline |
+| `manufacturing-simulation-modelling.md` | Building or validating a discrete-event model of a real plant from its records | Plant structure, KPI definitions, planning rules, mining parameters from records, engine traps, validation |
+| `shopfloor-management-and-governance.md` | Shopfloor management, KPI boards, A3/8D, Hoshin Kanri, stage-gate or PDP governance | Board cascade, SQCDP, A3/8D, Hoshin Kanri, portfolio gates, what each yields for a model |
 
 ## Adding New Knowledge Files
 

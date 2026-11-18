@@ -72,34 +72,35 @@ Recommended ways to use Fable 5 without losing the Opus 4.8 default:
 
 ## Switching versions
 
-The mechanism is the same in both directions: re-install Claude Code at a specific version, then restart your session.
+The mechanism is the same in both directions: re-install Claude Code at a specific version with the fleet's update wrapper `setup/scripts/cc-update.sh`, then start a new session. Run it **from a plain shell after ending the session (`end`)**, never inside a running session — the wrapper refuses to run in-session.
+
+Do **not** use `cc-mirror update` (or `create`/`quick`) for this: those verbs re-provision the variant from its creation-time pin instead of bumping the version, and can silently install a much older Claude Code while exiting 0. The shipped `cc-mirror-guard.sh` hook refuses them. The wrapper backs up the install first, verifies the new version afterwards and rolls back on failure. Add `--dry-run` to see the verdict (installed version, target, downgrade or not) without changing anything.
 
 ### Downgrade to Opus 4.6 (any version 2.1.76 – 2.1.110)
 
 ```bash
-cc-mirror update mclaude --claude-version 2.1.110 --no-tweak
+bash ~/agent-fleet/setup/scripts/cc-update.sh --version 2.1.110 --allow-downgrade
 ```
 
-Recommended: pin to `2.1.110` specifically (the last 4.6-default release). Older versions work but miss bug fixes — for example, the 1M context handling on Opus 4.6 itself was only stable from CC 2.1.76 onward.
+The wrapper refuses a target below the installed version unless `--allow-downgrade` is given. Recommended: pin to `2.1.110` specifically (the last 4.6-default release). Older versions work but miss bug fixes — for example, the 1M context handling on Opus 4.6 itself was only stable from CC 2.1.76 onward.
 
 ### Upgrade to latest (Opus 4.8, Fable 5 selectable)
 
 ```bash
-cc-mirror update mclaude --claude-version latest --no-tweak
+bash ~/agent-fleet/setup/scripts/cc-update.sh --version latest
 ```
 
-Or pin to a specific era:
+Or pin to a specific era (add `--allow-downgrade` when the target is below the version you have installed):
 
 ```bash
-cc-mirror update mclaude --claude-version 2.1.152 --no-tweak   # last Opus 4.7-default release
-cc-mirror update mclaude --claude-version 2.1.170 --no-tweak   # Opus 4.8 default + Fable 5 selectable
+bash ~/agent-fleet/setup/scripts/cc-update.sh --version 2.1.152   # last Opus 4.7-default release
+bash ~/agent-fleet/setup/scripts/cc-update.sh --version 2.1.170   # Opus 4.8 default + Fable 5 selectable
 ```
 
 ### After switching
 
-1. Exit any running `mclaude` session (`/exit`).
-2. Confirm the change: `mclaude --version`
-3. Start a new session. The model in use will reflect whichever Opus that CC version bundles.
+1. Confirm the change: `mclaude --version`
+2. Start a new session. The model in use will reflect whichever Opus that CC version bundles.
 
 ---
 
@@ -121,9 +122,9 @@ The variable is per-machine (each `setup.sh` run is independent). For team-wide 
 
 ## Frequently asked
 
-**Can I run both 4.6 and 4.7 side by side?** Yes — `cc-mirror` supports multiple named variants. `cc-mirror quick --provider mirror --name mclaude46 --claude-version 2.1.110 --no-tweak` creates a second launcher (`mclaude46`) parallel to your main `mclaude`. Each variant has its own settings.json and config dir.
+**Can I run both 4.6 and 4.7 side by side?** Not as two installs through a fleet-supported command: `cc-update.sh` manages the main `mclaude` variant, and a second variant would need a `cc-mirror create`/`quick` verb, which the fleet does not support (see Switching versions). Within one install you can still pick the model per session or per subagent by its full id — `--model claude-opus-4-6` on launch, or `model: claude-opus-4-6` in an agent definition — as long as your account offers that model.
 
-**Will auto-update flip me from 4.6 to 4.7 behind my back?** No. The fleet sets `DISABLE_AUTOUPDATER=1` in `settings.json`, so Claude Code won't update itself between sessions. You only get a new bundled model when you explicitly run `cc-mirror update`.
+**Will auto-update flip me from 4.6 to 4.7 behind my back?** No. The fleet sets `DISABLE_AUTOUPDATER=1` in `settings.json`, so Claude Code won't update itself between sessions. You only get a new bundled model when you explicitly run `setup/scripts/cc-update.sh`.
 
 **What if I just want to keep using whatever I have?** Do nothing. The fleet works correctly with both versions. The only difference you'll notice in day-to-day work is whether `/fast` is available.
 
