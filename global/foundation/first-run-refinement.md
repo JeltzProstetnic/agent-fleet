@@ -100,12 +100,26 @@ Run `bash ~/agent-fleet/setup/scripts/kind-tools-check.sh <kinds>` with the kind
 
 Offer to connect external services via MCP:
 - **Email:** Gmail, Outlook
-- **Calendar:** Google Calendar
+- **Calendar:** Google Calendar — see the calendar offer below
 - **Social:** Twitter/X, LinkedIn
 - **Code:** GitHub, GitLab
 - **Work tools:** Jira, Confluence, Slack
 
 Each connection requires API keys or OAuth. Walk the user through setup one service at a time.
+
+**Calendar offer** — made even when the user skipped Y/Z, as one question in its own turn: "Do you use a calendar you'd like me to work with — Google Calendar, something else, or none?"
+- **Google Calendar** connects through the `google-workspace` MCP server, the calendar server the fleet ships (credentials as in step 3). Ask which of their calendars to use, or offer a separate one just for dated work. Once it works, dated future work — a deadline, a follow-up, a reminder — goes onto that calendar as an event titled `@<project> <what>` instead of a backlog line. Record the calendar's name and ID in `global/foundation/user-profile.md` under **Calendar**.
+- **If none fits** — a calendar the fleet has no server for, or the user would rather not connect one — dated work goes into dated pending files: a `docs/pending-<topic>.md` in the owning project with a `Due: YYYY-MM-DD` line in its first five lines. Say so in one sentence, and that they can connect a calendar later ("connect my calendar").
+
+### 2f. Document Store (always, one question per turn)
+
+Some work products stay off git — scans, PDFs, large files, anything gitignored — and need a place that outlives a session. Ask one question: "Where do you keep documents you want to hold on to — a local folder, a NAS, Dropbox, or somewhere else?"
+- **Local folder** — e.g. `~/Documents/fleet/`; simplest, but on this machine only.
+- **NAS** — a network share mounted on each machine; reachable from all of them at home.
+- **Dropbox** (or Google Drive, OneDrive) — synced across machines and the phone.
+- **Something else** — whatever they already use; ask for the path or mount point.
+
+The user picks; a combination is fine (e.g. NAS first, Dropbox for what they need on the go). Record each place as a row in `dms/storage-map.md` and mark the primary one in its Notes column — if the file does not exist yet, create it with the table from `docs/dms-guide.md` (step 4, "Define Storage Locations"). From then on, work products kept off git are filed there in the session that makes them. If the user skips the question, create nothing and ask again the first time a document needs a home; they can change the choice anytime ("move my documents").
 
 ### 2b. Configure Agent Personas
 

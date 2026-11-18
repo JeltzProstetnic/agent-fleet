@@ -440,6 +440,47 @@ test_first_run_whitelist_resolves() {
 }
 run_test "GH#6: first-run whitelist names only real modules" test_first_run_whitelist_resolves
 
+# ── AFT-70: the onboarding offers a calendar and a document store ────────────
+# Owner decisions 2026-11-18 (Q-AF-3, Q-AF-4): the semantic onboarding offers to
+# connect a calendar — dated future work then goes onto it, and without one into
+# dated pending files — and asks where work products kept off git should live
+# (a local folder, a NAS, Dropbox or whatever the user has). Both are prose the
+# onboarding session follows, so the guard is that the prose is there.
+
+test_onboarding_offers_calendar() {
+    local onboard="$REPO_ROOT/global/foundation/first-run-refinement.md"
+    local step
+    step=$(awk '/^### 2d\./{f=1;next} /^### /{f=0} f' "$onboard")
+    assert_contains "$step" "Calendar offer" "step 2d must carry the calendar offer; measured step 2d: ${#step} chars"
+    assert_contains "$step" "skipped Y/Z" "the calendar offer is made even without Y/Z"
+    assert_contains "$step" "google-workspace" "the offer names the calendar server the fleet ships"
+    assert_contains "$step" "instead of a backlog line" "a connected calendar takes dated work"
+    assert_contains "$step" "If none fits" "the offer has a fallback for no calendar"
+    assert_contains "$step" "dated pending files" "without a calendar, dated work goes into dated pending files"
+    assert_contains "$step" "Due: YYYY-MM-DD" "the fallback names the due-date line the pending file carries"
+}
+run_test "AFT-70: onboarding offers a calendar, dated pending files as the fallback" test_onboarding_offers_calendar
+
+test_onboarding_offers_document_store() {
+    local onboard="$REPO_ROOT/global/foundation/first-run-refinement.md"
+    local heading step store_line exec_line placed="no"
+    heading=$(grep -m1 '^### .*Document Store' "$onboard")
+    assert_contains "$heading" "Document Store" "the onboarding needs its own document-store step; measured heading: '${heading}'"
+    store_line=$(grep -n -m1 '^### .*Document Store' "$onboard" | cut -d: -f1)
+    exec_line=$(grep -n -m1 '^### 3\. Execute' "$onboard" | cut -d: -f1)
+    if [[ -n "$store_line" && -n "$exec_line" && "$store_line" -lt "$exec_line" ]]; then placed="yes"; fi
+    assert_eq "yes" "$placed" "the document-store step (line ${store_line:-none}) belongs to the conversation, before step 3 (line ${exec_line:-none})"
+    step=$(awk '/^### .*Document Store/{f=1;next} /^### /{f=0} f' "$onboard")
+    assert_contains "$step" "local folder" "a local folder is one of the options"
+    assert_contains "$step" "NAS" "a NAS is one of the options"
+    assert_contains "$step" "Dropbox" "Dropbox is one of the options"
+    assert_contains "$step" "somewhere else" "whatever else the user has is an option"
+    assert_contains "$step" "dms/storage-map.md" "the choice is recorded where the document-store guide expects it"
+    assert_contains "$step" "docs/dms-guide.md" "the step points at the document-store guide"
+    assert_contains "$step" "one question" "one question per turn, like the rest of the onboarding"
+}
+run_test "AFT-70: onboarding asks for a document store (local folder, NAS, Dropbox or other)" test_onboarding_offers_document_store
+
 # ── Summary ──────────────────────────────────────────────────────────────────
 
 suite_summary

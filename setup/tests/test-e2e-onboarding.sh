@@ -97,6 +97,10 @@ assert_file_contains "protocol invites relatable persona names" "relate to" "$FR
 assert_file_contains "protocol has project types table" "Code.*Software\|project.*type" "$FRR"
 assert_file_contains "protocol has infrastructure scan" "Scan.*machine\|infrastructure" "$FRR"
 assert_file_contains "protocol has service connection" "Connect.*service\|email.*calendar" "$FRR"
+assert_file_contains "protocol offers a calendar" "Calendar offer" "$FRR"
+assert_file_contains "protocol has the no-calendar fallback" "dated pending files" "$FRR"
+assert_file_contains "protocol offers a document store" "Document Store" "$FRR"
+assert_file_contains "protocol names local folder, NAS and Dropbox" "local folder.*NAS.*Dropbox" "$FRR"
 assert_file_contains "protocol has features showcase" "features\|Built-in capabilities\|Available skills" "$FRR"
 assert_file_contains "protocol mentions simulation" "Simulation\|SimOpt\|simulation" "$FRR"
 assert_file_contains "protocol mentions backlog/Jira" "backlog\|Jira\|backlog.md" "$FRR"
@@ -112,8 +116,9 @@ assert_file_contains "protocol has one question at a time" "one question\|One qu
 echo "  Phase 3: Running CC onboarding..."
 
 # Simulate: user understands the Coordinator and keeps its name, says name, picks persona A
-# without naming it (role-name fallback) + project 1 + scan X
-ONBOARDING_PROMPT='I understand what the Coordinator does and I keep the name "Coordinator". My name is E2E Tester. I pick A for persona (Workhorse + Empath) and do not want to name the personas, keep the role names. I pick 1 for a Code project called "test-project", and X to scan my machine. After everything is done, show the features showcase and remove .setup-pending. Do not ask follow-up questions.'
+# without naming it (role-name fallback) + project 1 + scan X, declines the calendar
+# (dated pending files) and keeps documents in a local folder (AFT-70)
+ONBOARDING_PROMPT='I understand what the Coordinator does and I keep the name "Coordinator". My name is E2E Tester. I pick A for persona (Workhorse + Empath) and do not want to name the personas, keep the role names. I pick 1 for a Code project called "test-project", and X to scan my machine. I do not want to connect a calendar for now, and I keep my documents in a local folder. After everything is done, show the features showcase and remove .setup-pending. Do not ask follow-up questions.'
 
 CC_OUTPUT=$(cd "$AF_DIR" && claude -p "$ONBOARDING_PROMPT" 2>&1 || true)
 CC_EXIT=$?
