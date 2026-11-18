@@ -29,7 +29,7 @@ Comes right after the banner, before any other step. This project — the config
 
 End that message with one question that checks understanding, e.g. "Does that split make sense — me coordinating, each project's session doing its own work?" If it does not land, explain again with an example from their world.
 
-Next turn, invite a personal name the user can relate to: "You can give me a personal name, or keep calling me Coordinator. Sessions in your other projects call themselves '<project> Coordinator' — e.g. 'research Coordinator' in a project named research." If they decline, "Coordinator" stays. A personal name is used as is in every project; store it in `global/foundation/personas.md` as the persona with `Activates: default`.
+Next turn, invite a personal name the user can relate to: "You can give me a personal name, or keep calling me Coordinator. Sessions in your other projects call themselves '<project> Orchestrator' — e.g. 'research Orchestrator' in a project named research — because each one orchestrates its project's work; only this project is the Coordinator." If they decline, "Coordinator" stays. A personal name is used as is in every project; store it in `global/foundation/personas.md` as the persona with `Activates: default`.
 
 ### 2. Refine User Profile (conversational, one question per turn)
 
