@@ -48,10 +48,21 @@ afd_push() {
 
   [[ -z "$AFD_URL" ]] && return 1
 
-  curl -s -f -X POST "${AFD_URL}/api/tasks" \
+  local json_payload
+  if command -v jq >/dev/null 2>&1; then
+    json_payload=$(jq -n \
+      --arg id "$task_id" \
+      --arg desc "$description" \
+      --arg st "$status" \
+      '{id: $id, description: $desc, status: $st}')
+  else
+    json_payload="{\"id\":$(_afd_json_escape "$task_id"),\"description\":$(_afd_json_escape "$description"),\"status\":$(_afd_json_escape "$status")}"
+  fi
+
+  curl -s -f --connect-timeout 5 --max-time 10 -X POST "${AFD_URL}/api/tasks" \
     -H "Content-Type: application/json" \
     -H "Authorization: Bearer ${AFD_TOKEN}" \
-    -d "{\"id\":\"${task_id}\",\"description\":\"${description}\",\"status\":\"${status}\"}" \
+    -d "$json_payload" \
     >/dev/null 2>&1
 }
 
@@ -73,10 +84,22 @@ afd_notify() {
 
   [[ -z "$AFD_URL" ]] && return 1
 
-  curl -s -f -X POST "${AFD_URL}/api/notify" \
+  local json_payload
+  if command -v jq >/dev/null 2>&1; then
+    json_payload=$(jq -n \
+      --arg mach "$machine" \
+      --arg msg "$message" \
+      --arg prio "$priority" \
+      --arg tp "$type" \
+      '{machine: $mach, message: $msg, priority: $prio, type: $tp}')
+  else
+    json_payload="{\"machine\":$(_afd_json_escape "$machine"),\"message\":$(_afd_json_escape "$message"),\"priority\":$(_afd_json_escape "$priority"),\"type\":$(_afd_json_escape "$type")}"
+  fi
+
+  curl -s -f --connect-timeout 5 --max-time 10 -X POST "${AFD_URL}/api/notify" \
     -H "Content-Type: application/json" \
     -H "Authorization: Bearer ${AFD_TOKEN}" \
-    -d "{\"machine\":\"${machine}\",\"message\":\"${message}\",\"priority\":\"${priority}\",\"type\":\"${type}\"}" \
+    -d "$json_payload" \
     >/dev/null 2>&1
 }
 
@@ -95,7 +118,7 @@ afd_complete() {
 
   [[ -z "$AFD_URL" ]] && return 1
 
-  curl -s -f -X PATCH "${AFD_URL}/api/tasks/${task_id}" \
+  curl -s -f --connect-timeout 5 --max-time 10 -X PATCH "${AFD_URL}/api/tasks/${task_id}" \
     -H "Content-Type: application/json" \
     -H "Authorization: Bearer ${AFD_TOKEN}" \
     -d '{"status":"completed"}' \
