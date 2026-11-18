@@ -108,6 +108,8 @@
       "args": [
         "--from",
         "mcp-mermaid-image-gen",
+        "--with",
+        "mcp<2",
         "mcp_mermaid_image_gen"
       ],
       "env": {
