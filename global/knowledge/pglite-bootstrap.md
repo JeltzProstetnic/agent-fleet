@@ -96,3 +96,9 @@ vi.mock('recharts', async () => {
 **Applies to:** Any Vitest/Jest + jsdom project using Recharts (or similar chart libraries that depend on DOM measurements).
 
 **Reference impls:** the test suite of a fleet PGlite + Recharts project (`<project>/` tests)
+
+## jsdom 29: `querySelector('#id')` misses a duplicate id in a second subtree
+
+**Pattern:** with two elements carrying the same `id` attached to the document, `el.querySelector('#x')` on the SECOND element's subtree returns `null`. jsdom's selector engine (`@asamuzakjp/dom-selector`, `finder.js` `_findDescendantNodes`) resolves an id lookup through the document, gets the first match, sees it lies outside `el` and gives up. Chrome finds it. Symptom: `Cannot set properties of null` on a freshly built fixture in a test that appends two screens.
+
+**Fix:** detach the first fixture before building the second (or query with `[id="x"]`, which still works). Measured on WSL 2026-11-19.
