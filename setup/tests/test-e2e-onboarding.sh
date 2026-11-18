@@ -90,7 +90,10 @@ echo "  Phase 2: Check onboarding protocol..."
 FRR="$AF_DIR/global/foundation/first-run-refinement.md"
 
 assert_file_contains "protocol has DON'T PANIC greeting" "DON.*PANIC" "$FRR"
+assert_file_contains "protocol introduces the Coordinator Project" "Coordinator Project" "$FRR"
+assert_file_contains "protocol offers a personal Coordinator name" "personal name" "$FRR"
 assert_file_contains "protocol has persona patterns" "Workhorse.*Empath\|persona.*pattern" "$FRR"
+assert_file_contains "protocol invites relatable persona names" "relate to" "$FRR"
 assert_file_contains "protocol has project types table" "Code.*Software\|project.*type" "$FRR"
 assert_file_contains "protocol has infrastructure scan" "Scan.*machine\|infrastructure" "$FRR"
 assert_file_contains "protocol has service connection" "Connect.*service\|email.*calendar" "$FRR"
@@ -108,8 +111,9 @@ assert_file_contains "protocol has one question at a time" "one question\|One qu
 # --- Phase 3: Run CC with scripted onboarding ---
 echo "  Phase 3: Running CC onboarding..."
 
-# Simulate: user says name, picks persona A + project 1 + scan X
-ONBOARDING_PROMPT='My name is E2E Tester. I pick A for persona (Workhorse + Empath), 1 for a Code project called "test-project", and X to scan my machine. Name the personas "Gears" (default) and "Soft" (on frustration). After everything is done, show the features showcase and remove .setup-pending. Do not ask follow-up questions.'
+# Simulate: user understands the Coordinator and keeps its name, says name, picks persona A
+# without naming it (role-name fallback) + project 1 + scan X
+ONBOARDING_PROMPT='I understand what the Coordinator does and I keep the name "Coordinator". My name is E2E Tester. I pick A for persona (Workhorse + Empath) and do not want to name the personas, keep the role names. I pick 1 for a Code project called "test-project", and X to scan my machine. After everything is done, show the features showcase and remove .setup-pending. Do not ask follow-up questions.'
 
 CC_OUTPUT=$(cd "$AF_DIR" && claude -p "$ONBOARDING_PROMPT" 2>&1 || true)
 CC_EXIT=$?
@@ -145,7 +149,7 @@ fi
 # Personas updated
 if [[ -f "$AF_DIR/global/foundation/personas.md" ]]; then
     PERSONAS=$(cat "$AF_DIR/global/foundation/personas.md")
-    if echo "$PERSONAS" | grep -qi "Gears\|Soft\|Workhorse"; then
+    if echo "$PERSONAS" | grep -qi "Coordinator Workhorse\|Coordinator Empath\|Workhorse"; then
         PASS=$((PASS + 1))
         echo "    personas.md updated"
     else
@@ -158,7 +162,8 @@ else
 fi
 
 # CC output mentions key onboarding elements
-assert_contains "output mentions persona setup" "persona\|Gears\|Soft\|workhorse\|empath" "$CC_OUTPUT"
+assert_contains "output mentions persona setup" "persona\|Coordinator Workhorse\|Coordinator Empath\|workhorse\|empath" "$CC_OUTPUT"
+assert_contains "output introduces the Coordinator" "Coordinator" "$CC_OUTPUT"
 assert_contains "output mentions project or scan" "project\|scan\|machine\|infrastructure" "$CC_OUTPUT"
 
 # Features showcase appeared
@@ -240,6 +245,7 @@ git -C "$AF_DIR" checkout -- global/foundation/user-profile.md global/foundation
 touch "$AF_DIR/.setup-pending"
 
 FULL_PROMPT='My name is Full Tester. I am a research scientist studying queueing theory. Select everything:
+- Coordinator: I understand what it does; keep the name "Coordinator"
 - Persona: A (Workhorse + Empath), name them "Engine" and "Heart"
 - Project: 3 (Research), call it "queue-research"
 - X (scan machine)
