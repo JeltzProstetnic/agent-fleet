@@ -155,7 +155,7 @@ If hostname doesn't match any pattern, state the hostname and ask. If `CLAUDE.lo
 
 For manual investigation: read `~/.claude/reference/upstream-dependencies.md`.
 
-**Update policy — HARD RULE:** Before suggesting ANY upstream update, investigate the changelog and assess impact on our system (hooks, statusline, permissions, plugin compatibility). Present findings to the user. The user decides when to update. Never update silently or suggest "just update it." **CC update gate:** If using TweakCC, do NOT update Claude Code until TweakCC confirms compatibility with the new version. Check `npm view tweakcc version` daily; if newer, test `npx tweakcc --apply` against the new CC version before upgrading CC.
+**Update policy — HARD RULE:** Before suggesting ANY upstream update, investigate the changelog and assess impact on our system (hooks, statusline, permissions, plugin compatibility). Present findings to the user. The user decides when to update. Never update silently or suggest "just update it." **CC update:** run `bash ~/agent-fleet/setup/scripts/cc-update.sh --version <x.y.z>` from a plain shell after `end`, never a `cc-mirror` verb — `update`/`create`/`quick` re-provision the variant from its creation-time pin rather than bumping the version, and `cc-mirror-guard.sh` refuses them. **CC update gate:** If using TweakCC, do NOT update Claude Code until TweakCC confirms compatibility with the new version. Check `npm view tweakcc version` daily; if newer, test `npx tweakcc --apply` against the new CC version before upgrading CC.
 
 ## Development Rules
 
