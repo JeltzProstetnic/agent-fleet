@@ -218,6 +218,8 @@ CTX="$(printf '%s' "$OUT" | jq -r '.hookSpecificOutput.additionalContext // empt
 assert_has "vault-manage in Bash injects vault-ops" "vault-ops.md" "$CTX"
 assert_has "vault ctx: agent runs the dialog itself" "you run" "$CTX"
 assert_has "vault ctx: set reads stdin" "stdin" "$CTX"
+assert_has "vault ctx: deleting a key names unset (CFG-1008)" "vault-manage.sh unset" "$CTX"
+assert_has "vault ctx: key names come from keys (CFG-1008)" "vault-manage.sh keys" "$CTX"
 OUT=$(run '{"session_id":"svault","tool_name":"Bash","tool_input":{"command":"bash ~/config-repo/secrets/vault-manage.sh deploy"}}')
 assert_empty "vault-ops injects once per session" "$OUT"
 OUT=$(run '{"session_id":"svault2","tool_name":"Write","tool_input":{"file_path":"/tmp/x.sh","content":"P=$(bash setup/scripts/ask-passphrase.sh)"}}')

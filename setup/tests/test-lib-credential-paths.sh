@@ -138,6 +138,11 @@ test_refusal_texts_name_the_safe_alternative() {
         m=$(cred_refusal "$k" "/some/path")
         assert_contains "$m" "never" "[$k] → never print the value" || return 1
     done
+    m=$(cred_refusal vault "/some/vault.json")
+    assert_contains "$m" "vault-manage.sh unset" "vault → deleting a key goes through unset (CFG-1008)" || return 1
+    assert_contains "$m" "vault-manage.sh keys" "vault → key names of an encrypted-only vault come from keys" || return 1
+    m=$(cred_refusal mcp "/some/.mcp.json")
+    assert_contains "$m" "vault-manage.sh keys" "mcp → key names come from keys, which needs no plaintext" || return 1
     m=$(cred_refusal dir "$HOME" "$HOME/.git-credentials")
     assert_contains "$m" ".git-credentials" "dir → names the files" || return 1
     assert_contains "$m" "glob" "dir → explains why a filter is not accepted"
@@ -152,7 +157,10 @@ test_hardlink_twin_is_the_file() {
     _load; _fx; mkdir -p "$HOME/cfg-agent-fleet/secrets"; printf '{}\n' > "$HOME/cfg-agent-fleet/secrets/vault.json"
     ln "$CFG/settings.json" "$HOME/twin.json"; ln "$HOME/cfg-agent-fleet/secrets/vault.json" "$HOME/proj/v.txt"
     assert_eq "settings" "$(CLAUDE_CONFIG_DIR=$CFG cred_kind_of_path "$HOME/twin.json" || echo none)" "a hardlink of the live settings is the live settings" || return 1
-    assert_eq "vault" "$(cred_kind_of_path "$HOME/proj/v.txt" || echo none)" "a hardlink of a plaintext vault is the vault"
+    assert_eq "vault" "$(cred_kind_of_path "$HOME/proj/v.txt" || echo none)" "a hardlink of a plaintext vault is the vault" || return 1
+    # R2-3: a plaintext vault OUTSIDE the repo roots, twinned in its own directory.
+    mkdir -p "$HOME/other/secrets"; printf '{}\n' > "$HOME/other/secrets/vault.json"; ln "$HOME/other/secrets/vault.json" "$HOME/other/secrets/twin.json"
+    assert_eq "vault" "$(cred_kind_of_path "$HOME/other/secrets/twin.json" || echo none)" "a twin of a vault outside the repo roots is the vault (inode)"
 }
 run_test "path: a hardlink twin classifies as the file it shares an inode with" test_hardlink_twin_is_the_file
 
@@ -194,6 +202,58 @@ test_resolver_timeout_falls_back_to_the_input() {
 }
 run_test "path: a hung readlink is cut off by the resolver timeout and the input is judged as is" \
     test_resolver_timeout_falls_back_to_the_input
+
+test_sfb_resolver_reports_124_and_callers_skip_the_second_wait() {
+    _load; local P="$TEST_TMPDIR/bin-hang"; mkdir -p "$P" "$HOME/proj" "$HOME/hungmount"
+    local b
+    for b in readlink stat; do
+        printf '#!/usr/bin/env bash\ncase "$*" in *hungmount*) %s 30 ;; esac\nexec %s "$@"\n' "$(command -v sleep)" "$(command -v "$b")" > "$P/$b"
+        chmod +x "$P/$b"
+    done
+    local rc=0 t0 e
+    PATH="$P:$PATH" cred_resolve_path "$HOME/hungmount/x" >/dev/null || rc=$?
+    echo "    measured: cred_resolve_path rc=$rc on a timeout"
+    assert_eq "124" "$rc" "a timed-out resolution returns 124 so a \$(…) caller can see it" || return 1
+    _fx
+    t0=$SECONDS; PATH="$P:$PATH" CLAUDE_CONFIG_DIR=$CFG cred_kind_of_path "$HOME/hungmount/notes.md" >/dev/null || true; e=$((SECONDS - t0))
+    echo "    measured: cred_kind_of_path under the hung mount took ${e}s"
+    [ "$e" -le 7 ] || { assert_eq "<=7s" "${e}s" "no stat (inode) wait after a readlink timeout"; return 1; }
+    t0=$SECONDS; PATH="$P:$PATH" CLAUDE_CONFIG_DIR=$CFG cred_files_under "$HOME/hungmount" >/dev/null; e=$((SECONDS - t0))
+    echo "    measured: cred_files_under for the hung dir took ${e}s"
+    [ "$e" -le 7 ] || { assert_eq "<=7s" "${e}s" "no second wait in the directory case"; return 1; }
+    return 0
+}
+run_test "SF-B: cred_resolve_path returns 124 on a timeout; kind_of_path and files_under skip the inode/vault probes then" \
+    test_sfb_resolver_reports_124_and_callers_skip_the_second_wait
+
+test_expand_config_dir_variable() {
+    _load; _fx
+    assert_eq "$CFG/settings.json" "$(CLAUDE_CONFIG_DIR=$CFG cred_expand_path '$CLAUDE_CONFIG_DIR/settings.json')" "\$CLAUDE_CONFIG_DIR expands" || return 1
+    assert_eq "$CFG/.mcp.json" "$(CLAUDE_CONFIG_DIR=$CFG/ cred_expand_path '${CLAUDE_CONFIG_DIR}/.mcp.json')" "\${CLAUDE_CONFIG_DIR} expands (trailing slash tolerated)"
+}
+run_test "path: \$CLAUDE_CONFIG_DIR and \${CLAUDE_CONFIG_DIR} expand like \$HOME" test_expand_config_dir_variable
+
+test_p27_kind_of_string_is_linear() {
+    # bash `=~` is quadratic in the subject length (200 KB = 1.2 s, 2 MB = minutes). A string
+    # without a credential basename must be rejected by a linear pre-filter; one with a
+    # credential at the END of 2 MB must still classify, in seconds.
+    _load
+    local pad t0 e k
+    pad=$(head -c 2000000 /dev/zero | tr '\0' 'a')
+    t0=$(date +%s%N); cred_kind_of_string "echo $pad" && k=hit || k=none; e=$(( ($(date +%s%N) - t0) / 1000000 ))
+    echo "    measured: 2 MB without a credential: $k in ${e} ms"
+    assert_eq "none" "$k" || return 1
+    [ "$e" -lt 1000 ] || { assert_eq "<1000ms" "${e}ms" "the pre-filter must be linear"; return 1; }
+    # The vault regex is the quadratic one: `([A-Za-z0-9_]+-)?vault\.json` backtracks across a
+    # long alphanumeric run under bash =~ (2 MB ≈ 146 s measured); grep -E is linear on it.
+    t0=$(date +%s%N); k=$(cred_kind_of_string "echo $pad; cat secrets/vault.json" || echo none); e=$(( ($(date +%s%N) - t0) / 1000000 ))
+    echo "    measured: 2 MB + a vault.json mention: $k in ${e} ms"
+    assert_eq "vault" "$k" || return 1
+    [ "$e" -lt 3000 ] || { assert_eq "<3000ms" "${e}ms" "classification of a large string must not fall back to =~"; return 1; }
+    return 0
+}
+run_test "P2-7: cred_kind_of_string is linear — 2 MB without a credential < 1 s, with one at the end still classified" \
+    test_p27_kind_of_string_is_linear
 
 test_settings_refusal_names_the_edit_path() {
     _load
