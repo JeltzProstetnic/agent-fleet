@@ -154,6 +154,10 @@ Two distinct mechanisms, both indistinguishable from a real regression:
 copy — `git worktree add --detach HEAD` (imports resolve to the worktree; symlink `node_modules`
 for vitest) — so edits in the working tree cannot leak into a run already in flight.
 
+## 15. `python3 - <<'EOF' </dev/null` runs an EMPTY program and exits 0
+
+The LAST stdin redirection wins, so `</dev/null` replaces the heredoc: the interpreter reads an empty script and exits 0. A fleet project's GPU job driver "succeeded" (rc 0) while doing nothing for 6 work items (2026-11-18). ⇒ Never combine a heredoc-fed interpreter with `</dev/null`; grep drivers for `<<'EOF' </dev/null` (any heredoc tag) before trusting their exit code.
+
 ## The one-line test
 
 Before trusting a check: **what would this command print if it had looked at nothing?** If that output
