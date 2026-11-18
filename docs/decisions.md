@@ -1,109 +1,101 @@
 # Decisions & Requirements -- Agent Fleet
 
+Last reviewed: 2026-11-18
+
+Reviewed monthly (config-check group 26). At each review, superseded or executed entries move verbatim to `docs/decisions-archive.md`, and every entry left here is cut down to the decision and its rationale.
+
 ## Architecture & Design
 
 ### Shebang convention: `#!/usr/bin/env bash`
 **Date:** 2026-02-27
-**Decision:** All shell scripts use `#!/usr/bin/env bash` for portability (macOS, NixOS, BSDs where bash is not at `/bin/bash`).
+**Decision:** Shell scripts start with `#!/usr/bin/env bash`. **Why:** portability to systems where bash is not at `/bin/bash` (macOS, NixOS, the BSDs).
 
 ### JSON output in hooks uses python3
 **Date:** 2026-02-27
-**Decision:** Hooks that emit JSON (e.g., config-check.sh) use `python3 -c "import json; ..."` instead of manual string concatenation, preventing escaping bugs with special characters.
+**Decision:** Hooks that emit JSON (e.g. `config-check.sh`) build it with `python3 -c "import json; ..."`, never by string concatenation. **Why:** concatenation breaks on special characters.
 
 ### Symlink architecture for global directories
-**Date:** 2026-03-09
-**Decision:** `global/foundation/`, `global/reference/`, `global/knowledge/`, `global/domains/`, `global/machines/` are deployed as symlinks to `~/.claude/` subdirectories. Hooks in `global/hooks/` are copied (not symlinked) because the SessionEnd hook runs `sync.sh collect` which would create circular overwrites. This means hook edits must be committed immediately -- uncommitted changes are overwritten by collect.
+**Date:** 2026-03-09 (revised 2026-11-18; original in the archive)
+**Decision:** `sync.sh setup` symlinks `global/{foundation,reference,domains,knowledge,machines,skills}/` into `~/.claude/`. Hooks are not symlinked: `sync.sh deploy` copies them from `global/hooks/` with a `# MANAGED — DO NOT EDIT` header and read-only mode. **Why:** the repo is the sole authority (v1.0). Every deploy rewrites the deployed hooks, so an edit made there is lost; edit in `global/hooks/` and commit.
 
 ### setup/config/ vs global/ separation
 **Date:** 2026-03-10
-**Decision:** Files deployed to `~/.claude/` root (settings.json, statusline.sh) belong in `setup/config/`. `global/` is for `~/.claude/` subdirectories only (foundation/, reference/, knowledge/, domains/, hooks/). No file should exist in both -- dual copies diverge silently.
+**Decision:** Files deployed to the `~/.claude/` root (settings.json, statusline) live in `setup/config/`; `global/` holds only `~/.claude/` subdirectories. No file lives in both. **Why:** dual copies diverge silently.
 
 ### Template personas are generic
 **Date:** 2026-03-10
-**Decision:** Template ships with generic persona names (Assistant/Supporter) rather than personal ones. Users customize during first-run onboarding. Personal persona names in the user's private config repo are not propagated.
+**Decision:** The template ships generic personas (Assistant, Supporter) and never propagates personal persona names from a private config repo. **Why:** users name their own during first-run onboarding.
 
 ### Knowledge loading is conditional, not eager
 **Date:** 2026-03-10
-**Decision:** Domain knowledge, reference files, and operational knowledge load only when triggered (by topic, error, or user request). This keeps startup token cost low (~18-28% of 200k context). The global CLAUDE.md acts as a dispatcher with a trigger table.
+**Decision:** Domain, reference and operational knowledge loads only when triggered (topic, error or user request); the global CLAUDE.md is a dispatcher with a trigger table. **Why:** keeps the startup token cost low.
 
-### 5-tier fix hierarchy (least-cost-first)
+### Least-cost-first fix hierarchy
 **Date:** 2026-03-12
-**Decision:** When fixing issues found during `lrn` audits, prefer the cheapest tier: (1) hook/script (0 tokens), (2) extend existing knowledge file (0 tokens unless triggered), (3) new knowledge file, (4) backlog item, (5) project CLAUDE.md rule, (6) global CLAUDE.md rule (most expensive -- tokens every session). Bias check mandatory: always default DOWN the hierarchy.
+**Decision:** A fix from an `lrn` audit takes the cheapest tier that works: hook/script (0 tokens) > extend an existing knowledge file > new knowledge file > backlog item > project CLAUDE.md rule > global CLAUDE.md rule. Always default down the hierarchy. Canonical list: `global/skills/lrn/SKILL.md`. **Why:** a global rule costs tokens in every session; a hook costs none.
 
-### Timestamp guards for sync.sh collect
-**Date:** 2026-03-12
-**Decision:** `sync.sh collect` compares file modification times against repo commit timestamps before overwriting. If the repo version is newer (committed on another machine), the deployed file is skipped. Prevents stale local files from destroying cross-machine work. Applies to both directory copies and project-specific rules.
+### Timestamp guard when recovering deployed files
+**Date:** 2026-03-12 (revised 2026-11-18; original in the archive)
+**Decision:** `sync.sh recover --emergency` (which replaced `collect`; `collect` now only forwards to it) compares each deployed file's mtime with the repo's last commit time for that file and skips the file when the repo version is newer. **Why:** a stale local copy must not overwrite work committed on another machine.
 
 ## User Requirements
 
 ### TDD is mandatory
 **Date:** 2026-02-27
-**Decision:** All new code must follow test-driven development. Write failing tests first, then implement. No exceptions for bash scripts, config logic, or any testable behavior. Currently 365+ tests across 22 suites.
+**Decision:** All new code follows test-driven development: failing test first, then the implementation. No exception for bash scripts, config logic or any other testable behaviour.
 
 ### Co-Authored-By trailer required on all commits
 **Date:** 2026-02-27
-**Decision:** Every git commit made by or with Claude must include a `Co-Authored-By` trailer. The model name is not hardcoded -- uses whatever model is active. Subagents must be explicitly told to include it since they don't inherit CLAUDE.md rules.
+**Decision:** Every commit made by or with Claude carries a `Co-Authored-By` trailer naming the active model (never hardcoded). A subagent that commits must be told so in its prompt. **Why:** subagents do not inherit CLAUDE.md rules.
 
 ### No speculative interactive calls
 **Date:** 2026-03-09
-**Decision:** Never call user-facing prompts (passphrase dialogs, confirmations, GUI input) "just to test." Use them directly for the real operation. Each test call doubles user effort.
+**Decision:** Never call a user-facing prompt (passphrase dialog, confirmation, GUI input) "just to test"; call it for the real operation. **Why:** each test call doubles the user's effort.
 
 ## Conventions
 
 ### Pending file lifecycle (Action headers)
-**Date:** 2026-03-09
-**Decision:** Pending files (`docs/pending-*.md`) use an `Action:` header line: `present`, `act`, `triage`, `await-user-decision`, or `defer`. This tells the next session exactly how to handle the file without reading the full content. Files without headers default to `triage`.
+**Date:** 2026-03-09 (revised 2026-11-18; original in the archive)
+**Decision:** Each `docs/pending-*.md` starts with `<!-- Action: present|act|triage|await-user-decision|defer|reference -->`; a file without one is treated as `triage`. Canonical: `global/foundation/session-protocol.md`. **Why:** the next session knows how to handle the file without reading all of it.
 
-### Severity-differentiated stale file tags
-**Date:** 2026-03-12
-**Decision:** config-check.sh Check 17 uses `STALE_ACT` (>3 days, action files), `STALE_DEFER` (>14 days, untracked deferred files), `STALE_AWAIT` (>7 days, awaiting decision), and generic stale (>2 days, untracked) instead of a single threshold. Different pending file types have different acceptable lifetimes.
+### Severity-differentiated stale pending-file tags
+**Date:** 2026-03-12 (revised 2026-11-18; original in the archive)
+**Decision:** Check 5.3 (`global/hooks/checks/05-stale-detection.sh`) flags pending files by type: `STALE_ACT` (act, 3+ days), `STALE_AWAIT` (await-user-decision, 7+ days), `STALE_DEFER` (defer, 14+ days and untracked), and a generic stale warning (2+ days with no backlog item). **Why:** different pending-file types have different acceptable lifetimes.
 
 ### Privacy scrubbing for template propagation
 **Date:** 2026-03-09
-**Decision:** All files propagated from a private config repo to the public agent-fleet template must be scrubbed of personal data: hostnames, IPs, usernames, email addresses, private repo names. fleet-issue.sh provides automated privacy pattern checking. Test files must also be scrubbed (use placeholder patterns instead of real personal data).
+**Decision:** Every file propagated from a private config repo into this public template, test files included, is scrubbed of personal data: hostnames, IPs, usernames, email addresses, private repo names. Tests use placeholder patterns. `setup/scripts/fleet-issue.sh` checks text against the privacy patterns. **Why:** the template is public.
 
-## Rejected / Superseded
-
-### Subagent file creation guardrail (global rule)
-**Date:** 2026-03-12
-**Decision:** Rejected as a global CLAUDE.md rule. Instead, the `sub` command template includes "Write artifacts to tmp/, not docs/ -- return findings as text." This is cheaper (only costs tokens when `sub` is used) and the parent agent promotes artifacts as needed.
-
-### fleet-capabilities.md 3-tier grouping for template
-**Date:** 2026-03-12
-**Decision:** Not propagated. The private cfg has a 3-tier grouping with a "Life OS packages" section. Template keeps a simpler flat structure -- Life OS is a personal deployment feature, not a generic template concept.
+## Installer & Upgrade
 
 ### Shell RC detection strategy
 **Date:** 2026-03-12
-**Decision:** `detect_shell_rc()` in lib.sh uses two-step detection: (1) macOS distro → always .zshrc (default since Catalina), (2) Linux: check `$SHELL` env var for `*/zsh` suffix → .zshrc, else .bashrc. No interactive prompting.
+**Decision:** `detect_shell_rc()` in `setup/lib.sh` returns `.zshrc` on macOS (zsh is the default since Catalina) and on Linux when `$SHELL` ends in `/zsh`, otherwise `.bashrc`. It never prompts.
 
 ### Upgrade rollback via git tags
-**Date:** 2026-03-12
-**Decision:** `upgrade.sh` uses lightweight git tags (`pre-upgrade-TIMESTAMP`) for rollback points rather than file-system backups. Tags survive across machines (pushed with `git push --tags`), are cheap, and `--rollback` is just `git reset --hard <tag>`. No tag created when already up-to-date (avoids tag clutter).
+**Date:** 2026-03-12 (revised 2026-11-18; original in the archive)
+**Decision:** `setup/scripts/upgrade.sh` marks each upgrade with a local lightweight tag `pre-upgrade-TIMESTAMP` instead of a file-system backup; `--rollback` is `git reset --hard <tag>`. No tag is made when already up to date. **Why:** tags are cheap, and skipping the up-to-date case avoids tag clutter.
 
-### AFT-32 fix approach: pattern-based sed sanitization
-**Date:** 2026-03-12
-**Decision:** Filtered-push commit message leak (line 214-216) should be fixed with pattern-based sed sanitization reusing `PERSONAL_DATA_PATTERNS` from sync.sh. Chosen over config-driven patterns (overengineered), template rewriting (too aggressive), and interactive approval (poor UX). Needs tests in `test-filtered-push.sh`.
-
-### AFT-33 fix approach: add flag to parse_common_args
-**Date:** 2026-03-12
-**Decision:** `--reconfigure-mcp` flag should be handled in `parse_common_args()` in lib.sh (not configure-claude.sh directly) so it works both standalone and via install.sh. Exports `RECONFIGURE_MCP=true`, checked before early-return in `configure_mcp_servers()`.
-
-### CI implementation order: preflight → integration → GitHub Actions
-**Date:** 2026-03-12
-**Decision:** AFT-39/40/41 should be implemented in dependency order: preflight check (41) first (standalone, no Docker needed), then integration test (40, uses preflight), then GitHub Actions CI (39, orchestrates both). Matches hardening-plan.md Day 1→2→3 sequence.
+## Session Behaviour
 
 ### Memory rule: supplementary, not prohibited
 **Date:** 2026-03-20
-**Decision:** Auto-memory (MEMORY.md) is "NOT the answer" / "usually wrong" rather than "NEVER" / "ALWAYS wrong." Fleet's structured system is primary for all defined knowledge types. Auto-memory remains available for things fleet doesn't cover — temporary orientation, observations, cross-session hints. Rationale: absolute prohibition blocked a useful safety net for uncovered cases.
+**Decision:** Auto-memory (`MEMORY.md`) is "NOT the answer" / "usually wrong", not "never". The fleet's structured files are primary for every defined knowledge type; auto-memory stays available for what they do not cover (temporary orientation, observations, cross-session hints). **Why:** an absolute ban blocked a useful safety net for uncovered cases.
 
-### sub command: prohibit subagent commits
+### sub command: subagents do not commit
 **Date:** 2026-03-20
-**Decision:** `sub` command prompt says "Do NOT commit, push, or create PRs" — not "Include Co-Authored-By." Main session controls what gets committed.
+**Decision:** The `sub` prompt says "Do NOT commit, push, or create PRs", not "Include Co-Authored-By". **Why:** the main session controls what gets committed.
 
-### Quick commands scope: anywhere in message
+### Quick commands trigger anywhere in the message
 **Date:** 2026-03-20
-**Decision:** Quick command keywords (cls, end, lsd, etc.) trigger "anywhere in their message" not "alone." Enables natural use like "push and cls."
+**Decision:** Quick-command keywords (`cls`, `end`, `lsd`, …) trigger anywhere in the user's message, not only when sent alone. **Why:** allows natural use such as "push and cls".
 
 ### Persona startup: trust hook injection
 **Date:** 2026-03-20
-**Decision:** SessionStart hook injects `PERSONA:` — use that directly. No need to Read `.active-persona` at startup. Saves 2 tool calls per session.
+**Decision:** At startup, use the `PERSONA:` value the SessionStart hook injects; do not Read `.active-persona`. **Why:** saves two tool calls per session.
+
+## Rejected
+
+### Subagent file creation guardrail as a global rule
+**Date:** 2026-03-12
+**Decision:** Rejected as a global CLAUDE.md rule. The `sub` command prompt carries it instead: "Write artifacts to tmp/, not docs/ — return findings as text." **Why:** it then costs tokens only when `sub` is used, and the parent agent promotes artifacts as needed.
