@@ -291,6 +291,27 @@ test_header_default_is_generic() {
 }
 run_test "header is generic when no user is configured" test_header_default_is_generic
 
+# CFG-1080 (the user, 2026-11-19): the reply command names the user's newest message with --reply-to, so a
+# reply passes DND (the client checks #N with the server); no new rule for the model to remember.
+test_reply_line_names_newest_message() {
+    setup_env
+    mkdir -p "$AFD_MSG_DIR"
+    printf '%s\n' '{"id":40,"message":"@cfg-agent-fleet first","timestamp":"t1","persona":""}' \
+                  '{"id":43,"message":"@cfg-agent-fleet second","timestamp":"t2","persona":""}' > "$AFD_MSG_DIR/cfg-agent-fleet.jsonl"
+    run_prompt "hi"
+    assert_contains "$OUT" '--channel telegram --reply-to 43' "Reply via names the newest message (out: $OUT)"
+}
+run_test "CFG-1080: Reply via carries --reply-to <newest message id>" test_reply_line_names_newest_message
+
+test_persona_reply_line_names_message() {
+    setup_env
+    mkdir -p "$AFD_MSG_DIR"
+    printf '%s\n' '{"id":44,"message":"@cfg-agent-fleet hey","timestamp":"t","persona":"Nova"}' > "$AFD_MSG_DIR/cfg-agent-fleet.jsonl"
+    AFD_DEFAULT_PERSONA=Atlas run_prompt "hi"
+    assert_contains "$OUT" '--persona Nova --reply-to 44' "the persona reply line names the message (out: $OUT)"
+}
+run_test "CFG-1080: the persona reply line carries --reply-to too" test_persona_reply_line_names_message
+
 test_persona_channel_from_message() {
     setup_env
     printf '%s\n' '{"id":42,"message":"@cfg-agent-fleet miss you","timestamp":"2026-10-20T01:00","persona":"Nova"}' > "$HOME/pending.jsonl"

@@ -177,14 +177,23 @@ if [[ -x "$AFD_CLI" ]]; then
     done <<< "$MESSAGES"
 
     if [[ -n "$COLLECTED" ]]; then
+      # CFG-1080: name the user's newest message, so the reply passes DND (afd checks #N with the server)
+      REPLY_TO=$(printf '%s\n' "$MESSAGES" | python3 -c 'import json, sys
+ids = []
+for l in sys.stdin:
+    try: i = json.loads(l).get("id")
+    except Exception: continue
+    if isinstance(i, int): ids.append(i)
+print(max(ids) if ids else "")' 2>/dev/null)
+      REPLY_ARG="${REPLY_TO:+ --reply-to $REPLY_TO}"
       echo ""
       echo "=== Telegram from ${AFD_USER_LABEL:-the user} ==="
       echo "$COLLECTED"
       if [[ -n "$LAST_PERSONA" ]]; then
         echo "ACTION: These arrived on the '$LAST_PERSONA' persona channel. Reply as that persona, then switch back."
-        echo "Send reply: afd notify all \"<your reply>\" --channel telegram --persona $LAST_PERSONA"
+        echo "Send reply: afd notify all \"<your reply>\" --channel telegram --persona $LAST_PERSONA$REPLY_ARG"
       else
-        echo "Reply via: afd notify all \"[$ME] your reply\" --channel telegram"
+        echo "Reply via: afd notify all \"[$ME] your reply\" --channel telegram$REPLY_ARG"
       fi
       if [[ "$HAS_UNTAGGED" == "true" ]]; then
         echo "NOTE: message(s) above are not addressed to a project (no @tag); this session got them first. Decide for each whether it is for $ME. If it is, act on it. If not, relay it verbatim to the right session with SendMessage (ListAgents for live sessions; if none is live, file it with inbox-file.sh), and tell the user on Telegram where it went, tagged [$ME]."

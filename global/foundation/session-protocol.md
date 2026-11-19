@@ -76,7 +76,7 @@ The shutdown checklist is in `foundation/session-shutdown.md` — loaded on dema
     - **`present`** → Read fully, include in opening response to user. These are session-start deliverables.
     - **`act`** → Promote to backlog, create inbox items if cross-project, transition to `reference` with `Tracked-by:` — unless surfaced under `STALE_PENDING:`, in which case verify-and-demote first.
     - **`triage`** → Read, promote actionable items to backlog as P0, then delete file.
-    - **`await-user-decision`** → Read, present decision needed to user, note in carry-over items.
+    - **`await-user-decision`** → Read, do yourself every step in it that a tool can do, present only the decisions left to the user, note in carry-over items.
     - **`defer`** → List in session-context.md carry-over items without reading fully. No action needed.
     - **`reference`** → Skip at startup. Do not read or present. Only read when actively working on a `Tracked-by` backlog item and needing deeper context. Delete the file when ALL `Tracked-by` items are closed (`- [x]` in backlog).
     - **`STALE_PENDING:`** → Every `Tracked-by:` ID is `[x]` in the backlog. Check those IDs, then demote the file (→ `reference`, or delete) — never present it as actionable. **`UNTRACKED_PENDING:`** → act/present file with no real `Tracked-by:` — it stays live; file a backlog item and add the header. **`DANGLING_PENDING:`** → a file says it was superseded by / carried into a pending file that does not exist — treat as possible data loss: find the successor in git log or restore the content before touching the pointer.

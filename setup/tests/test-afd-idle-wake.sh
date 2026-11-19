@@ -62,6 +62,8 @@ test_already_queued_wakes_at_once() {
     run_waiter s1 "$HOME/proj-a"
     assert_eq "2" "$RC" "a message already in the local queue wakes"
     assert_contains "$ERR" "queued earlier" "with its text"
+    # CFG-1080: the reply command names the message, so the reply passes DND (client checks #N)
+    assert_contains "$ERR" '--channel telegram --reply-to 502' "Reply via carries --reply-to (stderr: $ERR)"
 }
 run_test "a message already queued locally wakes immediately" test_already_queued_wakes_at_once
 

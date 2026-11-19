@@ -150,7 +150,15 @@ while (( $(date +%s) < DEADLINE )); do
                 { IFS=$'\x1f' read -r ts persona label; msg=$(cat); } < <(afd_delivery_label "$line" "$ME")
                 echo "[$ts] ${persona:+(persona: $persona) }${label:+$label }$msg"
             done <<< "$MESSAGES"
-            echo "Reply via: afd notify all \"[$ME] your reply\" --channel telegram"
+            # CFG-1080: name the user's newest message, so the reply passes DND (afd checks #N with the server)
+            reply_to=$(printf '%s\n' "$MESSAGES" | python3 -c 'import json, sys
+ids = []
+for l in sys.stdin:
+    try: i = json.loads(l).get("id")
+    except Exception: continue
+    if isinstance(i, int): ids.append(i)
+print(max(ids) if ids else "")' 2>/dev/null)
+            echo "Reply via: afd notify all \"[$ME] your reply\" --channel telegram${reply_to:+ --reply-to $reply_to}"
             echo "==="
         } >&2
         exit 2
