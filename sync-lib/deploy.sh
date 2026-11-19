@@ -185,7 +185,7 @@ deploy_settings() {
             return
         fi
         # The tmp file gets the umask mode; settings.json is always 600 (env holds secrets),
-        # which also re-tightens a file an earlier deploy left at 644 (iv-agent-fleet #1).
+        # which also re-tightens a file an earlier deploy left at 644 (a downstream deployment's issue #1).
         chmod 600 "${live}.tmp"
         mv "${live}.tmp" "$live"
         log_info "Deployed settings.json → $live (merged: base hooks/structure + live secrets)"

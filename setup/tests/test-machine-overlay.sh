@@ -29,7 +29,7 @@ cloudhost           vps
 ws*:alice           fedora-home
 ws*:bob             office
 homeserver*:alice   nuc
-corpbook*:carol     ivbook
+corpbook*:carol     corpnb
 MAP
 }
 
@@ -116,23 +116,23 @@ test_detect_nuc() {
     )
 }
 
-test_detect_ivbook() {
+test_detect_corpnb() {
     (
         source_common "$TEST_TMPDIR"
         MACHINE_OVERRIDE="corpbook7051:carol"
         local result
         result=$(detect_machine_dir)
-        assert_eq "ivbook" "$result" "corpbook* + carol should map to ivbook"
+        assert_eq "corpnb" "$result" "corpbook* + carol should map to corpnb"
     )
 }
 
-test_detect_ivbook_wrong_user() {
+test_detect_corpnb_wrong_user() {
     (
         source_common "$TEST_TMPDIR"
         MACHINE_OVERRIDE="corpbook7051:mallory"
         local result
         result=$(detect_machine_dir)
-        assert_eq "" "$result" "corpbook* with another user should not map to ivbook"
+        assert_eq "" "$result" "corpbook* with another user should not map to corpnb"
     )
 }
 
@@ -466,7 +466,7 @@ EOF
         log_warn()  { echo "WARN: $*" >&2; }
         log_error() { echo "ERROR: $*" >&2; }
 
-        # settings.json carries secrets in env: a deploy must keep its 600 (iv-agent-fleet #1, CFG-855)
+        # settings.json carries secrets in env: a deploy must keep its 600 (a downstream deployment's issue #1, CFG-855)
         chmod 644 "$live_dir/settings.json"   # a file an earlier deploy loosened gets re-tightened
         source "$COMMON_SH"
         source "$DEPLOY_SH"
@@ -775,8 +775,8 @@ run_test "detect_machine_dir: ws + alice → fedora-home" test_detect_fedora_hom
 run_test "detect_machine_dir: ws + bob → office" test_detect_office
 run_test "detect_machine_dir: cloudhost → vps" test_detect_vps
 run_test "detect_machine_dir: homeserver + alice → nuc" test_detect_nuc
-run_test "detect_machine_dir: corpbook + carol → ivbook" test_detect_ivbook
-run_test "detect_machine_dir: corpbook + other user → empty" test_detect_ivbook_wrong_user
+run_test "detect_machine_dir: corpbook + carol → corpnb" test_detect_corpnb
+run_test "detect_machine_dir: corpbook + other user → empty" test_detect_corpnb_wrong_user
 run_test "machine-map: first match wins" test_map_first_match_wins
 run_test "machine-map: comments/blank lines ignored" test_map_ignores_comments_and_blank_lines
 run_test "machine-map: FLEET_MACHINE beats map" test_fleet_machine_env_beats_map

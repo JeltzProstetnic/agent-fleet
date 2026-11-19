@@ -1065,10 +1065,10 @@ test_cfg536_foreign_live_lock_still_locked() {
 }
 run_test "CFG-536: check_lock — foreign live lock still locked" test_cfg536_foreign_live_lock_still_locked
 
-# ── CFG-454 ivbook: the ccSessionId proof must be reachable in production ────
+# ── CFG-454 corporate notebook: the ccSessionId proof must be reachable in production ────
 # The ccSessionId match above only ever saw CC_SESSION_ID (exported by
 # config-check.sh, so it exists ONLY inside the SessionStart hook) or
-# CLAUDE_SESSION_ID (set by nothing). The ivbook refusal came from the agent's
+# CLAUDE_SESSION_ID (set by nothing). The corporate-notebook refusal came from the agent's
 # bare `rotate-session.sh` at shutdown — a Bash-tool subprocess, whose env
 # carries the id as CLAUDE_CODE_SESSION_ID (Claude Code sets it per spawn, for
 # hooks and tools alike, to the spawning CC's OWN id). So the proof never fired
@@ -1077,8 +1077,8 @@ run_test "CFG-536: check_lock — foreign live lock still locked" test_cfg536_fo
 # (CFG-468), so the leader read its own lock as foreign whenever any other CC
 # (a follower, a tmux job) was cwd'd in the project.
 
-test_cfg454_ivbook_cc_id_from_claude_code_env() {
-    local proj="$TEST_TMPDIR/p454-ivbook-env"
+test_cfg454_corpnb_cc_id_from_claude_code_env() {
+    local proj="$TEST_TMPDIR/p454-corpnb-env"
     source "$LOCK_SCRIPT"; _cfg454_stub_tree
     _is_pid_alive() { [[ "$1" == "777" ]] && return 0; return 1; }
     _cfg536_lock "$proj" "sess-x" "cc-mine" 777          # alive, unrelated pid
@@ -1087,7 +1087,7 @@ test_cfg454_ivbook_cc_id_from_claude_code_env() {
     local rc=0; check_lock "$proj" 300 || rc=$?
     assert_eq "1" "$rc" "the CC-provided CLAUDE_CODE_SESSION_ID proves ownership of a lock bound to it (measured rc=$rc)"
 }
-run_test "CFG-454: check_lock — ccSessionId proof via CLAUDE_CODE_SESSION_ID (Bash-tool env)" test_cfg454_ivbook_cc_id_from_claude_code_env
+run_test "CFG-454: check_lock — ccSessionId proof via CLAUDE_CODE_SESSION_ID (Bash-tool env)" test_cfg454_corpnb_cc_id_from_claude_code_env
 
 test_cfg454_dead_pid_own_cc_id_with_follower_live() {
     local proj="$TEST_TMPDIR/p454-deadpid-follower"

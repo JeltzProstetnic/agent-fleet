@@ -6,7 +6,7 @@
 #   - missing/empty config            → unknown
 #   - no signal matches               → NETWORK_FALLBACK (coerced to corp|unknown; never dev)
 #
-# Signals come from setup/config/network-signals.conf (populated by Global IT).
+# Signals come from setup/config/network-signals.conf (populated by your IT department).
 # Test/override hooks (used by test-network-detect.sh — keep the unit tests off the real network):
 #   NETDETECT_CONFIG  — path to the signals config (default: ../config/network-signals.conf)
 #   NETDETECT_DNS     — inject the DNS suffix string instead of reading the system

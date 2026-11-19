@@ -351,7 +351,7 @@ test_settings_refusal_says_where_to_edit() {
 }
 run_test "the settings refusal says where to EDIT (template, then sync.sh deploy)" test_settings_refusal_says_where_to_edit
 
-# A PATH that lacks jq (ivbook has none; the Decks lose it on a SteamOS update), built from
+# A PATH that lacks jq (the corporate notebook has none; the Decks lose it on a SteamOS update), built from
 # symlinks to everything else the hook needs, so it works wherever jq is installed.
 _path_without() {   # <dir> <binaries to omit…> → prints the dir
     local d="$1"; shift; mkdir -p "$d"

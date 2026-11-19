@@ -19,7 +19,7 @@ There is no Azure-shaped wrapper to learn and **no dependency to install**.
 | Auth | The API key. **No OAuth, no Azure SDK, no `api-version` query parameter.** |
 
 A working Python client is **~100 lines of stdlib `urllib`**. The `openai` and `azure-*` packages are
-**not required** for this path. The C# provider in `batch_langextract` is a *wire-protocol reference*,
+**not required** for this path. The C# provider in a fleet extraction project is a *wire-protocol reference*,
 not importable code — read it for the header/body shape and then write the client directly.
 
 The practical consequence: do not let "it's on Azure" pull a cloud SDK, a credential chain and a
@@ -51,7 +51,7 @@ python3 ~/cfg-agent-fleet/setup/scripts/azure-ai.py --prompt-file prompt.md \
 
 ## Claude on Amazon Bedrock (Opus 4.7+) is the "Mantle" Messages endpoint
 
-Source: competitor-radar WSL 2026-09-28, verified on platform.claude.com "Claude in Amazon Bedrock (Opus 4.7 and later)".
+Source: a fleet project, WSL 2026-09-28, verified on platform.claude.com "Claude in Amazon Bedrock (Opus 4.7 and later)".
 - Endpoint `https://bedrock-mantle.{region}.api.aws/anthropic/v1/messages`, header `anthropic-version: 2023-06-01`.
 - Model ids `anthropic.<bare>` with **no geo prefix** (e.g. `anthropic.claude-opus-5-5`).
 - Auth: SigV4 service `bedrock-mantle` (IAM `bedrock-mantle:CreateInference`), or a short-term token from
@@ -104,7 +104,7 @@ When an LLM returns a JSON object of translations, a language with its own quota
 2. On `JSONDecodeError`, repair by escaping every `"` that has neither `{`, `,` or `:` before it nor `:`, `,` or `}` after it, ignoring spaces.
 3. Re-validate each value after the repair.
 
-Reference implementation: dealer-prep `dealerprep/i18n_tools.py` `_repair()`.
+Reference implementation: a fleet i18n project's `_repair()` helper.
 
 ---
 

@@ -767,7 +767,7 @@ check_lock() {
     # says (CFG-454): a direct launch records the SessionStart hook's pid, dead
     # seconds later (CFG-468), so without this the leader read its own lock as
     # foreign whenever any other CC — a follower, a tmux job — was cwd'd in the
-    # project (the ivbook refusal), and with nobody else there it deleted its own
+    # project (the corporate-notebook refusal), and with nobody else there it deleted its own
     # lock as stale. Checked before the scan, which it also saves.
     if _lock_bound_to_caller; then
         return 1

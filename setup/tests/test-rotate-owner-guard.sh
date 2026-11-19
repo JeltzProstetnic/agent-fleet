@@ -160,13 +160,13 @@ test_tmux_cc_with_inherited_afleet_id_refused() {
 }
 run_test "CFG-672: tmux-launched CC (inherited AFLEET_SESSION_ID) is refused" test_tmux_cc_with_inherited_afleet_id_refused
 
-test_ivbook_same_cc_id_different_pid_is_owner() {
-    # CFG-454 field case (ivbook 2026-08-11): the lock carried the live
+test_corpnb_same_cc_id_different_pid_is_owner() {
+    # CFG-454 field case (corporate notebook 2026-08-11): the lock carried the live
     # session's ccSessionId and its role marker said leader, but ONLY the pid
     # differed (the recorded pid had changed since the lock was written) —
     # check_lock discriminated on pid and refused the leader as a follower.
     # The ccSessionId must prove ownership before any pid fallback.
-    local dir="$TEST_TMPDIR/proj-ivbook"
+    local dir="$TEST_TMPDIR/proj-corpnb"
     _make_project "$dir"; _mk_fake_cc
     sleep 120 & local lpid=$!      # alive, unrelated to our tree: the "changed" pid
     ( source "$LOCK_LIB"; _write_lock "$dir/.claude/.session-lock" "af-mine" "cc-mine" "$lpid" )
@@ -177,11 +177,11 @@ test_ivbook_same_cc_id_different_pid_is_owner() {
     assert_eq "0" "$rc" "same ccSessionId, different pid ⇒ owner, rotates on the bare command (measured rc=$rc)" || return 1
     assert_file_exists "$dir/session-history.md" "rotation happened for the cc-id-proven owner"
 }
-run_test "CFG-454: same ccSessionId, different pid ⇒ owner, not follower (ivbook)" test_ivbook_same_cc_id_different_pid_is_owner
+run_test "CFG-454: same ccSessionId, different pid ⇒ owner, not follower (corporate notebook)" test_corpnb_same_cc_id_different_pid_is_owner
 
-# ── CFG-454 ivbook, under the env production actually has ─────────────────────
+# ── CFG-454 corporate notebook, under the env production actually has ─────────────────────
 # The test above injects CC_SESSION_ID, which only exists inside the SessionStart
-# hook (config-check.sh exports it there). The ivbook refusal came from the
+# hook (config-check.sh exports it there). The corporate-notebook refusal came from the
 # agent running the bare `rotate-session.sh` through the Bash tool: Claude Code
 # gives that subprocess its session id as CLAUDE_CODE_SESSION_ID and nothing
 # else. These run the real rotate-session.sh with exactly that env.
@@ -204,8 +204,8 @@ _spawn_other_cc() {   # <dir> — a detached fake CC cwd'd in <dir>; echoes its 
     return 1
 }
 
-test_ivbook_real_env_alive_unrelated_pid() {
-    local dir="$TEST_TMPDIR/proj-ivbook-env"
+test_corpnb_real_env_alive_unrelated_pid() {
+    local dir="$TEST_TMPDIR/proj-corpnb-env"
     _make_project "$dir"; _mk_fake_cc
     sleep 120 & local lpid=$!      # alive, unrelated to our tree: the "changed" pid
     ( source "$LOCK_LIB"; _write_lock "$dir/.claude/.session-lock" "af-mine" "cc-mine" "$lpid" )
@@ -215,12 +215,12 @@ test_ivbook_real_env_alive_unrelated_pid() {
     assert_eq "0" "$rc" "the leader (CLAUDE_CODE_SESSION_ID = lock ccSessionId) rotates on the bare command (measured rc=$rc)" || return 1
     assert_file_exists "$dir/session-history.md" "rotation happened for the cc-id-proven owner"
 }
-run_test "CFG-454: ivbook under the Bash-tool env (CLAUDE_CODE_SESSION_ID), live unrelated pid ⇒ owner" test_ivbook_real_env_alive_unrelated_pid
+run_test "CFG-454: corporate notebook under the Bash-tool env (CLAUDE_CODE_SESSION_ID), live unrelated pid ⇒ owner" test_corpnb_real_env_alive_unrelated_pid
 
-test_ivbook_real_env_dead_pid_follower_live() {
+test_corpnb_real_env_dead_pid_follower_live() {
     # A direct launch records the SessionStart hook's pid, which is dead by the
     # time the session shuts down; a follower CC is live in the same project.
-    local dir="$TEST_TMPDIR/proj-ivbook-dead"
+    local dir="$TEST_TMPDIR/proj-corpnb-dead"
     _make_project "$dir"; _mk_fake_cc
     true & local dpid=$!; wait "$dpid" 2>/dev/null || true
     ( source "$LOCK_LIB"; _write_lock "$dir/.claude/.session-lock" "af-mine" "cc-mine" "$dpid" )
@@ -232,7 +232,7 @@ test_ivbook_real_env_dead_pid_follower_live() {
     assert_file_exists "$dir/session-history.md" "rotation happened for the cc-id-proven owner" || return 1
     assert_file_exists "$dir/.claude/.session-lock" "the leader's lock was not removed by the ownership check"
 }
-run_test "CFG-454: ivbook under the Bash-tool env, dead recorded pid + live follower ⇒ owner" test_ivbook_real_env_dead_pid_follower_live
+run_test "CFG-454: corporate notebook under the Bash-tool env, dead recorded pid + live follower ⇒ owner" test_corpnb_real_env_dead_pid_follower_live
 
 test_follower_real_env_dead_pid_leader_live_refused() {
     # Regression guard: the follower's own CLAUDE_CODE_SESSION_ID differs from

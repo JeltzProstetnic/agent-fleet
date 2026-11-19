@@ -123,7 +123,7 @@ To prove a public file carries no personal literal, a test that writes `"alice""
 
 ## 11. A sandboxed error message describes the sandbox, not the machine
 
-Claude Code's Bash sandbox produces environment errors that are false for the machine. The same probe, sandbox on vs off (measured on a corporate WSL2 pilot, 2026-10-26, iv-agent-fleet #6 item 4):
+Claude Code's Bash sandbox produces environment errors that are false for the machine. The same probe, sandbox on vs off (measured on a corporate WSL2 pilot, 2026-10-26, a downstream deployment's issue #6 item 4):
 
 | Probe | Sandboxed | Unsandboxed |
 |---|---|---|

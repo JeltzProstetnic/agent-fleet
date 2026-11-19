@@ -183,7 +183,7 @@ test_live_lock_q_aborts() {
 run_test "live lock + 'q' → abort, no launch" test_live_lock_q_aborts
 
 # ── Case 3: live lock + empty (Enter) → private copy, NOT quit ────────────────
-# CFG-533. Was "Enter = quit". A user new to the fleet (Max Pettinger, 2026-08-21)
+# CFG-533. Was "Enter = quit". A user new to the fleet (2026-08-21)
 # read the prompt, did not know what a worktree was, pressed Enter, and reported
 # the multi-session feature as broken. Enter must now take the safe path, which is
 # the one that loses no work: a private copy. Quitting is the destructive answer

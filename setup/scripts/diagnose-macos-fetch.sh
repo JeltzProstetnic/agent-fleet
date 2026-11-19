@@ -11,7 +11,7 @@
 # fix before you touch anything else.
 #
 # Read-only / idempotent: probes the network + reads PUBLIC Keychain certs,
-# writes only under /tmp. No sudo, no password prompts.
+# writes only under $TMPDIR (default /tmp). No sudo, no password prompts.
 
 set -u
 
@@ -19,8 +19,11 @@ URL="https://registry.npmjs.org/cc-mirror"
 # cc-mirror's `mirror` provider downloads Claude Code itself from Google Cloud
 # Storage, NOT npm. This is the host that actually matters for the variant build.
 GCS="https://storage.googleapis.com/claude-code-dist-86c565f3-f756-42ad-8dfa-d59b1c096819/claude-code-releases/stable"
-FT="/tmp/iv-ft.mjs"
-CA="/tmp/iv-macos-ca.pem"
+# The variant cc-mirror builds (the template's install names it CC_MIRROR_VARIANT).
+VARIANT="${CC_MIRROR_VARIANT:-mclaude}"
+TMPD="${TMPDIR:-/tmp}"
+FT="$TMPD/afdiag-ft.mjs"
+CA="$TMPD/afdiag-macos-ca.pem"
 CURL_OK=0
 NODE_OK=0
 GCS_CURL_OK=0
@@ -29,7 +32,7 @@ GCS_NODE_OK=0
 hr()  { printf '%s\n' "------------------------------------------------------------"; }
 say() { printf '%s\n' "$*"; }
 
-say "=== iv-agent-fleet macOS fetch diagnostic ==="
+say "=== agent-fleet macOS fetch diagnostic ==="
 say "url under test: $URL"
 hr
 
@@ -50,13 +53,13 @@ hr
 
 # [3] curl reachability — macOS curl trusts the Keychain (incl. MDM corp CA) -
 say "[3] curl reachability (macOS Keychain trust)"
-curl_code="$(curl -sS -o /dev/null -w '%{http_code}' --max-time 15 "$URL" 2>/tmp/iv-curl.err)"
+curl_code="$(curl -sS -o /dev/null -w '%{http_code}' --max-time 15 "$URL" 2>$TMPD/afdiag-curl.err)"
 curl_rc=$?
 if [ "$curl_rc" -eq 0 ] && [ "$curl_code" = "200" ]; then
   say "    curl: OK (HTTP $curl_code)"
   CURL_OK=1
 else
-  say "    curl: FAIL (rc=$curl_rc, http=$curl_code) -> $(tr -d '\n' </tmp/iv-curl.err 2>/dev/null)"
+  say "    curl: FAIL (rc=$curl_rc, http=$curl_code) -> $(tr -d '\n' <$TMPD/afdiag-curl.err 2>/dev/null)"
 fi
 hr
 
@@ -86,13 +89,13 @@ hr
 
 # [5] cc-mirror's REAL download host: Google Cloud Storage -------------------
 say "[5] Google Cloud Storage (where cc-mirror downloads Claude Code itself)"
-gcs_curl="$(curl -sS -o /dev/null -w '%{http_code}' --max-time 15 "$GCS" 2>/tmp/iv-gcs.err)"
+gcs_curl="$(curl -sS -o /dev/null -w '%{http_code}' --max-time 15 "$GCS" 2>$TMPD/afdiag-gcs.err)"
 gcs_curl_rc=$?
 if [ "$gcs_curl_rc" -eq 0 ] && printf '%s' "$gcs_curl" | grep -qE '^(200|30[12])$'; then
   say "    curl GCS: OK (HTTP $gcs_curl)"
   GCS_CURL_OK=1
 else
-  say "    curl GCS: FAIL (rc=$gcs_curl_rc, http=$gcs_curl) -> $(tr -d '\n' </tmp/iv-gcs.err 2>/dev/null)"
+  say "    curl GCS: FAIL (rc=$gcs_curl_rc, http=$gcs_curl) -> $(tr -d '\n' <$TMPD/afdiag-gcs.err 2>/dev/null)"
 fi
 gcs_node="$(node "$FT" "$GCS" 2>&1)"
 printf '%s\n' "$gcs_node" | sed 's/^/    node GCS: /'
@@ -123,26 +126,26 @@ say "[6] Verdict"
 if [ "$CURL_OK" -eq 1 ] && [ "$NODE_OK" -eq 0 ]; then
   say "    npm: curl OK but Node fetch FAILS -> corporate TLS interception on npm."
   try_keychain_ca "$URL"
-  say "    Then: cc-mirror quick --provider mirror --name ivclaude --no-tweak --claude-version latest"
+  say "    Then: cc-mirror quick --provider mirror --name $VARIANT --no-tweak --claude-version latest"
 elif [ "$CURL_OK" -eq 0 ] && [ "$NODE_OK" -eq 0 ]; then
   say "    npm unreachable for BOTH curl and Node -> firewall/proxy on npm itself."
   say "    Ask IT for the HTTPS proxy, or point npm at a corp Artifactory. curl err:"
-  say "      $(tr -d '\n' </tmp/iv-curl.err 2>/dev/null)"
+  say "      $(tr -d '\n' <$TMPD/afdiag-curl.err 2>/dev/null)"
 elif [ "$GCS_NODE_OK" -eq 1 ]; then
   say "    npm AND Google Cloud Storage are both reachable from Node. cc-mirror's"
   say "    'fetch failed' is something else (sub-URL or cc-mirror bug). Capture it:"
   say "      npm view cc-mirror version"
-  say "      cc-mirror quick --provider mirror --name ivclaude --no-tweak --claude-version latest"
+  say "      cc-mirror quick --provider mirror --name $VARIANT --no-tweak --claude-version latest"
 elif [ "$GCS_CURL_OK" -eq 0 ]; then
   say "    *** DIAGNOSIS: storage.googleapis.com is BLOCKED on this network. ***"
   say "    npm + git work, but cc-mirror downloads Claude Code from Google Cloud"
   say "    Storage, which is filtered here (curl AND Node both fail to reach it)."
   say "    This is firewall/proxy POLICY — not fixable on the laptop alone."
   say ""
-  say "    -> Send Global IT this allowlist request for Marco's Mac:"
+  say "    -> Send your IT department this allowlist request for this Mac:"
   say "         host:  storage.googleapis.com   (ideally *.googleapis.com)"
   say "         url:   $GCS"
-  say "    Then rerun: cc-mirror quick --provider mirror --name ivclaude --no-tweak --claude-version latest"
+  say "    Then rerun: cc-mirror quick --provider mirror --name $VARIANT --no-tweak --claude-version latest"
 else
   say "    curl reaches GCS but Node does not -> TLS interception scoped to GCS."
   try_keychain_ca "$GCS"

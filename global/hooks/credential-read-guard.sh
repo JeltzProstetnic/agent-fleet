@@ -32,7 +32,7 @@ INPUT=$(cat)
 # until one yields a tool name (SF-A: a tier that cannot parse the payload must not end the
 # hook with "no tool"): jq, then python3 — both real JSON parsers (escapes decoded, key order
 # irrelevant; python writes with surrogatepass so a lone surrogate in a path cannot blank the
-# record), one of the two is on every fleet machine (ivbook has no jq; a Deck loses it on a
+# record), one of the two is on every fleet machine (the corporate notebook has no jq; a Deck loses it on a
 # SteamOS update) — then the textual last resort, which reads only the plain spelling and
 # classifies on the whole payload: it can over-block a Write whose content spells a
 # tool_name, never under-block a Read.

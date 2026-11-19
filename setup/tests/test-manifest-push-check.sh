@@ -146,8 +146,8 @@ test_no_manifest_file_passes_silently() {
     assert_eq "0" "$rc" "repo with no manifest should pass (hook only enforces in cfg)"
 }
 
-# CFG-1054 (2026-11-17): downstream repos (agent-fleet, iv-agent-fleet) ship template-sync-manifest.md but cannot
-# run template-push; the gate blocked an iv-agent-fleet upstream merge commit. Only a repo that has template-push's
+# CFG-1054 (2026-11-17): downstream repos (agent-fleet and its downstream deployments) ship template-sync-manifest.md but cannot
+# run template-push; the gate blocked a downstream deployment's upstream merge commit. Only a repo that has template-push's
 # own config (setup/config/template-push.conf, cfg-only) is enforced.
 test_downstream_repo_without_template_push_conf_passes() {
     local repo="$TEST_TMPDIR/repo-downstream"

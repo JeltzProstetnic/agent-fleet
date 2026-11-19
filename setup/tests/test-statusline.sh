@@ -517,7 +517,7 @@ test_5h_right_aligned_to_width() {
 }
 run_test "5h window: right-aligned to STATUSLINE_WIDTH" test_5h_right_aligned_to_width
 
-test_5h_alignment_counts_wide_chars() {  # Fable review of iv-agent-fleet #4: a wide glyph in free text must not wrap the line
+test_5h_alignment_counts_wide_chars() {  # Fable review of a downstream deployment's issue #4: a wide glyph in free text must not wrap the line
     local h="$TEST_TMPDIR/wide" out w
     mkdir -p "$h/.claude"; echo "Bartl漢字" > "$h/.claude/.active-persona"
     out=$(make_json "TestModel" 10 | add_rl '{"five_hour":{"used_percentage":42,"resets_at":1793000000}}' \
