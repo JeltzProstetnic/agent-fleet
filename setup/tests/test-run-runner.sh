@@ -200,7 +200,7 @@ test_afd_suites_get_no_live_credentials() {
         "$MARKS" > "$R/afd/tests/test-afd-envprobe.sh"
     echo "AFD_URL=https://live.example.invalid" > "$HOME/.afd-env"
     RC=0
-    OUT=$(NO_COLOR=1 AFD_TELEGRAM_BOT_TOKEN=live-bartl AFD_TELEGRAM_ELSA_TOKEN=live-elsa AFD_TELEGRAM_CHAT_ID=4242 \
+    OUT=$(NO_COLOR=1 AFD_TELEGRAM_BOT_TOKEN=live-bot-main AFD_TELEGRAM_ELSA_TOKEN=live-bot-second AFD_TELEGRAM_CHAT_ID=4242 \
         AFD_NTFY_URL=https://ntfy.example.invalid AFD_TOKEN=live-token AFD_URL=https://live.example.invalid \
         bash "$R/setup/tests/run.sh" envprobe </dev/null 2>&1) || RC=$?
     local env_seen; env_seen=$(cat "$MARKS/env" 2>/dev/null)
@@ -445,7 +445,10 @@ test_exclusion_text_cites_backlog_and_no_personal_hosts() {
     run_runner cc-invoke
     local line; line=$(grep 'EXCLUDED' <<<"$OUT")
     assert_contains "$line" "CFG-379" "the exclusion cites the item that tracks making it hermetic"
-    assert_eq "" "$(grep -ioE '\bnuc\b|deck|elsa' <<<"$line")" "the exclusion names no personal host or persona"
+    # the persona names come from the repo's own personas.md: no persona literal in this shipped test (CFG-1085)
+    local pn; pn=$(sed -n 's/^### \([A-Za-z]*\).*/\1/p' "$REPO_ROOT/global/foundation/personas.md" | paste -sd'|')
+    assert_neq "" "$pn" "the persona names are read from personas.md" || return 1
+    assert_eq "" "$(grep -ioE "\\bnuc\\b|deck|\\b($pn)" <<<"$line")" "the exclusion names no personal host or persona ($pn)"
 }
 
 test_setup_failure_reported_without_node() {

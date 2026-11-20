@@ -9,9 +9,10 @@
 # template-push.conf (never copied, and skipped by the leak scan), and the
 # `personal_patterns` gate in the same conf (a hit holds the file back). Any
 # one of the three left behind means the file silently never ships. The gate's
-# patterns are also case-sensitive (`\bBartl\b` never matched `bartl-mail-check`,
-# `\bElsa\b` never matched `elsa-home`), so the persona/host assertions here
-# are case-insensitive on purpose — stricter than the gate, which is the point.
+# patterns used to be case-sensitive (a capitalised persona pattern never matched the lowercase
+# `<persona>-mail-check` filename or `/tmp/<persona>-home`; CFG-1085 fixed the gate), so the
+# persona/host assertions here are case-insensitive on purpose. The persona names come from the
+# repo's own global/foundation/personas.md, so this shipped file names none (CFG-1085).
 set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 source "$REPO_ROOT/setup/tests/test-helpers.sh"
@@ -64,11 +65,12 @@ _ci_hit_count() {   # <repo-relative file> <ERE>
 }
 
 test_07b_has_no_persona_literal() {
-    local n
-    local f
+    local n f pn
+    pn=$(sed -n 's/^### \([A-Za-z]*\).*/\1/p' "$REPO_ROOT/global/foundation/personas.md" | paste -sd'|')
+    assert_neq "" "$pn" "the persona names are read from personas.md" || return 1
     for f in "$HOOK_07B" "$HOOK_07C"; do
-        n="$(_ci_hit_count "$f" 'bartl' | tail -1)"
-        assert_eq "0" "$n" "$f carries no persona literal (measured case-insensitive 'bartl' hits: $n)"
+        n="$(_ci_hit_count "$f" "\\b($pn)" | tail -1)"
+        assert_eq "0" "$n" "$f carries no persona literal (measured case-insensitive '$pn' hits: $n)"
     done
 }
 run_test "07b: no persona literal — neither the mail-check filename nor the output tag" test_07b_has_no_persona_literal

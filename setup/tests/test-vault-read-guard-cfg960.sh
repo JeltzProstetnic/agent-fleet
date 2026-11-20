@@ -370,9 +370,9 @@ test_p28_documented_recipes_pass_the_guard() {
     _fx2
     _allowed 'printf "%s" "$VALUE" | bash ~/cfg-agent-fleet/secrets/vault-manage.sh set nas.pass' "the vault-ops.md set recipe" || return 1
     _allowed "CC_LEADER_CRED_FILE=~/.cc-mirror/mclaude/config/.credentials.json CC_DISTRIBUTE_TARGETS=\$'vps:/root/.claude/.credentials.json' bash ~/cfg-agent-fleet/setup/scripts/cc-distribute-token.sh distribute" "the vps-cc-auth.md distributor" || return 1
-    _allowed "ssh vps 'stat -c \"%y\" /root/.claude/.credentials.json /tmp/elsa-home/.claude/.credentials.json'" "a stat check" || return 1
-    _refused "ssh vps 'diff /root/.claude/.credentials.json /tmp/elsa-home/.claude/.credentials.json'" "a diff prints the token" || return 1
-    _refused "ssh vps 'cp /root/.claude/.credentials.json /tmp/elsa-home/.claude/.credentials.json'" "a cp of the token file" || return 1
+    _allowed "ssh vps 'stat -c \"%y\" /root/.claude/.credentials.json /tmp/bot-home/.claude/.credentials.json'" "a stat check" || return 1
+    _refused "ssh vps 'diff /root/.claude/.credentials.json /tmp/bot-home/.claude/.credentials.json'" "a diff prints the token" || return 1
+    _refused "ssh vps 'cp /root/.claude/.credentials.json /tmp/bot-home/.claude/.credentials.json'" "a cp of the token file" || return 1
     _refused "cat secrets/vault.json" "setup" || return 1
     assert_contains "$OUT" "vault-manage.sh set" "the vault refusal names the set verb (the edit path that needs no plaintext)"
 }
