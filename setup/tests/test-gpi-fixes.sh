@@ -337,4 +337,52 @@ test_clear_dead_keeps_plain_clear_semantics() {
 }
 run_test "CFG-875: the idle reap is confined to clear --dead" test_clear_dead_keeps_plain_clear_semantics
 
+# ═══════════════════════════════════════════════════════════════════════════════
+# CFG-1100: a long-lived service (SearXNG, a dev server) is not a job. It has no progress
+# and never ends, so as the oldest op it won the "longest running" tie-break forever and
+# hid the real jobs (2026-11-21: a search server was shown while a GPU job ran).
+# ═══════════════════════════════════════════════════════════════════════════════
+
+suite_header "CFG-1100: services never take the job display"
+
+test_start_service_records_kind() {
+    gpi start svc "search server :8888" --service
+    gpi start job "GPU render lane"
+    assert_eq "service" "$(gpi_field '.ops.svc.kind')" "--service must record kind=service"
+    assert_eq "null" "$(gpi_field '.ops.job.kind')" "a plain start stays a job"
+}
+run_test "gpi start --service records kind=service" test_start_service_records_kind
+
+test_oldest_service_does_not_hide_newer_job() {
+    gpi start svc "search server :8888" --service
+    gpi start job "GPU render lane"
+    local old_ts=$(($(date +%s) - 172800)) tmp
+    tmp=$(jq --argjson ts "$old_ts" '.ops.svc.started = $ts' "$TEST_TMPDIR/gpi-state.json")
+    echo "$tmp" > "$TEST_TMPDIR/gpi-state.json"
+    local clean
+    clean=$(render_statusline | strip_ansi)
+    assert_contains "$clean" "GPU render lane" "the job must be shown"
+    assert_not_contains "$clean" "search server" "the service must not be shown"
+    assert_not_contains "$clean" "+1" "a service is not counted as another job"
+}
+run_test "an older service does not hide a newer job" test_oldest_service_does_not_hide_newer_job
+
+test_only_service_shows_no_job_segment() {
+    gpi start svc "search server :8888" --service
+    local clean
+    clean=$(render_statusline | strip_ansi)
+    assert_not_contains "$clean" "search server" "a lone service gives no job segment"
+}
+run_test "a lone service shows no job segment" test_only_service_shows_no_job_segment
+
+test_status_marks_service() {
+    gpi start svc "search server :8888" --service
+    gpi start job "GPU render lane"
+    local out
+    out=$(gpi status)
+    assert_contains "$out" "svc: search server :8888 (service)" "status must mark the service"
+    assert_not_contains "$(grep '^  job:' <<<"$out")" "(service)" "a job is not marked"
+}
+run_test "gpi status marks services" test_status_marks_service
+
 suite_summary

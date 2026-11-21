@@ -799,4 +799,31 @@ test_cswap_segment_hotswap_store_default() {
 }
 run_test "cswap segment: a hot-swap store on the default lineage shows the default, unmarked" test_cswap_segment_hotswap_store_default
 
+# CFG-1100 (2026-11-21): the renderer is a Python program inside a bash double-quoted string, so an
+# unescaped backtick, $( or $NAME in it runs in the shell first. A comment holding `gpi status` pasted
+# gpi's live output into the program and the deployed statusline died with an IndentationError —
+# while every test passed, because the sandbox has no gpi on PATH and the substitution came out empty.
+test_program_has_no_shell_expansion() {
+    local prog hits
+    prog=$(awk '/^python3 -c "$/{f=1;next} /^" <<< "\$input"$/{f=0} f' "$SCRIPT_PATH")
+    [[ -n "$prog" ]] || { echo "could not extract the embedded program" >&2; return 1; }
+    hits=$(grep -nE '(^|[^\\])(`|\$[({A-Za-z_])' <<<"$prog" || true)
+    assert_eq "" "$hits" "unescaped shell expansion inside the embedded Python program"
+}
+run_test "embedded Python holds no unescaped backtick, \$( or \$NAME" test_program_has_no_shell_expansion
+
+test_renders_with_noisy_commands_on_path() {
+    # Every command a substitution could name answers with multi-line noise, as the live box does.
+    local stub="$TEST_TMPDIR/noisy-bin" out
+    mkdir -p "$stub"
+    for c in gpi tmux afd git; do
+        printf '#!/usr/bin/env bash\nprintf "  x: y (z)\\n    deeper\\n"\n' > "$stub/$c"; chmod +x "$stub/$c"
+    done
+    out=$(echo '{"model":{"display_name":"Opus"},"context_window":{"used_percentage":10}}' \
+        | PATH="$stub:$PATH" bash "$SCRIPT_PATH" 2>&1 | sed 's/\x1b\[[0-9;]*m//g')
+    assert_not_contains "$out" "Error" "the renderer must not crash"
+    assert_contains "$out" "[Opus]" "the model segment must render"
+}
+run_test "renders with noisy commands on PATH" test_renders_with_noisy_commands_on_path
+
 suite_summary

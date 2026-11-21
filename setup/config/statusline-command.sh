@@ -370,6 +370,8 @@ try:
                     young = (now - (opv.get('started') or now)) <= 10
                     if ca and (now - ca) > 60:
                         expired = True
+                    elif opv.get('kind') == 'service':
+                        pass  # CFG-1100: a server is not a job; gpi status still lists it
                     elif not ca and ts and live is not None and ts not in live and not young:
                         pass
                     else:

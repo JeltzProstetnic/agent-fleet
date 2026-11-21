@@ -2,7 +2,7 @@
 # tmux-launch.sh — Launch a tmux session with automatic GPI registration.
 # Replaces raw `tmux new-session -d` for long-running ops.
 #
-# Usage: tmux-launch.sh <session-name> "<gpi-label>" [--log <path>] [--mem <SIZE>|none]
+# Usage: tmux-launch.sh <session-name> "<gpi-label>" [--log <path>] [--mem <SIZE>|none] [--service]
 #                       [--resource RES[=AMOUNT] [--expect DUR] [--force] [--wait-max DUR]] "<command>"
 #
 # CFG-996 slice 1: --resource runs the job under an AFD lease (e.g. gpu:wsl-4090=8192, MiB). One
@@ -27,7 +27,7 @@
 set -euo pipefail
 
 if [[ $# -lt 3 ]]; then
-    echo "Usage: tmux-launch.sh <session-name> <gpi-label> [--log <path>] [--mem <SIZE>|none] <command>" >&2
+    echo "Usage: tmux-launch.sh <session-name> <gpi-label> [--log <path>] [--mem <SIZE>|none] [--service] <command>" >&2
     exit 1
 fi
 
@@ -44,10 +44,13 @@ fi
 
 LOG_PATH=""
 MEM=""
-RESOURCE="" EXPECT="" FORCE="" WAIT_MAX=""
+RESOURCE="" EXPECT="" FORCE="" WAIT_MAX="" SERVICE=""
 while [[ $# -gt 1 ]]; do
     case "$1" in
         --log) LOG_PATH="$2"; shift 2 ;;
+        # CFG-1100: a long-lived service (SearXNG, a dev server): registered as one, so the
+        # statusline never shows it as a job.
+        --service) SERVICE=1; shift ;;
         --mem) MEM="$2"; shift 2 ;;
         --resource) RESOURCE="$2"; shift 2 ;;
         --expect) EXPECT="$2"; shift 2 ;;
@@ -59,7 +62,7 @@ done
 
 COMMAND="${1:-}"
 if [[ -z "$COMMAND" ]]; then
-    echo "Usage: tmux-launch.sh <session-name> <gpi-label> [--log <path>] [--mem <SIZE>|none] <command>" >&2
+    echo "Usage: tmux-launch.sh <session-name> <gpi-label> [--log <path>] [--mem <SIZE>|none] [--service] <command>" >&2
     exit 1
 fi
 if [[ -n "$MEM" && "$MEM" != none && ! "$MEM" =~ ^[0-9]+[KMGT]?$ ]]; then
@@ -192,6 +195,7 @@ fi
 # statusline can tell a killed job from a quiet one without guessing from the op id.
 GPI_ARGS=("$SESSION" "$LABEL" --tmux "$SESSION")
 [[ -n "$LOG_PATH" ]] && GPI_ARGS+=(--log "$LOG_PATH")
+[[ -n "$SERVICE" ]] && GPI_ARGS+=(--service)
 GPI_STATUS="GPI registered"
 if ! _gpi_err=$(gpi start "${GPI_ARGS[@]}" 2>&1 >/dev/null); then
     GPI_STATUS="GPI registration FAILED"

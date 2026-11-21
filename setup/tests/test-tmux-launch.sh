@@ -267,6 +267,30 @@ MOCKEOF
 }
 run_test "GPI registration called on launch" test_gpi_called
 
+# CFG-1100: a long-lived service is registered as one, so the statusline never shows it as a job.
+test_service_flag_passed_to_gpi() {
+    local session="tl-svc-$$" mock_dir="$TEST_TMPDIR/mockbin-svc" call_log="$TEST_TMPDIR/gpi-svc.log"
+    mkdir -p "$mock_dir"
+    printf '#!/usr/bin/env bash\necho "gpi $*" >> "${GPI_CALL_LOG}"\n' > "$mock_dir/gpi"; chmod +x "$mock_dir/gpi"
+    GPI_CALL_LOG="$call_log" PATH="$mock_dir:$PATH" \
+        bash "$TMUX_LAUNCH" "$session" "a server" --service --log "$TEST_TMPDIR/svc.log" "sleep 5" 2>/dev/null
+    assert_file_contains "$call_log" "start $session a server --tmux $session" "gpi start still called" || return 1
+    assert_file_contains "$call_log" "--service" "--service must reach gpi start" || return 1
+    kill_session "$session"
+}
+run_test "--service is passed to gpi start" test_service_flag_passed_to_gpi
+
+test_job_has_no_service_flag() {
+    local session="tl-job-$$" mock_dir="$TEST_TMPDIR/mockbin-job" call_log="$TEST_TMPDIR/gpi-job.log"
+    mkdir -p "$mock_dir"
+    printf '#!/usr/bin/env bash\necho "gpi $*" >> "${GPI_CALL_LOG}"\n' > "$mock_dir/gpi"; chmod +x "$mock_dir/gpi"
+    GPI_CALL_LOG="$call_log" PATH="$mock_dir:$PATH" \
+        bash "$TMUX_LAUNCH" "$session" "a job" --log "$TEST_TMPDIR/job.log" "sleep 5" 2>/dev/null
+    assert_file_not_contains "$call_log" "--service" "a plain launch is a job"
+    kill_session "$session"
+}
+run_test "a plain launch is not a service" test_job_has_no_service_flag
+
 # 2026-10-22 (infrastructure lrn): finished jobs lingered in the statusline ("[KC passkey suite ...")
 # because nothing marked them done — only "EXIT_CODE: N" went into the log. The job must call
 # `gpi done <session>` itself when its command exits, with and without --log.

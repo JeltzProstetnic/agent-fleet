@@ -4,7 +4,7 @@
 #
 # Usage:
 #   gpi.sh start  <id> <label> [--group <g>] [--seq <n/m>] [--eta <secs>] [--log <path>] [--tmux <session>]
-#                 [--max-age <secs>|none]
+#                 [--max-age <secs>|none] [--service]
 #   gpi.sh update <id> [--pct <0-100>] [--detail <str>] [--eta <secs>]
 #   gpi.sh done   <id>
 #   gpi.sh clear  [--dead | --group <g> | --all]
@@ -121,7 +121,7 @@ cmd_start() {
     local id="$1" label="$2"
     shift 2
     local group="null" seq_index="null" seq_total="null" eta="null" log_path="null" tmux_session="null"
-    local max_age="null"
+    local max_age="null" kind="null"
 
     while [[ $# -gt 0 ]]; do
         case "$1" in
@@ -146,6 +146,9 @@ cmd_start() {
                     *) max_age="$2" ;;
                 esac
                 shift 2 ;;
+            # CFG-1100: a long-lived service (a server, not a job): listed by `status`, never
+            # shown as the statusline's job.
+            --service) kind='"service"'; shift ;;
             *) shift ;;
         esac
     done
@@ -166,6 +169,7 @@ cmd_start() {
             log_path: $log_path,
             tmux_session: $tmux_session,
             max_age: $max_age,
+            kind: $kind,
             updated_at: $now
         }
         | .updated = $now
@@ -298,7 +302,7 @@ cmd_status() {
         return
     fi
     echo "Active operations ($count):"
-    jq -r '.ops | to_entries[] | "  \(.key): \(.value.label) \(if .value.pct then "\(.value.pct)%" else "..." end)\(if .value.seq_index then " [\(.value.seq_index)/\(.value.seq_total)]" else "" end)\(if .value.group then " group=\(.value.group)" else "" end)\(if .value.detail then " \(.value.detail)" else "" end)"' "$STATE_FILE"
+    jq -r '.ops | to_entries[] | "  \(.key): \(.value.label)\(if .value.kind == "service" then "" elif .value.pct then " \(.value.pct)%" else " ..." end)\(if .value.seq_index then " [\(.value.seq_index)/\(.value.seq_total)]" else "" end)\(if .value.group then " group=\(.value.group)" else "" end)\(if .value.detail then " \(.value.detail)" else "" end)\(if .value.kind == "service" then " (service)" else "" end)"' "$STATE_FILE"
 }
 
 # ── Main dispatch ────────────────────────────────────────────────────────────
