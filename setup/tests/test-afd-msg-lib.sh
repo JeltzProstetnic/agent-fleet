@@ -25,7 +25,8 @@ fi
 exit 0
 EOF
     chmod +x "$MOCK_AFD"
-    mkdir -p "$HOME/Alpha" "$HOME/config-repo" "$HOME/beta" "$HOME/gamma-radar"
+    # Projects are git repos (CFG-1103): a bare `.git` dir is enough for _afd_known_projects.
+    mkdir -p "$HOME/Alpha/.git" "$HOME/config-repo/.git" "$HOME/beta/.git" "$HOME/gamma-radar/.git"
     unset _LIB_AFD_MSG_LOADED
     # shellcheck source=/dev/null
     source "$LIB"
@@ -548,9 +549,9 @@ test_short_name() {
     assert_eq "con" "$(afd_short_name config-repo)" "shortest unique prefix, at least 3 chars"
     assert_eq "gam" "$(afd_short_name gamma-radar)" "unique prefix"
     assert_eq "bet" "$(afd_short_name beta)" "3 chars is the floor"
-    mkdir -p "$HOME/abc"
+    mkdir -p "$HOME/abc/.git"
     assert_eq "abc" "$(afd_short_name abc)" "a 3-char name stays whole"
-    mkdir -p "$HOME/conflux"
+    mkdir -p "$HOME/conflux/.git"
     assert_eq "confi" "$(afd_short_name config-repo)" "grows past a shared prefix (conflux)"
     assert_eq "config-repo" "$(_afd_resolve_target "$(afd_short_name config-repo)")" "the suggested tag routes back to the project"
 }
@@ -573,6 +574,45 @@ test_short_name_unroutable() {
     assert_eq "" "$(afd_short_name not-a-known-project)" "no tag that routes: empty"
 }
 run_test "short name: empty when the project does not route" test_short_name_unroutable
+
+# CFG-1103 (2026-11-23): every home folder counted as a project, so a `<name>-backups` sibling made a
+# short @tag ambiguous and the user's line fell to the consumer instead of reaching the project.
+test_non_repo_folder_is_no_project() {
+    setup_env
+    mkdir -p "$HOME/reactor/.git" "$HOME/reactor-backups" "$HOME/Downloads"
+    assert_eq "reactor" "$(_afd_resolve_target rea)" "a folder without .git must not make the prefix ambiguous"
+    assert_eq "reactor" "$(_afd_resolve_target reac)" "nor a longer prefix"
+    assert_eq "" "$(_afd_resolve_target downloads)" "a plain folder is no target, even by its full name"
+    assert_eq "rea" "$(afd_short_name reactor)" "the suggested tag is the short one again"
+    mkdir -p "$HOME/worktree-proj" && : > "$HOME/worktree-proj/.git"
+    assert_eq "worktree-proj" "$(_afd_resolve_target worktree-proj)" "a .git FILE (worktree/submodule) still counts"
+}
+run_test "a folder without .git is no project (<name>-backups case)" test_non_repo_folder_is_no_project
+
+test_routes_tag_past_non_repo_sibling() {
+    setup_env
+    mkdir -p "$HOME/reactor/.git" "$HOME/reactor-backups"
+    pending '{"id":1555,"message":"@rea status?","timestamp":"t","persona":"Bot"}'
+    afd_route_messages "config-repo" >/dev/null
+    assert_contains "$(afd_take_messages "reactor")" '"id":1555' "@rea reaches reactor"
+    assert_not_contains "$(afd_take_messages "config-repo")" '"id":1555' "not the consumer"
+}
+run_test "a short tag reaches its project despite a <name>-backups sibling" test_routes_tag_past_non_repo_sibling
+
+test_real_home_counts_only_repos() {
+    # Real artifact (Pattern 11): this box's own home, where the miss happened. Every name the router
+    # knows must be a folder with a .git; at least one real repo must be known.
+    local known n=0 bad=""
+    known=$(AFD_PROJECT_ROOTS="$REAL_HOME" bash -c 'unset _LIB_AFD_MSG_LOADED; source "$1"; _afd_known_projects' _ "$LIB")
+    while IFS= read -r k; do
+        [[ -n "$k" ]] || continue; n=$((n + 1))
+        local d; d=$(find "$REAL_HOME" -maxdepth 1 -mindepth 1 -type d -iname "$k" -print -quit)
+        [[ -e "$d/.git" ]] || bad="$bad $k"
+    done <<<"$known"
+    assert_neq "0" "$n" "the real home must yield at least one project"
+    assert_eq "" "$bad" "folders without .git counted as projects:$bad"
+}
+run_test "real home: only git repos count as projects" test_real_home_counts_only_repos
 
 # ── CFG-838: a Telegram Reply belongs to the session that SENT the replied-to message ──
 # 2026-10-25: the user replied "Test" to config-repo's info message #529. The server stored

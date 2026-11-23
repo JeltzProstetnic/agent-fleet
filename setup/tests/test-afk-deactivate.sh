@@ -13,7 +13,7 @@ setup_env() {
     export HOME="$TEST_TMPDIR/home"
     export AFD_MSG_DIR="$HOME/.afd-msgs"
     unset AFD_PROJECT_ROOTS   # the live settings env must not leak into the sandbox
-    mkdir -p "$HOME/.local/bin" "$HOME/.claude/logs" "$HOME/OtherProj"
+    mkdir -p "$HOME/.local/bin" "$HOME/.claude/logs" "$HOME/OtherProj/.git"   # a project is a git repo (CFG-1103)
     PROJ="$TEST_TMPDIR/cfg-agent-fleet"
     mkdir -p "$PROJ" && git -C "$PROJ" init -q
     cat > "$HOME/.local/bin/afd" << 'EOF'
@@ -158,7 +158,7 @@ run_test "notification turns still deliver Telegram messages" test_notification_
 
 test_foreign_message_wakes_target() {
     setup_env
-    mkdir -p "$HOME/OtherProj"
+    mkdir -p "$HOME/OtherProj/.git"
     printf '%s\n' '{"id":5,"message":"@otherproj add","timestamp":"2026-10-19T00:20","persona":"Bot"}' > "$HOME/pending.jsonl"
     run_prompt "hi"
     assert_contains "$OUT" "SendMessage" "the model is told to wake the target session (out: $OUT)"

@@ -63,14 +63,16 @@ afd_project_of() {
     basename "$root" | tr '[:upper:]' '[:lower:]'
 }
 
-# _afd_known_projects — lowercased project dir names under $AFD_PROJECT_ROOTS
-# (space-separated dirs, default $HOME).
+# _afd_known_projects — lowercased names of the git repos directly under $AFD_PROJECT_ROOTS
+# (space-separated dirs, default $HOME). CFG-1103: only a dir with a .git (dir or file) is a
+# project — a `<name>-backups` folder once made a short @tag ambiguous and the user's line fell to
+# the consumer.
 _afd_known_projects() {
     local r d
     for r in ${AFD_PROJECT_ROOTS:-$HOME}; do
         [[ -d "$r" ]] || continue
         for d in "$r"/*/; do
-            [[ -d "$d" ]] && basename "$d" | tr '[:upper:]' '[:lower:]'
+            [[ -d "$d" && -e "${d}.git" ]] && basename "$d" | tr '[:upper:]' '[:lower:]'
         done
     done | sort -u
 }

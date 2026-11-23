@@ -1180,7 +1180,7 @@ run_test "AskUserQuestion: routed to Telegram when AFK" test_ask_user_question_r
 test_ask_user_question_hint_uses_short_tag() {
     setup_mock_home
     touch "$MOCK_HOME/.afd-afk"
-    mkdir -p "$MOCK_HOME/config-repo" "$MOCK_HOME/other"
+    mkdir -p "$MOCK_HOME/config-repo/.git" "$MOCK_HOME/other/.git"   # projects are git repos (CFG-1103)
     git -C "$MOCK_HOME/config-repo" init -q
     local json
     json=$(printf '{"tool_name":"AskUserQuestion","cwd":"%s","tool_input":{"question":"Which?"}}' "$MOCK_HOME/config-repo")
@@ -1379,7 +1379,7 @@ test_ask_ignores_other_projects_message() {
     set_afk
     mock_afd_with_messages
     local proj="$TEST_TMPDIR/Alpha"; mkdir -p "$proj"; git -C "$proj" init -q
-    mkdir -p "$MOCK_HOME/beta"
+    mkdir -p "$MOCK_HOME/beta/.git"
     printf '%s\n' '{"id":91,"message":"@beta hello","timestamp":"t","persona":"Bot"}' > "$MOCK_HOME/pending.jsonl"
     local rc=0
     HOOK_AFK_TIMEOUT=1 run_hook_with "$(ask_json "$proj")" || rc=$?
