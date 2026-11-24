@@ -268,6 +268,19 @@ try:
     except Exception:
         cswap_str = ''
 
+    # 7-day weekly usage from CC's own data. CC passes rate_limits.seven_day.{used_percentage,
+    # resets_at} for plan sessions; shown as ' 7d NN%' only when no claude-swap segment is, so a
+    # machine without claude-swap still sees the weekly figure (2026-11-24).
+    week_str = ''
+    if not cswap_str:
+        try:
+            sd = rl.get('seven_day') if isinstance(rl, dict) else None
+            if isinstance(sd, dict):
+                wp = max(0, min(100, int(float(sd['used_percentage']) + 0.5)))
+                week_str = ' ' + band_colour(wp) + '7d ' + str(wp) + '%' + r
+        except Exception:
+            week_str = ''
+
     # GPI (Grind Progress Indicator) — reads state file from gpi.sh
     gpi_str = ''
     gpi_path = os.path.expanduser('~/.claude/.gpi-state.json')
@@ -479,7 +492,7 @@ try:
             pass
 
     core = f'{project_str} [{model}] {c}{bar} {used_k}k/{total_k}k ({pct_int}%){r}'
-    tail = f'{cost_str}{persona_str}{afk_str}{cswap_str}{gpi_str}'
+    tail = f'{cost_str}{persona_str}{afk_str}{cswap_str}{week_str}{gpi_str}'
     left = core + tail
     line = left
     if five_str:

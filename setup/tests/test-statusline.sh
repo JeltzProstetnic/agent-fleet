@@ -826,4 +826,41 @@ test_renders_with_noisy_commands_on_path() {
 }
 run_test "renders with noisy commands on PATH" test_renders_with_noisy_commands_on_path
 
+# ── 7-day weekly usage from CC's own data (rate_limits.seven_day), 2026-11-24 ──
+# CC passes rate_limits.seven_day.{used_percentage,resets_at} for plan sessions. Shown as ' 7d NN%' only
+# when no claude-swap segment is shown, so a machine without claude-swap still sees the weekly figure.
+test_7d_segment_without_cswap() {
+    local h="$TEST_TMPDIR/sevenday1"; mkdir -p "$h"
+    local out; out=$(make_json "TestModel" 10 | add_rl '{"five_hour":{"used_percentage":12,"resets_at":1793000000},"seven_day":{"used_percentage":62.6,"resets_at":1793500000}}' \
+        | HOME="$h" XDG_STATE_HOME= bash "$SCRIPT_PATH")
+    assert_contains "$out" "7d 63%" "without claude-swap the weekly % comes from rate_limits.seven_day (out: $out)"
+}
+run_test "7d segment: weekly % from rate_limits.seven_day when no cswap state" test_7d_segment_without_cswap
+
+test_7d_segment_hidden_when_cswap_shows() {
+    local h="$TEST_TMPDIR/sevenday2"; mkdir -p "$h/.local/state/cswap-fleet"
+    echo '{"activeAccountNumber":1,"accounts":[{"number":1,"alias":"ultra","active":true,"usage":{"sevenDay":{"pct":97.0}}}]}' > "$h/.local/state/cswap-fleet/status.json"
+    local out; out=$(make_json "TestModel" 10 | add_rl '{"seven_day":{"used_percentage":40,"resets_at":1793500000}}' \
+        | HOME="$h" XDG_STATE_HOME= bash "$SCRIPT_PATH")
+    assert_contains "$out" "ultra 97%" "the cswap segment still shows (out: $out)" || return 1
+    assert_not_contains "$out" "7d 40%" "no second weekly figure next to the cswap segment (out: $out)"
+}
+run_test "7d segment: hidden when the cswap segment is shown" test_7d_segment_hidden_when_cswap_shows
+
+test_7d_segment_absent_without_data() {
+    local h="$TEST_TMPDIR/sevenday3"; mkdir -p "$h"
+    local out; out=$(make_json "TestModel" 10 | add_rl '{"five_hour":{"used_percentage":12,"resets_at":1793000000}}' \
+        | HOME="$h" XDG_STATE_HOME= bash "$SCRIPT_PATH")
+    assert_not_contains "$out" "7d " "no seven_day data → no 7d segment (out: $out)"
+}
+run_test "7d segment: omitted when CC sends no seven_day" test_7d_segment_absent_without_data
+
+test_7d_segment_malformed_is_ignored() {
+    local h="$TEST_TMPDIR/sevenday4"; mkdir -p "$h"
+    local out; out=$(make_json "TestModel" 10 | add_rl '{"seven_day":"oops"}' | HOME="$h" XDG_STATE_HOME= bash "$SCRIPT_PATH")
+    assert_not_contains "$out" "7d " "a malformed seven_day is ignored (out: $out)" || return 1
+    assert_not_contains "$out" "[?]" "and the line still renders (out: $out)"
+}
+run_test "7d segment: malformed seven_day leaves the line intact" test_7d_segment_malformed_is_ignored
+
 suite_summary
