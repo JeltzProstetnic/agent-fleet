@@ -135,6 +135,15 @@
             "command": "bash ~/.claude/hooks/safe-run.sh afk-deactivate.sh"
           }
         ]
+      },
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash ~/.claude/hooks/safe-run.sh shutdown-follow.sh"
+          }
+        ]
       }
     ],
     "SessionEnd": [
