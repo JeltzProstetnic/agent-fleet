@@ -102,3 +102,9 @@ vi.mock('recharts', async () => {
 **Pattern:** with two elements carrying the same `id` attached to the document, `el.querySelector('#x')` on the SECOND element's subtree returns `null`. jsdom's selector engine (`@asamuzakjp/dom-selector`, `finder.js` `_findDescendantNodes`) resolves an id lookup through the document, gets the first match, sees it lies outside `el` and gives up. Chrome finds it. Symptom: `Cannot set properties of null` on a freshly built fixture in a test that appends two screens.
 
 **Fix:** detach the first fixture before building the second (or query with `[id="x"]`, which still works). Measured on WSL 2026-11-19.
+
+## A data dir held by a killed server can stop opening
+
+**Pattern:** a PGlite data dir used by a server process that was killed (`kill <pid>`) can fail on the next start with `RuntimeError: Aborted()` from PGlite's exec during `build()`. A fresh `PDP_PGDATA` dir opened at once. Measured pdp WSL 2026-11-24 on a scratch dir.
+
+**Fix:** for throwaway local instances, start on a fresh data dir instead of reusing one a killed process held.
