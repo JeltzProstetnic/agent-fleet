@@ -53,6 +53,160 @@ _to_native_path() {
     fi
 }
 
+# ---- Native Windows bash (MSYS2 / Cygwin / Git Bash) — CFG-335, CFG-1087 ----------------------
+# WSL is Linux and never matches. OSTYPE is `msys` on older Git for Windows and `cygwin` on current
+# ones (2.55 measured 2026-11-25); sync.sh's PLATFORM=windows counts as well.
+_is_native_windows() {
+    [[ "${OSTYPE:-}" == msys* || "${OSTYPE:-}" == cygwin* || "${PLATFORM:-}" == windows ]]
+}
+
+# Where cc-mirror puts the launcher for <variant> (default mclaude): ~/.local/bin/<variant> on
+# Linux/macOS/WSL, ~/.cc-mirror/bin/<variant>.cmd on native Windows (agent-fleet GH#2).
+_cc_launcher_path() {
+    local variant="${1:-mclaude}"
+    if _is_native_windows; then
+        echo "$HOME/.cc-mirror/bin/${variant}.cmd"
+    else
+        echo "$HOME/.local/bin/${variant}"
+    fi
+}
+
+# First existing launcher for <variant>: the platform's own location first, then the other one
+# (cc-mirror versions differ in where they write it). Prints the path; 1 when none exists.
+_cc_launcher_find() {
+    local variant="${1:-mclaude}" c
+    for c in "$(_cc_launcher_path "$variant")" "$HOME/.local/bin/${variant}" "$HOME/.cc-mirror/bin/${variant}.cmd"; do
+        if [[ -f "$c" ]]; then
+            echo "$c"
+            return 0
+        fi
+    done
+    return 1
+}
+
+# ---- Portable link helpers (CFG-335: native Windows) -------------------------------------------
+# On MSYS2/Cygwin without rights `ln -s` silently COPIES, so every `[ -L ]` check fails (agent-fleet
+# GH#2). The mode is chosen once per process by what the host actually allows, cached in
+# _SYMLINK_MODE, and stated by _link_mode_report:
+#   symlink  — real symlinks. Linux/macOS/WSL always (no probe, behaviour unchanged); native Windows
+#              only with Developer Mode or elevation, forced through MSYS=winsymlinks:nativestrict
+#              (`native` would fall back to a copy and hide the failure again).
+#   junction — directories as NTFS junctions (`mklink /J`, no rights needed; bash reports them as
+#              symlinks and `rm` removes only the junction), files as copies.
+#   copy     — everything copied; re-run setup/deploy after repo updates.
+# A caller may pre-set _SYMLINK_MODE (tests, overrides); the probe then does not run.
+_SYMLINK_MODE="${_SYMLINK_MODE:-}"
+_SYMLINK_WHY="${_SYMLINK_WHY:-}"
+
+# ln with native symlinks forced on Windows; the plain call everywhere else.
+_ln_s() {
+    if _is_native_windows; then
+        MSYS=winsymlinks:nativestrict ln "$@"
+    else
+        ln "$@"
+    fi
+}
+
+# _mk_junction <src-dir> <dst> — NTFS directory junction; cmd's mklink wants Windows paths.
+_mk_junction() {
+    cmd //c mklink //J "$(cygpath -w "$2")" "$(cygpath -w "$1")" >/dev/null 2>&1
+}
+
+# Probe the host once; sets _SYMLINK_MODE and _SYMLINK_WHY.
+_probe_link_mode() {
+    if ! _is_native_windows; then
+        _SYMLINK_MODE="symlink"
+        _SYMLINK_WHY="symlinks are native here"
+        return 0
+    fi
+    local t
+    t=$(mktemp -d)
+    echo test > "$t/src"
+    mkdir -p "$t/srcdir"
+    if _ln_s -s "$t/src" "$t/link" 2>/dev/null && [ -L "$t/link" ]; then
+        _SYMLINK_MODE="symlink"
+        _SYMLINK_WHY="native Windows symlinks allowed (Developer Mode or elevated shell)"
+    elif command -v cmd >/dev/null 2>&1 && command -v cygpath >/dev/null 2>&1 \
+            && _mk_junction "$t/srcdir" "$t/junc" && [ -L "$t/junc" ]; then
+        _SYMLINK_MODE="junction"
+        _SYMLINK_WHY="symlinks refused without Developer Mode or elevation; directories become NTFS junctions, files are copied"
+    else
+        _SYMLINK_MODE="copy"
+        _SYMLINK_WHY="neither symlinks nor junctions available; files and directories are copied — re-run setup/deploy after repo updates"
+    fi
+    rm -rf "$t"
+}
+
+# True in symlink mode. Probes on first use.
+_can_symlink() {
+    if [[ -z "$_SYMLINK_MODE" ]]; then
+        _probe_link_mode
+    fi
+    [[ "$_SYMLINK_MODE" == "symlink" ]]
+}
+
+# Prints the mode (symlink | junction | copy). Call outside `$(…)` where the cache should persist.
+_link_mode() {
+    _can_symlink >/dev/null 2>&1 || true
+    printf '%s\n' "$_SYMLINK_MODE"
+}
+
+# Prints the mode and why it was chosen — for the setup/deploy log.
+_link_mode_report() {
+    _can_symlink >/dev/null 2>&1 || true
+    printf '%s — %s\n' "$_SYMLINK_MODE" "${_SYMLINK_WHY:-mode set by caller}"
+}
+
+# _link_file <source> <target> — symlink in symlink mode, copy otherwise
+_link_file() {
+    local src="$1" dst="$2"
+    if _can_symlink; then
+        _ln_s -sf "$src" "$dst"
+    else
+        cp -f "$src" "$dst"
+    fi
+}
+
+# _link_dir <source> <target> — symlink, junction or copy of a directory. A real directory at
+# <target> must be moved aside by the caller first (see sync-lib/setup.sh _replace_dir_with_link).
+_link_dir() {
+    local src="$1" dst="$2"
+    if _can_symlink; then
+        _ln_s -sfn "$src" "$dst"
+    elif [[ "$_SYMLINK_MODE" == "junction" ]]; then
+        if [ -L "$dst" ]; then rm -f "$dst"; fi
+        _mk_junction "$src" "$dst"
+    else
+        rm -rf "$dst"
+        cp -rf "$src" "$dst"
+    fi
+}
+
+# _check_linked <path> — true when <path> is what this mode deploys: a symlink; in junction mode a
+# junction for a directory and an existing file otherwise; in copy mode anything that exists.
+_check_linked() {
+    local path="$1"
+    if _can_symlink; then
+        [ -L "$path" ]
+    elif [[ "$_SYMLINK_MODE" == "junction" && -d "$path" ]]; then
+        [ -L "$path" ]
+    else
+        [ -e "$path" ]
+    fi
+}
+
+# _check_linked_valid <path> — as _check_linked, and the link target exists
+_check_linked_valid() {
+    local path="$1"
+    if _can_symlink; then
+        [ -L "$path" ] && [ -e "$path" ]
+    elif [[ "$_SYMLINK_MODE" == "junction" && -d "$path" ]]; then
+        [ -L "$path" ] && [ -e "$path" ]
+    else
+        [ -e "$path" ]
+    fi
+}
+
 # Portable `timeout`. Usage: _timeout <secs> <cmd> [args...]
 # Same contract as GNU timeout: the command's own exit status, 124 when it had to be
 # killed, 127 when it does not exist. macOS ships no `timeout`, and a bare

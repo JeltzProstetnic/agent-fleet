@@ -50,12 +50,9 @@ source "${SCRIPT_DIR}/lib.sh"
 CC_MIRROR_VARIANT="mclaude"
 CONFIG_DIR="${HOME}/.cc-mirror/${CC_MIRROR_VARIANT}/config"
 SCRIPTS_DIR="${HOME}/.cc-mirror/${CC_MIRROR_VARIANT}/scripts"
-# Platform-aware launcher path (CFG-335)
-if [[ "${OSTYPE}" == msys* || "${OSTYPE}" == cygwin* ]]; then
-    LAUNCHER="${HOME}/.cc-mirror/bin/${CC_MIRROR_VARIANT}.cmd"
-else
-    LAUNCHER="${HOME}/.local/bin/${CC_MIRROR_VARIANT}"
-fi
+# Platform-aware launcher path (CFG-335): ~/.local/bin/<variant>, or ~/.cc-mirror/bin/<variant>.cmd
+# on Git Bash — one definition in lib-portable.sh, shared with install-base.sh
+LAUNCHER="$(_cc_launcher_path "${CC_MIRROR_VARIANT}")"
 
 TOTAL_STEPS=5
 
@@ -733,20 +730,9 @@ configure_platform_settings() {
         echo ""
     fi
 
-    # --- Ensure ~/.local/bin in PATH (needed for afleet, git-credential-mcp) ---
-    # On Linux, most distros add this by default. On MINGW64/Git Bash, it's missing. (CFG-336)
-    if ! echo "$PATH" | tr ':' '\n' | grep -qxF "$HOME/.local/bin"; then
-        local marker="# agent-fleet: local bin path"
-        if ! grep -qF "$marker" "${shellrc}" 2>/dev/null; then
-            backup_file "${shellrc}"
-            if [[ "${DRY_RUN}" == "false" ]]; then
-                printf '\n%s\nexport PATH="$HOME/.local/bin:$PATH"\n' "$marker" >> "${shellrc}"
-                log_success "Added ~/.local/bin to PATH in ${shellrc_name}"
-            else
-                echo -e "${COLOR_YELLOW}[DRY RUN]${COLOR_RESET} Would add ~/.local/bin to PATH in ${shellrc_name}"
-            fi
-        fi
-    fi
+    # --- Ensure ~/.local/bin in PATH (needed for afleet, af, git-credential-mcp) ---
+    # Linux distros usually add it; Git Bash does not (CFG-336). One tested function in lib.sh.
+    ensure_local_bin_path "${shellrc}"
 
     log_success "Platform settings configured"
 

@@ -13,15 +13,17 @@
 #                deploy_afleet (from deploy.sh)
 
 # ---- _replace_dir_with_link <src> <dst> (CFG-700) ----
-# Replace dst with a link (or, in copy mode, a copy) of src. A real directory at dst is
-# moved to <dst>.bak.<epoch> first — in copy mode too, unless it is an unchanged
-# previous copy — because _link_dir's copy mode would otherwise rm -rf unbacked content.
+# Replace dst with a link (symlink or NTFS junction) or, in copy mode, a copy of src. A real
+# directory at dst is moved to <dst>.bak.<epoch> first: a symlink or junction needs the name
+# free (mklink /J refuses an existing directory), and in copy mode _link_dir's rm -rf would
+# otherwise delete unbacked content — unless it is an unchanged previous copy.
 _replace_dir_with_link() {
     local src="$1" dst="$2"
     if [ -L "$dst" ]; then
         rm -f "$dst"
     elif [ -d "$dst" ]; then
-        if _can_symlink || ! diff -rq "$src" "$dst" >/dev/null 2>&1; then
+        _can_symlink >/dev/null 2>&1 || true   # settle the mode in this shell
+        if [[ "$_SYMLINK_MODE" != "copy" ]] || ! diff -rq "$src" "$dst" >/dev/null 2>&1; then
             log_warn "$dst exists as directory — backing up"
             mv "$dst" "${dst}.bak.$(date +%s)"
         fi
@@ -41,6 +43,8 @@ setup_arm_githooks() {
 cmd_setup() {
     log_info "Setting up symlinks from live locations → repo"
     log_info "Platform: $PLATFORM"
+    _can_symlink >/dev/null 2>&1 || true   # probe once, in this shell (CFG-335)
+    log_info "Link mode: $(_link_mode_report)"
 
     # Ensure ~/.claude exists as a real directory (not a symlink)
     if [ -L "$CLAUDE_HOME" ]; then

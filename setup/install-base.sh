@@ -761,13 +761,11 @@ CLAUDE_CODE_VERSION="${CLAUDE_CODE_VERSION:-latest}"
 create_mclaude_variant() {
     log_step 6 "${TOTAL_STEPS}" "Create mclaude Variant"
 
-    # Check if mclaude launcher already exists (platform-aware path, CFG-335)
-    local _launcher_check="${HOME}/.local/bin/mclaude"
-    if [[ "${OSTYPE}" == msys* || "${OSTYPE}" == cygwin* ]]; then
-        _launcher_check="${HOME}/.cc-mirror/bin/mclaude.cmd"
-    fi
-    if [[ -f "$_launcher_check" ]]; then
-        log_info "mclaude launcher already exists at $_launcher_check"
+    # Platform-aware launcher path (CFG-335, agent-fleet GH#2): ~/.local/bin/<variant> on
+    # Linux/macOS/WSL, ~/.cc-mirror/bin/<variant>.cmd on Git Bash; either known location counts.
+    local _launcher
+    if _launcher=$(_cc_launcher_find "${CC_MIRROR_VARIANT}"); then
+        log_info "mclaude launcher already exists at ${_launcher}"
         SKIPPED_STEPS+=("mclaude-variant (already exists)")
         log_success "mclaude variant verified"
         return 0
@@ -794,13 +792,13 @@ create_mclaude_variant() {
 
         INSTALLED_STEPS+=("mclaude-variant")
 
-        # Verify launcher was created
-        if [[ ! -f "${HOME}/.local/bin/${CC_MIRROR_VARIANT}" ]]; then
-            log_error "mclaude launcher not found after creation"
+        # Verify launcher was created — the platform's location first, then the other one
+        if ! _launcher=$(_cc_launcher_find "${CC_MIRROR_VARIANT}"); then
+            log_error "mclaude launcher not found after creation (expected $(_cc_launcher_path "${CC_MIRROR_VARIANT}"))"
             exit 1
         fi
 
-        log_info "mclaude launcher created at ~/.local/bin/${CC_MIRROR_VARIANT}"
+        log_info "mclaude launcher created at ${_launcher}"
     else
         log_info "[DRY RUN] Would run: cc-mirror quick --provider mirror --name ${CC_MIRROR_VARIANT} --no-tweak --claude-version ${CLAUDE_CODE_VERSION}"
         INSTALLED_STEPS+=("mclaude-variant (dry-run)")

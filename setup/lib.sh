@@ -687,6 +687,28 @@ detect_shell_rc_name() {
     basename "$(detect_shell_rc)"
 }
 
+# Ensure ~/.local/bin is on PATH for future shells (CFG-336, agent-fleet GH#3). Linux distros
+# usually add it; Git Bash (MSYS2/Cygwin) does not, and afleet, af and git-credential-mcp live
+# there. Appends a marked block to <shellrc> once; skips when the directory is already on this
+# shell's PATH or the marker is present. Honours DRY_RUN. Git for Windows login shells source
+# ~/.bashrc (its /etc/profile.d/bash_profile.sh creates a ~/.bash_profile that loads it).
+ensure_local_bin_path() {
+    local shellrc="$1" marker="# agent-fleet: local bin path"
+    if echo "$PATH" | tr ':' '\n' | grep -qxF "$HOME/.local/bin"; then
+        return 0
+    fi
+    if grep -qF "$marker" "${shellrc}" 2>/dev/null; then
+        return 0
+    fi
+    backup_file "${shellrc}"
+    if [[ "${DRY_RUN}" == "false" ]]; then
+        printf '\n%s\nexport PATH="$HOME/.local/bin:$PATH"\n' "$marker" >> "${shellrc}"
+        log_success "Added ~/.local/bin to PATH in $(basename "${shellrc}")"
+    else
+        echo -e "${COLOR_YELLOW}[DRY RUN]${COLOR_RESET} Would add ~/.local/bin to PATH in $(basename "${shellrc}")"
+    fi
+}
+
 # ============================================================================
 # ARGUMENT PARSING
 # ============================================================================

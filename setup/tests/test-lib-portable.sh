@@ -162,6 +162,40 @@ else
     echo "  SKIP: needs perl and util-linux script(1)"
 fi
 
+# === native Windows helpers (CFG-335 launcher path, CFG-336 native paths; CFG-1087 slice 1) ===
+# Git for Windows bash: OSTYPE is `msys` (older) or `cygwin` (2.55 measured 2026-11-25); native
+# Windows programs (Python, node) do not understand /c/Users/... — `cygpath -m` gives C:/Users/...;
+# cc-mirror writes the launcher to ~/.cc-mirror/bin/<variant>.cmd there, ~/.local/bin/<variant> elsewhere.
+echo "=== native Windows helpers (CFG-335, CFG-336) ==="
+
+mkdir -p "$TEST_TMPDIR/fakebin"
+printf '#!/usr/bin/env bash\n[ "$1" = -m ] && { echo "C:/conv$2"; exit 0; }\nexit 2\n' > "$TEST_TMPDIR/fakebin/cygpath"
+chmod +x "$TEST_TMPDIR/fakebin/cygpath"
+_np() { ( OSTYPE="$1"; PATH="$TEST_TMPDIR/fakebin:$PATH"; _to_native_path "$2" ); }
+
+assert_eq "_to_native_path is a no-op on Linux" "/tmp/a b/c.json" "$(_np linux-gnu '/tmp/a b/c.json')"
+assert_eq "_to_native_path converts through cygpath -m on msys" "C:/conv/tmp/a b/c.json" "$(_np msys '/tmp/a b/c.json')"
+assert_eq "_to_native_path converts on cygwin too (Git for Windows 2.55 reports OSTYPE=cygwin)" "C:/conv/x" "$(_np cygwin /x)"
+assert_eq "_to_native_path without cygpath returns the input" "/x" "$( OSTYPE=msys; PATH=/nonexistent; _to_native_path /x )"
+
+assert_eq "_is_native_windows: false on linux-gnu" "1" "$( OSTYPE=linux-gnu; unset PLATFORM; _to_rc _is_native_windows )"
+assert_eq "_is_native_windows: true on msys" "0" "$( OSTYPE=msys; _to_rc _is_native_windows )"
+assert_eq "_is_native_windows: true on cygwin" "0" "$( OSTYPE=cygwin; _to_rc _is_native_windows )"
+assert_eq "_is_native_windows: sync.sh's PLATFORM=windows counts too" "0" "$( OSTYPE=linux-gnu; PLATFORM=windows; _to_rc _is_native_windows )"
+assert_eq "_is_native_windows: WSL is not native Windows" "1" "$( OSTYPE=linux-gnu; PLATFORM=wsl; _to_rc _is_native_windows )"
+
+assert_eq "_cc_launcher_path: Linux/macOS/WSL default" "$HOME/.local/bin/mclaude" "$( OSTYPE=linux-gnu; unset PLATFORM; _cc_launcher_path )"
+assert_eq "_cc_launcher_path: Git Bash .cmd launcher" "$HOME/.cc-mirror/bin/mclaude.cmd" "$( OSTYPE=msys; _cc_launcher_path )"
+assert_eq "_cc_launcher_path: variant argument" "$HOME/.cc-mirror/bin/xclaude.cmd" "$( OSTYPE=cygwin; _cc_launcher_path xclaude )"
+
+_h="$TEST_TMPDIR/launcher-home"; mkdir -p "$_h/.local/bin" "$_h/.cc-mirror/bin"
+assert_eq "_cc_launcher_find: nothing installed → rc 1" "1" "$( HOME="$_h"; OSTYPE=msys; _to_rc _cc_launcher_find )"
+touch "$_h/.local/bin/mclaude"
+assert_eq "_cc_launcher_find: accepts the other platform's location" "$_h/.local/bin/mclaude" "$( HOME="$_h"; OSTYPE=msys; _cc_launcher_find )"
+touch "$_h/.cc-mirror/bin/mclaude.cmd"
+assert_eq "_cc_launcher_find: the platform default wins when both exist" "$_h/.cc-mirror/bin/mclaude.cmd" "$( HOME="$_h"; OSTYPE=msys; _cc_launcher_find )"
+assert_eq "_cc_launcher_find: Linux default" "$_h/.local/bin/mclaude" "$( HOME="$_h"; OSTYPE=linux-gnu; unset PLATFORM; _cc_launcher_find )"
+
 # === lib-portable.sh standalone ===
 echo "=== lib-portable.sh standalone ==="
 

@@ -110,4 +110,34 @@ test_deploy_afd_replaces_readonly_client() {
 }
 run_test "deploy_afd replaces a read-only client without GNU-only cp flags" test_deploy_afd_replaces_readonly_client
 
+# CFG-1087 slice 1 (CFG-335): setup states the link mode it chose, and junction mode frees the name
+test_cmd_setup_reports_link_mode() {
+    local body
+    body=$(sed -n '/^cmd_setup()/,/^}/p' "$SETUP_SH")
+    assert_contains "$body" "_link_mode_report" "cmd_setup states the link mode it chose (symlink / junction / copy)"
+}
+run_test "cmd_setup reports the link mode" test_cmd_setup_reports_link_mode
+
+test_junction_mode_identical_dir_is_backed_up() {
+    # Unlike copy mode, a junction cannot be created over an existing directory (mklink /J refuses),
+    # so even an unchanged previous copy has to be moved aside first.
+    (
+        local repo="$TEST_TMPDIR/r-j" home="$TEST_TMPDIR/h-j"
+        mkdir -p "$repo/global/knowledge" "$home"
+        echo "repo" > "$repo/global/knowledge/a.md"
+        cp -r "$repo/global/knowledge" "$home/knowledge"
+        _load "$repo"
+        _SYMLINK_MODE="junction"
+        # stand-in for the junction branch on Linux: fails when the name is taken, like mklink /J
+        _link_dir() { if [ -L "$2" ]; then rm -f "$2"; fi; [ -e "$2" ] && return 1; ln -s "$1" "$2"; }
+        _replace_dir_with_link "$repo/global/knowledge" "$home/knowledge" >/dev/null \
+            || { echo "    _replace_dir_with_link failed: the directory name was not freed for the junction"; return 1; }
+        local n
+        n=$(ls -d "$home"/knowledge.bak.* 2>/dev/null | wc -l)
+        assert_eq "1" "$n" "junction mode: an identical real dir is still backed up (got $n)" || return 1
+        assert_file_exists "$home/knowledge/a.md" "junction mode: repo content deployed"
+    )
+}
+run_test "replace dir: junction mode backs up even an identical real dir" test_junction_mode_identical_dir_is_backed_up
+
 suite_summary

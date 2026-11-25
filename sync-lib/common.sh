@@ -6,8 +6,30 @@
 #   RED, GREEN, YELLOW, NC
 #   log_info, log_warn, log_error (functions)
 
-# Source portable wrappers (_sed_i, _readlink_f, etc.)
-source "${GLOBAL_DIR:-$SCRIPT_DIR/global}/hooks/lib-portable.sh" 2>/dev/null || true
+# Source portable wrappers (_sed_i, _readlink_f, _to_native_path, the link helpers, …) — from the
+# caller's GLOBAL_DIR, else from this repo's own global/hooks (test fixtures point GLOBAL_DIR at a
+# tree without hooks). The link helpers live there (CFG-335 / CFG-1087): one definition in the
+# portability library that hooks, setup/lib.sh and sync-lib all source. Without them nothing
+# below can link, so a missing library is an error, not a silent degradation — raised at the
+# first link call, so commands that never link (template-push, status) still run.
+_COMMON_SH_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+for _lp in "${GLOBAL_DIR:-$SCRIPT_DIR/global}/hooks/lib-portable.sh" "$_COMMON_SH_DIR/../global/hooks/lib-portable.sh"; do
+    if [[ -f "$_lp" ]]; then
+        source "$_lp"
+        break
+    fi
+done
+unset _lp
+if ! declare -F _link_file >/dev/null 2>&1; then
+    _link_helpers_missing() {
+        echo "[ERROR] sync-lib/common.sh: global/hooks/lib-portable.sh (link helpers) not loaded — cannot $1" >&2
+        return 1
+    }
+    for _lh in _can_symlink _link_file _link_dir _check_linked _check_linked_valid _link_mode _link_mode_report; do
+        eval "$_lh() { _link_helpers_missing $_lh; }"
+    done
+    unset _lh
+fi
 
 # cc-mirror root (Claude Code installed via cc-mirror)
 CC_MIRROR_DIR="${CC_MIRROR_DIR:-$HOME/.cc-mirror/mclaude}"
@@ -82,76 +104,10 @@ _extract_manifest_section() {
     ' "$manifest_file" || true
 }
 
-# ---- Portable symlink helpers (CFG-335: Windows/MINGW64 compatibility) ----
-# On MINGW64 without Developer Mode, `ln -s` silently copies instead of creating
-# real symlinks. These helpers detect that and fall back to cp accordingly.
-# Verification checks adapt: _check_linked accepts copies on copy-mode platforms.
-
-_SYMLINK_MODE=""  # "symlink" or "copy" — cached after first test
-
-_can_symlink() {
-    if [[ -n "$_SYMLINK_MODE" ]]; then
-        [[ "$_SYMLINK_MODE" == "symlink" ]]
-        return
-    fi
-    if [[ "${PLATFORM:-}" == "windows" ]]; then
-        # Test actual symlink capability (Developer Mode may enable it)
-        local test_dir
-        test_dir=$(mktemp -d)
-        echo "test" > "$test_dir/src"
-        ln -s "$test_dir/src" "$test_dir/link" 2>/dev/null || true
-        if [ -L "$test_dir/link" ]; then
-            _SYMLINK_MODE="symlink"
-        else
-            _SYMLINK_MODE="copy"
-        fi
-        rm -rf "$test_dir"
-    else
-        _SYMLINK_MODE="symlink"
-    fi
-    [[ "$_SYMLINK_MODE" == "symlink" ]]
-}
-
-# _link_file <source> <target> — symlink or copy a file
-_link_file() {
-    local src="$1" dst="$2"
-    if _can_symlink; then
-        ln -sf "$src" "$dst"
-    else
-        cp -f "$src" "$dst"
-    fi
-}
-
-# _link_dir <source> <target> — symlink or copy a directory
-_link_dir() {
-    local src="$1" dst="$2"
-    if _can_symlink; then
-        ln -sfn "$src" "$dst"
-    else
-        rm -rf "$dst"
-        cp -rf "$src" "$dst"
-    fi
-}
-
-# _check_linked <path> — true if path is a symlink (or exists in copy mode)
-_check_linked() {
-    local path="$1"
-    if _can_symlink; then
-        [ -L "$path" ]
-    else
-        [ -e "$path" ]
-    fi
-}
-
-# _check_linked_valid <path> — true if symlink target exists (or file exists in copy mode)
-_check_linked_valid() {
-    local path="$1"
-    if _can_symlink; then
-        [ -L "$path" ] && [ -e "$path" ]
-    else
-        [ -e "$path" ]
-    fi
-}
+# ---- Portable link helpers (CFG-335) ----
+# _can_symlink, _link_file, _link_dir, _check_linked, _check_linked_valid, _link_mode and
+# _link_mode_report come from global/hooks/lib-portable.sh (sourced above): symlink on Linux/macOS/
+# WSL; on native Windows bash the best mode the host allows — native symlink, NTFS junction, copy.
 
 # ---- Detect machine overlay directory name (CFG-296, data-driven CFG-700) ----
 # Precedence: MACHINE_OVERRIDE="host:user" (test input, resolved through the map)

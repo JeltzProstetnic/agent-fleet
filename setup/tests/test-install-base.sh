@@ -186,5 +186,82 @@ test_dry_run_no_file_changes() {
 }
 run_test "dry run: no file modifications" test_dry_run_no_file_changes
 
+# ── 5. create_mclaude_variant: platform-aware launcher path (CFG-335, CFG-1087 slice 1) ────
+# agent-fleet GH#2: on Git Bash cc-mirror writes ~/.cc-mirror/bin/<variant>.cmd, but the check
+# after creation looked only at ~/.local/bin/<variant> and aborted the install with
+# "mclaude launcher not found after creation". The function must look where the platform puts
+# it — and accept either known location, since cc-mirror versions differ.
+
+build_variant_harness() {
+    cat > "$TEST_TMPDIR/vharness.sh" << 'HARNESS'
+#!/usr/bin/env bash
+set -euo pipefail
+source "$REPO_LIB_PORTABLE"
+TOTAL_STEPS=6; CC_MIRROR_VARIANT=mclaude; CLAUDE_CODE_VERSION=latest; DRY_RUN="${DRY_RUN:-false}"
+INSTALLED_STEPS=(); SKIPPED_STEPS=()
+log_step()    { shift 2; echo "[STEP] $*"; }
+log_info()    { echo "[INFO] $*"; }
+log_warn()    { echo "[WARN] $*"; }
+log_success() { echo "[OK] $*"; }
+log_error()   { echo "[ERROR] $*"; }
+OSTYPE="${FAKE_OSTYPE:-$OSTYPE}"
+HARNESS
+    sed -n '/^create_mclaude_variant()/,/^}/p' "$INSTALL_SCRIPT" >> "$TEST_TMPDIR/vharness.sh"
+    echo 'create_mclaude_variant' >> "$TEST_TMPDIR/vharness.sh"
+    mkdir -p "$TEST_TMPDIR/fakebin"
+    # fake cc-mirror: writes the launcher where FAKE_LAUNCHER says; empty = writes nothing
+    printf '#!/usr/bin/env bash\n[ -n "${FAKE_LAUNCHER:-}" ] || exit 0\nmkdir -p "$(dirname "$FAKE_LAUNCHER")"\necho stub > "$FAKE_LAUNCHER"\n' > "$TEST_TMPDIR/fakebin/cc-mirror"
+    chmod +x "$TEST_TMPDIR/fakebin/cc-mirror"
+}
+
+# run_variant <ostype> <launcher path relative to HOME, or empty> — output in $TEST_TMPDIR/v.log
+run_variant() {
+    local home="$TEST_TMPDIR/vhome"
+    mkdir -p "$home"
+    build_variant_harness
+    local rc=0
+    HOME="$home" FAKE_OSTYPE="$1" FAKE_LAUNCHER="${2:+$home/$2}" \
+        REPO_LIB_PORTABLE="$REPO_ROOT/global/hooks/lib-portable.sh" \
+        PATH="$TEST_TMPDIR/fakebin:$PATH" bash "$TEST_TMPDIR/vharness.sh" > "$TEST_TMPDIR/v.log" 2>&1 || rc=$?
+    return $rc
+}
+
+test_variant_windows_cmd_launcher_accepted() {
+    run_variant msys ".cc-mirror/bin/mclaude.cmd" || { sed 's/^/    | /' "$TEST_TMPDIR/v.log"; echo "    exited non-zero"; return 1; }
+    assert_file_contains "$TEST_TMPDIR/v.log" "mclaude launcher created at" || return 1
+    assert_file_contains "$TEST_TMPDIR/v.log" ".cc-mirror/bin/mclaude.cmd" "the message names the .cmd launcher"
+}
+run_test "Git Bash: the .cmd launcher cc-mirror writes passes the post-creation check" test_variant_windows_cmd_launcher_accepted
+
+test_variant_windows_accepts_other_location() {
+    run_variant msys ".local/bin/mclaude" || { sed 's/^/    | /' "$TEST_TMPDIR/v.log"; echo "    exited non-zero"; return 1; }
+    assert_file_contains "$TEST_TMPDIR/v.log" ".local/bin/mclaude" "the message names where it was found"
+}
+run_test "Git Bash: a launcher at the other known location is accepted and named" test_variant_windows_accepts_other_location
+
+test_variant_linux_unchanged() {
+    run_variant linux-gnu ".local/bin/mclaude" || { sed 's/^/    | /' "$TEST_TMPDIR/v.log"; echo "    exited non-zero"; return 1; }
+    assert_file_contains "$TEST_TMPDIR/v.log" "mclaude launcher created at" || return 1
+    assert_file_contains "$TEST_TMPDIR/v.log" ".local/bin/mclaude"
+}
+run_test "Linux: ~/.local/bin/mclaude still passes (unchanged)" test_variant_linux_unchanged
+
+test_variant_windows_existing_is_skipped() {
+    mkdir -p "$TEST_TMPDIR/vhome/.cc-mirror/bin"
+    echo stub > "$TEST_TMPDIR/vhome/.cc-mirror/bin/mclaude.cmd"
+    run_variant msys "" || { sed 's/^/    | /' "$TEST_TMPDIR/v.log"; echo "    exited non-zero"; return 1; }
+    assert_file_contains "$TEST_TMPDIR/v.log" "already exists" || return 1
+    assert_file_not_contains "$TEST_TMPDIR/v.log" "Creating mclaude variant" "no second cc-mirror run"
+}
+run_test "Git Bash: an existing .cmd launcher is detected and the step skipped" test_variant_windows_existing_is_skipped
+
+test_variant_missing_launcher_still_fails() {
+    local rc=0
+    run_variant msys "" || rc=$?
+    [[ $rc -ne 0 ]] || { echo "    passed although cc-mirror wrote no launcher"; return 1; }
+    assert_file_contains "$TEST_TMPDIR/v.log" "not found after creation"
+}
+run_test "no launcher after cc-mirror → the step still fails loudly" test_variant_missing_launcher_still_fails
+
 # ── Summary ─────────────────────────────────────────────────────────────────
 suite_summary
