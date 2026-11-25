@@ -4,6 +4,9 @@
 # Shared vars used: CONFIG_REPO, WARNINGS, INBOX_MSG, PROJECT_DIR
 # Split from original 07-environment.sh; settings/tools checks remain in 07-environment.sh
 
+# _python3 (lib-portable.sh, loaded by config-check.sh; CFG-1087) — fallback for a standalone source.
+type _python3 >/dev/null 2>&1 || _python3() { python3 "$@"; }
+
 # Check 7b.1: wsl.conf duplicate section validation
 _is_wsl=0
 if [ "${_FORCE_WSL:-}" = "1" ]; then
@@ -21,7 +24,7 @@ if [ "$_is_wsl" -eq 1 ]; then
         if [ -n "$_wsl_dups" ]; then
             _wsl_backup="${_wsl_conf}.bak.$(date +%Y%m%d%H%M%S)"
             cp "$_wsl_conf" "$_wsl_backup"
-            _wsl_merged=$(python3 -c "
+            _wsl_merged=$(_python3 -c "
 import sys, collections
 sections = collections.OrderedDict()
 current = ''
@@ -92,7 +95,7 @@ if [ -n "$MAIL_CHECK_SCRIPT" ] && [ -f "$MAIL_CHECK_SCRIPT" ]; then
     MAIL_CHECK_TAG="${MAIL_CHECK_TAG:-$_mcs_tag}"
     MAIL_OUTPUT=$(timeout 20 bash "$MAIL_CHECK_SCRIPT" --project "$(basename "${PROJECT_DIR:-$PWD}")" 2>/dev/null || true)
     if [ -n "$MAIL_OUTPUT" ]; then
-        MAIL_SUBJECTS=$(echo "$MAIL_OUTPUT" | python3 -c "
+        MAIL_SUBJECTS=$(echo "$MAIL_OUTPUT" | _python3 -c "
 import json,sys
 def s(l):
     try: return json.loads(l).get('subject','?')

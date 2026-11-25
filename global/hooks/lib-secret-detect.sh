@@ -23,6 +23,12 @@
 # The behaviour is exactly what secret-commit-guard.sh did inline before the move
 # (CFG-652/653/662/667/869/890); setup/tests/test-secret-commit-guard.sh pins it.
 
+# _python3 / _have_python3 (lib-portable.sh, CFG-1087): on native Windows a bare python3 can be the
+# Microsoft Store stub; everywhere else they are python3 and `command -v python3`, unchanged.
+source "$(dirname "${BASH_SOURCE[0]}")/lib-portable.sh" 2>/dev/null || true
+type _python3 >/dev/null 2>&1 || _python3() { python3 "$@"; }
+type _have_python3 >/dev/null 2>&1 || _have_python3() { command -v python3 >/dev/null 2>&1; }
+
 [[ "${_LIB_SECRET_DETECT_LOADED:-}" == "true" ]] && return 0
 _LIB_SECRET_DETECT_LOADED="true"
 
@@ -103,7 +109,7 @@ _secret_fp_paths() {  # <repo-root> → sets _SECRET_FP_FILE and _SECRET_SALT_FI
 secret_value_status() {  # <repo-root>
     _secret_fp_paths "$1"
     if [ -s "$_SECRET_FP_FILE" ] && [ -s "$_SECRET_SALT_FILE" ]; then
-        if python3 -c 'import hashlib, re, sys' >/dev/null 2>&1; then echo armed; else echo no-python; fi
+        if _python3 -c 'import hashlib, re, sys' >/dev/null 2>&1; then echo armed; else echo no-python; fi
     else
         echo unconfigured
     fi
@@ -130,8 +136,8 @@ secret_detect() {  # <repo-root>; added lines on stdin
 
     # ── Detector 2: value fingerprints ────────────────────────────────────────
     _secret_fp_paths "$root"
-    if [ -s "$_SECRET_FP_FILE" ] && [ -s "$_SECRET_SALT_FILE" ] && command -v python3 &>/dev/null; then
-        if printf '%s' "$added" | python3 -c "$_SECRET_FP_PY" "$_SECRET_SALT_FILE" "$_SECRET_FP_FILE" 2>/dev/null; then
+    if [ -s "$_SECRET_FP_FILE" ] && [ -s "$_SECRET_SALT_FILE" ] && _have_python3; then
+        if printf '%s' "$added" | _python3 -c "$_SECRET_FP_PY" "$_SECRET_SALT_FILE" "$_SECRET_FP_FILE" 2>/dev/null; then
             hits="${hits:+$hits+}value"
         fi
     fi

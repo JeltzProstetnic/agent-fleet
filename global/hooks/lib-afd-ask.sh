@@ -24,6 +24,11 @@
 # ANSWER_HOW (tagged | redirected | forwarded | rerouted | reply_to | single | confirmed) and, for a
 # forwarded or rerouted answer (CFG-1039), ANSWER_NOTE (where it came from) and ANSWER_FROM.
 
+# _python3 (lib-portable.sh, CFG-1087): on native Windows a bare python3 can be the Microsoft Store
+# stub; everywhere else it is python3, unchanged. Fallback for a hooks dir without the lib.
+source "$(dirname "${BASH_SOURCE[0]}")/lib-portable.sh" 2>/dev/null || true
+type _python3 >/dev/null 2>&1 || _python3() { python3 "$@"; }
+
 [[ "${_LIB_AFD_ASK_LOADED:-}" == "true" ]] && return 0
 source "$(dirname "${BASH_SOURCE[0]}")/lib-afd-msg.sh" || return 1
 source "$(dirname "${BASH_SOURCE[0]}")/lib-afd-scan.sh" || return 1   # the pool scan
@@ -37,7 +42,7 @@ _LIB_AFD_ASK_LOADED="true"
 # [note] (CFG-1039: who forwarded the answer, or why it was routed here) goes into the decision
 # reason and, as additionalContext, to the model.
 afd_ask_map() {
-    printf '%s' "$1" | ANSWER="$2" NOTE="${3:-}" python3 -c '
+    printf '%s' "$1" | ANSWER="$2" NOTE="${3:-}" _python3 -c '
 import json, os, sys
 t = json.load(sys.stdin).get("tool_input", {})
 qs, a = t.get("questions") or [], os.environ["ANSWER"].strip()
@@ -81,7 +86,7 @@ _afd_ask_mark() {
 
 # afd_ask_begin — once the question is sent: count its questions, no claim pending yet.
 afd_ask_begin() {
-    ASK_QN=$(printf '%s' "$INPUT" | python3 -c 'import json,sys; print(len(json.load(sys.stdin).get("tool_input",{}).get("questions") or []) or 1)' 2>/dev/null || echo 1)
+    ASK_QN=$(printf '%s' "$INPUT" | _python3 -c 'import json,sys; print(len(json.load(sys.stdin).get("tool_input",{}).get("questions") or []) or 1)' 2>/dev/null || echo 1)
     ASK_M=""; ASK_C=""; ANSWER=""; ANSWER_ID=""; ANSWER_HOW=""; ANSWER_NOTE=""; ANSWER_FROM=""
 }
 

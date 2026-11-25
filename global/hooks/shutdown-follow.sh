@@ -76,9 +76,13 @@ STATE="$DIR/$PID"
 
 source "$(dirname "${BASH_SOURCE[0]}")/lib-hook-stdin.sh" 2>/dev/null || exit 0
 hook_prompt_is_synthetic "$INPUT" && exit 0   # a harness-delivered turn neither arms nor cancels
+# _python3 (lib-portable.sh, CFG-1087): on native Windows a bare python3 can be the Microsoft Store
+# stub; everywhere else it is python3, unchanged. Loaded here, past the pure-bash fast path.
+source "$(dirname "${BASH_SOURCE[0]}")/lib-portable.sh" 2>/dev/null || true
+type _python3 >/dev/null 2>&1 || _python3() { python3 "$@"; }
 
 # The payload's fields, one python call: session id, transcript path, then the prompt (may span lines).
-FIELDS=$(printf '%s' "$INPUT" | python3 -c '
+FIELDS=$(printf '%s' "$INPUT" | _python3 -c '
 import json, sys
 try: d = json.load(sys.stdin)
 except Exception: d = {}

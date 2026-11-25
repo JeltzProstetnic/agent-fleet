@@ -16,6 +16,11 @@
 # the helpers that decide that, and the pool drain that honours it, live at the end of this file.
 # Sourced by lib-afd-msg.sh; uses its _afd_msg_dir, _afd_known_projects and _afd_marker_live.
 
+# _python3 (lib-portable.sh, CFG-1087): on native Windows a bare python3 can be the Microsoft Store
+# stub; everywhere else it is python3, unchanged. Fallback for a hooks dir without the lib.
+source "$(dirname "${BASH_SOURCE[0]}")/lib-portable.sh" 2>/dev/null || true
+type _python3 >/dev/null 2>&1 || _python3() { python3 "$@"; }
+
 [[ "${_LIB_AFD_POOL_LOADED:-}" == "true" ]] && return 0
 _LIB_AFD_POOL_LOADED="true"
 
@@ -53,7 +58,7 @@ _afd_take_file() {
 # (the tier-2 grace in lib-afd-ask.sh runs from it).
 afd_pool_add() {
     local line
-    line=$(printf '%s' "$1" | python3 -c '
+    line=$(printf '%s' "$1" | _python3 -c '
 import json, sys, time
 d = json.load(sys.stdin); d["pooled"] = int(time.time()); print(json.dumps(d))' 2>/dev/null) || return 0
     [[ -n "$line" ]] && _afd_locked _afd_append_line "$(_afd_pool_file)" "$line"
@@ -76,7 +81,7 @@ afd_queue_first_after() {
     [[ -f "$1" ]] || return 0
     local known=""
     declare -F _afd_known_projects >/dev/null && known=$(_afd_known_projects)
-    KNOWN="$known" WAITING="$(_afd_msg_dir)/.waiting" python3 -c '
+    KNOWN="$known" WAITING="$(_afd_msg_dir)/.waiting" _python3 -c '
 import json, os, re, sys
 me = sys.argv[3] if len(sys.argv) > 3 else ""
 known = [k for k in os.environ.get("KNOWN", "").split("\n") if k]
@@ -126,7 +131,7 @@ for l in open(sys.argv[1]):
 _afd_pool_take_rejected() {
     local f; f="$(_afd_pool_file)"
     [[ -f "$f" && -n "$1" ]] || return 0
-    python3 -c '
+    _python3 -c '
 import json, os, sys, time
 f, live = sys.argv[1], {x for x in sys.argv[2].split("\n") if x}
 keep, take = [], []
@@ -149,7 +154,7 @@ if take:
 # afd_queue_get <file> <id> — the line with exactly that id, or nothing.
 afd_queue_get() {
     [[ -f "$1" ]] || return 0
-    python3 -c '
+    _python3 -c '
 import json, sys
 for l in open(sys.argv[1]):
     try: d = json.loads(l)
@@ -165,7 +170,7 @@ for l in open(sys.argv[1]):
 # append whose 3 s lock wait gave up) is re-appended after the rename, so it is never lost.
 _afd_queue_rewrite() {
     [[ -f "$1" ]] || return 0
-    python3 -c '
+    _python3 -c '
 import json, os, sys, time
 f, want, op, arg = sys.argv[1], int(sys.argv[2]), sys.argv[3], sys.argv[4] if len(sys.argv) > 4 else ""
 keep, moved = [], []
@@ -242,7 +247,7 @@ afd_release_claims_of() {
 _afd_reply_meta() {
     local meta
     [[ "$1" == *reply_to_project* ]] || return 0
-    meta=$(printf '%s' "$1" | python3 -c '
+    meta=$(printf '%s' "$1" | _python3 -c '
 import json, re, sys
 d = json.load(sys.stdin)
 p = str(d.get("reply_to_project") or "").lower()
@@ -284,7 +289,7 @@ _afd_refile_replies() {
     while IFS= read -r line; do
         meta=$(_afd_reply_meta "$line"); origin="${meta%% *}"
         if [[ -n "$origin" && "$origin" != "$me" ]]; then
-            stripped=$(printf '%s' "$line" | python3 -c '
+            stripped=$(printf '%s' "$line" | _python3 -c '
 import json, sys
 d = json.load(sys.stdin); d.pop("pooled", None); d.pop("rejected", None); print(json.dumps(d))' 2>/dev/null)
             _afd_locked _afd_append_line "$(_afd_msg_dir)/$origin.jsonl" "${stripped:-$line}"

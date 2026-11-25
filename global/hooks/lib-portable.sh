@@ -143,6 +143,18 @@ _python3() {
     $_FLEET_PYTHON "$@"
 }
 
+# _have_python3 — the hooks' guard, in place of `command -v python3` (CFG-1087 slice 3). Off native
+# Windows it IS `command -v python3`: same verdict, no probe, so a box without python3 still takes a
+# hook's grep/sed fallback exactly as before. On Git Bash `command -v python3` is true for the Store
+# redirector and would let the broken call through, so there the probe's verdict decides.
+_have_python3() {
+    if _is_native_windows; then
+        _fleet_python >/dev/null 2>&1
+    else
+        command -v python3 >/dev/null 2>&1
+    fi
+}
+
 # Prints the command and the probe verdicts — for the setup/deploy log.
 _python_report() {
     _fleet_python >/dev/null 2>&1 || true

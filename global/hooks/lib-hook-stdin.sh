@@ -24,6 +24,12 @@
 
 # read_cc_session_id — reads and CONSUMES stdin once; echoes the session_id (or "").
 # Call once, early, in a hook (typically: CC_SESSION_ID="$(read_cc_session_id)").
+# _python3 / _have_python3 (lib-portable.sh, CFG-1087): on native Windows a bare python3 can be the
+# Microsoft Store stub; everywhere else they are python3 and `command -v python3`, unchanged.
+source "$(dirname "${BASH_SOURCE[0]}")/lib-portable.sh" 2>/dev/null || true
+type _python3 >/dev/null 2>&1 || _python3() { python3 "$@"; }
+type _have_python3 >/dev/null 2>&1 || _have_python3() { command -v python3 >/dev/null 2>&1; }
+
 read_cc_session_id() {
     # Interactive shell / no piped input — nothing to read, don't block.
     [ -t 0 ] && return 0
@@ -35,8 +41,8 @@ read_cc_session_id() {
     [ -n "$_raw" ] || return 0
 
     local _id=""
-    if command -v python3 >/dev/null 2>&1; then
-        _id="$(printf '%s' "$_raw" | python3 -c '
+    if _have_python3; then
+        _id="$(printf '%s' "$_raw" | _python3 -c '
 import json, sys
 try:
     d = json.load(sys.stdin)
@@ -114,7 +120,7 @@ _session_crons_dir() { printf '%s' "${SESSION_CRONS_DIR:-$HOME/.claude/.session-
 # `session_crons` (older Claude Code) changes nothing. Records idle 8+ days are pruned.
 record_session_crons() {
     [[ -n "${1-}" ]] || return 0
-    printf '%s' "$1" | python3 -c '
+    printf '%s' "$1" | _python3 -c '
 import json, os, re, sys, time
 try:
     d = json.load(sys.stdin)
@@ -152,7 +158,7 @@ os.replace(path + ".tmp", path)' "$(_session_crons_dir)" 2>/dev/null || true
 _hook_prompt_parse() {
     local out nl=$'\n'
     _HOOK_PROMPT=""; _HOOK_PROMPT_SOURCE=""
-    out=$(printf '%s' "${1-}" | python3 -c '
+    out=$(printf '%s' "${1-}" | _python3 -c '
 import json, os, re, sys
 try:
     d = json.load(sys.stdin)

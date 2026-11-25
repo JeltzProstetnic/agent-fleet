@@ -260,16 +260,65 @@ assert_eq "the result is cached: two resolutions and one run invoke the interpre
 cp "$_PYSTUB/none/python3" "$_PYSTUB/store/python3"
 assert_eq "a pre-set _FLEET_PYTHON is honoured without probing" "python" "$( OSTYPE=cygwin; PATH="$_PYSTUB/none:$PATH"; _FLEET_PYTHON=python; _fleet_python )"
 
+# _have_python3 replaces the hooks' `command -v python3` guards (CFG-1087 slice 3). Off native
+# Windows it IS `command -v python3` — same verdict, no probe — so a Linux box without python3
+# still takes the hooks' grep/sed fallbacks exactly as before. On Git Bash `command -v python3`
+# is true for the Store redirector, so there the probe's verdict decides.
+echo "=== _have_python3 (the guard) ==="
+assert_eq "_have_python3 is defined" "function" "$(type -t _have_python3 2>/dev/null || echo missing)"
+rm -f "$_PYSTUB/probes"
+assert_eq "Linux: true when python3 is on PATH" "0" "$(_pyrun linux-gnu "$_PYSTUB/recorder" _to_rc _have_python3)"
+assert_eq "Linux: no probe ran — it is command -v" "0" "$(wc -l < "$_PYSTUB/probes" 2>/dev/null | tr -d ' ' || echo 0)"
+assert_eq "Linux: false when nothing on PATH is called python3" "1" "$( OSTYPE=linux-gnu; unset PLATFORM; PATH="$_PYSTUB/none-at-all"; _FLEET_PYTHON=""; _to_rc _have_python3 )"
+assert_eq "Linux: the Store-shaped stub counts as present (command -v semantics, unchanged)" "0" "$( OSTYPE=linux-gnu; unset PLATFORM; PATH="$_PYSTUB/none"; _FLEET_PYTHON=""; _to_rc _have_python3 )"
+assert_eq "Windows: true when the probe finds an interpreter (python behind the redirector)" "0" "$(_pyrun cygwin "$_PYSTUB/store" _to_rc _have_python3)"
+assert_eq "Windows: false when python3/python/py are all unusable although command -v python3 is true" "1" "$(_pyrun cygwin "$_PYSTUB/none" _to_rc _have_python3)"
+
 # The ported call sites: no bare `python3 …` invocation may remain in these files (comments and
 # apt/brew package names aside) — on Git Bash a bare one hits the Store redirector.
+# Slice 3 adds the hook files: every hook and hook library that runs Python. A `python3 ~/…` inside
+# an INBOX_MSG string is an instruction handed to the model, not a call, and is excused.
 echo "=== no bare python3 left in the ported call sites ==="
 for _f in global/hooks/config-check.sh global/hooks/checks/04-auto-fix.sh sync-lib/setup.sh sync-lib/deploy.sh \
           sync-lib/pre-deploy.sh setup/scripts/afleet.sh setup/scripts/afleet-recover.sh \
           setup/scripts/cc-install-invariants.sh setup/scripts/cc-update.sh \
-          setup/scripts/install-voltagent.sh setup/scripts/install-skill-collections.sh; do
+          setup/scripts/install-voltagent.sh setup/scripts/install-skill-collections.sh \
+          global/hooks/afd-idle-wake.sh global/hooks/afd-relay.sh global/hooks/afk-deactivate.sh \
+          global/hooks/auto-lint.sh global/hooks/checks/06b-lock-knowledge.sh global/hooks/checks/07-environment.sh \
+          global/hooks/checks/07b-platform-env.sh global/hooks/checks/21-fleet-issues.sh \
+          global/hooks/checks/27-unscoped-kill.sh global/hooks/checks/28-azure-ai.sh global/hooks/checks/29-life-awaiting.sh \
+          global/hooks/cloud-publish-guard.sh global/hooks/cloud-routine-guard.sh global/hooks/commit-verify.sh \
+          global/hooks/compound-cd-warn.sh global/hooks/context-budget.sh global/hooks/credential-read-guard.sh \
+          global/hooks/critical-edit-notify.sh global/hooks/email-file-guard.sh global/hooks/kill-guard.sh \
+          global/hooks/lib-afd-ask.sh global/hooks/lib-afd-asked.sh global/hooks/lib-afd-forward.sh \
+          global/hooks/lib-afd-msg.sh global/hooks/lib-afd-pool.sh global/hooks/lib-afd-scan.sh \
+          global/hooks/lib-commit-message-strip.sh global/hooks/lib-commit-scan.sh global/hooks/lib-hook-stdin.sh \
+          global/hooks/lib-prose-strip.sh global/hooks/lib-recipient-comms.sh global/hooks/lib-rule-removal.sh \
+          global/hooks/lib-secret-detect.sh global/hooks/pkill-guard.sh global/hooks/playwright-value-guard.sh \
+          global/hooks/rule-removal-guard.sh global/hooks/secret-commit-guard.sh global/hooks/sent-recently.sh \
+          global/hooks/shutdown-follow.sh global/hooks/tool-install-detect.sh global/hooks/vault-read-guard.sh; do
     # `command -v python3` is NOT excused: it is true on Git Bash (the redirector exists) and is the guard that lets the broken call through.
-    _bare=$(grep -nE '(^|[^_A-Za-z0-9./"-])python3( |$|\))' "$REPO_ROOT/$_f" | grep -vE '^[0-9]+:[[:space:]]*#' | grep -vE '_python3|_fleet_python|"python3"|^[0-9]+:[[:space:]]*python3$' || true)
+    # Excused: whole-line and trailing comments (a ` # …` tail without quotes), and plain `echo "…"` messages that name python3.
+    _bare=$(grep -nE '(^|[^_A-Za-z0-9./"-])python3( |$|\))' "$REPO_ROOT/$_f" \
+            | sed -E "s/[[:space:]]#[^\"']*\$//" | grep -E '(^|[^_A-Za-z0-9./"-])python3( |$|\))' \
+            | grep -vE '^[0-9]+:[[:space:]]*#' \
+            | grep -vE '_python3|_fleet_python|"python3"|^[0-9]+:[[:space:]]*python3$|INBOX_MSG=.*python3 ~/|^[0-9]+:[[:space:]]*echo "[^$]*$' || true)
     assert_eq "no bare python3 call in $_f" "" "$_bare"
+done
+
+# Every hook that runs Python must reach _python3 even where lib-portable.sh is not beside it (a
+# fixture hooks dir, a partial deploy): it either sources lib-portable.sh itself, is a checks/ module
+# (config-check.sh loads the lib before sourcing it), or defines the Linux fallback.
+echo "=== every ported hook can resolve _python3 ==="
+for _f in "$REPO_ROOT"/global/hooks/*.sh "$REPO_ROOT"/global/hooks/checks/*.sh; do
+    grep -qE '(^|[^_A-Za-z])_python3|_have_python3|_fleet_python' "$_f" || continue
+    [[ "$(basename "$_f")" == lib-portable.sh ]] && continue
+    if grep -qE 'lib-portable\.sh' "$_f" || grep -qE '_python3\(\) \{ python3 "\$@"; \}' "$_f" || [[ "$_f" == */hooks/checks/* ]]; then
+        _ok=yes
+    else
+        _ok="no source of lib-portable.sh and no fallback"
+    fi
+    assert_eq "${_f#"$REPO_ROOT/"} reaches _python3" "yes" "$_ok"
 done
 
 # === lib-portable.sh standalone ===

@@ -361,6 +361,82 @@ EOF
 }
 _win_case "cc-install-invariants.sh finds ~/.cc-mirror/bin/mclaude.cmd and reports it (no false LAUNCHER FAIL)" test_cmd_launcher_invariants_real
 
+# ── 11. installer prerequisites on the metal (slice 3) ─────────────────────────────────────
+# Decision 2026-11-20: admin rights and the PowerShell rights the fleet needs are prerequisites — checked
+# and stated, never worked around. This host runs the probe NOT elevated with an effective policy of Restricted
+# (measured 2026-11-25: every scope Undefined), so the real check must report both as missing and
+# stop with exit 3. The assertions are written against what the check itself measured, so the
+# suite also passes on an elevated host with RemoteSigned.
+test_prerequisites_real() {
+    _stage_repo
+    cp "$REPO_ROOT/setup/preflight.sh" "$WT/repo/setup/"
+    cat > "$WT/t11.sh" <<'EOF'
+#!/usr/bin/env bash
+bash "$HOME/repo/setup/preflight.sh" --prerequisites-only --no-color; echo "prereq_rc=$?"
+echo "raw_net_session_rc=$(net session >/dev/null 2>&1; echo $?)"
+EOF
+    local out rc summary elevated policy
+    out=$(_gb t11.sh)
+    echo "$out" | sed 's/^/    | /'
+    rc=$(echo "$out" | sed -n 's/^prereq_rc=//p')
+    summary=$(echo "$out" | grep 'PREREQ: ' | tail -1)
+    [[ -n "$summary" ]] || { echo "    no PREREQ summary line"; return 1; }
+    elevated=$(echo "$summary" | sed -n 's/.*elevated=\([a-z]*\).*/\1/p')
+    policy=$(echo "$summary" | sed -n 's/.*policy=\([A-Za-z]*\).*/\1/p')
+    echo "    measured on this host: elevated=$elevated effective policy=$policy rc=$rc"
+    local s
+    for s in MachinePolicy UserPolicy Process CurrentUser LocalMachine; do
+        assert_contains "$out" "ExecutionPolicy $s = " "scope $s is stated" || return 1
+    done
+    local want_rc=0 want_result=ok
+    if [[ "$elevated" == no ]]; then
+        assert_contains "$out" "[FAIL] Administrator rights" "not elevated → stated as missing" || return 1
+        assert_contains "$out" "Run as administrator" "with the one thing to do" || return 1
+        want_rc=3; want_result=missing
+    else
+        assert_contains "$out" "[PASS] Administrator rights" "" || return 1
+    fi
+    case "$policy" in
+        RemoteSigned|Unrestricted|Bypass) assert_contains "$out" "[PASS] PowerShell execution policy" "" || return 1 ;;
+        *)  assert_contains "$out" "[FAIL] PowerShell execution policy" "effective $policy → stated as missing" || return 1
+            assert_contains_any "$out" "Set-ExecutionPolicy -Scope CurrentUser RemoteSigned" "Group Policy" || return 1
+            want_rc=3; want_result=missing ;;
+    esac
+    assert_eq "$want_rc" "$rc" "exit code matches what was measured (elevated=$elevated, policy=$policy)" || return 1
+    assert_contains "$summary" "result=$want_result" "" || return 1
+    # consistency with the raw probe the check builds on
+    local raw; raw=$(echo "$out" | sed -n 's/^raw_net_session_rc=//p')
+    if [[ "$raw" == 0 ]]; then assert_eq "yes" "$elevated" "net session succeeded, so the check must say elevated"; fi
+    assert_not_contains "$out" "--- Commands ---" "only the prerequisites ran"
+}
+_win_case "installer prerequisites (admin + execution policy) are measured, stated per scope, and stop with exit 3 when missing" test_prerequisites_real
+
+# ── 12. a ported hook runs on the metal (slice 3: _python3 in hooks) ────────────────────────
+# compound-cd-warn.sh must BLOCK a `cd x && cmd`. With a bare python3 it silently exited 0 on this
+# host, because python3 is the Store redirector (exit 0, no JSON parsed → empty command).
+test_ported_hook_real() {
+    _stage_repo
+    cp "$REPO_ROOT/global/hooks/compound-cd-warn.sh" "$REPO_ROOT/global/hooks/lib-hook-stdin.sh" "$WT/repo/global/hooks/"
+    cat > "$WT/t12.sh" <<'EOF'
+#!/usr/bin/env bash
+H="$HOME/repo/global/hooks"
+echo "raw_python3=[$(python3 --version 2>&1 </dev/null | head -1)]"
+printf '%s' '{"tool_name":"Bash","tool_input":{"command":"cd /tmp && ls"}}' | bash "$H/compound-cd-warn.sh" >/dev/null 2>"$HOME/err.txt"; echo "compound_rc=$?"
+echo "compound_err=$(head -c 80 "$HOME/err.txt")"
+printf '%s' '{"tool_name":"Bash","tool_input":{"command":"ls /tmp"}}' | bash "$H/compound-cd-warn.sh" >/dev/null 2>&1; echo "plain_rc=$?"
+source "$H/lib-hook-stdin.sh"
+echo "session_id=$(printf '%s' '{"session_id":"abc-123","prompt":"hi"}' | read_cc_session_id)"
+EOF
+    local out
+    out=$(_gb t12.sh)
+    echo "$out" | sed 's/^/    | /'
+    assert_contains "$out" "compound_rc=2" 'compound-cd-warn blocks "cd … && …" under Git Bash (python resolved past the Store stub)' || return 1
+    assert_contains "$out" "compound_err=compound-cd-warn" "and says why" || return 1
+    assert_contains "$out" "plain_rc=0" "a plain command passes" || return 1
+    assert_contains "$out" "session_id=abc-123" "lib-hook-stdin parses the session id through the resolved Python"
+}
+_win_case "a ported hook (compound-cd-warn) and lib-hook-stdin work under Git Bash with the Store stub on PATH" test_ported_hook_real
+
 # ── 10. nothing left behind outside the throwaway dir ───────────────────────────────────────
 test_throwaway_only() {
     [[ -d "$WT" ]] || { echo "    throwaway dir missing"; return 1; }

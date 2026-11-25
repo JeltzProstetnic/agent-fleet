@@ -20,8 +20,10 @@
 #   --verbose, -v      Pass verbose mode to sub-scripts
 #   --no-color         Disable colored output
 #   --reconfigure-mcp  Force re-prompting for MCP credentials
-#   --skip-preflight   Skip pre-installation system checks
+#   --skip-preflight   Skip pre-installation system checks (native Windows prerequisites still run)
 #   --rollback         Restore from most recent backup (does not install)
+#
+# Exit codes: 0 ok, 1 failure, 3 a native Windows prerequisite is missing (CFG-1087)
 #   --help, -h         Show this help message
 #
 
@@ -137,7 +139,8 @@ OPTIONS:
   --verbose, -v      Show detailed output from sub-scripts
   --no-color         Disable colored output
   --reconfigure-mcp  Force re-prompting for MCP credentials in Phase 2
-  --skip-preflight   Skip pre-installation system checks
+  --skip-preflight   Skip pre-installation system checks (the native Windows
+                     prerequisites — admin rights, execution policy — still run)
   --rollback         Restore from most recent backup (does not install)
   --help, -h         Show this help message
 
@@ -232,19 +235,29 @@ fi
 # PREFLIGHT CHECKS
 # ============================================================================
 
-if [[ "${SKIP_PREFLIGHT}" != "true" ]]; then
-    PREFLIGHT_SCRIPT="${SCRIPT_DIR}/preflight.sh"
-    if [[ -f "${PREFLIGHT_SCRIPT}" ]]; then
-        PREFLIGHT_ARGS=()
-        [[ "${NO_COLOR:-false}" == "true" ]] && PREFLIGHT_ARGS+=(--no-color)
-        if ! bash "${PREFLIGHT_SCRIPT}" "${PREFLIGHT_ARGS[@]+"${PREFLIGHT_ARGS[@]}"}"; then
-            echo ""
-            echo "Preflight checks failed. Fix the issues above, then re-run install.sh."
-            echo "Or use --skip-preflight to bypass these checks."
-            exit 1
-        fi
+# The native Windows prerequisites (CFG-1087: admin rights, PowerShell execution policy) are never
+# skipped — --skip-preflight bypasses the advisory checks only, so it runs preflight.sh with
+# --prerequisites-only (a no-op off native Windows). Exit 3 from preflight = a prerequisite is
+# missing; preflight has already said what and the one thing to do, and there is no bypass.
+PREFLIGHT_SCRIPT="${SCRIPT_DIR}/preflight.sh"
+if [[ -f "${PREFLIGHT_SCRIPT}" ]]; then
+    PREFLIGHT_ARGS=()
+    [[ "${NO_COLOR:-false}" == "true" ]] && PREFLIGHT_ARGS+=(--no-color)
+    [[ "${SKIP_PREFLIGHT}" == "true" ]] && PREFLIGHT_ARGS+=(--prerequisites-only)
+    _preflight_rc=0
+    bash "${PREFLIGHT_SCRIPT}" "${PREFLIGHT_ARGS[@]+"${PREFLIGHT_ARGS[@]}"}" || _preflight_rc=$?
+    if [[ "${_preflight_rc}" -eq 3 ]]; then
         echo ""
+        echo "A native Windows prerequisite is missing (see above). Apply it, then re-run the installer."
+        echo "There is no way around it: --skip-preflight does not skip prerequisites."
+        exit 3
+    elif [[ "${_preflight_rc}" -ne 0 ]]; then
+        echo ""
+        echo "Preflight checks failed. Fix the issues above, then re-run install.sh."
+        echo "Or use --skip-preflight to bypass these checks."
+        exit 1
     fi
+    [[ "${SKIP_PREFLIGHT}" == "true" ]] || echo ""
 fi
 
 # ============================================================================

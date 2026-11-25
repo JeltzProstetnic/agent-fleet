@@ -17,6 +17,11 @@
 # 0); a Reply to anything else stays pooled for an ordinary delivery. No apostrophes inside the
 # program below: it lives in a single-quoted bash string.
 
+# _python3 (lib-portable.sh, CFG-1087): on native Windows a bare python3 can be the Microsoft Store
+# stub; everywhere else it is python3, unchanged. Fallback for a hooks dir without the lib.
+source "$(dirname "${BASH_SOURCE[0]}")/lib-portable.sh" 2>/dev/null || true
+type _python3 >/dev/null 2>&1 || _python3() { python3 "$@"; }
+
 [[ "${_LIB_AFD_SCAN_LOADED:-}" == "true" ]] && return 0
 _LIB_AFD_SCAN_LOADED="true"
 
@@ -161,5 +166,5 @@ elif r: print(r[0][0], r[0][1] or "-", r[1])
 _afd_ask_scan() {
     POOL="$(_afd_pool_file)" MSGDIR="$(_afd_msg_dir)" ME="$ME" MYPID="$$" Q="$NOTIF_ID" \
     C="${ASK_C:-0}" M="${ASK_M:-0}" GRACE="${AFD_ASK_GRACE:-20}" QN="${ASK_QN:-1}" \
-    KNOWN="$(_afd_known_projects)" python3 -c "$_AFD_ASK_SCAN_PY" "$1" 2>/dev/null
+    KNOWN="$(_afd_known_projects)" _python3 -c "$_AFD_ASK_SCAN_PY" "$1" 2>/dev/null
 }

@@ -9,6 +9,11 @@
 #
 # Exit 0 with empty stdout everywhere else, so there is no UI noise.
 
+# _python3 (lib-portable.sh, CFG-1087): on native Windows a bare python3 can be the Microsoft Store
+# stub; everywhere else it is python3, unchanged. Fallback for a hooks dir without the lib.
+source "$(dirname "${BASH_SOURCE[0]}")/lib-portable.sh" 2>/dev/null || true
+type _python3 >/dev/null 2>&1 || _python3() { python3 "$@"; }
+
 INPUT=$(cat)
 
 case "$INPUT" in
@@ -16,7 +21,7 @@ case "$INPUT" in
     *) exit 0 ;;
 esac
 
-CMD=$(printf '%s' "$INPUT" | python3 -c 'import json,sys
+CMD=$(printf '%s' "$INPUT" | _python3 -c 'import json,sys
 try: print(json.load(sys.stdin).get("tool_input",{}).get("command",""))
 except Exception: pass' 2>/dev/null)
 [ -n "$CMD" ] || exit 0

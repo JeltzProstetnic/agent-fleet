@@ -1,15 +1,20 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# _python3 (lib-portable.sh, CFG-1087): on native Windows a bare python3 can be the Microsoft Store
+# stub; everywhere else it is python3, unchanged. Fallback for a hooks dir without the lib.
+source "$(dirname "${BASH_SOURCE[0]}")/lib-portable.sh" 2>/dev/null || true
+type _python3 >/dev/null 2>&1 || _python3() { python3 "$@"; }
+
 INPUT=$(cat)
 
-TOOL_NAME=$(echo "$INPUT" | python3 -c "import sys,json; print(json.load(sys.stdin).get('tool_name',''))" 2>/dev/null) || exit 0
+TOOL_NAME=$(echo "$INPUT" | _python3 -c "import sys,json; print(json.load(sys.stdin).get('tool_name',''))" 2>/dev/null) || exit 0
 case "$TOOL_NAME" in
     Write|Edit) ;;
     *) exit 0 ;;
 esac
 
-FILE_PATH=$(echo "$INPUT" | python3 -c "import sys,json; print(json.load(sys.stdin).get('tool_input',{}).get('file_path',''))" 2>/dev/null) || exit 0
+FILE_PATH=$(echo "$INPUT" | _python3 -c "import sys,json; print(json.load(sys.stdin).get('tool_input',{}).get('file_path',''))" 2>/dev/null) || exit 0
 [ -n "$FILE_PATH" ] || exit 0
 
 # Classify tier: T1 = critical infrastructure, T2 = deploy-sensitive
@@ -43,7 +48,7 @@ else
     MSG="TIER 2 — review recommended: ${BASENAME} — commit immediately to prevent cross-machine divergence."
 fi
 
-python3 -c "
+_python3 -c "
 import json, sys
 print(json.dumps({'continue': True, 'additionalContext': sys.argv[1]}))
 " "$MSG"

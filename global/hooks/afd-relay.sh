@@ -18,6 +18,11 @@
 # Protocol: exit 0 with empty stdout = allow; exit 2 with stderr = deny
 
 # Read stdin first (must drain pipe before any exit)
+# _python3 (lib-portable.sh, CFG-1087): on native Windows a bare python3 can be the Microsoft Store
+# stub; everywhere else it is python3, unchanged. Fallback for a hooks dir without the lib.
+source "$(dirname "${BASH_SOURCE[0]}")/lib-portable.sh" 2>/dev/null || true
+type _python3 >/dev/null 2>&1 || _python3() { python3 "$@"; }
+
 INPUT=$(cat)
 
 # AskUserQuestion: route to Telegram when AFK (CFG-323)
@@ -44,7 +49,7 @@ if [[ "$INPUT" == *'"tool_name":"AskUserQuestion"'* || "$INPUT" == *'"tool_name"
     # CFG-1034: the wait (15 min in a care shift, else 45) and the record of every relayed
     # question and its outcome, which a Telegram `re-ask` reads (lib-afd-asked.sh).
     source "$(dirname "${BASH_SOURCE[0]}")/lib-afd-asked.sh" 2>/dev/null || true
-    CWD=$(echo "$INPUT" | python3 -c "import sys,json; print(json.load(sys.stdin).get('cwd',''))" 2>/dev/null)
+    CWD=$(echo "$INPUT" | _python3 -c "import sys,json; print(json.load(sys.stdin).get('cwd',''))" 2>/dev/null)
     ME=$(afd_project_of "${CWD:-$PWD}" 2>/dev/null || basename "${CWD:-$PWD}")
     ASK_SID=""
     [[ "$INPUT" =~ \"session_id\"[[:space:]]*:[[:space:]]*\"([^\"]+)\" ]] && ASK_SID="${BASH_REMATCH[1]}"
@@ -56,7 +61,7 @@ if [[ "$INPUT" == *'"tool_name":"AskUserQuestion"'* || "$INPUT" == *'"tool_name"
     fi
     _asked_end() { declare -F afd_asked_end >/dev/null && afd_asked_end "$NOTIF_ID" "$1" "$ASK_SID" "${2:-}"; return 0; }
     # Current CC schema is tool_input.questions[]; the old single 'question' field is kept as a fallback.
-    QUESTION=$(echo "$INPUT" | python3 -c "
+    QUESTION=$(echo "$INPUT" | _python3 -c "
 import sys, json
 t = json.load(sys.stdin).get('tool_input', {})
 out = []
@@ -192,7 +197,7 @@ if compgen -G "${AFD_MSG_DIR:-$HOME/.afd-msgs}/*.jsonl" >/dev/null 2>&1; then
         [[ -n "$_HINT" ]] && _CTX="${_CTX:+$_CTX$'\n'}$_HINT"
     fi
 fi
-[[ -n "$_CTX" ]] && python3 -c 'import json,sys; print(json.dumps({"hookSpecificOutput":{"hookEventName":"PreToolUse","additionalContext":sys.argv[1]}}))' "$_CTX"
+[[ -n "$_CTX" ]] && _python3 -c 'import json,sys; print(json.dumps({"hookSpecificOutput":{"hookEventName":"PreToolUse","additionalContext":sys.argv[1]}}))' "$_CTX"
 
 # Non-Bash tools: exit 0 (CC treats exit 0 without a decision as hook_success)
 if [[ "$INPUT" != *'"tool_name":"Bash"'* && "$INPUT" != *'"tool_name": "Bash"'* ]]; then
@@ -234,8 +239,8 @@ if [[ "$INPUT" =~ \"permission_mode\"[[:space:]]*:[[:space:]]*\"auto\" ]]; then
   allow "auto mode"
 fi
 
-COMMAND=$(echo "$INPUT" | python3 -c "import sys,json; print(json.load(sys.stdin).get('tool_input',{}).get('command',''))" 2>/dev/null)
-DESCRIPTION=$(echo "$INPUT" | python3 -c "import sys,json; print(json.load(sys.stdin).get('tool_input',{}).get('description',''))" 2>/dev/null)
+COMMAND=$(echo "$INPUT" | _python3 -c "import sys,json; print(json.load(sys.stdin).get('tool_input',{}).get('command',''))" 2>/dev/null)
+DESCRIPTION=$(echo "$INPUT" | _python3 -c "import sys,json; print(json.load(sys.stdin).get('tool_input',{}).get('description',''))" 2>/dev/null)
 
 # Safe commands that never need approval (even in AFK)
 SAFE_PATTERNS=(
@@ -265,7 +270,7 @@ fi
 echo "AFK mode: requesting approval for command..." >&2
 
 # Generate random 4-letter approval code
-CODE=$(python3 -c "import random,string; print(''.join(random.choices(string.ascii_lowercase, k=4)))")
+CODE=$(_python3 -c "import random,string; print(''.join(random.choices(string.ascii_lowercase, k=4)))")
 
 # Send permission request
 NL=$'\n'

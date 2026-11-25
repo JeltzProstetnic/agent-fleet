@@ -6,6 +6,8 @@
 # Outputs plain text lines for injection (UserPromptSubmit uses stdout, not JSON)
 
 source "$(dirname "${BASH_SOURCE[0]}")/lib-portable.sh" 2>/dev/null || true
+# _python3 (lib-portable, CFG-1087): on native Windows a bare python3 can be the Store stub. Fallback without the lib.
+type _python3 >/dev/null 2>&1 || _python3() { python3 "$@"; }
 source "$(dirname "${BASH_SOURCE[0]}")/lib-hook-stdin.sh" 2>/dev/null || true  # hook_prompt_user_text
 
 OUTPUT=""
@@ -15,7 +17,7 @@ OUTPUT=""
 # trailing newline, so use IFS + -d '' to grab everything or fall back silently.
 _hook_input=""
 IFS= read -r -t 2 -d '' _hook_input 2>/dev/null || true
-_session_id=$(printf '%s' "$_hook_input" | python3 -c "import sys,json; print(json.load(sys.stdin).get('session_id',''))" 2>/dev/null) || true
+_session_id=$(printf '%s' "$_hook_input" | _python3 -c "import sys,json; print(json.load(sys.stdin).get('session_id',''))" 2>/dev/null) || true
 
 # Context budget from this session's statusline sidecar.
 # Keyed by session id (CFG-458) — a shared sidecar is last-writer-wins across
@@ -26,7 +28,7 @@ if [[ -z "$SIDECAR" && -n "$_session_id" ]]; then
     SIDECAR="${CONTEXT_BUDGET_DIR:-$HOME/.claude}/.context-budget-${_session_id}.json"
 fi
 if [[ -n "$SIDECAR" && -f "$SIDECAR" ]]; then
-    read -r PCT USED_K SIZE_K 2>/dev/null <<< "$(python3 -c "
+    read -r PCT USED_K SIZE_K 2>/dev/null <<< "$(_python3 -c "
 import json, sys
 try:
     d = json.load(open('$SIDECAR'))
@@ -81,7 +83,7 @@ fi
 # GPI completion notifications — one-shot, consumed after reading
 GPI_COMPLETED="${GPI_COMPLETED_PATH:-$HOME/.claude/.gpi-completed.json}"
 if [[ -f "$GPI_COMPLETED" ]]; then
-    GPI_NOTIF=$(python3 -c "
+    GPI_NOTIF=$(_python3 -c "
 import json, sys, os
 try:
     d = json.load(open('$GPI_COMPLETED'))
@@ -110,7 +112,7 @@ if [[ -n "$_hook_input" ]]; then
     if declare -F hook_prompt_user_text >/dev/null; then
         _user_msg=$(hook_prompt_user_text "$_hook_input")
     else
-        _user_msg=$(printf '%s' "$_hook_input" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('prompt') or d.get('message',''))" 2>/dev/null) || true  # CC sends .prompt
+        _user_msg=$(printf '%s' "$_hook_input" | _python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('prompt') or d.get('message',''))" 2>/dev/null) || true  # CC sends .prompt
         if declare -F prompt_user_text >/dev/null; then
             _user_msg=$(prompt_user_text "$_user_msg")
         fi

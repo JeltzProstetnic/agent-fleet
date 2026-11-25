@@ -17,6 +17,11 @@
 # Env: AFD_IDLE_POLL (s, default 10), AFD_IDLE_MAX (s, default 43200),
 #      AFD_IDLE_PARENT_PID (tests: the process standing in for Claude Code).
 
+# _python3 (lib-portable.sh, CFG-1087): on native Windows a bare python3 can be the Microsoft Store
+# stub; everywhere else it is python3, unchanged. Fallback for a hooks dir without the lib.
+source "$(dirname "${BASH_SOURCE[0]}")/lib-portable.sh" 2>/dev/null || true
+type _python3 >/dev/null 2>&1 || _python3() { python3 "$@"; }
+
 INPUT=""
 [[ -t 0 ]] || INPUT=$(timeout 2 cat 2>/dev/null)
 
@@ -76,7 +81,7 @@ $INBOX_ON && INBOX_BASE=$(inbox_items_for "$INBOX_PROJECT" 2>/dev/null)
 context_pct() {
     local f="${CONTEXT_BUDGET_DIR:-$HOME/.claude}/.context-budget-${SID}.json"
     [[ -f "$f" ]] || return 0
-    python3 -c "import json,sys; print(int(json.load(open(sys.argv[1]))['pct']))" "$f" 2>/dev/null
+    _python3 -c "import json,sys; print(int(json.load(open(sys.argv[1]))['pct']))" "$f" 2>/dev/null
 }
 
 # Prints the open items for this project that were not open at turn end.
@@ -151,7 +156,7 @@ while (( $(date +%s) < DEADLINE )); do
                 echo "[$ts] ${persona:+(persona: $persona) }${label:+$label }$msg"
             done <<< "$MESSAGES"
             # CFG-1080: name the user's newest message, so the reply passes DND (afd checks #N with the server)
-            reply_to=$(printf '%s\n' "$MESSAGES" | python3 -c 'import json, sys
+            reply_to=$(printf '%s\n' "$MESSAGES" | _python3 -c 'import json, sys
 ids = []
 for l in sys.stdin:
     try: i = json.loads(l).get("id")

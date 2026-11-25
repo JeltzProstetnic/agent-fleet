@@ -4,12 +4,15 @@
 # Shared vars used: CONFIG_REPO, WARNINGS, SETTINGS_FILE
 # Split from original 07-environment.sh; platform/docs/lock checks moved to 07b-platform-env.sh
 
+# _python3 (lib-portable.sh, loaded by config-check.sh; CFG-1087) — fallback for a standalone source.
+type _python3 >/dev/null 2>&1 || _python3() { python3 "$@"; }
+
 # Check 7.1: Auto-disable global enabledPlugins (token budget protection)
 if [ -f "$SETTINGS_FILE" ]; then
     if grep -q '"enabledPlugins"' "$SETTINGS_FILE" 2>/dev/null; then
         _ep_tmp="$(mktemp)"
         printf '%s\n' 'import json,sys,os' 'f=sys.argv[1]' 'd=json.load(open(f))' 'ep=d.get("enabledPlugins",{})' 'n=len(ep)' 'if n>0:' '  d["enabledPlugins"]={}' '  t=f+".tmp"; open(t,"w").write(json.dumps(d,indent=2)+"\n"); os.rename(t,f)' 'print(n)' > "$_ep_tmp"
-        _ep_count=$(python3 "$_ep_tmp" "$SETTINGS_FILE" 2>/dev/null || echo "0")
+        _ep_count=$(_python3 "$_ep_tmp" "$SETTINGS_FILE" 2>/dev/null || echo "0")
         rm -f "$_ep_tmp"
         if [ "$_ep_count" -gt 0 ]; then
             WARNINGS="${WARNINGS:+$WARNINGS | }Global enabledPlugins had $_ep_count plugin(s) — auto-disabled. Plugins consume ~10k tokens/bundle. Enable per-project only via .claude/settings.local.json."
@@ -20,9 +23,9 @@ fi
 # Check 7.2: Auto-fix CC_MIRROR_SPLASH drift
 if [ -f "$SETTINGS_FILE" ]; then
     if grep -q '"CC_MIRROR_SPLASH"' "$SETTINGS_FILE" 2>/dev/null; then
-        _splash_val=$(python3 -c "import json; d=json.load(open('$SETTINGS_FILE')); print(d.get('env',{}).get('CC_MIRROR_SPLASH','0'))" 2>/dev/null || echo "0")
+        _splash_val=$(_python3 -c "import json; d=json.load(open('$SETTINGS_FILE')); print(d.get('env',{}).get('CC_MIRROR_SPLASH','0'))" 2>/dev/null || echo "0")
         if [ "$_splash_val" != "0" ]; then
-            python3 -c "
+            _python3 -c "
 import json, sys, os
 f = sys.argv[1]
 with open(f) as fh: d = json.load(fh)
@@ -46,9 +49,9 @@ CC_MIRROR_DIR="${CC_MIRROR_DIR:-$HOME/.cc-mirror/mclaude}"
 TWEAKCC_CONFIG="$CC_MIRROR_DIR/tweakcc/config.json"
 CC_PACKAGE="$CC_MIRROR_DIR/npm/node_modules/@anthropic-ai/claude-code/package.json"
 if [ -f "$TWEAKCC_CONFIG" ] && [ -f "$CC_PACKAGE" ]; then
-    _tweak_ver=$(python3 -c "import json; print(json.load(open('$TWEAKCC_CONFIG')).get('ccVersion',''))" 2>/dev/null || true)
-    _tweak_applied=$(python3 -c "import json; print(json.load(open('$TWEAKCC_CONFIG')).get('changesApplied',True))" 2>/dev/null || true)
-    _cc_ver=$(python3 -c "import json; print(json.load(open('$CC_PACKAGE')).get('version',''))" 2>/dev/null || true)
+    _tweak_ver=$(_python3 -c "import json; print(json.load(open('$TWEAKCC_CONFIG')).get('ccVersion',''))" 2>/dev/null || true)
+    _tweak_applied=$(_python3 -c "import json; print(json.load(open('$TWEAKCC_CONFIG')).get('changesApplied',True))" 2>/dev/null || true)
+    _cc_ver=$(_python3 -c "import json; print(json.load(open('$CC_PACKAGE')).get('version',''))" 2>/dev/null || true)
     if [ -n "$_tweak_ver" ] && [ -n "$_cc_ver" ] && [ "$_tweak_ver" != "$_cc_ver" ] && [ "$_tweak_applied" = "False" ]; then
         WARNINGS="${WARNINGS:+$WARNINGS | }TweakCC patches stale (applied to $_tweak_ver, installed CC is $_cc_ver) — run \`cc-mirror tweak mclaude\` from interactive terminal."
     fi

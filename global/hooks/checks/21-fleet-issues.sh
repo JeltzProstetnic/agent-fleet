@@ -12,6 +12,10 @@
 # python3. A startup check that can break a session is worse than no check.
 # Shared vars used: PROJECT_DIR, CONFIG_REPO, WARNINGS
 
+# _python3 / _have_python3 (lib-portable.sh, loaded by config-check.sh; CFG-1087) — fallbacks for a standalone source.
+type _python3 >/dev/null 2>&1 || _python3() { python3 "$@"; }
+type _have_python3 >/dev/null 2>&1 || _have_python3() { command -v python3 >/dev/null 2>&1; }
+
 _FI_PROJECT_DIR="${PROJECT_DIR:-}"
 _FI_CONFIG_REPO="${CONFIG_REPO:-}"
 
@@ -20,7 +24,7 @@ _FI_CONFIG_REPO="${CONFIG_REPO:-}"
 [ -n "$_FI_PROJECT_DIR" ] && [ "$_FI_PROJECT_DIR" = "$_FI_CONFIG_REPO" ] \
     || return 0 2>/dev/null || true
 
-command -v python3 >/dev/null 2>&1 || return 0 2>/dev/null || true
+_have_python3 || return 0 2>/dev/null || true
 
 # No default (owner decision 2026-09-28, CFG-700 (3)): an installation that has not named its
 # own tracker makes no network call. The config repo sets FLEET_ISSUE_REPO in its
@@ -64,7 +68,7 @@ fi
 
 [ -n "$_fi_json" ] || return 0 2>/dev/null || true
 
-_fi_summary=$(printf '%s' "$_fi_json" | python3 -c "
+_fi_summary=$(printf '%s' "$_fi_json" | _python3 -c "
 import json, sys, datetime
 try:
     items = json.load(sys.stdin)

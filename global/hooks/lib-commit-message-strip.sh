@@ -28,6 +28,12 @@
 #   _s=$(strip_commit_messages "$CMD") && SCAN="$_s"
 # keeps the RAW command: nothing stripped degrades toward a false block, never a read.
 
+# _python3 / _have_python3 (lib-portable.sh, CFG-1087): on native Windows a bare python3 can be the
+# Microsoft Store stub; everywhere else they are python3 and `command -v python3`, unchanged.
+source "$(dirname "${BASH_SOURCE[0]}")/lib-portable.sh" 2>/dev/null || true
+type _python3 >/dev/null 2>&1 || _python3() { python3 "$@"; }
+type _have_python3 >/dev/null 2>&1 || _have_python3() { command -v python3 >/dev/null 2>&1; }
+
 [[ "${_LIB_COMMIT_MESSAGE_STRIP_LOADED:-}" == "true" ]] && return 0
 _LIB_COMMIT_MESSAGE_STRIP_LOADED="true"
 
@@ -190,6 +196,6 @@ sys.stdout.write(strip_messages(strip_heredocs(s)))
 PY
 
 strip_commit_messages() {
-    command -v python3 >/dev/null 2>&1 || return 1
-    printf '%s' "$1" | python3 -c "$_CMS_PROGRAM" 2>/dev/null
+    _have_python3 || return 1
+    printf '%s' "$1" | _python3 -c "$_CMS_PROGRAM" 2>/dev/null
 }

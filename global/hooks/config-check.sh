@@ -14,6 +14,7 @@ source "$(dirname "${BASH_SOURCE[0]}")/lib-portable.sh" 2>/dev/null || true
 # Fallbacks when lib-portable.sh is absent (deployed hooks always carry it): plain python3, plain ln -s.
 type _python3 >/dev/null 2>&1 || _python3() { python3 "$@"; }
 type _fleet_python >/dev/null 2>&1 || _fleet_python() { command -v python3 >/dev/null 2>&1 && echo python3; }
+type _have_python3 >/dev/null 2>&1 || _have_python3() { command -v python3 >/dev/null 2>&1; }
 type _link_file >/dev/null 2>&1 || _link_file() { ln -s "$1" "$2"; }
 
 # Config repo detection — canonical source in lib-detect-repo.sh

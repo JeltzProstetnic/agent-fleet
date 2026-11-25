@@ -32,6 +32,12 @@
 #   rule-removal-guard.sh --replay <commit> [repo] would this recorded commit have been blocked?
 # Exit 2 = block. Exit 0 = allow.
 
+# _python3 / _have_python3 (lib-portable.sh, CFG-1087): on native Windows a bare python3 can be the
+# Microsoft Store stub; everywhere else they are python3 and `command -v python3`, unchanged.
+source "$(dirname "${BASH_SOURCE[0]}")/lib-portable.sh" 2>/dev/null || true
+type _python3 >/dev/null 2>&1 || _python3() { python3 "$@"; }
+type _have_python3 >/dev/null 2>&1 || _have_python3() { command -v python3 >/dev/null 2>&1; }
+
 _RRG_DIR="$(dirname "${BASH_SOURCE[0]}")"
 _rrg_libs() {
     local d
@@ -45,9 +51,9 @@ _rrg_libs() {
 
 case "${1:-}" in
     --check-staged|--replay)
-        command -v python3 >/dev/null 2>&1 || { echo "rule-removal-guard: python3 missing — cannot judge" >&2; exit 0; }
+        _have_python3 || { echo "rule-removal-guard: python3 missing — cannot judge" >&2; exit 0; }
         _rrg_libs || { echo "rule-removal-guard: lib-commit-scan.sh / lib-rule-removal.sh not found beside $_RRG_DIR" >&2; exit 0; }
-        python3 -c "$_RULE_REMOVAL_PY" "$@"
+        _python3 -c "$_RULE_REMOVAL_PY" "$@"
         exit $? ;;
 esac
 
@@ -71,14 +77,14 @@ case "$CMD" in
     *git*commit*) ;;
     *) exit 0 ;;
 esac
-command -v python3 >/dev/null 2>&1 || exit 0
+_have_python3 || exit 0
 _rrg_libs || exit 0
 
 # The lexer's records go through a file: they are NUL-separated and a bash variable cannot
 # hold NUL. ${TMPDIR:-/tmp} — the CC sandbox mounts /tmp read-only and points TMPDIR elsewhere.
 _tmp=$(mktemp "${TMPDIR:-/tmp}/rrg-jobs.XXXXXX" 2>/dev/null) || _tmp=$(mktemp /tmp/rrg-jobs.XXXXXX 2>/dev/null) || exit 0
-printf '%s' "$CMD" | python3 -c "$_COMMIT_SCAN_PY" --with-messages > "$_tmp" 2>/dev/null || { rm -f "$_tmp"; exit 0; }
-_report=$(python3 -c "$_RULE_REMOVAL_PY" --jobs "$_tmp" 2>&1); _rc=$?
+printf '%s' "$CMD" | _python3 -c "$_COMMIT_SCAN_PY" --with-messages > "$_tmp" 2>/dev/null || { rm -f "$_tmp"; exit 0; }
+_report=$(_python3 -c "$_RULE_REMOVAL_PY" --jobs "$_tmp" 2>&1); _rc=$?
 rm -f "$_tmp"
 case "$_rc" in
     0) exit 0 ;;

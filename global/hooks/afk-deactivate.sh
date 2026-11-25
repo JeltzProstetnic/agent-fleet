@@ -22,6 +22,11 @@
 # `afd dnd on|off` (§1c), which holds every afd notify until the digest at dnd off; a Telegram
 # message that is only one of those does the same (lib-afd-msg.sh).
 
+# _python3 (lib-portable.sh, CFG-1087): on native Windows a bare python3 can be the Microsoft Store
+# stub; everywhere else it is python3, unchanged. Fallback for a hooks dir without the lib.
+source "$(dirname "${BASH_SOURCE[0]}")/lib-portable.sh" 2>/dev/null || true
+type _python3 >/dev/null 2>&1 || _python3() { python3 "$@"; }
+
 AFD_CLI="${HOME}/.local/bin/afd"
 AFK_LOG="$HOME/.claude/logs/afk.log"
 
@@ -29,7 +34,7 @@ INPUT=""
 [[ -t 0 ]] || INPUT=$(timeout 2 cat 2>/dev/null)
 # One field of the hook input JSON (bash 3.2 compatible: no NUL-split array read).
 _field() {
-  printf '%s' "$INPUT" | python3 -c '
+  printf '%s' "$INPUT" | _python3 -c '
 import json, sys
 try:
     d = json.load(sys.stdin)
@@ -162,7 +167,7 @@ if [[ -x "$AFD_CLI" ]]; then
       if declare -F afd_delivery_label >/dev/null; then
         { IFS=$'\x1f' read -r ts persona redirected; msg=$(cat); } < <(afd_delivery_label "$line" "$ME")
       else
-        msg=$(echo "$line" | python3 -c "import sys,json; print(json.load(sys.stdin).get('message',''))" 2>/dev/null)
+        msg=$(echo "$line" | _python3 -c "import sys,json; print(json.load(sys.stdin).get('message',''))" 2>/dev/null)
       fi
       redirected="${redirected:+$redirected }"
       if [[ -n "$msg" ]]; then
@@ -178,7 +183,7 @@ if [[ -x "$AFD_CLI" ]]; then
 
     if [[ -n "$COLLECTED" ]]; then
       # CFG-1080: name the user's newest message, so the reply passes DND (afd checks #N with the server)
-      REPLY_TO=$(printf '%s\n' "$MESSAGES" | python3 -c 'import json, sys
+      REPLY_TO=$(printf '%s\n' "$MESSAGES" | _python3 -c 'import json, sys
 ids = []
 for l in sys.stdin:
     try: i = json.loads(l).get("id")

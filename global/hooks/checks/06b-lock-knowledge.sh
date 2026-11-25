@@ -4,6 +4,9 @@
 # Shared vars used: CONFIG_REPO, WARNINGS, INBOX_MSG, PROJECT_DIR
 
 # Check 6b.1: Knowledge file list — list .claude/knowledge/*.md + .claude/*.md
+# _python3 (lib-portable.sh, loaded by config-check.sh; CFG-1087) — fallback for a standalone source.
+type _python3 >/dev/null 2>&1 || _python3() { python3 "$@"; }
+
 _knowledge_list=""
 if [ -d "$PROJECT_DIR/.claude" ]; then
     for _kf in "$PROJECT_DIR"/.claude/knowledge/*.md; do
@@ -27,7 +30,7 @@ fi
 _project_lock="$PROJECT_DIR/.claude/.session-lock"
 if [ -f "$_project_lock" ]; then
     _lock_json=$(cat "$_project_lock" 2>/dev/null)
-    _lock_parsed=$(python3 -c "
+    _lock_parsed=$(_python3 -c "
 import json,sys
 try:
     d=json.loads(sys.stdin.read())
@@ -117,7 +120,7 @@ fi
 if [ -n "$_sibling_dir" ] && [ -d "$_sibling_dir" ]; then
     _sibling_lock="$_sibling_dir/.claude/.session-lock"
     if [ -f "$_sibling_lock" ]; then
-        _sib_machine=$(python3 -c "import json,sys; d=json.loads(sys.stdin.read()); print(d.get('machine',''))" < "$_sibling_lock" 2>/dev/null)
+        _sib_machine=$(_python3 -c "import json,sys; d=json.loads(sys.stdin.read()); print(d.get('machine',''))" < "$_sibling_lock" 2>/dev/null)
         INBOX_MSG="${INBOX_MSG:+$INBOX_MSG | }SIBLING_SESSION: active (${_sib_machine:-unknown})"
     else
         INBOX_MSG="${INBOX_MSG:+$INBOX_MSG | }SIBLING_SESSION: none"

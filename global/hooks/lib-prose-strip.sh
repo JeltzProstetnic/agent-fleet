@@ -23,12 +23,18 @@
 #   _stripped=$(strip_prose_from_command "$CMD") && CMD="$_stripped"
 # keeps the RAW command. The fail-safe direction is over-block, never under-block.
 
+# _python3 / _have_python3 (lib-portable.sh, CFG-1087): on native Windows a bare python3 can be the
+# Microsoft Store stub; everywhere else they are python3 and `command -v python3`, unchanged.
+source "$(dirname "${BASH_SOURCE[0]}")/lib-portable.sh" 2>/dev/null || true
+type _python3 >/dev/null 2>&1 || _python3() { python3 "$@"; }
+type _have_python3 >/dev/null 2>&1 || _have_python3() { command -v python3 >/dev/null 2>&1; }
+
 [[ "${_LIB_PROSE_STRIP_LOADED:-}" == "true" ]] && return 0
 _LIB_PROSE_STRIP_LOADED="true"
 
 strip_prose_from_command() {
-    command -v python3 >/dev/null 2>&1 || return 1
-    printf '%s' "$1" | python3 -c '
+    _have_python3 || return 1
+    printf '%s' "$1" | _python3 -c '
 import re, sys
 s = sys.stdin.read()
 lines, out, i = s.split("\n"), [], 0

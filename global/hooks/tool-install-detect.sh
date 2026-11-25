@@ -5,14 +5,19 @@
 
 set -euo pipefail
 
+# _python3 (lib-portable.sh, CFG-1087): on native Windows a bare python3 can be the Microsoft Store
+# stub; everywhere else it is python3, unchanged. Fallback for a hooks dir without the lib.
+source "$(dirname "${BASH_SOURCE[0]}")/lib-portable.sh" 2>/dev/null || true
+type _python3 >/dev/null 2>&1 || _python3() { python3 "$@"; }
+
 INPUT=$(cat)
 
 # Only process Bash
-TOOL_NAME=$(echo "$INPUT" | python3 -c "import sys,json; print(json.load(sys.stdin).get('tool_name',''))" 2>/dev/null) || exit 0
+TOOL_NAME=$(echo "$INPUT" | _python3 -c "import sys,json; print(json.load(sys.stdin).get('tool_name',''))" 2>/dev/null) || exit 0
 [ "$TOOL_NAME" = "Bash" ] || exit 0
 
 # Extract command
-COMMAND=$(echo "$INPUT" | python3 -c "import sys,json; print(json.load(sys.stdin).get('tool_input',{}).get('command',''))" 2>/dev/null) || exit 0
+COMMAND=$(echo "$INPUT" | _python3 -c "import sys,json; print(json.load(sys.stdin).get('tool_input',{}).get('command',''))" 2>/dev/null) || exit 0
 
 # Check for install patterns
 DETECTED=""
@@ -29,7 +34,7 @@ case "$COMMAND" in
 esac
 
 # Output reminder
-python3 -c "
+_python3 -c "
 import json, sys
 msg = f'TOOL_INSTALLED ({sys.argv[1]}): Update the machine file Installed Tooling table now. If cross-project boundary blocks the edit, create an inbox item.'
 print(json.dumps({'continue': True, 'additionalContext': msg}))

@@ -54,12 +54,17 @@
 # Sources lib-afd-msg.sh (beside it) for the queue dir, project names, markers and the lock; that
 # lib loads this one lazily (circular sourcing is cut by both load guards). Needs python3.
 
+# _python3 (lib-portable.sh, CFG-1087): on native Windows a bare python3 can be the Microsoft Store
+# stub; everywhere else it is python3, unchanged. Fallback for a hooks dir without the lib.
+source "$(dirname "${BASH_SOURCE[0]}")/lib-portable.sh" 2>/dev/null || true
+type _python3 >/dev/null 2>&1 || _python3() { python3 "$@"; }
+
 [[ "${_LIB_AFD_FORWARD_LOADED:-}" == "true" ]] && return 0
 source "$(dirname "${BASH_SOURCE[0]}")/lib-afd-msg.sh" || return 1
 _LIB_AFD_FORWARD_LOADED="true"
 
 # _afd_fwd_py <route|show|line|answer|deliver> — the program below, with the env the caller set.
-_afd_fwd_py() { AFD_FWD_ASKED="$(_afd_msg_dir)/.asked.jsonl" python3 -c "$_AFD_FWD_PY" "$1" 2>/dev/null; }
+_afd_fwd_py() { AFD_FWD_ASKED="$(_afd_msg_dir)/.asked.jsonl" _python3 -c "$_AFD_FWD_PY" "$1" 2>/dev/null; }
 
 # _afd_waiting_q <project> — the question id <project>'s LIVE relay waits on, or nothing.
 _afd_waiting_q() {

@@ -25,6 +25,12 @@
 # Without the lib (a broken deploy — sync.sh ships hook and lib in one loop) a
 # credential-looking NAME is refused and everything else passes: a false block, never a read.
 
+# _python3 / _have_python3 (lib-portable.sh, CFG-1087): on native Windows a bare python3 can be the
+# Microsoft Store stub; everywhere else they are python3 and `command -v python3`, unchanged.
+source "$(dirname "${BASH_SOURCE[0]}")/lib-portable.sh" 2>/dev/null || true
+type _python3 >/dev/null 2>&1 || _python3() { python3 "$@"; }
+type _have_python3 >/dev/null 2>&1 || _have_python3() { command -v python3 >/dev/null 2>&1; }
+
 INPUT=$(cat)
 
 # The five fields this hook reads — tool_name, cwd, file_path, notebook_path, path — as one
@@ -43,7 +49,7 @@ _fields_jq() {
         | map(if type == "string" then . else "" end) | join("\u001f")' 2>/dev/null
 }
 _fields_py() {
-    printf '%s' "$INPUT" | python3 -c '
+    printf '%s' "$INPUT" | _python3 -c '
 import json, sys
 try: d = json.load(sys.stdin)
 except Exception: d = {}
@@ -64,7 +70,7 @@ _fields_text() {
 }
 REC=""
 command -v jq >/dev/null 2>&1 && REC=$(_fields_jq)
-[ -n "${REC%%$'\x1f'*}" ] || { command -v python3 >/dev/null 2>&1 && REC=$(_fields_py); }
+[ -n "${REC%%$'\x1f'*}" ] || { _have_python3 && REC=$(_fields_py); }
 [ -n "${REC%%$'\x1f'*}" ] || REC=$(_fields_text)
 F=(); IFS=$'\x1f' read -r -d '' -a F <<<"$REC" || true
 TOOL="${F[0]:-}"; CWD="${F[1]:-}"; [ -n "$CWD" ] || CWD="$PWD"

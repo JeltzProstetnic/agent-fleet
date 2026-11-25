@@ -40,6 +40,11 @@
 # for the commands: a Telegram `afk`, `dnd` or `re-ask` acts on whichever machine polls first,
 # so `dnd` is acknowledged with that host and every re-ask message names it.
 
+# _python3 (lib-portable.sh, CFG-1087): on native Windows a bare python3 can be the Microsoft Store
+# stub; everywhere else it is python3, unchanged. Fallback for a hooks dir without the lib.
+source "$(dirname "${BASH_SOURCE[0]}")/lib-portable.sh" 2>/dev/null || true
+type _python3 >/dev/null 2>&1 || _python3() { python3 "$@"; }
+
 [[ "${_LIB_AFD_MSG_LOADED:-}" == "true" ]] && return 0
 
 _afd_msg_dir() { echo "${AFD_MSG_DIR:-$HOME/.afd-msgs}"; }
@@ -201,7 +206,7 @@ _afd_fwd_lib() {
 # the prompt hook or the idle waiter delivers (lib-afd-forward.sh); without that lib, no label.
 afd_delivery_label() {
     _afd_fwd_lib && { _afd_fwd_delivery "$@"; return; }
-    printf '%s' "$1" | python3 -c 'import json,sys; d=json.load(sys.stdin); print("%s\x1f%s\x1f" % (str(d.get("timestamp",""))[:16], d.get("persona") or "")); print(d.get("message",""))' 2>/dev/null
+    printf '%s' "$1" | _python3 -c 'import json,sys; d=json.load(sys.stdin); print("%s\x1f%s\x1f" % (str(d.get("timestamp",""))[:16], d.get("persona") or "")); print(d.get("message",""))' 2>/dev/null
 }
 
 # _afd_question_reroute <json line> <text> <live waiters> — CFG-1039: 0 with _AFD_RR_TARGET (the
@@ -258,7 +263,7 @@ afd_route_messages() {
     waiters=$(_afd_live_waiters)
     while IFS= read -r line; do
         [[ -n "$line" ]] || continue
-        text=$(printf '%s' "$line" | python3 -c "import sys,json; print(json.load(sys.stdin).get('message',''))" 2>/dev/null)
+        text=$(printf '%s' "$line" | _python3 -c "import sys,json; print(json.load(sys.stdin).get('message',''))" 2>/dev/null)
         cmd=$(printf '%s' "$text" | sed -E 's/^@[A-Za-z0-9_.-]+[[:space:]]*//; s/^[[:space:]]+//; s/[[:space:]!.]+$//' | tr '[:upper:]' '[:lower:]')
         case "$cmd" in
             afk|"afk on") _afd_afk_switch on;  status="afk:on";  continue ;;
@@ -342,7 +347,7 @@ afd_take_messages() {
 
 # afd_message_text <json line> — the message text with a leading @<project> stripped.
 afd_message_text() {
-    printf '%s' "$1" | python3 -c "
+    printf '%s' "$1" | _python3 -c "
 import sys, json, re
 m = json.load(sys.stdin).get('message', '')
 print(re.sub(r'^@[A-Za-z0-9_.-]+[\s:,]*', '', m).strip())" 2>/dev/null
@@ -350,7 +355,7 @@ print(re.sub(r'^@[A-Za-z0-9_.-]+[\s:,]*', '', m).strip())" 2>/dev/null
 
 # afd_message_id <json line> — the numeric id, or 0.
 afd_message_id() {
-    printf '%s' "$1" | python3 -c "
+    printf '%s' "$1" | _python3 -c "
 import sys, json
 try: print(int(json.load(sys.stdin).get('id', 0)))
 except Exception: print(0)" 2>/dev/null
@@ -373,7 +378,7 @@ afd_wake_hint() {
         p=$(basename "$q" .jsonl)
         [[ "$p" == "$me" || ! -s "$q" ]] && continue
         (( now - $(stat -c %Y "$q" 2>/dev/null || echo "$now") >= after )) || continue
-        ids=$(python3 -c "
+        ids=$(_python3 -c "
 import sys, json
 for l in open(sys.argv[1]):
     try: print(int(json.loads(l).get('id', 0)))

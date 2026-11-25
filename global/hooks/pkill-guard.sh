@@ -19,6 +19,12 @@
 #          searching for the literal string with grep and friends.
 # Exit 2 = block. Exit 0 = allow.
 
+# _python3 / _have_python3 (lib-portable.sh, CFG-1087): on native Windows a bare python3 can be the
+# Microsoft Store stub; everywhere else they are python3 and `command -v python3`, unchanged.
+source "$(dirname "${BASH_SOURCE[0]}")/lib-portable.sh" 2>/dev/null || true
+type _python3 >/dev/null 2>&1 || _python3() { python3 "$@"; }
+type _have_python3 >/dev/null 2>&1 || _have_python3() { command -v python3 >/dev/null 2>&1; }
+
 INPUT=$(cat)
 
 case "$INPUT" in
@@ -53,8 +59,8 @@ esac
 # (2) the quoted values of message-like flags (-m, --body, …). A heredoc on a line that
 # names a shell (bash/sh/zsh/dash/ssh/eval — also `cat <<EOF | bash`) is kept: it runs.
 # No python3 → scan the raw command (fail safe: over-block rather than under-block).
-if command -v python3 >/dev/null 2>&1; then
-    _stripped=$(printf '%s' "$CMD" | python3 -c '
+if _have_python3; then
+    _stripped=$(printf '%s' "$CMD" | _python3 -c '
 import re, sys
 s = sys.stdin.read()
 lines, out, i = s.split("\n"), [], 0

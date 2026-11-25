@@ -26,11 +26,16 @@
 # first. Every re-ask message therefore names its host (AFD_HOSTNAME overrides, for tests), and an
 # empty summary speaks for that host only; a fleet-wide record needs the server (open work).
 
+# _python3 (lib-portable.sh, CFG-1087): on native Windows a bare python3 can be the Microsoft Store
+# stub; everywhere else it is python3, unchanged. Fallback for a hooks dir without the lib.
+source "$(dirname "${BASH_SOURCE[0]}")/lib-portable.sh" 2>/dev/null || true
+type _python3 >/dev/null 2>&1 || _python3() { python3 "$@"; }
+
 [[ "${_LIB_AFD_ASKED_LOADED:-}" == "true" ]] && return 0
 _LIB_AFD_ASKED_LOADED="true"
 
 _afd_asked_dir() { echo "${AFD_MSG_DIR:-$HOME/.afd-msgs}"; }
-_afd_asked_py() { AFD_ASKED_FILE="$(_afd_asked_dir)/.asked.jsonl" python3 -c "$_AFD_ASKED_PY" "$@" 2>/dev/null; }
+_afd_asked_py() { AFD_ASKED_FILE="$(_afd_asked_dir)/.asked.jsonl" _python3 -c "$_AFD_ASKED_PY" "$@" 2>/dev/null; }
 
 # afd_asked_wait — ASK_WAIT = seconds a relayed question waits: 900 during a care shift, else 2700.
 # AFD_AFK_TIMEOUT (tests, manual) overrides, ending 30 s early above 60 s as before.

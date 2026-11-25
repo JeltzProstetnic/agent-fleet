@@ -17,6 +17,12 @@
 # all). `--with-messages` (argv) adds per job `X <only> <amend> <msg-unknown> <n> <-m/--trailer values…>
 # <n> <-F files…> <stdin 0|1 text|2 unknown> <text>` for rule-removal-guard.sh; `$(cat <<'T'…)` = DYN+CAP+body.
 
+# _python3 / _have_python3 (lib-portable.sh, CFG-1087): on native Windows a bare python3 can be the
+# Microsoft Store stub; everywhere else they are python3 and `command -v python3`, unchanged.
+source "$(dirname "${BASH_SOURCE[0]}")/lib-portable.sh" 2>/dev/null || true
+type _python3 >/dev/null 2>&1 || _python3() { python3 "$@"; }
+type _have_python3 >/dev/null 2>&1 || _have_python3() { command -v python3 >/dev/null 2>&1; }
+
 [[ "${_LIB_COMMIT_SCAN_LOADED:-}" == "true" ]] && return 0
 _LIB_COMMIT_SCAN_LOADED="true"
 
@@ -291,9 +297,9 @@ PY
 
 _commit_scan_jobs() {  # _commit_scan_jobs COMMAND — appends to JOBS; 1 = python3 unusable
     local f fields=()
-    command -v python3 &>/dev/null || return 1
+    _have_python3 || return 1
     while IFS= read -r -d '' f; do fields+=("$f"); done \
-        < <(printf '%s' "$1" | python3 -c "$_COMMIT_SCAN_PY" 2>/dev/null)
+        < <(printf '%s' "$1" | _python3 -c "$_COMMIT_SCAN_PY" 2>/dev/null)
     [ ${#fields[@]} -gt 0 ] && [ "${fields[${#fields[@]}-1]}" = "E" ] || return 1
     JOBS+=("${fields[@]:0:${#fields[@]}-1}")
     return 0

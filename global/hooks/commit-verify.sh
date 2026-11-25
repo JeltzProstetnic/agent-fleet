@@ -5,14 +5,19 @@
 
 set -euo pipefail
 
+# _python3 (lib-portable.sh, CFG-1087): on native Windows a bare python3 can be the Microsoft Store
+# stub; everywhere else it is python3, unchanged. Fallback for a hooks dir without the lib.
+source "$(dirname "${BASH_SOURCE[0]}")/lib-portable.sh" 2>/dev/null || true
+type _python3 >/dev/null 2>&1 || _python3() { python3 "$@"; }
+
 INPUT=$(cat)
 
 # Only process Bash
-TOOL_NAME=$(echo "$INPUT" | python3 -c "import sys,json; print(json.load(sys.stdin).get('tool_name',''))" 2>/dev/null) || exit 0
+TOOL_NAME=$(echo "$INPUT" | _python3 -c "import sys,json; print(json.load(sys.stdin).get('tool_name',''))" 2>/dev/null) || exit 0
 [ "$TOOL_NAME" = "Bash" ] || exit 0
 
 # Extract command
-COMMAND=$(echo "$INPUT" | python3 -c "import sys,json; print(json.load(sys.stdin).get('tool_input',{}).get('command',''))" 2>/dev/null) || exit 0
+COMMAND=$(echo "$INPUT" | _python3 -c "import sys,json; print(json.load(sys.stdin).get('tool_input',{}).get('command',''))" 2>/dev/null) || exit 0
 
 # Must contain "git" and "commit"
 case "$COMMAND" in
@@ -23,7 +28,7 @@ esac
 # Check output for successful commit pattern: [branch hash] message
 # CFG-708: Claude Code sends the Bash result as tool_response.stdout; tool_output
 # (read here before) is not in the payload, so this hook never fired.
-STDOUT=$(echo "$INPUT" | python3 -c "
+STDOUT=$(echo "$INPUT" | _python3 -c "
 import sys, json
 d = json.load(sys.stdin)
 r = d.get('tool_response') or d.get('tool_output') or {}
@@ -35,7 +40,7 @@ case "$STDOUT" in
     *) exit 0 ;;
 esac
 
-python3 -c "
+_python3 -c "
 import json, sys
 
 msg = 'VERIFY COMMIT: Run git show --stat HEAD and confirm the diff contains all claimed changes. Narrative must match actual state.'

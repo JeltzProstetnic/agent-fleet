@@ -9,14 +9,17 @@
 #   bash preflight.sh [options]
 #
 # Options:
-#   --skip-network   Skip network connectivity checks
-#   --source-only    Define functions only (don't run checks)
-#   --no-color       Disable colored output
-#   --help, -h       Show this help message
+#   --skip-network          Skip network connectivity checks
+#   --prerequisites-only    Run only the native Windows prerequisites (a no-op elsewhere)
+#   --source-only           Define functions only (don't run checks)
+#   --no-color              Disable colored output
+#   --help, -h              Show this help message
 #
 # Exit codes:
 #   0 - All required checks passed
 #   1 - One or more required checks failed
+#   3 - A native Windows prerequisite is missing (admin rights, PowerShell execution policy);
+#       what is missing and the one thing to do were printed. Not bypassed by --skip-preflight.
 #
 
 set -euo pipefail
@@ -28,8 +31,14 @@ set -euo pipefail
 PREFLIGHT_SKIP_NETWORK="${PREFLIGHT_SKIP_NETWORK:-false}"
 PREFLIGHT_NO_COLOR="${NO_COLOR:-false}"
 PREFLIGHT_SOURCE_ONLY=false
+PREFLIGHT_PREREQ_ONLY=false
 PREFLIGHT_HAS_FAILURES=false
 PREFLIGHT_HAS_WARNINGS=false
+PREFLIGHT_RC_PREREQ=3
+
+# _is_native_windows (lib-portable.sh): OSTYPE msys/cygwin — Git Bash; WSL is Linux and never matches.
+source "$(dirname "${BASH_SOURCE[0]}")/../global/hooks/lib-portable.sh" 2>/dev/null || true
+type _is_native_windows >/dev/null 2>&1 || _is_native_windows() { [[ "${OSTYPE:-}" == msys* || "${OSTYPE:-}" == cygwin* ]]; }
 
 # Colors
 if [[ "${PREFLIGHT_NO_COLOR}" != "true" ]]; then
@@ -69,6 +78,82 @@ _pf_section() {
     echo ""
     echo -e "${_PF_BOLD}${_PF_BLUE}--- $* ---${_PF_RESET}"
     echo ""
+}
+
+# ============================================================================
+# NATIVE WINDOWS PREREQUISITES — CFG-1087 (first, Git Bash only, no-op elsewhere)
+# ============================================================================
+# Decision 2026-11-20 (docs/decisions.md "Native Windows targets the public line"): admin rights and
+# the PowerShell rights the fleet needs are PREREQUISITES — the installer checks and states them,
+# nothing works around them; no non-admin path, no group-policy handling. So this never elevates
+# and never changes a policy: it reads, states what is missing with the one thing the user does,
+# and returns PREFLIGHT_RC_PREREQ (3). install.sh runs it even under --skip-preflight.
+
+# powershell.exe without the user's profile; CRs stripped. Prints nothing when it cannot answer.
+_pf_ps() {
+    powershell.exe -NoProfile -NonInteractive -Command "$1" 2>/dev/null </dev/null | tr -d '\r'
+}
+
+# Elevated shell? `net session` answers only an elevated one (rc 0; otherwise "System error 5 …
+# Access is denied"). When it cannot answer at all (Server service stopped), PowerShell's
+# IsInRole(Administrator) — False under a UAC-filtered token — decides. Both read-only.
+_pf_win_elevated() {
+    if command -v net >/dev/null 2>&1 && net session >/dev/null 2>&1 </dev/null; then return 0; fi
+    [[ "$(_pf_ps '([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)' | tail -1)" == True ]]
+}
+
+# "Scope=Policy" for each of the five scopes, then "Effective=<policy>"; nothing when PowerShell
+# cannot answer. The fleet's .ps1 scripts are unsigned local scripts: RemoteSigned, Unrestricted or
+# Bypass lets them run; Restricted (the Windows client default when every scope is Undefined) and
+# AllSigned refuse them.
+_pf_win_policy_lines() {
+    _pf_ps 'Get-ExecutionPolicy -List | ForEach-Object { "$($_.Scope)=$($_.ExecutionPolicy)" }; "Effective=$(Get-ExecutionPolicy)"'
+}
+
+# States each scope; sets _pf_effective and _pf_gp (the Group Policy scopes that are set, if any).
+_pf_win_state_policy() {
+    local l
+    _pf_effective="" _pf_gp=""
+    while IFS= read -r l; do
+        case "$l" in
+            Effective=*) _pf_effective="${l#Effective=}" ;;
+            MachinePolicy=Undefined|UserPolicy=Undefined) _pf_info "ExecutionPolicy ${l%%=*} = ${l#*=}" ;;
+            MachinePolicy=*|UserPolicy=*) _pf_gp="${_pf_gp:+$_pf_gp, }${l%%=*}=${l#*=}"; _pf_info "ExecutionPolicy ${l%%=*} = ${l#*=} (set by Group Policy)" ;;
+            *=*) _pf_info "ExecutionPolicy ${l%%=*} = ${l#*=}" ;;
+        esac
+    done <<< "$1"
+}
+
+check_windows_prerequisites() {
+    _is_native_windows || return 0
+    _pf_section "Native Windows prerequisites (CFG-1087)"
+    local missing=0 elevated=no lines
+    if _pf_win_elevated; then
+        elevated=yes; _pf_pass "Administrator rights -- this shell is elevated"
+    else
+        _pf_fail "Administrator rights -- this shell is NOT elevated. Close it, start Git Bash with 'Run as administrator' (right-click its icon), re-run the installer there."
+        missing=1
+    fi
+    lines=$(_pf_win_policy_lines) || true
+    if [[ -z "$lines" ]]; then
+        _pf_fail "PowerShell execution policy -- powershell.exe did not answer (Windows PowerShell 5.1 ships with Windows; is it on PATH?)"
+        missing=1
+    else
+        _pf_win_state_policy "$lines"
+        case "$_pf_effective" in
+            RemoteSigned|Unrestricted|Bypass)
+                _pf_pass "PowerShell execution policy -- effective $_pf_effective lets the fleet's .ps1 scripts run" ;;
+            *)
+                missing=1
+                if [[ -n "$_pf_gp" ]]; then
+                    _pf_fail "PowerShell execution policy -- effective ${_pf_effective:-unknown} is set by Group Policy ($_pf_gp); the installer does not change group policies. Have it set to RemoteSigned, then re-run the installer."
+                else
+                    _pf_fail "PowerShell execution policy -- effective ${_pf_effective:-unknown} refuses the fleet's .ps1 scripts. In PowerShell run:  Set-ExecutionPolicy -Scope CurrentUser RemoteSigned  then re-run the installer."
+                fi ;;
+        esac
+    fi
+    echo "  PREREQ: elevated=$elevated policy=${_pf_effective:-unknown} result=$([[ $missing -eq 0 ]] && echo ok || echo missing)"
+    [[ $missing -eq 0 ]] || return "$PREFLIGHT_RC_PREREQ"
 }
 
 # ============================================================================
@@ -215,6 +300,9 @@ run_preflight() {
     echo -e "${_PF_BOLD}Preflight System Check${_PF_RESET}"
     echo "Checking system requirements for Claude Code installation..."
 
+    # Native Windows prerequisites come first and end the run (exit 3) when one is missing.
+    check_windows_prerequisites || return $?
+
     check_commands
     check_paths
     check_network
@@ -253,6 +341,10 @@ _preflight_parse_args() {
                 PREFLIGHT_SOURCE_ONLY=true
                 shift
                 ;;
+            --prerequisites-only)
+                PREFLIGHT_PREREQ_ONLY=true
+                shift
+                ;;
             --no-color)
                 PREFLIGHT_NO_COLOR=true
                 _PF_RED='' _PF_GREEN='' _PF_YELLOW='' _PF_BLUE='' _PF_BOLD='' _PF_RESET=''
@@ -261,13 +353,16 @@ _preflight_parse_args() {
             --help|-h)
                 echo "preflight.sh - Pre-installation system check"
                 echo ""
-                echo "Usage: bash preflight.sh [--skip-network] [--source-only] [--no-color]"
+                echo "Usage: bash preflight.sh [--skip-network] [--prerequisites-only] [--source-only] [--no-color]"
                 echo ""
                 echo "Options:"
-                echo "  --skip-network   Skip network connectivity checks"
-                echo "  --source-only    Define functions only (don't run checks)"
-                echo "  --no-color       Disable colored output"
-                echo "  --help, -h       Show this help message"
+                echo "  --skip-network         Skip network connectivity checks"
+                echo "  --prerequisites-only   Only the native Windows prerequisites (admin, execution policy); no-op elsewhere"
+                echo "  --source-only          Define functions only (don't run checks)"
+                echo "  --no-color             Disable colored output"
+                echo "  --help, -h             Show this help message"
+                echo ""
+                echo "Exit codes: 0 passed, 1 a check failed, 3 a native Windows prerequisite is missing"
                 exit 0
                 ;;
             *)
@@ -287,5 +382,9 @@ fi
 
 # Run if executed directly (not sourced)
 if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+    if [[ "${PREFLIGHT_PREREQ_ONLY}" == "true" ]]; then
+        check_windows_prerequisites || exit $?
+        exit 0
+    fi
     run_preflight
 fi

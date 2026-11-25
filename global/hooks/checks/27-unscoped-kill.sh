@@ -14,9 +14,13 @@
 #          (repro/x.py, runner.py), variable patterns, -P/-g/-s scoping, kills by PID,
 #          test files, and any line marked '# kill-scope: ok'. 0 tokens.
 
+# _python3 / _have_python3 (lib-portable.sh, loaded by config-check.sh; CFG-1087) — fallbacks for a standalone source.
+type _python3 >/dev/null 2>&1 || _python3() { python3 "$@"; }
+type _have_python3 >/dev/null 2>&1 || _have_python3() { command -v python3 >/dev/null 2>&1; }
+
 _uk_dir="${PROJECT_DIR:-$PWD}"
-if command -v python3 >/dev/null 2>&1 && git -C "$_uk_dir" rev-parse --git-dir >/dev/null 2>&1; then
-    _uk_out=$(git -C "$_uk_dir" ls-files -z -- '*.sh' '*.bash' '*.py' 2>/dev/null | UK_DIR="$_uk_dir" python3 -c '
+if _have_python3 && git -C "$_uk_dir" rev-parse --git-dir >/dev/null 2>&1; then
+    _uk_out=$(git -C "$_uk_dir" ls-files -z -- '*.sh' '*.bash' '*.py' 2>/dev/null | UK_DIR="$_uk_dir" _python3 -c '
 import os, re, sys
 root = os.environ["UK_DIR"]
 files = [f for f in sys.stdin.read().split("\0") if f]

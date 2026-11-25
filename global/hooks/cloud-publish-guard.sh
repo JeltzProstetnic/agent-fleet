@@ -20,10 +20,15 @@
 # Blocked: every other Artifact call. If python3 cannot evaluate the call, it is blocked.
 # Exit 2 = block with message. Exit 0 = allow.
 
+# _python3 (lib-portable.sh, CFG-1087): on native Windows a bare python3 can be the Microsoft Store
+# stub; everywhere else it is python3, unchanged. Fallback for a hooks dir without the lib.
+source "$(dirname "${BASH_SOURCE[0]}")/lib-portable.sh" 2>/dev/null || true
+type _python3 >/dev/null 2>&1 || _python3() { python3 "$@"; }
+
 INPUT=$(cat)
 CONSENT="${CLAUDE_PROJECT_DIR:-$PWD}/.claude/.artifact-consent"
 
-VERDICT=$(printf '%s' "$INPUT" | CONSENT="$CONSENT" python3 -c '
+VERDICT=$(printf '%s' "$INPUT" | CONSENT="$CONSENT" _python3 -c '
 import json, os, sys
 d = json.load(sys.stdin)
 if d.get("tool_name") != "Artifact" or (d.get("tool_input") or {}).get("action") == "list":
