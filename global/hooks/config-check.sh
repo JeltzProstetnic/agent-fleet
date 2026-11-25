@@ -23,6 +23,10 @@ CONFIG_REPO="$(_detect_config_repo)"
 FAIL_MARKER="$CONFIG_REPO/.sync-failed"
 WARNINGS=""
 INBOX_MSG=""
+# This project's capped inbox block (checks/03b-inbox-typing.sh, CFG-1091 D6). Its own
+# variable so the assembly below can place it right after identity, ahead of the
+# unbounded WARNING field — the kept 80 % head then always carries it.
+INBOX_DELIVERY=""
 # Identity fields a session cannot start without (HOSTNAME/TIME/PERSONA/
 # SESSION_CONTEXT/HANDOFF/PENDING_FILES, written by checks/06a-session-state.sh).
 # Kept in a DEDICATED variable so the payload can lead with them — see the
@@ -126,7 +130,9 @@ fi
 # HEAD preview (measured 2026-10-08, knowledge/hook-behavior.md). Our own cap keeps
 # 80% head / 20% tail, so in both cases the HEAD is what survives, so the identity block leads: a session that loses
 # warnings can still read the spilled file, but a session that does not know what
-# machine it is on cannot start correctly. Identity first, warnings and inbox after.
+# machine it is on cannot start correctly. Identity first, then this project's capped
+# inbox block (CFG-1091 D6 — it is bounded, WARNING is not, so bounded-first keeps
+# both in the head), then warnings and the rest of the inbox channel.
 SYSTEM_MSG=""
 if [ -n "$IDENTITY_MSG" ]; then
     SYSTEM_MSG="$(printf '%s' "$IDENTITY_MSG" | tr '\n' ' ')"
@@ -136,6 +142,9 @@ elif ! printf '%s' "$INBOX_MSG" | grep -q "HOSTNAME:"; then
     # config-check.sh and checks/ ate its output. Say so loudly — a silently
     # missing identity block is this file's signature failure (CFG-503/527/530).
     SYSTEM_MSG="IDENTITY_MISSING: the session-state check (checks/06a-session-state.sh) emitted no identity fields — module failure or config-check.sh/checks version skew. Determine machine identity manually (CLAUDE.md identity table + ~/.claude/machines/) and report this to the user."
+fi
+if [ -n "$INBOX_DELIVERY" ]; then
+    SYSTEM_MSG="${SYSTEM_MSG:+$SYSTEM_MSG | }$(printf '%s' "$INBOX_DELIVERY" | tr '\n' ' ')"
 fi
 if [ -n "$WARNINGS" ]; then
     if [ "$FIRST_RUN_MODE" -eq 1 ]; then
@@ -183,7 +192,7 @@ if [ "$_bytes" -gt "$_MAX_CTX" ]; then
         [ "$(printf '%s' "$_kept" | wc -c)" -le "$_MAX_CTX" ] && break
         _budget=$(( _budget * 9 / 10 ))
     done
-    SYSTEM_MSG="${_orig:0:$_head} … [TRUNCATED: $_dropped of $_total chars dropped — payload exceeded $_MAX_CTX (CONFIG_CHECK_MAX_CONTEXT). full payload: $_FULL — read it for the dropped middle. Claude Code spills a SessionStart payload over ~10K chars to a disk file with only a 2 KB preview injected, so the cap must stay below that. Usual cause: cross-project/inbox.md holds too many items for this project; see CFG-515, CFG-527, CFG-617] … ${_orig: -$_tail}"
+    SYSTEM_MSG="${_orig:0:$_head} … [TRUNCATED: $_dropped of $_total chars dropped — payload exceeded $_MAX_CTX (CONFIG_CHECK_MAX_CONTEXT). full payload: $_FULL — read it for the dropped middle. Claude Code spills a SessionStart payload over ~10K chars to a disk file with only a 2 KB preview injected, so the cap must stay below that. Usual cause: many or long WARNING fields; this project's inbox block is capped (INBOX_ITEM_MAX, INBOX_BLOCK_MAX_ITEMS) and placed before WARNING, full items in cross-project/inbox/<project>.md; see CFG-515, CFG-527, CFG-617, CFG-1091] … ${_orig: -$_tail}"
 fi
 
 _EMIT="empty"

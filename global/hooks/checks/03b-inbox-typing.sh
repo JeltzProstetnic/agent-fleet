@@ -1,14 +1,16 @@
 #!/usr/bin/env bash
 # Check group 3b: typed inbox delivery (CFG-541) + dated-item expiry lane (CFG-543)
-# Sourced after 03-inbox-services.sh by filename order; reuses INBOX / PROJECT_NAME / TASKS.
-# Shared vars used: CONFIG_REPO, INBOX_MSG. Sets: INBOX_DEADLINES.
+# Sourced after 03-inbox-services.sh by filename order; reuses INBOX / PROJECT_NAME /
+# PROJECT_ALIASES / TASKS. Shared vars used: CONFIG_REPO, INBOX_MSG, INBOX_DELIVERY.
+# Sets: INBOX_DEADLINES.
 #
 # NOTE: stdout from a check is a JSON contract (CFG-503). Never echo here — a single
 # stray line makes CC discard the ENTIRE additionalContext payload, silently.
 
 _INBOX="${INBOX:-$CONFIG_REPO/cross-project/inbox.md}"
-[ -f "$_INBOX" ] || return 0 2>/dev/null || true
+[ -f "$_INBOX" ] || [ -d "$CONFIG_REPO/cross-project/inbox" ] || return 0 2>/dev/null || true
 _PROJ="${PROJECT_NAME:-$(basename "$(pwd)")}"
+_ALIASES="${PROJECT_ALIASES:-$_PROJ}"
 _MINE="${TASKS:-$(grep -i -- "- \[ \].*\*\*[[:space:]]*$_PROJ[[:space:]]*\*\*" "$_INBOX" 2>/dev/null || true)}"
 
 # ── CFG-541: type-aware delivery ────────────────────────────────────────────
@@ -38,7 +40,38 @@ if [ -n "$_MINE" ]; then
                   printf '%s\n' "$_MINE" | grep -vE -- '\[(fact|rule|work|fyi)\]' 2>/dev/null || true
                 } | grep -v '^$' || true )
 
-    INBOX_MSG="INBOX TASKS for $_PROJ [INBOX_TYPES: $_breakdown]: $_ordered${INBOX_MSG:+ | $INBOX_MSG}"
+    # ── CFG-1091 D6: cap the block ──────────────────────────────────────────
+    # Whole lines went out uncapped (one was 2.5 kB) and the payload cap then dropped
+    # the MIDDLE of a 9 kB block (social, 2026-11-08: ~8.7k chars of inbox lost). A
+    # session needs enough to dispatch; the full text stays in the per-project file.
+    _item_max="${INBOX_ITEM_MAX:-240}"; _block_items="${INBOX_BLOCK_MAX_ITEMS:-12}"
+    _n_all=$(printf '%s\n' "$_ordered" | grep -c . 2>/dev/null | head -1); [ -n "$_n_all" ] || _n_all=0
+    _shown=$(printf '%s\n' "$_ordered" | head -n "$_block_items")
+    _n_cut=$(printf '%s\n' "$_shown" | awk -v m="$_item_max" 'length($0) > m { n++ } END { print n+0 }')
+    _shown=$(printf '%s\n' "$_shown" | awk -v m="$_item_max" '{ if (length($0) > m) print substr($0, 1, m) " …"; else print }')
+    _hidden=$(( _n_all - _block_items )); [ "$_hidden" -gt 0 ] || _hidden=0
+    _note=""
+    [ "$_n_cut" -gt 0 ] && _note="$_n_cut item(s) shortened to $_item_max chars"
+    [ "$_hidden" -gt 0 ] && _note="${_note:+$_note, }$_hidden more not shown"
+    if [ -n "$_note" ]; then
+        _files=""
+        for _a in $_ALIASES; do
+            if command -v inbox_project_file >/dev/null 2>&1; then _f=$(basename "$(inbox_project_file "$_a")"); else _f="$_a.md"; fi
+            _files="${_files:+$_files, }cross-project/inbox/$_f"
+        done
+        _note=" [$_note — full text: $_files]"
+    fi
+    _hdr="INBOX TASKS for $_PROJ"
+    [ "$_ALIASES" != "$_PROJ" ] && _hdr="$_hdr (registry: ${_ALIASES#"$_PROJ" })"
+    _block="$_hdr [INBOX_TYPES: $_breakdown]: $_shown$_note"
+    # The block goes into INBOX_DELIVERY, which config-check.sh assembles right after
+    # the identity fields and BEFORE the unbounded WARNING field, so the kept 80 % head
+    # always carries it. An older config-check.sh without the slot gets it in INBOX_MSG.
+    if [ "${INBOX_DELIVERY+set}" = set ]; then
+        INBOX_DELIVERY="${INBOX_DELIVERY:+$INBOX_DELIVERY | }$_block"
+    else
+        INBOX_MSG="$_block${INBOX_MSG:+ | $INBOX_MSG}"
+    fi
 fi
 
 # ── CFG-543: dated-item expiry lane ─────────────────────────────────────────

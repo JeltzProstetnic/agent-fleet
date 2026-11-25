@@ -8,7 +8,7 @@
 # Actions:
 #   switch <project>           Open project in new tab, close current session
 #   tab <project>              Open project in new tab (keep current session)
-#   notify <project> <msg>     Append task to cross-project inbox
+#   notify <project> <msg>     File a typed task in the target's cross-project inbox file
 #   info <project>             Show project info from registry
 set -euo pipefail
 
@@ -279,24 +279,23 @@ action_info() {
 }
 
 action_notify() {
-    local inbox="$CONFIG_REPO/cross-project/inbox.md"
-
-    # Create inbox file with header if it doesn't exist
-    if [[ ! -f "$inbox" ]]; then
-        mkdir -p "$(dirname "$inbox")"
-        cat > "$inbox" << 'HEADER'
-# Cross-Project Inbox
-
-Tasks are per-project. Each project picks up its own entry and deletes it after integrating.
-
-## Pending
-
-HEADER
+    # CFG-1091: file through inbox-file.sh — the target's per-project file
+    # (cross-project/inbox/<project>.md, CFG-542), a type tag (CFG-541), and the
+    # registry check that refuses a target nobody will ever read. A leading
+    # "[fact]"/"[rule]"/"[work]"/"[fyi]" in the message picks the type; default work.
+    local helper itype="work" body="$MESSAGE"
+    helper="$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/inbox-file.sh"
+    [[ -f "$helper" ]] || helper="$CONFIG_REPO/setup/scripts/inbox-file.sh"
+    if [[ ! -f "$helper" ]]; then
+        echo "Error: inbox-file.sh not found next to this script or under $CONFIG_REPO/setup/scripts/." >&2
+        exit 1
     fi
-
-    # Append the task
-    echo "- [ ] **${PROJECT}**: ${MESSAGE}" >> "$inbox"
-    echo "Task added to inbox for $PROJECT"
+    if [[ "$body" =~ ^\[(fact|rule|work|fyi)\][[:space:]]*(.*)$ ]]; then
+        itype="${BASH_REMATCH[1]}"; body="${BASH_REMATCH[2]}"
+    fi
+    bash "$helper" --repo "$CONFIG_REPO" --project "$PROJECT" --type "$itype" --body "$body" \
+        --source "afleet-nav $(date +%Y-%m-%d)" || exit 1
+    echo "Task added to cross-project/inbox/ for $PROJECT"
 }
 
 action_tab() {

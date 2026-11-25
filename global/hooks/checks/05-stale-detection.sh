@@ -154,8 +154,15 @@ if [ -n "$STALE_MSG" ]; then
 fi
 
 # Check 5.4: Inbox staleness — warn if 3+ items >7d, escalate if any >14d (CFG-243)
+# CFG-1091 D5: reads the whole corpus (per-project files + legacy spillover) through
+# inbox-lib.sh; since CFG-542 it read inbox.md alone and had been silent for 3 months.
 INBOX_FILE="$CONFIG_REPO/cross-project/inbox.md"
-if [ -f "$INBOX_FILE" ]; then
+if [ -f "$INBOX_FILE" ] || [ -d "$CONFIG_REPO/cross-project/inbox" ]; then
+    if ! command -v inbox_all_items >/dev/null 2>&1; then
+        # shellcheck disable=SC1090
+        [ -f "$CONFIG_REPO/setup/scripts/inbox-lib.sh" ] && . "$CONFIG_REPO/setup/scripts/inbox-lib.sh" 2>/dev/null
+    fi
+    _inbox_src() { if command -v inbox_all_items >/dev/null 2>&1; then inbox_all_items; else cat "$INBOX_FILE" 2>/dev/null; fi; return 0; }
     _inbox_stale_count=0
     _inbox_escalate_count=0
     _inbox_oldest=""
@@ -179,7 +186,9 @@ if [ -f "$INBOX_FILE" ]; then
                 _inbox_oldest="$_item_date"
             fi
         fi
-    done < "$INBOX_FILE"
+    done <<EOF
+$(_inbox_src)
+EOF
     if [ "$_inbox_stale_count" -ge 3 ]; then
         WARNINGS="${WARNINGS:+$WARNINGS | }[WARN] Cross-project inbox: $_inbox_stale_count items older than 7 days (oldest: $_inbox_oldest)"
     fi

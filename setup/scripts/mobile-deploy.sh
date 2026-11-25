@@ -199,6 +199,37 @@ SLOG
     log_info "Mobile session log cleared"
 }
 
+# CFG-1091: outbox items are filed through inbox-file.sh into the target's per-project
+# inbox file (CFG-542), typed (CFG-541). One outbox item is its `- [ ]` line plus the
+# indented continuation lines the mobile format carries (`Context:`, `From:`), folded
+# into one body — the old grep kept only the first line and dropped the rest.
+_outbox_items() {
+    awk '
+        /^- \[ \]/ { if (item != "") print item; item = $0; next }
+        /^[ \t]+[^ \t]/ && item != "" { line = $0; gsub(/^[ \t]+|[ \t]+$/, "", line); item = item " — " line; next }
+        { if (item != "") print item; item = "" }
+        END { if (item != "") print item }
+    ' "$1"
+}
+
+# File one folded outbox line; returns the helper's status. Target = the **project**
+# tag, else cfg-agent-fleet (the Telegram intake's fallback); type = a [tag], else work.
+_file_outbox_item() {
+    local line="$1" target="cfg-agent-fleet" itype="work" body helper
+    body="${line#- \[ \] }"
+    if [[ "$body" =~ ^\*\*([^*]+)\*\*:?[[:space:]]*(.*)$ ]]; then
+        target="${BASH_REMATCH[1]}"; body="${BASH_REMATCH[2]}"
+    fi
+    if [[ "$body" =~ ^\[(fact|rule|work|fyi)\][[:space:]]*(.*)$ ]]; then
+        itype="${BASH_REMATCH[1]}"; body="${BASH_REMATCH[2]}"
+    fi
+    helper="$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/inbox-file.sh"
+    [[ -f "$helper" ]] || helper="$CONFIG_REPO/setup/scripts/inbox-file.sh"
+    [[ -f "$helper" ]] || return 1
+    bash "$helper" --repo "$CONFIG_REPO" --project "$target" --type "$itype" --body "$body" \
+        --source "mobile outbox $(date +%Y-%m-%d)" >/dev/null 2>&1
+}
+
 cmd_collect() {
     local outbox="$TARGET/inbox/outbox.md"
     local inbox="$CONFIG_REPO/cross-project/inbox.md"
@@ -211,22 +242,32 @@ cmd_collect() {
         log_warn "No outbox found at $outbox"
     else
         local tasks
-        tasks=$(grep '^\- \[ \]' "$outbox" 2>/dev/null || true)
+        tasks=$(_outbox_items "$outbox")
 
         if [[ -z "$tasks" ]]; then
             log_info "Outbox is empty — nothing to collect"
         else
-            echo "" >> "$inbox"
-            echo "$tasks" >> "$inbox"
-            local count
-            count=$(echo "$tasks" | wc -l)
-            log_info "Merged $count task(s) from outbox into inbox"
+            local count=0 spilled=0 line
+            while IFS= read -r line; do
+                [[ -n "$line" ]] || continue
+                if _file_outbox_item "$line"; then
+                    count=$((count + 1))
+                else
+                    # Never lose a task: the legacy spillover is still read by every session.
+                    echo "$line" >> "$inbox"
+                    spilled=$((spilled + 1))
+                fi
+            done <<< "$tasks"
+            log_info "Filed $count task(s) from outbox into cross-project/inbox/"
+            if [[ $spilled -gt 0 ]]; then
+                log_warn "$spilled task(s) could not be filed (project not in registry?) — appended to the legacy cross-project/inbox.md"
+            fi
 
             # Reset outbox (keep header)
             cat > "$outbox" <<'OUTBOX'
 # Mobile Outbox
 
-Tasks posted here will be merged into the main cross-project inbox
+Tasks posted here are filed into the target project's cross-project inbox file
 when `sync.sh mobile-collect` runs on any full machine.
 
 ## Pending

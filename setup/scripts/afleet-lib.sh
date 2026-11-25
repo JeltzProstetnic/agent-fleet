@@ -483,6 +483,25 @@ _afleet_ignore_terminal_logs() {
 }
 
 # ── Telegram-to-inbox (CFG-238) ─────────────────────────────────────────────
+# File one Telegram message for a project (CFG-1091): through inbox-file.sh into the
+# per-project file, typed — the 11-03 items arrived untagged, which is what makes a
+# queue undrainable (CFG-541). A leading "[fact]"/"[rule]"/"[work]"/"[fyi]" picks the
+# type; default work. On any failure the legacy spillover keeps the message: every
+# session still reads it, and a message that was never filed is gone.
+_telegram_file_item() {
+    local target="$1" msg="$2" today="$3" legacy="$4" itype="work" helper inbox_repo
+    if [[ "$msg" =~ ^\[(fact|rule|work|fyi)\][[:space:]]*(.*)$ ]]; then
+        itype="${BASH_REMATCH[1]}"; msg="${BASH_REMATCH[2]}"
+    fi
+    helper="$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/inbox-file.sh"
+    [[ -f "$helper" ]] || helper="$CONFIG_REPO/setup/scripts/inbox-file.sh"
+    inbox_repo="$(dirname "$(dirname "$legacy")")"
+    if ! { [[ -f "$helper" ]] && bash "$helper" --repo "$inbox_repo" --registry "$REGISTRY" \
+            --project "$target" --type "$itype" --body "$msg" --source "Telegram $today" >/dev/null 2>&1; }; then
+        echo "- [ ] **${target}** [${itype}] (P2; from Telegram ${today}): ${msg}" >> "$legacy"
+    fi
+}
+
 # Check AFD for unprocessed Telegram messages and create inbox entries.
 # Called pre-launch (0 LLM tokens). Messages with @project-name tags are
 # routed to the named project; untagged or unknown tags go to cfg-agent-fleet.
@@ -536,8 +555,7 @@ telegram_inbox_check() {
             clean_msg="$msg"
         fi
 
-        # Append inbox entry
-        echo "- [ ] **${target}**: ${clean_msg}. Source: Telegram ${today}." >> "$inbox_file"
+        _telegram_file_item "$target" "$clean_msg" "$today" "$inbox_file"
         ((count++)) || true
         routed_projects["$target"]=1
     done <<< "$raw_messages"

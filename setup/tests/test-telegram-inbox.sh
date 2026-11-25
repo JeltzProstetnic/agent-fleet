@@ -100,9 +100,15 @@ test_tagged_message_creates_inbox_entry() {
     local output
     output=$(PATH="$TEST_TMPDIR/bin:$PATH" telegram_inbox_check 2>&1)
 
-    assert_file_contains "$env_dir/cross-project/inbox.md" "social" "inbox should contain social project entry"
-    assert_file_contains "$env_dir/cross-project/inbox.md" "check the latest post engagement" "inbox should contain message text"
-    assert_file_contains "$env_dir/cross-project/inbox.md" "Telegram" "inbox should note Telegram source"
+    # CFG-1091: filed through inbox-file.sh into the per-project file, typed.
+    local pf="$env_dir/cross-project/inbox/social.md"
+    assert_file_exists "$pf" "per-project file for social must be created"
+    assert_file_contains "$pf" '\*\*social\*\* \[work\]' "entry carries the project and a [work] tag"
+    assert_file_contains "$pf" "check the latest post engagement" "inbox should contain message text"
+    assert_file_contains "$pf" "Telegram" "inbox should note Telegram source"
+    local legacy_lines
+    legacy_lines=$(grep -c '^\- \[ \]' "$env_dir/cross-project/inbox.md" 2>/dev/null; true)
+    assert_eq "0" "$legacy_lines" "the legacy inbox.md receives nothing"
 }
 run_test "message with @social tag → social inbox entry" test_tagged_message_creates_inbox_entry
 
@@ -119,8 +125,9 @@ test_untagged_message_goes_to_cfg() {
     local output
     output=$(PATH="$TEST_TMPDIR/bin:$PATH" telegram_inbox_check 2>&1)
 
-    assert_file_contains "$env_dir/cross-project/inbox.md" "cfg-agent-fleet" "untagged message should go to cfg-agent-fleet"
-    assert_file_contains "$env_dir/cross-project/inbox.md" "remember to check the NAS backup" "inbox should contain message text"
+    local pf="$env_dir/cross-project/inbox/cfg-agent-fleet.md"
+    assert_file_contains "$pf" "cfg-agent-fleet" "untagged message should go to cfg-agent-fleet"
+    assert_file_contains "$pf" "remember to check the NAS backup" "inbox should contain message text"
 }
 run_test "message without @tag → cfg-agent-fleet inbox entry" test_untagged_message_goes_to_cfg
 
@@ -137,8 +144,9 @@ test_unknown_tag_falls_back() {
     local output
     output=$(PATH="$TEST_TMPDIR/bin:$PATH" telegram_inbox_check 2>&1)
 
-    assert_file_contains "$env_dir/cross-project/inbox.md" "cfg-agent-fleet" "unknown tag should fallback to cfg-agent-fleet"
-    assert_file_contains "$env_dir/cross-project/inbox.md" "@nonexistent do something" "inbox should preserve full message including unknown tag"
+    local pf="$env_dir/cross-project/inbox/cfg-agent-fleet.md"
+    assert_file_contains "$pf" "cfg-agent-fleet" "unknown tag should fallback to cfg-agent-fleet"
+    assert_file_contains "$pf" "@nonexistent do something" "inbox should preserve full message including unknown tag"
 }
 run_test "message with @nonexistent tag → cfg-agent-fleet fallback" test_unknown_tag_falls_back
 
@@ -158,12 +166,12 @@ test_multiple_messages() {
     output=$(PATH="$TEST_TMPDIR/bin:$PATH" telegram_inbox_check 2>&1)
 
     local entry_count
-    entry_count=$(grep -c '^\- \[ \]' "$env_dir/cross-project/inbox.md" 2>/dev/null; true)
-    assert_eq "3" "$entry_count" "should create 3 inbox entries"
+    entry_count=$(cat "$env_dir"/cross-project/inbox/*.md 2>/dev/null | grep -c '^\- \[ \]'; true)
+    assert_eq "3" "$entry_count" "should create 3 inbox entries across the per-project files"
 
-    assert_file_contains "$env_dir/cross-project/inbox.md" "social" "should have social entry"
-    assert_file_contains "$env_dir/cross-project/inbox.md" "Alpha" "should have Alpha entry"
-    assert_file_contains "$env_dir/cross-project/inbox.md" "cfg-agent-fleet" "should have cfg fallback entry"
+    assert_file_contains "$env_dir/cross-project/inbox/social.md" "social" "should have social entry"
+    assert_file_contains "$env_dir/cross-project/inbox/alpha.md" "Alpha" "should have Alpha entry (file name folded)"
+    assert_file_contains "$env_dir/cross-project/inbox/cfg-agent-fleet.md" "cfg-agent-fleet" "should have cfg fallback entry"
 
     # Check summary output
     assert_contains "$output" "3" "summary should mention count"
@@ -223,7 +231,7 @@ test_tag_not_at_start() {
     local output
     output=$(PATH="$TEST_TMPDIR/bin:$PATH" telegram_inbox_check 2>&1)
 
-    assert_file_contains "$env_dir/cross-project/inbox.md" "muse" "should find @tag even in middle of message"
+    assert_file_contains "$env_dir/cross-project/inbox/muse.md" "muse" "should find @tag even in middle of message"
 }
 run_test "@tag in middle of message still routes correctly" test_tag_not_at_start
 
@@ -240,7 +248,7 @@ test_case_insensitive_tag() {
     local output
     output=$(PATH="$TEST_TMPDIR/bin:$PATH" telegram_inbox_check 2>&1)
 
-    assert_file_contains "$env_dir/cross-project/inbox.md" "social" "should match case-insensitive"
+    assert_file_contains "$env_dir/cross-project/inbox/social.md" "social" "should match case-insensitive"
 }
 run_test "case-insensitive @tag matching" test_case_insensitive_tag
 
@@ -256,10 +264,12 @@ test_inbox_entry_format() {
 
     PATH="$TEST_TMPDIR/bin:$PATH" telegram_inbox_check >/dev/null 2>&1
 
-    # Entry format: - [ ] **project**: message text. Source: Telegram YYYY-MM-DD.
+    # Entry format (inbox-file.sh, CFG-541/CFG-1091):
+    #   - [ ] **project** [type] (P2; from Telegram YYYY-MM-DD): message text
     local entry
-    entry=$(grep '^\- \[ \]' "$env_dir/cross-project/inbox.md" | head -1)
+    entry=$(grep '^\- \[ \]' "$env_dir/cross-project/inbox/alpha.md" | head -1)
     assert_contains "$entry" "**Alpha**" "entry should have bold project name"
+    assert_contains "$entry" "[work]" "a plain Telegram task is typed [work]"
     assert_contains "$entry" "review chapter 3 edits" "entry should have message text without @tag"
     assert_contains "$entry" "Telegram" "entry should note Telegram source"
     local today
@@ -267,6 +277,27 @@ test_inbox_entry_format() {
     assert_contains "$entry" "$today" "entry should have date"
 }
 run_test "inbox entry follows standard format" test_inbox_entry_format
+
+# ── 11. A leading [type] token picks the inbox type (CFG-1091) ───────────────
+# The 11-03 Telegram items arrived untagged, which is what makes a queue undrainable
+# (CFG-541). "[fact] @social …" files a fact; the token is not part of the body.
+
+test_type_prefix_selects_type() {
+    local env_dir
+    env_dir=$(create_telegram_env)
+
+    create_mock_afd "$TEST_TMPDIR/bin" '{"id":12,"message":"[fact] @social the handle changed to @fmt_theory","timestamp":"2026-03-19T14:30:00Z","persona":null}'
+
+    setup_telegram_test "$env_dir"
+    PATH="$TEST_TMPDIR/bin:$PATH" telegram_inbox_check >/dev/null 2>&1
+
+    local entry
+    entry=$(grep '^\- \[ \]' "$env_dir/cross-project/inbox/social.md" | head -1)
+    assert_contains "$entry" "**social** [fact]" "the [fact] prefix becomes the type tag"
+    assert_contains "$entry" "the handle changed to @fmt_theory" "body keeps the message"
+    assert_not_contains "${entry#*): }" "[fact]" "the prefix token is not repeated in the body"
+}
+run_test "[type] prefix in a Telegram message selects the inbox type" test_type_prefix_selects_type
 
 # ── Summary ──────────────────────────────────────────────────────────────────
 

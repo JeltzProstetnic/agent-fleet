@@ -31,6 +31,9 @@ setup_mock_config() {
     # Registry with projects that map to user_home
     cat > "$config/registry.md" <<REG
 # Project Registry
+
+## Projects
+
 | Project | Priority | Parent | Path | GitHub Remote | Machines | Type | Phase | Notes |
 |---------|----------|--------|------|--------------|----------|------|-------|-------|
 | alpha | P1 | — | \`~/alpha\` | — | test | code | active | Test project |
@@ -240,7 +243,8 @@ test_collect_merges_outbox_tasks() {
     # Deploy first
     bash "$SCRIPT" --config-repo "$config" --target "$target" --home "$user_home"
 
-    # Add tasks to outbox
+    # Add tasks to outbox — the mobile format carries indented continuation lines, and
+    # `social` is NOT in this registry (alpha and beta are).
     cat > "$target/inbox/outbox.md" <<'OUTBOX'
 # Mobile Outbox
 
@@ -248,16 +252,29 @@ test_collect_merges_outbox_tasks() {
 
 - [ ] **social**: Post thread about new paper
 - [ ] **alpha**: Review PR from contributor
+  Context: see PR 12
+  From: mobile session, 2026-03-19
 OUTBOX
 
     # Run collect
-    bash "$SCRIPT" --collect --config-repo "$config" --target "$target"
+    local output
+    output=$(bash "$SCRIPT" --collect --config-repo "$config" --target "$target" 2>&1)
 
-    # Tasks should appear in cross-project inbox
-    assert_file_contains "$config/cross-project/inbox.md" "Post thread about new paper"
-    assert_file_contains "$config/cross-project/inbox.md" "Review PR from contributor"
+    # CFG-1091: a registered target is filed through inbox-file.sh into its per-project
+    # file, continuation lines folded into the single-line body.
+    assert_file_contains "$config/cross-project/inbox/alpha.md" '\*\*alpha\*\* \[work\].*Review PR from contributor' \
+        "alpha's task lands in cross-project/inbox/alpha.md, typed"
+    assert_file_contains "$config/cross-project/inbox/alpha.md" "see PR 12" \
+        "the indented Context line is folded into the body, not dropped"
+    assert_file_not_contains "$config/cross-project/inbox.md" "Review PR from contributor" \
+        "a routed task does not also land in the legacy file"
+    # A task the helper refuses (unregistered project) must never be lost: it falls back
+    # to the legacy spillover, which every session still reads, and the run says so.
+    assert_file_contains "$config/cross-project/inbox.md" "Post thread about new paper" \
+        "an unroutable task is kept in the legacy inbox.md"
+    assert_contains "$output" "legacy" "the fallback is reported"
 }
-run_test "collect merges outbox tasks into cross-project inbox" test_collect_merges_outbox_tasks
+run_test "collect files outbox tasks into the per-project inbox, spills the unroutable" test_collect_merges_outbox_tasks
 
 test_collect_clears_outbox_after_merge() {
     local config="$TEST_TMPDIR/config"

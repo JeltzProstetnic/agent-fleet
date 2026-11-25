@@ -373,6 +373,67 @@ else
 fi
 rm -rf "$_nl_dir"
 
+# ══════════════════════════════════════════════════════════════════════════════
+# CFG-1091 D3: a deleted registry target is refused and its successor named; --repo
+# ══════════════════════════════════════════════════════════════════════════════
+# jasmin was deleted 2026-11-04 and an item was filed for it on 11-13 — the check read
+# the registry name, never its status. Nothing will ever read a dead project's inbox.
+echo ""
+echo "=== CFG-1091: deleted targets are refused, --repo routes a sandbox ==="
+_d3="$(mktemp -d)"
+mkdir -p "$_d3/repo/cross-project"
+cat > "$_d3/repo/registry.md" <<'EOF'
+## Projects
+
+| Project | Priority | Parent | Path | GitHub Remote | Machines | Type | Phase | Notes |
+|---------|----------|--------|------|--------------|----------|------|-------|-------|
+| life | P2 | — | `~/life` | — | test | personal | active | |
+| jasmin | — | life | `~/jasmin` | — | test | business | deleted 2026-11-04 | **Merged into `~/life/erik/`** |
+| alpha | P2 | — | `~/alpha` | — | test | code | active | |
+
+### Removed Projects
+
+| Project | Previous Path | Status | Notes |
+|---------|--------------|--------|-------|
+| claude-demo | `~/demo` | Deleted from filesystem + GitHub | nothing took it over |
+
+## Machines
+EOF
+
+_rc=0; _out=$(bash "$HELPER" --repo "$_d3/repo" --project jasmin --type work --body "mail for a dead project" 2>&1) || _rc=$?
+if [ "$_rc" -ne 0 ] && printf '%s' "$_out" | grep -q 'deleted' && printf '%s' "$_out" | grep -q -- '--project life'; then
+    pass "D3: a deleted project is refused and the successor 'life' is named"
+else
+    fail "D3: deleted project not refused with successor (rc=$_rc): $_out"
+fi
+if [ -e "$_d3/repo/cross-project/inbox/jasmin.md" ]; then
+    fail "D3: a refused filing still created jasmin.md"
+else
+    pass "D3: a refused filing writes nothing"
+fi
+_rc=0; _out=$(bash "$HELPER" --repo "$_d3/repo" --project claude-demo --type fyi --body "x" 2>&1) || _rc=$?
+if [ "$_rc" -ne 0 ] && printf '%s' "$_out" | grep -qi 'no successor'; then
+    pass "D3: a project in the Removed table is refused and the missing successor is said"
+else
+    fail "D3: removed project not refused (rc=$_rc): $_out"
+fi
+
+# --repo: the per-project file and the default registry live under THAT repo, and the
+# library is found next to the helper — so a writer in another repo (or a test sandbox)
+# never touches the real inbox.
+_rc=0; _out=$(bash "$HELPER" --repo "$_d3/repo" --project alpha --type work --body "routed by --repo" 2>&1) || _rc=$?
+if [ "$_rc" -eq 0 ] && grep -q 'routed by --repo' "$_d3/repo/cross-project/inbox/alpha.md" 2>/dev/null; then
+    pass "--repo files into <repo>/cross-project/inbox/alpha.md"
+else
+    fail "--repo did not route (rc=$_rc): $_out"
+fi
+if [ -f "$REPO_ROOT/cross-project/inbox/alpha.md" ] && grep -q 'routed by --repo' "$REPO_ROOT/cross-project/inbox/alpha.md" 2>/dev/null; then
+    fail "--repo leaked a test item into the real repo"
+else
+    pass "--repo writes nothing into the real repo"
+fi
+rm -rf "$_d3"
+
 if [ "$TESTS_FAILED" -gt 0 ]; then
     echo "  Failed:  $TESTS_FAILED"
     echo -e "$FAIL_DETAILS"

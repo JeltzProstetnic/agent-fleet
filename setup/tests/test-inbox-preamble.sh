@@ -21,6 +21,7 @@ SCRIPT_DIR="$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")"
 REPO_ROOT="$(dirname "$(dirname "$SCRIPT_DIR")")"
 LIB="$REPO_ROOT/setup/scripts/inbox-lib.sh"
 CHECK="$REPO_ROOT/global/hooks/checks/03-inbox-services.sh"
+CHECK_C="$REPO_ROOT/global/hooks/checks/03c-inbox-health.sh"
 
 _tmp="$(mktemp -d)"
 trap 'rm -rf "$_tmp"' EXIT
@@ -66,6 +67,9 @@ run_check() {
         USER_HOME="$_tmp/nohome"
         # shellcheck disable=SC1090
         . "$CHECK" >/dev/null 2>&1
+        # CFG-1091: the corpus signals (INBOX_STALE/INBOX_OVERSIZE) moved to 03c.
+        # shellcheck disable=SC1090
+        [ -f "$CHECK_C" ] && . "$CHECK_C" >/dev/null 2>&1
         echo "WARNINGS=${WARNINGS:-}"
         echo "INBOX_MSG=${INBOX_MSG:-}"
     )
@@ -126,8 +130,8 @@ fi
 # Guards against a fix that silences the check instead of scoping it. The fixture has
 # no cross-project/inbox/ directory, like an un-migrated machine: naming the unmatched
 # per-project glob as an awk operand made gawk abort, and `|| echo 0` reported 0.
-if printf '%s' "$_warn" | grep -q 'INBOX_STALE: 1 inbox line'; then
-    pass "stale item below the marker is still flagged: $(printf '%s' "$_warn" | grep -o 'INBOX_STALE: [0-9]* inbox line(s)')"
+if printf '%s' "$_warn" | grep -q 'INBOX_STALE: 1 open inbox item'; then
+    pass "stale item below the marker is still flagged: $(printf '%s' "$_warn" | grep -o 'INBOX_STALE: [0-9]* open inbox item(s)')"
 else
     fail "stale item below the marker was not flagged exactly once: $_warn"
 fi
@@ -138,8 +142,8 @@ mkdir -p "$_tmp/repo/cross-project/inbox"
 echo "- [ ] **Alpha** (P2 — from muse WSL $_old): an old per-project item" \
     > "$_tmp/repo/cross-project/inbox/alpha.md"
 _warn="$(run_check | sed -n 's/^WARNINGS=//p')"
-if printf '%s' "$_warn" | grep -q 'INBOX_STALE: 1 inbox line'; then
-    pass "stale per-project item is flagged: $(printf '%s' "$_warn" | grep -o 'INBOX_STALE: [0-9]* inbox line(s)')"
+if printf '%s' "$_warn" | grep -q 'INBOX_STALE: 1 open inbox item'; then
+    pass "stale per-project item is flagged: $(printf '%s' "$_warn" | grep -o 'INBOX_STALE: [0-9]* open inbox item(s)')"
 else
     fail "stale per-project item was not flagged exactly once: $_warn"
 fi

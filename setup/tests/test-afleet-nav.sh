@@ -116,26 +116,48 @@ test_notify_appends_to_inbox() {
 EOF
 
     bash "$SCRIPT" notify project-alpha "Review the new paper draft" --config-repo "$config_dir" 2>&1
-    assert_file_contains "$config_dir/cross-project/inbox.md" 'project-alpha.*Review the new paper draft' \
-        "should append formatted task to inbox"
-    # Existing content should still be there
+    # CFG-1091: notify files through inbox-file.sh → per-project file, type tag.
+    assert_file_contains "$config_dir/cross-project/inbox/project-alpha.md" 'project-alpha.*\[work\].*Review the new paper draft' \
+        "should file a typed task into the per-project file"
+    # The legacy file is left exactly as it was
     assert_file_contains "$config_dir/cross-project/inbox.md" 'existing task' \
-        "should preserve existing inbox content"
+        "should preserve existing legacy inbox content"
+    assert_file_not_contains "$config_dir/cross-project/inbox.md" 'Review the new paper draft' \
+        "should not append to the legacy inbox.md"
 }
-run_test "notify action appends task to inbox file" test_notify_appends_to_inbox
+run_test "notify action files a typed task into the per-project inbox" test_notify_appends_to_inbox
 
 test_notify_creates_inbox_if_missing() {
     local config_dir
     config_dir=$(create_mock_env)
-    # Remove inbox file
-    rm -f "$config_dir/cross-project/inbox.md"
+    # No inbox at all yet — neither legacy file nor per-project directory
+    rm -rf "$config_dir/cross-project/inbox.md" "$config_dir/cross-project/inbox"
 
     bash "$SCRIPT" notify project-gamma "Prepare release notes" --config-repo "$config_dir" 2>&1
-    assert_file_exists "$config_dir/cross-project/inbox.md" "should create inbox file"
-    assert_file_contains "$config_dir/cross-project/inbox.md" 'project-gamma.*Prepare release notes' \
+    assert_file_exists "$config_dir/cross-project/inbox/project-gamma.md" "should create the per-project file"
+    assert_file_contains "$config_dir/cross-project/inbox/project-gamma.md" 'project-gamma.*Prepare release notes' \
         "should write formatted task"
 }
-run_test "notify creates inbox file if missing" test_notify_creates_inbox_if_missing
+run_test "notify creates the per-project inbox file if missing" test_notify_creates_inbox_if_missing
+
+test_notify_unknown_project_is_refused() {
+    local config_dir output rc=0
+    config_dir=$(create_mock_env)
+    output=$(bash "$SCRIPT" notify nosuchproject "Nobody will read this" --config-repo "$config_dir" 2>&1) || rc=$?
+    assert_neq "0" "$rc" "a project absent from the registry must be refused (it would never be delivered)"
+    assert_contains "$output" "registry" "the refusal names the registry"
+    assert_file_not_exists "$config_dir/cross-project/inbox/nosuchproject.md" "nothing is written for an unknown project"
+}
+run_test "notify refuses a project absent from the registry" test_notify_unknown_project_is_refused
+
+test_notify_type_prefix() {
+    local config_dir
+    config_dir=$(create_mock_env)
+    bash "$SCRIPT" notify project-alpha "[fyi] heads up, nothing to do" --config-repo "$config_dir" 2>&1
+    assert_file_contains "$config_dir/cross-project/inbox/project-alpha.md" '\*\*project-alpha\*\* \[fyi\].*: heads up, nothing to do' \
+        "a leading [type] token becomes the type tag and leaves the body"
+}
+run_test "notify honours a leading [type] token" test_notify_type_prefix
 
 test_notify_missing_message_exits_error() {
     local config_dir

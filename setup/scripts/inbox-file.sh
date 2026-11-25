@@ -18,15 +18,17 @@
 # Usage:
 #   inbox-file.sh --project <name> --type <fact|rule|work|fyi> --body "<text>"
 #                 [--priority P0|P1|P2|P3] [--summary "<short>"] [--source "<proj machine date>"]
-#                 [--inbox <path>] [--registry <path>]
+#                 [--repo <config-repo>] [--inbox <path>] [--registry <path>]
+#   --repo points the per-project files and the default registry at another repo
+#   (a writer running from a different checkout, or a test sandbox) — CFG-1091.
 set -uo pipefail
 
 _repo_root() { cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/../.." && pwd; }
 REPO_ROOT="$(_repo_root)"
 
 PROJECT=""; TYPE=""; BODY=""; PRIORITY="P2"; SUMMARY=""; SOURCE=""; FORCE=0
-INBOX="$REPO_ROOT/cross-project/inbox.md"
-REGISTRY="$REPO_ROOT/registry.md"
+INBOX=""
+REGISTRY=""
 
 die() { echo "inbox-file: $*" >&2; exit 2; }
 
@@ -38,13 +40,30 @@ while [ $# -gt 0 ]; do
         --priority) PRIORITY="${2:-}"; shift 2 ;;
         --summary)  SUMMARY="${2:-}"; shift 2 ;;
         --source)   SOURCE="${2:-}"; shift 2 ;;
+        --repo)     REPO_ROOT="${2:-}"; shift 2 ;;
         --inbox)    INBOX="${2:-}"; INBOX_EXPLICIT=1; shift 2 ;;
         --force)    FORCE=1; shift ;;
         --registry) REGISTRY="${2:-}"; shift 2 ;;
-        -h|--help)  sed -n '2,20p' "$0"; exit 0 ;;
+        -h|--help)  sed -n '2,22p' "$0"; exit 0 ;;
         *)          die "unknown argument: $1" ;;
     esac
 done
+
+[ -d "$REPO_ROOT" ] || die "--repo '$REPO_ROOT' is not a directory"
+[ -n "$INBOX" ]    || INBOX="$REPO_ROOT/cross-project/inbox.md"
+[ -n "$REGISTRY" ] || REGISTRY="$REPO_ROOT/registry.md"
+
+# The library lives next to this script, so a --repo without setup/scripts (a sandbox,
+# another checkout) still resolves it; INBOX_REPO / INBOX_REGISTRY tell it where the
+# corpus and the registry are.
+_lib="$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/inbox-lib.sh"
+[ -f "$_lib" ] || _lib="$REPO_ROOT/setup/scripts/inbox-lib.sh"
+if [ -f "$_lib" ]; then
+    INBOX_REPO="$REPO_ROOT"
+    INBOX_REGISTRY="$REGISTRY"
+    # shellcheck disable=SC1090
+    . "$_lib"
+fi
 
 [ -n "$PROJECT" ] || die "--project is required"
 [ -n "$TYPE" ]    || die "--type is required (fact|rule|work|fyi)"
@@ -65,10 +84,25 @@ esac
 # because the filer is the only one who still knows what they meant.
 # `new-project` is the reserved placeholder and stays legal (CFG-483).
 if [ -f "$REGISTRY" ] && [ "$PROJECT" != "new-project" ]; then
-    _known=$(sed -n '/^## Projects/,/^## [^P]/p' "$REGISTRY" \
-        | sed -n 's/^| *\([A-Za-z0-9._/-]\+\) *|.*/\1/p' \
-        | grep -vxE '\-+|Project' \
-        | tr '[:upper:]' '[:lower:]' | sort -u)
+    # CFG-1091 D3: a target registered as deleted (or listed under Removed Projects) has
+    # no session left to read its inbox — jasmin took mail for nine days after its
+    # deletion because only the NAME was checked, never the status. Refuse and name the
+    # successor: the filer is the one who still knows what the item is for.
+    if command -v inbox_registry_dead >/dev/null 2>&1 && _dead=$(inbox_registry_dead "$PROJECT"); then
+        _succ="${_dead#*|}"
+        if [ -n "$_succ" ]; then
+            die "project '$PROJECT' is registered as ${_dead%%|*} — nothing will ever read its inbox. Its successor is '$_succ': file there with --project $_succ."
+        fi
+        die "project '$PROJECT' is registered as ${_dead%%|*} — nothing will ever read its inbox, and $(basename "$REGISTRY") names no successor. Ask the owner where its work went."
+    fi
+    if command -v inbox_registry_all_names >/dev/null 2>&1; then
+        _known=$(inbox_registry_all_names)
+    else
+        _known=$(sed -n '/^## Projects/,/^## [^P]/p' "$REGISTRY" \
+            | sed -n 's/^| *\([A-Za-z0-9._/-]\+\) *|.*/\1/p' \
+            | grep -vxE '\-+|Project' \
+            | tr '[:upper:]' '[:lower:]' | sort -u)
+    fi
     _want=$(printf '%s' "$PROJECT" | tr '[:upper:]' '[:lower:]')
     if [ -n "$_known" ] \
        && ! printf '%s\n' "$_known" | grep -qxF "$_want" \
@@ -82,17 +116,11 @@ fi
 # other sessions had left uncommitted there (one commit carried 53 deletions it never
 # made). Separate files make that structurally impossible. An explicit --inbox still
 # wins, so callers that must target a specific file (tests, legacy tooling) can.
-if [ -z "${INBOX_EXPLICIT:-}" ]; then
-    _lib="$REPO_ROOT/setup/scripts/inbox-lib.sh"
-    if [ -f "$_lib" ]; then
-        # shellcheck disable=SC1090
-        INBOX_REPO="$REPO_ROOT" . "$_lib"
-        INBOX_REPO="$REPO_ROOT"
-        _target="$(inbox_project_file "$PROJECT")"
-        mkdir -p "$(dirname "$_target")" 2>/dev/null || die "cannot create $(dirname "$_target")"
-        [ -f "$_target" ] || printf '# Inbox — %s\n\n' "$PROJECT" > "$_target"
-        INBOX="$_target"
-    fi
+if [ -z "${INBOX_EXPLICIT:-}" ] && command -v inbox_project_file >/dev/null 2>&1; then
+    _target="$(inbox_project_file "$PROJECT")"
+    mkdir -p "$(dirname "$_target")" 2>/dev/null || die "cannot create $(dirname "$_target")"
+    [ -f "$_target" ] || printf '# Inbox — %s\n\n' "$PROJECT" > "$_target"
+    INBOX="$_target"
 fi
 
 [ -f "$INBOX" ] || die "inbox file not found: $INBOX"

@@ -251,6 +251,49 @@ test_truncated_middle_is_recoverable() {
 }
 run_test "truncated middle is recoverable from a named file" test_truncated_middle_is_recoverable
 
+# ── CFG-1091 D6: the inbox block is bounded and placed where truncation keeps it ──
+# social's 2026-11-08 payload lost ~8.7k chars of inbox: the block followed an unbounded
+# WARNING field and sat in the dropped middle. 03b now emits a capped block into
+# INBOX_DELIVERY, which config-check.sh assembles right after identity, before WARNING.
+
+test_inbox_delivery_survives_truncation() {
+    local config_repo="$TEST_TMPDIR/config-repo-dl" mock_home="$TEST_TMPDIR/home-dl"
+    local project_dir="$TEST_TMPDIR/project-dl" checks_dir="$TEST_TMPDIR/checks-dl" patched output ctx
+    mkdir -p "$mock_home/.claude" "$project_dir" "$checks_dir"
+    create_mock_config_repo "$config_repo"
+    cat > "$checks_dir/01-synthetic.sh" << 'SYNTH'
+IDENTITY_MSG="HOSTNAME: TEST-BOX | PERSONA: TestPersona"
+INBOX_DELIVERY="INBOX TASKS for test [INBOX_TYPES: 1 fact]: - [ ] **test** [fact]: DELIVERY-SENTINEL $(printf 'd%.0s' $(seq 1 2500))"
+WARNINGS="$(printf 'W%.0s' $(seq 1 30000))"
+INBOX_MSG="TAIL-SENTINEL"
+SYNTH
+    patched=$(create_patched_script "$config_repo" "$mock_home" "$project_dir")
+    sed -i "s|^export CONFIG_CHECK_DIR=.*|export CONFIG_CHECK_DIR=\"$checks_dir\"|" "$patched"
+    output=$(run_hook "$patched")
+    ctx=$(extract_additional_context "$output")
+
+    local p_del p_warn
+    p_del=$(printf '%s' "$ctx" | grep -bo 'DELIVERY-SENTINEL' | head -1 | cut -d: -f1)
+    p_warn=$(printf '%s' "$ctx" | grep -bo 'WARNING:' | head -1 | cut -d: -f1)
+    echo "  measured: ${#ctx} chars; inbox block at offset ${p_del:-none}, WARNING at ${p_warn:-none}"
+    assert_contains "$ctx" "TRUNCATED" "the payload must have been truncated for this test to mean anything"
+    assert_contains "$ctx" "DELIVERY-SENTINEL" "the inbox block must survive truncation"
+    assert_contains "$ctx" "HOSTNAME: TEST-BOX" "identity still leads"
+    assert_eq "1" "$([ -n "$p_del" ] && [ -n "$p_warn" ] && [ "$p_del" -lt "$p_warn" ] && echo 1 || echo 0)" \
+        "the inbox block precedes the WARNING field (del=$p_del warn=$p_warn)"
+}
+run_test "CFG-1091 D6: capped inbox block survives truncation ahead of WARNING" test_inbox_delivery_survives_truncation
+
+test_truncation_marker_names_per_project_inbox() {
+    local patched output ctx
+    patched=$(_patched_with_payload 200000)
+    output=$(run_hook "$patched")
+    ctx=$(extract_additional_context "$output")
+    assert_not_contains "$ctx" "cross-project/inbox.md holds" "the marker must not blame the legacy file (CFG-542)"
+    assert_contains "$ctx" "cross-project/inbox/" "the marker names the per-project inbox files"
+}
+run_test "CFG-1091 D1: truncation marker points at the per-project inbox" test_truncation_marker_names_per_project_inbox
+
 # ── The mechanism, asserted directly ─────────────────────────────────────────
 
 test_payload_not_passed_as_argv() {

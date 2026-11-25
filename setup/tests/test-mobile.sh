@@ -282,9 +282,9 @@ test_collect_merges_outbox() {
         --config-repo "$TEST_TMPDIR/config" \
         --target "$TEST_TMPDIR/mobile"
 
-    # Tasks should appear in inbox
-    assert_file_contains "$TEST_TMPDIR/config/cross-project/inbox.md" "Tweet about new feature"
-    assert_file_contains "$TEST_TMPDIR/config/cross-project/inbox.md" "Review paper draft"
+    # Tasks land in each target's per-project inbox file (CFG-1091)
+    assert_file_contains "$TEST_TMPDIR/config/cross-project/inbox/social.md" "Tweet about new feature"
+    assert_file_contains "$TEST_TMPDIR/config/cross-project/inbox/my-project.md" "Review paper draft"
 }
 run_test "mobile-collect merges outbox tasks into inbox" test_collect_merges_outbox
 
@@ -352,7 +352,7 @@ test_collect_preserves_existing_inbox() {
 
     # Original inbox tasks should still be there
     assert_file_contains "$TEST_TMPDIR/config/cross-project/inbox.md" "Do something"
-    assert_file_contains "$TEST_TMPDIR/config/cross-project/inbox.md" "New mobile task"
+    assert_file_contains "$TEST_TMPDIR/config/cross-project/inbox/social.md" "New mobile task"
 }
 run_test "mobile-collect preserves existing inbox entries" test_collect_preserves_existing_inbox
 
@@ -394,7 +394,7 @@ test_collect_merges_claude_branches() {
         --config-repo "$TEST_TMPDIR/config" \
         --target "$TEST_TMPDIR/mobile"
 
-    assert_file_contains "$TEST_TMPDIR/config/cross-project/inbox.md" "Task from claude branch"
+    assert_file_contains "$TEST_TMPDIR/config/cross-project/inbox/social.md" "Task from claude branch"
 }
 run_test "mobile-collect merges claude/* branches before collecting" test_collect_merges_claude_branches
 
@@ -425,8 +425,8 @@ test_collect_merges_multiple_claude_branches() {
         --config-repo "$TEST_TMPDIR/config" \
         --target "$TEST_TMPDIR/mobile"
 
-    assert_file_contains "$TEST_TMPDIR/config/cross-project/inbox.md" "Task from branch 1"
-    assert_file_contains "$TEST_TMPDIR/config/cross-project/inbox.md" "Task from branch 2"
+    assert_file_contains "$TEST_TMPDIR/config/cross-project/inbox/social.md" "Task from branch 1"
+    assert_file_contains "$TEST_TMPDIR/config/cross-project/inbox/my-project.md" "Task from branch 2"
 }
 run_test "mobile-collect merges multiple claude/* branches" test_collect_merges_multiple_claude_branches
 
@@ -469,7 +469,7 @@ test_collect_no_branches_still_works() {
         --target "$TEST_TMPDIR/mobile" || rc=$?
 
     assert_eq "0" "$rc" "collect should succeed without claude branches"
-    assert_file_contains "$TEST_TMPDIR/config/cross-project/inbox.md" "Main branch task"
+    assert_file_contains "$TEST_TMPDIR/config/cross-project/inbox/social.md" "Main branch task"
 }
 run_test "mobile-collect works with no claude/* branches" test_collect_no_branches_still_works
 
@@ -493,7 +493,7 @@ test_collect_non_git_repo_still_works() {
         --target "$TEST_TMPDIR/mobile" || rc=$?
 
     assert_eq "0" "$rc" "collect should succeed for non-git mobile repo"
-    assert_file_contains "$TEST_TMPDIR/config/cross-project/inbox.md" "Non-git task"
+    assert_file_contains "$TEST_TMPDIR/config/cross-project/inbox/social.md" "Non-git task"
 }
 run_test "mobile-collect works for non-git mobile repos" test_collect_non_git_repo_still_works
 
@@ -756,7 +756,7 @@ test_collect_fetches_remote_branches() {
         --config-repo "$TEST_TMPDIR/config" \
         --target "$TEST_TMPDIR/mobile"
 
-    assert_file_contains "$TEST_TMPDIR/config/cross-project/inbox.md" "Task from remote branch"
+    assert_file_contains "$TEST_TMPDIR/config/cross-project/inbox/my-project.md" "Task from remote branch"
 }
 run_test "mobile-collect fetches and merges remote-only claude/* branches" test_collect_fetches_remote_branches
 
@@ -814,7 +814,7 @@ test_collect_handles_no_remote_gracefully() {
         --target "$TEST_TMPDIR/mobile" || rc=$?
 
     assert_eq "0" "$rc" "collect should succeed without a remote"
-    assert_file_contains "$TEST_TMPDIR/config/cross-project/inbox.md" "Local only task"
+    assert_file_contains "$TEST_TMPDIR/config/cross-project/inbox/my-project.md" "Local only task"
 }
 run_test "mobile-collect handles repos without a remote gracefully" test_collect_handles_no_remote_gracefully
 

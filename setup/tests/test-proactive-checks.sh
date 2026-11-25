@@ -252,6 +252,27 @@ EOF
 }
 run_test "Inbox staleness: completed items ignored" test_inbox_stale_ignores_completed
 
+# Test (CFG-1091 D5): items in the per-project files age too. Since CFG-542 every item
+# lives in cross-project/inbox/<project>.md and Check 5.4 read only the legacy file, so
+# it had been silent for three months. The legacy file may not even exist.
+test_inbox_stale_per_project_files() {
+    setup_check_env
+    cp "$REPO_ROOT/setup/scripts/inbox-lib.sh" "$CONFIG_REPO/setup/scripts/"
+    rm -f "$CONFIG_REPO/cross-project/inbox.md"
+    mkdir -p "$CONFIG_REPO/cross-project/inbox"
+    cat > "$CONFIG_REPO/cross-project/inbox/proj1.md" << 'EOF'
+# Inbox — proj1
+
+- [ ] **proj1** [work] (P2; from x WSL 2025-01-01): Task one
+- [ ] **proj1** [work] (P2; from x WSL 2025-01-02): Task two
+- [ ] **proj1** [fyi] (P3; from x WSL 2025-01-03): Task three
+EOF
+    source "$CHECK_05"
+    assert_contains "$WARNINGS" "Cross-project inbox:" "stale items in per-project files must warn (CFG-1091 D5)"
+    assert_contains "$WARNINGS" "older than 14 days" "escalation must count per-project items"
+}
+run_test "Inbox staleness (CFG-1091): per-project files are aged, legacy file absent" test_inbox_stale_per_project_files
+
 # Test: Missing inbox file → no warning
 test_inbox_stale_missing_file() {
     setup_check_env
