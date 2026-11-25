@@ -708,6 +708,9 @@ test_res_bad_input_and_too_large() {
     assert_eq 2 "$rc" "a non-numeric amount is refused" || return 1
     rc=0; out=$(bash "$TMUX_LAUNCH" "$s" "x" --expect 1h "true" 2>&1) || rc=$?
     assert_eq 2 "$rc" "--expect without --resource is refused" || return 1
+    rc=0; out=$(bash "$TMUX_LAUNCH" "$s" "x" --on-release "true" "true" 2>&1) || rc=$?
+    assert_eq 2 "$rc" "--on-release without --resource is refused" || return 1
+    assert_contains "$out" "--on-release" "and the refusal names it" || return 1
     rc=0; out=$(bash "$TMUX_LAUNCH" "$s" "x" --resource gpu:test=99999 "true" 2>&1) || rc=$?
     assert_eq 2 "$rc" "an amount above capacity is refused" || return 1
     assert_contains "$out" "--force" "with the hint to use --force" || return 1
@@ -720,6 +723,25 @@ test_res_bad_input_and_too_large() {
     assert_file_contains "$log" "FORCED-RAN" "--force starts it anyway" || return 1
 }
 run_test "--resource: bad amount, stray --expect, too large refused; --force overrides" test_res_bad_input_and_too_large
+
+# CFG-1122: a ComfyUI / LM Studio job frees its VRAM before its lease ends (seen 2026-11-25: a lease
+# ended while ComfyUI still held ~20 GB). --on-release reaches lease-run, runs after the job, before
+# the release; quoting (spaces, quotes, a redirect) survives the trip through the pane command.
+test_res_on_release_runs_before_release() {
+    (( RES_OK )) || { skip_test "--resource --on-release" "no loopback AFD"; return 0; }
+    local s="tl-res-o-$$" log="$TEST_TMPDIR/res-o.log" mark="$TEST_TMPDIR/on release.mark" out
+    out=$(bash "$TMUX_LAUNCH" "$s" "onrel" --log "$log" --mem none --resource gpu:test=2000 \
+        --on-release "echo \"freed it\" >> '$mark'; date +%s%N >> '$mark'" "date +%s%N > '$mark.job'; sleep 1" 2>&1) \
+        || { echo "launch failed: $out"; return 1; }
+    _wait_exit_code "$log"; kill_session "$s"
+    assert_file_exists "$mark" "the --on-release command ran" || return 1
+    assert_file_contains "$mark" "freed it" "with its quoting intact" || return 1
+    local job_ns rel_ns; job_ns=$(cat "$mark.job"); rel_ns=$(sed -n 2p "$mark")
+    echo "    measured: job wrote $job_ns, on-release wrote $rel_ns"
+    (( rel_ns > job_ns )) || { echo "    on-release ran BEFORE the job ($rel_ns <= $job_ns)"; return 1; }
+    assert_eq 0 "$(_res_count active)" "the lease is released after the on-release command" || return 1
+}
+run_test "--resource --on-release: runs after the job, before the release (CFG-1122)" test_res_on_release_runs_before_release
 
 # The lease's project (CFG-1007) is tested in test-tmux-launch-project.sh.
 

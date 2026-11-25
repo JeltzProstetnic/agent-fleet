@@ -3,7 +3,11 @@
 # Replaces raw `tmux new-session -d` for long-running ops.
 #
 # Usage: tmux-launch.sh <session-name> "<gpi-label>" [--log <path>] [--mem <SIZE>|none] [--service]
-#                       [--resource RES[=AMOUNT] [--expect DUR] [--force] [--wait-max DUR]] "<command>"
+#                       [--resource RES[=AMOUNT] [--expect DUR] [--force] [--wait-max DUR]
+#                        [--on-release CMD]] "<command>"
+#
+# CFG-1122: --on-release CMD is handed to lease-run, which runs it after the job and BEFORE the
+# release — e.g. ComfyUI's POST /free or `lms unload`, so the card is empty when the lease ends.
 #
 # CFG-996 slice 1: --resource runs the job under an AFD lease (e.g. gpu:wsl-4090=8192, MiB). One
 # claim from here (5 s): a 401, an unknown name or an amount above capacity is refused (exit 2)
@@ -44,7 +48,7 @@ fi
 
 LOG_PATH=""
 MEM=""
-RESOURCE="" EXPECT="" FORCE="" WAIT_MAX="" SERVICE=""
+RESOURCE="" EXPECT="" FORCE="" WAIT_MAX="" ON_RELEASE="" SERVICE=""
 while [[ $# -gt 1 ]]; do
     case "$1" in
         --log) LOG_PATH="$2"; shift 2 ;;
@@ -56,6 +60,7 @@ while [[ $# -gt 1 ]]; do
         --expect) EXPECT="$2"; shift 2 ;;
         --force) FORCE=1; shift ;;
         --wait-max) WAIT_MAX="$2"; shift 2 ;;
+        --on-release) ON_RELEASE="$2"; shift 2 ;;
         *) break ;;
     esac
 done
@@ -77,8 +82,8 @@ PROJECT="${AFLEET_PROJECT:-$(basename "$PWD")}"
 # ── CFG-996: one foreground claim (design §8 S1) ── the pane does the waiting.
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 RES_STATUS="" CLAIM_JSON="" RES_DIR="" RELEASE_ON_EXIT=0
-if [[ -z "$RESOURCE" && -n "$EXPECT$FORCE$WAIT_MAX" ]]; then
-    echo "tmux-launch: --expect/--force/--wait-max need --resource" >&2; exit 2
+if [[ -z "$RESOURCE" && -n "$EXPECT$FORCE$WAIT_MAX$ON_RELEASE" ]]; then
+    echo "tmux-launch: --expect/--force/--wait-max/--on-release need --resource" >&2; exit 2
 fi
 if [[ -n "$RESOURCE" ]]; then
     RES_NAME="${RESOURCE%%=*}" RES_AMOUNT=""
@@ -256,6 +261,7 @@ if [[ -n "$RESOURCE" ]]; then
     [[ -n "$EXPECT" ]] && _lr+=(--expect "$EXPECT")
     [[ -n "$FORCE" ]] && _lr+=(--force)
     [[ -n "$WAIT_MAX" ]] && _lr+=(--wait-max "$WAIT_MAX")
+    [[ -n "$ON_RELEASE" ]] && _lr+=(--on-release "$ON_RELEASE")
     [[ -n "$GPI_BIN" ]] && _lr+=(--gpi "$SESSION")
     COMMAND=". $(printf '%q' "$_envf"); rm -f $(printf '%q' "$_envf"); $(printf '%q ' "${_lr[@]}")-- bash -c $(printf '%q' "$COMMAND")"
 fi
