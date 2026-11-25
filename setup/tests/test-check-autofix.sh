@@ -857,6 +857,87 @@ test_dep_check_variant_json_latest_is_not_a_version() {
 }
 run_test "check 4.6 variant.json nativeVersion 'latest' is not mistaken for a version" test_dep_check_variant_json_latest_is_not_a_version
 
+# ── Check 4.8b: ~/.mcp.json through the link helpers (CFG-1087 slice 2) ──────────────────
+# On native Windows a bare `ln -s` silently copies (CFG-335); the check goes through _link_file so the
+# mode is the one setup/deploy chose. lib-portable honours a pre-set _SYMLINK_MODE, which is how the
+# copy-mode cases below run on Linux.
+
+_mcp_fixture() {  # builds config repo + home with a canonical .mcp.json; echoes the patched hook
+    local config_repo="$TEST_TMPDIR/config-repo" mock_home="$TEST_TMPDIR/home" project_dir="$TEST_TMPDIR/project"
+    mkdir -p "$mock_home/.claude" "$project_dir" "$mock_home/.cc-mirror/mclaude/config"
+    # the hook sources lib-portable.sh from its own directory (deployed: ~/.claude/hooks/); the patched
+    # copy lives in TEST_TMPDIR, so the lib goes there — without it the plain-ln fallback would run
+    cp "$REPO_ROOT/global/hooks/lib-portable.sh" "$TEST_TMPDIR/"
+    create_mock_config_repo "$config_repo"
+    touch "$config_repo/CLAUDE.md"
+    ln -sf "$config_repo/CLAUDE.md" "$mock_home/.claude/CLAUDE.md"
+    printf '{\n  "mcpServers": {\n    "fixture-server": {"command": "true"}\n  }\n}\n' > "$mock_home/.cc-mirror/mclaude/config/.mcp.json"
+    printf '{\n  "permissions": {"allow": ["Bash(bash:*)"]},\n  "hooks": {},\n  "enabledPlugins": {}\n}\n' > "$mock_home/.cc-mirror/mclaude/config/settings.json"
+    create_patched_script "$config_repo" "$mock_home" "$project_dir"
+}
+
+test_mcp_link_missing_symlink_mode() {
+    local patched; patched=$(_mcp_fixture)
+    local home="$TEST_TMPDIR/home"
+    run_hook "$patched" >/dev/null
+    [ -L "$home/.mcp.json" ] || { echo "    ~/.mcp.json is not a symlink in symlink mode"; return 1; }
+    assert_eq "$home/.cc-mirror/mclaude/config/.mcp.json" "$(readlink "$home/.mcp.json")" "symlink points at the canonical file"
+}
+run_test "check 4.8b: missing ~/.mcp.json becomes a symlink in symlink mode (Linux, unchanged)" test_mcp_link_missing_symlink_mode
+
+test_mcp_link_broken_symlink_mode() {
+    local patched; patched=$(_mcp_fixture)
+    local home="$TEST_TMPDIR/home"
+    ln -s "$TEST_TMPDIR/does-not-exist.json" "$home/.mcp.json"
+    local out; out=$(run_hook "$patched")
+    [ -e "$home/.mcp.json" ] || { echo "    broken ~/.mcp.json was not repaired"; return 1; }
+    assert_eq "$home/.cc-mirror/mclaude/config/.mcp.json" "$(readlink "$home/.mcp.json")" "re-pointed at the canonical file" || return 1
+    assert_not_contains "$out" "broken symlink" "no warning once repaired"
+}
+run_test "check 4.8b: broken ~/.mcp.json symlink is re-pointed (Linux, unchanged)" test_mcp_link_broken_symlink_mode
+
+test_mcp_link_missing_copy_mode() {
+    local patched; patched=$(_mcp_fixture)
+    local home="$TEST_TMPDIR/home"
+    _SYMLINK_MODE=copy _SYMLINK_WHY="forced by test" run_hook "$patched" >/dev/null
+    [ -e "$home/.mcp.json" ] || { echo "    ~/.mcp.json was not created in copy mode"; return 1; }
+    [ -L "$home/.mcp.json" ] && { echo "    copy mode must not leave a symlink (a bare ln -s was used)"; return 1; }
+    assert_file_contains "$home/.mcp.json" "fixture-server" "the copy carries the canonical content"
+}
+run_test "check 4.8b: missing ~/.mcp.json becomes a COPY in copy mode (native Windows without symlinks)" test_mcp_link_missing_copy_mode
+
+test_mcp_link_broken_copy_mode() {
+    local patched; patched=$(_mcp_fixture)
+    local home="$TEST_TMPDIR/home"
+    ln -s "$TEST_TMPDIR/does-not-exist.json" "$home/.mcp.json"
+    local out; out=$(_SYMLINK_MODE=copy _SYMLINK_WHY="forced by test" run_hook "$patched")
+    [ -e "$home/.mcp.json" ] || { echo "    broken ~/.mcp.json was not replaced in copy mode"; return 1; }
+    [ -L "$home/.mcp.json" ] && { echo "    copy mode must replace the broken link with a file"; return 1; }
+    assert_file_contains "$home/.mcp.json" "fixture-server" "the replacement carries the canonical content" || return 1
+    assert_not_contains "$out" "mcp.json is a broken symlink" "no warning once repaired"
+}
+run_test "check 4.8b: broken ~/.mcp.json is replaced by a COPY in copy mode" test_mcp_link_broken_copy_mode
+
+# ── Check 4.4 runs its Python through _python3 (CFG-1087 slice 2) ────────────────────────
+# A recording interpreter is pre-set as the fleet Python; 4.4 must reach it, never bare python3.
+test_bash_permission_heal_uses_fleet_python() {
+    local config_repo="$TEST_TMPDIR/config-repo" mock_home="$TEST_TMPDIR/home" project_dir="$TEST_TMPDIR/project"
+    mkdir -p "$mock_home/.claude" "$project_dir" "$mock_home/.cc-mirror/mclaude/config" "$TEST_TMPDIR/pybin"
+    cp "$REPO_ROOT/global/hooks/lib-portable.sh" "$TEST_TMPDIR/"   # beside the patched hook, as deployed
+    create_mock_config_repo "$config_repo"
+    touch "$config_repo/CLAUDE.md"
+    ln -sf "$config_repo/CLAUDE.md" "$mock_home/.claude/CLAUDE.md"
+    printf '{\n  "permissions": {"allow": ["Read(*)"]},\n  "hooks": {}\n}\n' > "$mock_home/.cc-mirror/mclaude/config/settings.json"
+    printf '#!/usr/bin/env bash\necho "$*" >> "%s/pyfake.calls"\nexec /usr/bin/env python3 "$@"\n' "$TEST_TMPDIR" > "$TEST_TMPDIR/pybin/pyfake"
+    chmod +x "$TEST_TMPDIR/pybin/pyfake"
+    local patched; patched=$(create_patched_script "$config_repo" "$mock_home" "$project_dir")
+    _FLEET_PYTHON=pyfake PATH="$TEST_TMPDIR/pybin:$PATH" run_hook "$patched" >/dev/null
+    assert_file_contains "$mock_home/.cc-mirror/mclaude/config/settings.json" 'Bash(bash:\*)' "4.4 still heals the permission" || return 1
+    [ -f "$TEST_TMPDIR/pyfake.calls" ] || { echo "    4.4 did not run through the fleet Python (_python3) — a bare python3 call remains"; return 1; }
+    assert_file_contains "$TEST_TMPDIR/pyfake.calls" "settings.json" "the recorded call is 4.4's auto-heal"
+}
+run_test "check 4.4: the auto-heal runs through _python3 (resolvable on Git Bash)" test_bash_permission_heal_uses_fleet_python
+
 # ── Summary ──────────────────────────────────────────────────────────────────
 
 suite_summary

@@ -196,6 +196,82 @@ touch "$_h/.cc-mirror/bin/mclaude.cmd"
 assert_eq "_cc_launcher_find: the platform default wins when both exist" "$_h/.cc-mirror/bin/mclaude.cmd" "$( HOME="$_h"; OSTYPE=msys; _cc_launcher_find )"
 assert_eq "_cc_launcher_find: Linux default" "$_h/.local/bin/mclaude" "$( HOME="$_h"; OSTYPE=linux-gnu; unset PLATFORM; _cc_launcher_find )"
 
+# === Python resolution (CFG-1087 slice 2) ===
+# Git for Windows: `python3` is often only the Microsoft Store redirector, which prints "Python was
+# not found; run without arguments to install from the Microsoft Store…" and EXITS 0 (measured
+# 2026-11-25), so `command -v python3` passes and every call fails. The helper probes python3, python,
+# `py -3` by their --version banner and states what it found. Off native Windows it returns python3
+# WITHOUT probing — Linux/macOS/WSL behaviour is byte-for-byte unchanged.
+echo "=== Python resolution: _fleet_python / _python3 / _python_report (CFG-1087) ==="
+
+_PYSTUB="$TEST_TMPDIR/pystub"; mkdir -p "$_PYSTUB/store" "$_PYSTUB/py" "$_PYSTUB/none" "$_PYSTUB/recorder"
+# the Store redirector shape: message on stdout, exit 0
+printf '#!/usr/bin/env bash\necho "Python was not found; run without arguments to install from the Microsoft Store, or disable this shortcut from Settings > Apps > Advanced app settings > App execution aliases."\nexit 0\n' > "$_PYSTUB/store/python3"
+# a real `python` beside it
+printf '#!/usr/bin/env bash\n[ "$1" = --version ] && { echo "Python 3.11.9"; exit 0; }\necho "python-stub ran: $*"\n' > "$_PYSTUB/store/python"
+# only the `py` launcher answers, and only to -3
+cp "$_PYSTUB/store/python3" "$_PYSTUB/py/python3"; cp "$_PYSTUB/store/python3" "$_PYSTUB/py/python"
+printf '#!/usr/bin/env bash\n[ "$1" = -3 ] && [ "$2" = --version ] && { echo "Python 3.12.1"; exit 0; }\n[ "$1" = -3 ] && { shift; echo "py-stub ran: $*"; exit 0; }\nexit 103\n' > "$_PYSTUB/py/py"
+# nothing usable: python3 and python are redirectors, py is the launcher with no Python behind it
+# (all three stubbed, so the host's own interpreters cannot answer through PATH)
+cp "$_PYSTUB/store/python3" "$_PYSTUB/none/python3"; cp "$_PYSTUB/store/python3" "$_PYSTUB/none/python"
+printf '#!/usr/bin/env bash\nexit 103\n' > "$_PYSTUB/none/py"
+# a recorder: every --version probe leaves a line in $_PYSTUB/probes
+printf '#!/usr/bin/env bash\necho "python3 $*" >> "%s/probes"\nexec /usr/bin/env python3 "$@"\n' "$_PYSTUB" > "$_PYSTUB/recorder/python3"
+chmod +x "$_PYSTUB"/*/*
+
+# Fresh resolution in a subshell: <OSTYPE> <stub dir> <cmd…>
+_pyrun() { ( OSTYPE="$1"; unset PLATFORM; PATH="$2:$PATH"; _FLEET_PYTHON=""; _FLEET_PYTHON_WHY=""; shift 2; "$@" ); }
+
+assert_eq "_fleet_python is defined" "function" "$(type -t _fleet_python 2>/dev/null || echo missing)"
+assert_eq "_python3 is defined" "function" "$(type -t _python3 2>/dev/null || echo missing)"
+assert_eq "_python_report is defined" "function" "$(type -t _python_report 2>/dev/null || echo missing)"
+
+rm -f "$_PYSTUB/probes"
+assert_eq "Linux: _fleet_python is python3" "python3" "$(_pyrun linux-gnu "$_PYSTUB/recorder" _fleet_python)"
+assert_eq "Linux: no probe ran (byte-for-byte unchanged)" "0" "$(wc -l < "$_PYSTUB/probes" 2>/dev/null | tr -d ' ' || echo 0)"
+assert_eq "Linux: _python3 runs the real interpreter" "42" "$(_pyrun linux-gnu /nonexistent _python3 -c 'print(6*7)')"
+assert_eq "Linux: _python3 passes stdin" "hi" "$(echo hi | _pyrun linux-gnu /nonexistent _python3 -c 'import sys; print(sys.stdin.read().strip())')"
+case "$(_pyrun linux-gnu /nonexistent _python_report)" in
+    python3*unprobed*) assert_eq "Linux: report says python3, unprobed" "ok" "ok" ;;
+    *) assert_eq "Linux: report says python3, unprobed" "python3 … unprobed" "$(_pyrun linux-gnu /nonexistent _python_report)" ;;
+esac
+assert_eq "WSL (PLATFORM=wsl) is not probed either" "python3" "$( OSTYPE=linux-gnu; PLATFORM=wsl; PATH="$_PYSTUB/store:$PATH"; _FLEET_PYTHON=""; _fleet_python )"
+
+assert_eq "Windows (cygwin): the Store redirector is rejected although it exits 0; python wins" "python" "$(_pyrun cygwin "$_PYSTUB/store" _fleet_python)"
+assert_eq "Windows (msys spelling) probes too" "python" "$(_pyrun msys "$_PYSTUB/store" _fleet_python)"
+assert_eq "Windows: _python3 runs the resolved interpreter with its args" "python-stub ran: -c print(1)" "$(_pyrun cygwin "$_PYSTUB/store" _python3 -c 'print(1)')"
+_rep=$(_pyrun cygwin "$_PYSTUB/store" _python_report)
+assert_eq "Windows: report names the chosen command first" "python — " "${_rep:0:9}"
+case "$_rep" in *"python3"*"Python was not found"*) assert_eq "Windows: report says why python3 was rejected" "ok" "ok" ;; *) assert_eq "Windows: report says why python3 was rejected" "…python3 … Python was not found…" "$_rep" ;; esac
+case "$_rep" in *'python answers "Python 3.11.9"'*) assert_eq "Windows: report quotes the winner's banner" "ok" "ok" ;; *) assert_eq "Windows: report quotes the winner's banner" '…python answers "Python 3.11.9"…' "$_rep" ;; esac
+
+assert_eq "Windows: python3 and python unusable → py -3" "py -3" "$(_pyrun cygwin "$_PYSTUB/py" _fleet_python)"
+assert_eq "Windows: _python3 through the py launcher keeps the args" "py-stub ran: -c print(2)" "$(_pyrun cygwin "$_PYSTUB/py" _python3 -c 'print(2)')"
+
+assert_eq "Windows: nothing usable → _fleet_python rc 1" "1" "$(_pyrun cygwin "$_PYSTUB/none" _to_rc _fleet_python)"
+assert_eq "Windows: nothing usable → _fleet_python prints nothing" "" "$(_pyrun cygwin "$_PYSTUB/none" _fleet_python 2>/dev/null)"
+assert_eq "Windows: nothing usable → _python3 rc 127 (as a missing python3 would)" "127" "$(_pyrun cygwin "$_PYSTUB/none" _to_rc _python3 -c 'print(3)')"
+_rep=$(_pyrun cygwin "$_PYSTUB/none" _python_report)
+assert_eq "Windows: nothing usable → report starts with none" "none — " "${_rep:0:7}"
+
+# two _fleet_python calls + one _python3 run: the probe hits the stub once, the run itself is the second hit
+assert_eq "the result is cached: two resolutions and one run invoke the interpreter twice, not three times" "2" "$( OSTYPE=cygwin; unset PLATFORM; PATH="$_PYSTUB/store:$PATH"; _FLEET_PYTHON=""; _FLEET_PYTHON_WHY=""; printf '#!/usr/bin/env bash\necho probed >> "%s/count"\necho "Python 3.9.0"\n' "$_PYSTUB" > "$_PYSTUB/store/python3"; rm -f "$_PYSTUB/count"; _fleet_python >/dev/null; _fleet_python >/dev/null; _python3 --version >/dev/null; wc -l < "$_PYSTUB/count" | tr -d ' ' )"
+cp "$_PYSTUB/none/python3" "$_PYSTUB/store/python3"
+assert_eq "a pre-set _FLEET_PYTHON is honoured without probing" "python" "$( OSTYPE=cygwin; PATH="$_PYSTUB/none:$PATH"; _FLEET_PYTHON=python; _fleet_python )"
+
+# The ported call sites: no bare `python3 …` invocation may remain in these files (comments and
+# apt/brew package names aside) — on Git Bash a bare one hits the Store redirector.
+echo "=== no bare python3 left in the ported call sites ==="
+for _f in global/hooks/config-check.sh global/hooks/checks/04-auto-fix.sh sync-lib/setup.sh sync-lib/deploy.sh \
+          sync-lib/pre-deploy.sh setup/scripts/afleet.sh setup/scripts/afleet-recover.sh \
+          setup/scripts/cc-install-invariants.sh setup/scripts/cc-update.sh \
+          setup/scripts/install-voltagent.sh setup/scripts/install-skill-collections.sh; do
+    # `command -v python3` is NOT excused: it is true on Git Bash (the redirector exists) and is the guard that lets the broken call through.
+    _bare=$(grep -nE '(^|[^_A-Za-z0-9./"-])python3( |$|\))' "$REPO_ROOT/$_f" | grep -vE '^[0-9]+:[[:space:]]*#' | grep -vE '_python3|_fleet_python|"python3"|^[0-9]+:[[:space:]]*python3$' || true)
+    assert_eq "no bare python3 call in $_f" "" "$_bare"
+done
+
 # === lib-portable.sh standalone ===
 echo "=== lib-portable.sh standalone ==="
 

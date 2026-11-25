@@ -37,7 +37,7 @@ if [ -f "$SETTINGS_FILE" ]; then
         if ! grep -q 'Bash(bash:\*)' "$SETTINGS_FILE" 2>/dev/null; then
             _bp_tmp="$(mktemp)"
             printf '%s\n' 'import json,sys,os' 'f=sys.argv[1]' 'd=json.load(open(f))' 'a=d.get("permissions",{}).get("allow")' 'if a is not None: a.append("Bash(bash:*)")' 'if a is not None:' '  t=f+".tmp"' '  open(t,"w").write(json.dumps(d,indent=2)+"\n")' '  os.rename(t,f)' > "$_bp_tmp"
-            python3 "$_bp_tmp" "$SETTINGS_FILE" 2>/dev/null || true
+            _python3 "$_bp_tmp" "$SETTINGS_FILE" 2>/dev/null || true
             rm -f "$_bp_tmp"
         fi
     fi
@@ -113,13 +113,14 @@ fi
 # Check 4.8b: MCP config symlink health — auto-fix broken ~/.mcp.json
 # workspace-mcp and other MCP servers silently fail to register when this symlink is broken.
 # The user sees no error — Gmail/Calendar/Drive tools simply don't appear in the session.
+# _link_file (lib-portable, CFG-1087): a symlink here; a copy where native Windows allows none.
 _MCP_LINK="$HOME/.mcp.json"
 _MCP_TARGET="$CC_MIRROR_DIR/config/.mcp.json"
 if [ -L "$_MCP_LINK" ] && [ ! -e "$_MCP_LINK" ]; then
     # Broken symlink — auto-fix
     if [ -f "$_MCP_TARGET" ]; then
         rm -f "$_MCP_LINK"
-        ln -s "$_MCP_TARGET" "$_MCP_LINK" 2>/dev/null
+        _link_file "$_MCP_TARGET" "$_MCP_LINK" 2>/dev/null
         if [ ! -e "$_MCP_LINK" ]; then
             WARNINGS="${WARNINGS:+$WARNINGS | }~/.mcp.json is a broken symlink and auto-fix failed. MCP servers (Gmail, Calendar, etc.) will not work. Fix: ln -s $_MCP_TARGET $_MCP_LINK"
         fi
@@ -129,7 +130,7 @@ if [ -L "$_MCP_LINK" ] && [ ! -e "$_MCP_LINK" ]; then
     fi
 elif [ ! -e "$_MCP_LINK" ] && [ -f "$_MCP_TARGET" ]; then
     # Missing entirely — create it
-    ln -s "$_MCP_TARGET" "$_MCP_LINK" 2>/dev/null || true
+    _link_file "$_MCP_TARGET" "$_MCP_LINK" 2>/dev/null || true
 fi
 
 # Check 4.8: AFD client deployed — auto-source env if available

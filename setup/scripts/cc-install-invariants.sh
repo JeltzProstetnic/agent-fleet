@@ -23,7 +23,7 @@
 #   --allow-unrequested teamModeEnabled / skill-set drift is WARN, not FAIL UNREQUESTED
 # Env (all optional):
 #   CC_MIRROR_DIR            $HOME/.cc-mirror/mclaude
-#   CC_LAUNCHER              $HOME/.local/bin/mclaude
+#   CC_LAUNCHER              the launcher lib-portable finds: $HOME/.local/bin/mclaude, or .cc-mirror/bin/mclaude.cmd on native Windows
 #   CC_INSTALL_SNAPSHOT      ${XDG_CACHE_HOME:-$HOME/.cache}/cfg-agent-fleet/cc-install.snapshot
 #   CC_SETTINGS_TEMPLATE     <repo>/setup/config/settings.json   (the env-key policy)
 #   CC_SETTINGS_OVERLAY_DIR  <repo>/setup/config/machines        (per-machine env-key policy)
@@ -39,7 +39,22 @@ set -uo pipefail   # deliberately NOT -e: every probe may fail; FAILs are counte
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 MIRROR="${CC_MIRROR_DIR:-$HOME/.cc-mirror/mclaude}"
-LAUNCHER="${CC_LAUNCHER:-$HOME/.local/bin/mclaude}"
+# lib-portable.sh (CFG-1087 slice 2): the launcher location per platform — _cc_launcher_find gives
+# ~/.cc-mirror/bin/mclaude.cmd on native Windows — and _python3 (python3 may be the Microsoft Store
+# stub there). Without the lib (a guard copied alone into a scratch tree) the Linux defaults apply, said in §0.
+for _lp in "$REPO_ROOT/global/hooks/lib-portable.sh" "$HOME/.claude/hooks/lib-portable.sh"; do
+    [[ -f "$_lp" ]] && { source "$_lp"; break; }
+done
+_LIB_PORTABLE_MISSING=0
+if ! type _cc_launcher_find >/dev/null 2>&1; then
+    _LIB_PORTABLE_MISSING=1
+    _cc_launcher_path() { echo "$HOME/.local/bin/${1:-mclaude}"; }
+    _cc_launcher_find() { [[ -f "$(_cc_launcher_path "$@")" ]] && _cc_launcher_path "$@"; }
+    _fleet_python() { command -v python3 >/dev/null 2>&1 && echo python3; }
+    _python3() { python3 "$@"; }
+    _python_report() { echo "python3 — lib-portable.sh not found, unprobed"; }
+fi
+LAUNCHER="${CC_LAUNCHER:-$(_cc_launcher_find 2>/dev/null || _cc_launcher_path)}"
 SNAPSHOT="${CC_INSTALL_SNAPSHOT:-${XDG_CACHE_HOME:-$HOME/.cache}/cfg-agent-fleet/cc-install.snapshot}"
 TEMPLATE="${CC_SETTINGS_TEMPLATE:-$REPO_ROOT/setup/config/settings.json}"
 OVERLAY_DIR="${CC_SETTINGS_OVERLAY_DIR:-$REPO_ROOT/setup/config/machines}"
@@ -72,6 +87,7 @@ ok()   { printf 'OK: %s\n' "$*"; }
 info() { printf 'INFO: %s\n' "$*"; }
 warn() { printf 'WARN: %s\n' "$*"; }
 fail() { local tag="$1"; shift; printf 'FAIL: %s %s\n' "$tag" "$*"; FAILS=$((FAILS + 1)); }
+[[ "$_LIB_PORTABLE_MISSING" -eq 1 ]] && info "lib-portable.sh not found beside $REPO_ROOT/global/hooks nor under ~/.claude/hooks — launcher path and Python resolved with Linux defaults"
 
 _semver()     { grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1 || true; }
 _field()      { [[ -f "$1" ]] || return 0; grep -o "\"$2\": *\"[^\"]*\"" "$1" 2>/dev/null | head -1 | sed 's/.*: *"\([^"]*\)".*/\1/' || true; }
@@ -85,9 +101,9 @@ _probe() {  # _probe <binary> → x.y.z from `--version`, bounded, empty on any 
         "$1" --version 2>/dev/null </dev/null | _semver || true
     fi
 }
-_env_keys() {  # _env_keys <settings.json> → one env key per line (python3; empty otherwise)
-    [[ -f "$1" ]] && command -v python3 >/dev/null 2>&1 || return 0
-    python3 -c 'import json,sys
+_env_keys() {  # _env_keys <settings.json> → one env key per line (the fleet Python; empty otherwise)
+    [[ -f "$1" ]] && _fleet_python >/dev/null 2>&1 || return 0
+    _python3 -c 'import json,sys
 try:
     d = json.load(open(sys.argv[1]))
     print("\n".join(sorted((d.get("env") or {}).keys())))
@@ -176,6 +192,8 @@ fi
 # ── 4. LAUNCHER: the file the launcher execs must exist (the dead-launcher check) ───────
 if [[ ! -f "$LAUNCHER" ]]; then
     fail LAUNCHER "launcher missing at $LAUNCHER"
+elif [[ "$LAUNCHER" == *.cmd ]]; then
+    info "launcher is a Windows .cmd ($LAUNCHER) — no bash exec line to parse, its target is not checked (CFG-1087: the cc-mirror launcher itself is not ported yet)"
 else
     EXEC_LINE=$(grep -E '^[[:space:]]*exec ' "$LAUNCHER" 2>/dev/null | tail -1 || true)
     if [[ -z "$EXEC_LINE" ]]; then
@@ -224,8 +242,8 @@ ENABLE_TOOL_SEARCH"
 if [[ -f "$LIVE_SETTINGS" ]]; then
     if [[ ! -f "$TEMPLATE" ]]; then
         info "settings template not found at $TEMPLATE — live env keys not checked"
-    elif ! command -v python3 >/dev/null 2>&1; then
-        info "python3 not available — live env keys not checked"
+    elif ! _fleet_python >/dev/null 2>&1; then
+        info "no usable Python ($(_python_report)) — live env keys not checked"
     else
         POLICY=$(_env_keys "$TEMPLATE")
         for _ov in "$OVERLAY_DIR"/*/settings.json; do [[ -f "$_ov" ]] && POLICY="$POLICY"$'\n'"$(_env_keys "$_ov")"; done

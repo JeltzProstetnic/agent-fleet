@@ -132,7 +132,7 @@ deploy_settings() {
         local machine_overlay="$SCRIPT_DIR/setup/config/machines/$machine_dir/settings.json"
         if [[ -f "$machine_overlay" ]]; then
             local overlay_tmp="${settings_base}.machine-overlay.tmp"
-            if python3 "$SCRIPT_DIR/setup/scripts/json-overlay.py" "$settings_base" "$machine_overlay" > "$overlay_tmp" 2>/dev/null; then
+            if _python3 "$SCRIPT_DIR/setup/scripts/json-overlay.py" "$settings_base" "$machine_overlay" > "$overlay_tmp" 2>/dev/null; then
                 effective_base="$overlay_tmp"
                 log_info "Applied machine overlay: $machine_dir/settings.json"
             else
@@ -170,7 +170,7 @@ deploy_settings() {
     # - env: live preserved, base merged on top (so secrets survive, new vars added)
     # - permissions.allow: union of both (deduped)
     # - live-only keys (effortLevel, etc.): preserved
-    python3 "$SCRIPT_DIR/setup/scripts/json-merge.py" "$effective_base" "$live" "$override" > "${live}.tmp"
+    _python3 "$SCRIPT_DIR/setup/scripts/json-merge.py" "$effective_base" "$live" "$override" > "${live}.tmp"
 
     # Clean up temp overlay file if created
     [[ "$effective_base" != "$settings_base" ]] && rm -f "$effective_base"
@@ -178,7 +178,7 @@ deploy_settings() {
     # Validate: valid JSON + no test-path contamination in env vars
     local _py_live_tmp
     _py_live_tmp=$(_to_native_path "${live}.tmp")
-    if python3 -c "import json; json.load(open('$_py_live_tmp'))" 2>/dev/null; then
+    if _python3 -c "import json; json.load(open('$_py_live_tmp'))" 2>/dev/null; then
         if grep -qE '/tmp/cfgtest|/tmp/pytest|/tmp/bats' "${live}.tmp" 2>/dev/null; then
             rm -f "${live}.tmp"
             log_warn "Settings merge contains test paths — aborting deploy to prevent env contamination"
@@ -513,7 +513,7 @@ apply_project_icons() {
 
     # Generate icons if they don't exist yet
     if [ ! -f "$SCRIPT_DIR/setup/icons/p1.ico" ]; then
-        if python3 -c "from PIL import Image" 2>/dev/null; then
+        if _python3 -c "from PIL import Image" 2>/dev/null; then
             log_info "Generating project badge icons..."
             bash "$icon_script" generate 2>/dev/null || log_warn "Icon generation failed (Pillow missing?)"
         else

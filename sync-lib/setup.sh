@@ -45,6 +45,8 @@ cmd_setup() {
     log_info "Platform: $PLATFORM"
     _can_symlink >/dev/null 2>&1 || true   # probe once, in this shell (CFG-335)
     log_info "Link mode: $(_link_mode_report)"
+    # python3 may be the Microsoft Store stub on Git Bash — say which interpreter the fleet resolved (CFG-1087)
+    if _is_native_windows; then _fleet_python >/dev/null 2>&1 || true; log_info "Python: $(_python_report)"; fi
 
     # Ensure ~/.claude exists as a real directory (not a symlink)
     if [ -L "$CLAUDE_HOME" ]; then
@@ -207,7 +209,7 @@ run_provisioning_checks() {
         local cc_version
         local _py_cc_pkg
         _py_cc_pkg=$(_to_native_path "$cc_pkg")
-        cc_version=$(python3 -c "import json; print(json.load(open('$_py_cc_pkg'))['version'])" 2>/dev/null || echo "unknown")
+        cc_version=$(_python3 -c "import json; print(json.load(open('$_py_cc_pkg'))['version'])" 2>/dev/null || echo "unknown")
         log_info "Claude Code version: $cc_version"
     else
         log_warn "Claude Code: not found at $cc_pkg"

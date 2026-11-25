@@ -18,7 +18,9 @@ _ci_mirror="${CC_MIRROR_DIR:-$HOME/.cc-mirror/mclaude}"
 if [ -f "$_ci_script" ] && [ -d "$_ci_mirror" ]; then
     _ci_snap="${CC_INSTALL_SNAPSHOT:-${XDG_CACHE_HOME:-$HOME/.cache}/cfg-agent-fleet/cc-install.snapshot}"
     _ci_tmpl="${CC_SETTINGS_TEMPLATE:-$CONFIG_REPO/setup/config/settings.json}"
-    _ci_launcher="${CC_LAUNCHER:-$HOME/.local/bin/mclaude}"
+    # The launcher where this platform's cc-mirror writes it (lib-portable _cc_launcher_find: ~/.local/bin/mclaude,
+    # ~/.cc-mirror/bin/mclaude.cmd on native Windows); the Linux default if lib-portable did not load (CFG-1087).
+    _ci_launcher="${CC_LAUNCHER:-$(_cc_launcher_find 2>/dev/null || _cc_launcher_path 2>/dev/null || echo "$HOME/.local/bin/mclaude")}"
     _ci_to=""
     command -v timeout >/dev/null 2>&1 && _ci_to="timeout ${CC_INSTALL_CHECK_TIMEOUT:-20}"
     _ci_out=""

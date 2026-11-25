@@ -30,6 +30,16 @@ Machine files (`~/.claude/machines/<machine>.md`) contain platform-specific deta
   ```
 - **Never use tmux on KDE machines** — the user has a graphical terminal with native tabs
 
+## Native Windows (Git Bash / MINGW64) — measured 2026-11-25 (CFG-335/336, Git for Windows 2.55, Win 11 Pro)
+
+- `OSTYPE` is `cygwin`, not `msys` — detect native Windows by more than `msys*`.
+- Plain `ln -s` silently COPIES. `MSYS=winsymlinks:nativestrict ln -s` is refused without Developer Mode or elevation. `mklink /J` (directory junction) works unelevated; bash sees the junction as a symlink, and `rm` removes only the junction. The fleet's link helpers (`lib-portable.sh`) try nativestrict → junction (dirs) + copy (files) → copy and state the mode chosen.
+- Native Windows Python auto-converts MSYS paths given as argv, but a path embedded in `-c` code fails — convert with `cygpath -m` first (`_to_native_path`). `python3` may be only the Microsoft Store stub.
+- Git Bash login shells source `~/.bashrc` through an auto-created `.bash_profile`; `/tmp` maps to `%TEMP%`.
+- Absent in Git Bash although fleet scripts use them (CFG-1093 sweep): `tmux`, `pgrep`, `systemctl`, `jq` (gpi, statusline, afleet-ide), `flock` (`gpi.sh`, `vault-manage.sh`), `setsid`, `script` (afleet runs claude under `script -q -f`), `wslpath`. `sudo` on Windows 11 is Windows' own `sudo.exe`.
+- From PowerShell, `bash` resolves to the WindowsApps alias and starts **WSL**, not Git Bash — so an install line like `cd ~/agent-fleet && bash setup.sh` typed into PowerShell runs in WSL. Call Git Bash by its full path.
+- Execution policy measured on this host: CurrentUser Undefined, LocalMachine Restricted (not elevated) — the port states admin + execution-policy prerequisites instead of working around them.
+
 ## macOS
 
 - Use `open <filepath>` for opening files (respects system default app)

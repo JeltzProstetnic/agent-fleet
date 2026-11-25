@@ -84,6 +84,71 @@ _cc_launcher_find() {
     return 1
 }
 
+# ---- Python resolution (CFG-1087 slice 2) -------------------------------------------------------
+# Off native Windows the fleet runs `python3`, unprobed — Linux/macOS/WSL behaviour is unchanged.
+# On Git Bash `python3` is often only the Microsoft Store redirector: it prints "Python was not
+# found; run without arguments to install from the Microsoft Store…" and EXITS 0 (measured
+# 2026-11-25), so a `command -v python3` guard passes and the call fails. Each candidate — python3,
+# python, py -3 — is run once with --version and accepted only when it prints a `Python 3.` banner;
+# the first that does wins. Cached in _FLEET_PYTHON (python3 | python | py -3 | none), the probe
+# verdicts in _FLEET_PYTHON_WHY. A caller may pre-set _FLEET_PYTHON (tests, overrides).
+_FLEET_PYTHON="${_FLEET_PYTHON:-}"
+_FLEET_PYTHON_WHY="${_FLEET_PYTHON_WHY:-}"
+
+# _python_probe_one <cmd…> — true when `<cmd…> --version` prints a Python 3 banner; records why.
+_python_probe_one() {
+    local v why
+    v=$(_timeout 10 "$@" --version 2>&1 </dev/null | head -1 | tr -d '\r')
+    case "$v" in
+        "Python 3."*) _FLEET_PYTHON_WHY="${_FLEET_PYTHON_WHY:+$_FLEET_PYTHON_WHY; }$* answers \"$v\""; return 0 ;;
+    esac
+    why="${v:-no output}"
+    _FLEET_PYTHON_WHY="${_FLEET_PYTHON_WHY:+$_FLEET_PYTHON_WHY; }$* unusable (${why:0:90})"
+    return 1
+}
+
+# Probe once; sets _FLEET_PYTHON and _FLEET_PYTHON_WHY. 1 when nothing usable runs.
+_probe_python() {
+    _FLEET_PYTHON_WHY=""
+    if ! _is_native_windows; then
+        _FLEET_PYTHON="python3"
+        _FLEET_PYTHON_WHY="python3, unprobed (not native Windows)"
+        return 0
+    fi
+    local c
+    for c in python3 python "py -3"; do
+        if ! command -v "${c%% *}" >/dev/null 2>&1; then
+            _FLEET_PYTHON_WHY="${_FLEET_PYTHON_WHY:+$_FLEET_PYTHON_WHY; }${c%% *} not on PATH"
+            continue
+        fi
+        # shellcheck disable=SC2086  # `py -3` is two words by design
+        if _python_probe_one $c; then _FLEET_PYTHON="$c"; return 0; fi
+    done
+    _FLEET_PYTHON="none"
+    return 1
+}
+
+# Prints the Python command to run (python3 | python | py -3); 1 and nothing when none runs.
+# Call outside `$(…)` where the cache should persist (as _python3 does).
+_fleet_python() {
+    if [[ -z "$_FLEET_PYTHON" ]]; then _probe_python || true; fi
+    [[ "$_FLEET_PYTHON" != none ]] || return 1
+    printf '%s\n' "$_FLEET_PYTHON"
+}
+
+# _python3 <args…> — run the resolved Python; 127 when none, as a missing python3 would.
+_python3() {
+    _fleet_python >/dev/null || return 127
+    # shellcheck disable=SC2086  # `py -3` is two words; the value is one of our own literals
+    $_FLEET_PYTHON "$@"
+}
+
+# Prints the command and the probe verdicts — for the setup/deploy log.
+_python_report() {
+    _fleet_python >/dev/null 2>&1 || true
+    printf '%s — %s\n' "$_FLEET_PYTHON" "${_FLEET_PYTHON_WHY:-set by caller}"
+}
+
 # ---- Portable link helpers (CFG-335: native Windows) -------------------------------------------
 # On MSYS2/Cygwin without rights `ln -s` silently COPIES, so every `[ -L ]` check fails (agent-fleet
 # GH#2). The mode is chosen once per process by what the host actually allows, cached in

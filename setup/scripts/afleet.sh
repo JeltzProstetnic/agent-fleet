@@ -62,6 +62,7 @@ for _p in "$CONFIG_REPO/global/hooks/lib-portable.sh" "$HOME/.claude/hooks/lib-p
 done
 # Library missing: keep the old behaviour rather than drop the bound altogether.
 type _timeout &>/dev/null || _timeout() { timeout "$@"; }
+type _python3 &>/dev/null || _python3() { python3 "$@"; }   # lib-portable resolves past the Store stub on Git Bash (CFG-1087)
 
 # ── Portable readlink -f (needed before any library is sourced) ───────────────
 _readlink_f() { readlink -f "$1" 2>/dev/null && return; local t="$1"; [ "${t#/}" = "$t" ] && t="$PWD/$t"; while [ -L "$t" ]; do local l; l=$(readlink "$t") || break; [ "${l#/}" = "$l" ] && l="$(dirname "$t")/$l"; t="$l"; done; local d; d=$(cd "$(dirname "$t")" 2>/dev/null && pwd -P) || return 1; echo "$d/$(basename "$t")"; }
@@ -900,11 +901,11 @@ launch_mclaude() {
             all)
                 if [[ -f "$_srcmcp" ]]; then
                     cp -f "$_srcmcp" "$_lean/.mcp.json" && \
-                    echo "  MCP: ALL ($(python3 -c "import json;print(len(json.load(open('$_lean/.mcp.json')).get('mcpServers',{})))" 2>/dev/null || echo '?') servers) — tool definitions may not fit this context"
+                    echo "  MCP: ALL ($(_python3 -c "import json;print(len(json.load(open('$_lean/.mcp.json')).get('mcpServers',{})))" 2>/dev/null || echo '?') servers) — tool definitions may not fit this context"
                 else echo "  ! MCP: source .mcp.json not found, staying with none" >&2; fi ;;
             minimal)
                 if [[ -f "$_srcmcp" ]]; then
-                    python3 - "$_srcmcp" "$_lean/.mcp.json" "${ALM_MCP_MINIMAL:-serena context7}" <<'PYMCP'
+                    _python3 - "$_srcmcp" "$_lean/.mcp.json" "${ALM_MCP_MINIMAL:-serena context7}" <<'PYMCP'
 import json, sys
 src, dst, keep = sys.argv[1], sys.argv[2], sys.argv[3].split()
 d = json.load(open(src)); srv = d.get('mcpServers', {})

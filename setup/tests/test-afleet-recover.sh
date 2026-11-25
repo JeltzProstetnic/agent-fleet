@@ -564,6 +564,23 @@ test_safe_mode_reports_none_found() {
 }
 run_test "CFG-888: dry-run reports when no binary is found" test_safe_mode_reports_none_found
 
+# CFG-1087 slice 2: the launcher is looked up through lib-portable (_cc_launcher_find), so a
+# ~/.cc-mirror/bin/mclaude.cmd — cc-mirror's location on native Windows — is read too.
+test_safe_mode_reads_cmd_launcher() {
+    local home; home=$(create_mock_fleet)
+    # the mock config repo carries lib-portable.sh as the real one does (the launcher lookup lives there)
+    mkdir -p "$home/cfg-agent-fleet/global/hooks"
+    cp "$REPO_ROOT/global/hooks/lib-portable.sh" "$home/cfg-agent-fleet/global/hooks/"
+    _mk_fake_cc "$home/$_MIRROR_BIN" "2.1.280"
+    _mk_fake_cc "$home/alt/claude.exe" "2.1.281"
+    mkdir -p "$home/.cc-mirror/bin"
+    printf '#!/usr/bin/env bash\nexport CLAUDE_CONFIG_DIR="%s/.cc-mirror/mclaude/config"\nexec "%s/alt/claude.exe" "$@"\n' "$home" "$home" > "$home/.cc-mirror/bin/mclaude.cmd"
+    chmod +x "$home/.cc-mirror/bin/mclaude.cmd"
+    local out; out=$(_safe_dry "$home")
+    assert_contains "$out" "Binary: $home/alt/claude.exe" "the .cmd launcher's exec target is chosen when no ~/.local/bin/mclaude exists (output: $(printf '%s' "$out" | grep -i binary || true))"
+}
+run_test "CFG-1087: safe-mode reads a ~/.cc-mirror/bin/mclaude.cmd launcher (native Windows location)" test_safe_mode_reads_cmd_launcher
+
 # ── 5. MCP connectivity check ───────────────────────────────────────────────
 
 test_mcp_check_command_server_binary_exists() {

@@ -623,5 +623,35 @@ test_up_to_date_still_wires_checker() {
 run_test "an already-up-to-date install still gets the checker wired" test_up_to_date_still_wires_checker
 
 # ══════════════════════════════════════════════════════════════════════════════
+# CFG-1087 slice 2: the launcher path comes from lib-portable (_cc_launcher_find), so a
+# ~/.cc-mirror/bin/mclaude.cmd (where cc-mirror writes it on native Windows) is the one
+# backed up and reported — not a hardcoded ~/.local/bin/mclaude.
+# ══════════════════════════════════════════════════════════════════════════════
+
+test_dry_run_names_cmd_launcher() {
+    create_cc_mirror_sandbox "2.1.111"
+    unset CLAUDE_CONFIG_DIR 2>/dev/null || true
+    mkdir -p "$HOME/.cc-mirror/bin"
+    mv "$HOME/.local/bin/mclaude" "$HOME/.cc-mirror/bin/mclaude.cmd"
+
+    local output launcher_line
+    output=$(bash "$CC_UPDATE" --dry-run --version 2.2.0 --skip-npm 2>&1) || true
+    launcher_line=$(printf '%s\n' "$output" | grep -E 'Launcher:' | head -1)
+    echo "    measured: [$launcher_line]"
+    assert_contains "$launcher_line" "$HOME/.cc-mirror/bin/mclaude.cmd" "the existing .cmd launcher is the one named" || return 1
+    assert_not_contains "$launcher_line" ".local/bin/mclaude" "no hardcoded Linux path when only the .cmd exists"
+}
+run_test "dry run names the ~/.cc-mirror/bin/mclaude.cmd launcher when that is the one installed" test_dry_run_names_cmd_launcher
+
+test_dry_run_default_launcher_unchanged() {
+    create_cc_mirror_sandbox "2.1.111"
+    unset CLAUDE_CONFIG_DIR 2>/dev/null || true
+    local output
+    output=$(bash "$CC_UPDATE" --dry-run --version 2.2.0 --skip-npm 2>&1) || true
+    assert_contains "$(printf '%s\n' "$output" | grep -E 'Launcher:' | head -1)" "$HOME/.local/bin/mclaude" "Linux: ~/.local/bin/mclaude as before"
+}
+run_test "dry run still names ~/.local/bin/mclaude on Linux (unchanged)" test_dry_run_default_launcher_unchanged
+
+# ══════════════════════════════════════════════════════════════════════════════
 
 suite_summary

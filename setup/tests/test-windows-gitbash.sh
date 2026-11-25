@@ -60,10 +60,13 @@ _gb() {
 # Stage the files under test plus a small global/ fixture into $WT/repo (nothing personal, all deleted).
 _stage_repo() {
     local r="$WT/repo"
-    mkdir -p "$r/global/hooks" "$r/sync-lib" "$r/setup"
+    mkdir -p "$r/global/hooks/checks" "$r/sync-lib" "$r/setup/scripts" "$r/setup/tests"
     cp "$REPO_ROOT/global/hooks/lib-portable.sh" "$r/global/hooks/"
+    cp "$REPO_ROOT/global/hooks/checks/04-auto-fix.sh" "$r/global/hooks/checks/"
     cp "$REPO_ROOT/sync-lib/common.sh" "$REPO_ROOT/sync-lib/setup.sh" "$r/sync-lib/"
     cp "$REPO_ROOT/setup/lib.sh" "$r/setup/"
+    cp "$REPO_ROOT/setup/scripts/cc-install-invariants.sh" "$r/setup/scripts/"
+    cp "$REPO_ROOT/setup/tests/lib-cc-install-fixture.sh" "$r/setup/tests/"
     echo "# fixture CLAUDE.md" > "$r/global/CLAUDE.md"
     local d
     for d in foundation reference domains knowledge machines; do
@@ -151,6 +154,7 @@ EOF
     echo "$out" | sed 's/^/    | /'
     assert_contains "$out" "platform=windows" "sync.sh's platform detection says windows under Git Bash" || return 1
     assert_contains "$out" "Link mode:" "setup states the link mode" || return 1
+    assert_contains "$out" "Python:" "setup states which Python it found (CFG-1087 slice 2: python3 may be the Store stub)" || return 1
     assert_eq "2" "$(echo "$out" | grep -c 'Setup verification PASSED')" "verify_setup passes on both runs (V1–V7 were the GH#2 failures)" || return 1
     assert_not_contains "$out" "verification FAILED" "" || return 1
     assert_contains "$out" "claude_md=# fixture CLAUDE.md" "CLAUDE.md deployed and readable" || return 1
@@ -254,7 +258,110 @@ EOF
 }
 _win_case "launcher path is ~/.cc-mirror/bin/mclaude.cmd and install-base accepts it (GH#2)" test_launcher_and_install_base_real
 
-# ── 6. nothing left behind outside the throwaway dir ────────────────────────────────────────
+# ── 7. Python resolution on the metal (slice 2) ─────────────────────────────────────────────
+# `python3` on Git Bash may be the Microsoft Store redirector, which EXITS 0 with "Python was not
+# found…" (measured 2026-11-25). The helper must judge by the banner and state what it found.
+test_python_resolution_real() {
+    _stage_repo
+    cat > "$WT/t7.sh" <<'EOF'
+#!/usr/bin/env bash
+source "$HOME/repo/global/hooks/lib-portable.sh"
+raw=$(python3 --version 2>&1 </dev/null | head -1); echo "raw_python3=[$raw]"
+py=$(_fleet_python); echo "fleet_python=[$py] rc=$?"
+echo "report=$(_python_report)"
+echo "run=$(_python3 -c 'print(6*7)' 2>&1 </dev/null | tail -1)"
+_python3 -c 'import sys; sys.exit(0)' </dev/null >/dev/null 2>&1; echo "run_rc=$?"
+EOF
+    local out py report
+    out=$(_gb t7.sh)
+    echo "$out" | sed 's/^/    | /'
+    py=$(echo "$out" | sed -n 's/^fleet_python=\[\(.*\)\] rc=.*/\1/p')
+    report=$(echo "$out" | sed -n 's/^report=//p')
+    assert_contains "$report" "python3" "the report says what python3 itself turned out to be" || return 1
+    if [[ -z "$py" ]]; then
+        assert_contains "$out" "fleet_python=[] rc=1" "no usable Python → rc 1" || return 1
+        [[ "$report" == none* ]] || { echo "    report should start with 'none' (got '$report')"; return 1; }
+        assert_contains "$out" "run_rc=127" "_python3 fails like a missing python3"
+        echo "    (no usable Python on this host — resolution stated it)"; return 0
+    fi
+    [[ "$report" == "$py — "* ]] || { echo "    report must name the chosen command first (got '$report')"; return 1; }
+    assert_contains "$out" "run=42" "the resolved interpreter runs code" || return 1
+    assert_contains "$out" "run_rc=0" "_python3 passes the exit status through"
+}
+_win_case "Python resolution: the Store stub is seen through, a real interpreter runs, the report says which" test_python_resolution_real
+
+# ── 8. check 4.8b (~/.mcp.json) through the link helpers on the metal (slice 2) ─────────────
+test_mcp_link_autofix_real() {
+    _stage_repo
+    {
+        cat <<'EOF'
+#!/usr/bin/env bash
+source "$HOME/repo/global/hooks/lib-portable.sh"
+CC_MIRROR_DIR="$HOME/.cc-mirror/mclaude"; mkdir -p "$CC_MIRROR_DIR/config"
+printf '{"mcpServers": {"fixture-server": {"command": "true"}}}\n' > "$CC_MIRROR_DIR/config/.mcp.json"
+WARNINGS=""
+_can_symlink || true; echo "mode=$_SYMLINK_MODE"
+EOF
+        echo 'run_48b() {'
+        sed -n '/^# Check 4.8b/,/^# Check 4.8:/p' "$REPO_ROOT/global/hooks/checks/04-auto-fix.sh" | sed '$d'
+        echo '}'
+        cat <<'EOF'
+run_48b
+echo "pass1: exists=$([ -e "$HOME/.mcp.json" ] && echo y || echo n) link=$([ -L "$HOME/.mcp.json" ] && echo y || echo n) checked=$(_check_linked "$HOME/.mcp.json" && echo y || echo n) servers=$(grep -c fixture-server "$HOME/.mcp.json") warnings=[$WARNINGS]"
+run_48b
+echo "pass2: exists=$([ -e "$HOME/.mcp.json" ] && echo y || echo n) warnings=[$WARNINGS]"
+EOF
+    } > "$WT/t8.sh"
+    local out mode
+    out=$(_gb t8.sh)
+    echo "$out" | sed 's/^/    | /'
+    mode=$(echo "$out" | sed -n 's/^mode=//p')
+    assert_contains "$out" "pass1: exists=y" "~/.mcp.json created" || return 1
+    local p1; p1=$(echo "$out" | grep '^pass1: ')
+    assert_contains "$p1" "checked=y" "accepted by _check_linked in mode $mode" || return 1
+    assert_contains "$p1" "servers=1" "carries the canonical content" || return 1
+    assert_contains "$p1" "warnings=[]" "no warning" || return 1
+    case "$mode" in
+        symlink) assert_contains "$p1" "link=y" "symlink mode: a real link" || return 1 ;;
+        junction|copy) assert_contains "$p1" "link=n" "$mode mode: a file copy" || return 1 ;;
+        *) echo "    unknown mode '$mode'"; return 1 ;;
+    esac
+    assert_contains "$out" "pass2: exists=y warnings=[]" "second run is idempotent and quiet"
+}
+_win_case "check 4.8b: ~/.mcp.json is created through the link helpers, consistent with the mode" test_mcp_link_autofix_real
+
+# ── 9. .cmd launcher found by the real cc-install-invariants.sh (slice 2) ───────────────────
+test_cmd_launcher_invariants_real() {
+    _stage_repo
+    cat > "$WT/t9.sh" <<'EOF'
+#!/usr/bin/env bash
+source "$HOME/repo/global/hooks/lib-portable.sh"
+source "$HOME/repo/setup/tests/lib-cc-install-fixture.sh"
+MIRROR="$HOME/.cc-mirror/mclaude"
+make_cc_mirror_fixture "$MIRROR" "$(_cc_launcher_path)" 2.1.280 '^2.1.280' false
+mkdir -p "$HOME/template"
+printf '{\n  "env": {\n    "DISABLE_AUTOUPDATER": "1"\n  },\n  "hooks": {}\n}\n' > "$HOME/template/settings.json"
+echo "launcher_path=$(_cc_launcher_path)"
+echo "launcher_find=$(_cc_launcher_find)"
+echo "local_bin_mclaude_exists=$([ -e "$HOME/.local/bin/mclaude" ] && echo y || echo n)"
+CC_MIRROR_DIR="$MIRROR" CC_INSTALL_SNAPSHOT="$HOME/snap" CC_SETTINGS_TEMPLATE="$HOME/template/settings.json" CC_VAULT_MANAGE= \
+  bash "$HOME/repo/setup/scripts/cc-install-invariants.sh" 2>&1 | sed 's/^/inv: /'
+echo "inv_rc=${PIPESTATUS[0]}"
+EOF
+    local out
+    out=$(_gb t9.sh)
+    echo "$out" | sed 's/^/    | /'
+    local found; found=$(echo "$out" | sed -n 's/^launcher_find=//p')
+    [[ "$found" == */.cc-mirror/bin/mclaude.cmd ]] || { echo "    _cc_launcher_find did not return the .cmd (got '$found')"; return 1; }
+    assert_contains "$out" "local_bin_mclaude_exists=n" "nothing at the Linux location" || return 1
+    assert_not_contains "$out" "inv: FAIL: LAUNCHER" "the real invariants script does not call the .cmd missing" || return 1
+    assert_contains "$out" "inv: INFO: launcher is a Windows .cmd" "and says why it did not parse an exec line" || return 1
+    local result; result=$(echo "$out" | grep '^inv: RESULT:')
+    assert_contains "$result" "launcher=$found" "RESULT names the .cmd it used"
+}
+_win_case "cc-install-invariants.sh finds ~/.cc-mirror/bin/mclaude.cmd and reports it (no false LAUNCHER FAIL)" test_cmd_launcher_invariants_real
+
+# ── 10. nothing left behind outside the throwaway dir ───────────────────────────────────────
 test_throwaway_only() {
     [[ -d "$WT" ]] || { echo "    throwaway dir missing"; return 1; }
     local n

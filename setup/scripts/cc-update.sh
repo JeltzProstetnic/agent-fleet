@@ -27,9 +27,23 @@
 # live install. The launcher line written in Phase 5 resolves CONFIG_REPO at ITS runtime.
 set -euo pipefail
 
+# lib-portable.sh (CFG-1087 slice 2): the launcher location per platform — ~/.local/bin/mclaude, or
+# ~/.cc-mirror/bin/mclaude.cmd where cc-mirror writes it on native Windows — and _python3 (python3 may
+# be the Microsoft Store stub there). Looked up beside this repo's hooks, then in the deployed hooks:
+# cc-update-fleet.sh ships this script ALONE into ~/<staging>/ on remote hosts. Linux defaults without it.
+_CCU_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+for _lp in "$_CCU_DIR/../../global/hooks/lib-portable.sh" "$HOME/.claude/hooks/lib-portable.sh"; do
+    [[ -f "$_lp" ]] && { source "$_lp"; break; }
+done
+if ! type _cc_launcher_find >/dev/null 2>&1; then
+    _cc_launcher_path() { echo "$HOME/.local/bin/${1:-mclaude}"; }
+    _cc_launcher_find() { [[ -f "$(_cc_launcher_path "$@")" ]] && _cc_launcher_path "$@"; }
+    _python3() { python3 "$@"; }
+fi
+
 MIRROR_DIR="$HOME/.cc-mirror/mclaude"
 NPM_DIR="$MIRROR_DIR/npm"
-LAUNCHER="$HOME/.local/bin/mclaude"
+LAUNCHER="$(_cc_launcher_find 2>/dev/null || _cc_launcher_path)"
 VARIANT_JSON="$MIRROR_DIR/variant.json"
 CC_PKG="$NPM_DIR/node_modules/@anthropic-ai/claude-code"
 NATIVE_DIR="$MIRROR_DIR/native"
@@ -121,7 +135,7 @@ fi
 # Detect current version
 CURRENT_VERSION=""
 if [[ "$LAYOUT" == "npm" ]]; then
-    CURRENT_VERSION=$(python3 -c "import json; print(json.load(open('$CC_PKG/package.json'))['version'])")
+    CURRENT_VERSION=$(_python3 -c "import json; print(json.load(open('$CC_PKG/package.json'))['version'])")
 else
     _bin=$(_json_field "$VARIANT_JSON" binaryPath); [[ -x "$_bin" ]] || _bin="$NATIVE_DIR/claude"
     CURRENT_VERSION=$(_probe "$_bin")
@@ -339,7 +353,7 @@ fi
 detect_entry_point
 NEW_VERSION=""
 if [[ "$LAYOUT" == "npm" && -f "$CC_PKG/package.json" ]]; then
-    NEW_VERSION=$(python3 -c "import json; print(json.load(open('$CC_PKG/package.json'))['version'])" 2>/dev/null || true)
+    NEW_VERSION=$(_python3 -c "import json; print(json.load(open('$CC_PKG/package.json'))['version'])" 2>/dev/null || true)
 fi
 [[ -n "$NEW_VERSION" ]] || NEW_VERSION=$(_probe "$ENTRY_POINT")
 if [[ "$NEW_VERSION" != "$TARGET_VERSION" ]]; then
@@ -378,7 +392,7 @@ wire_update_checker
 # Phase 6: Update variant.json — binaryPath, npmVersion (npm layout), updatedAt, and the
 # claudeOrig pin: the value a re-provision would install must be the version we verified.
 printf "Phase 6: Updating variant.json (claudeOrig → %s)\n" "$NEW_VERSION"
-python3 -c "
+_python3 -c "
 import json, datetime
 with open('$VARIANT_JSON') as f:
     v = json.load(f)

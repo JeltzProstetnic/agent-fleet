@@ -45,8 +45,12 @@ fx() {
     MOCKBIN="$TEST_TMPDIR/mockbin"
     NPM_MARKER="$TEST_TMPDIR/npm-was-called"
 
-    mkdir -p "$MOCK_HOME/.claude" "$PROJECT_DIR"
+    mkdir -p "$MOCK_HOME/.claude" "$PROJECT_DIR" "$CONFIG_REPO_DIR/global/hooks"
     create_mock_config_repo "$CONFIG_REPO_DIR"
+    # lib-portable.sh where production has it: beside the hook (the patched copy sits in TEST_TMPDIR)
+    # and under the config repo's global/hooks for cc-install-invariants.sh (CFG-1087 launcher lookup)
+    cp "$REPO_ROOT/global/hooks/lib-portable.sh" "$TEST_TMPDIR/"
+    cp "$REPO_ROOT/global/hooks/lib-portable.sh" "$CONFIG_REPO_DIR/global/hooks/"
     touch "$CONFIG_REPO_DIR/CLAUDE.md"
     ln -sf "$CONFIG_REPO_DIR/CLAUDE.md" "$MOCK_HOME/.claude/CLAUDE.md"
     cp "$REPO_ROOT/setup/scripts/sched-lib.sh" "$CONFIG_REPO_DIR/setup/scripts/"
@@ -125,5 +129,20 @@ test_consistent_state_is_quiet() {
     assert_not_contains "$CTX" "UNREQUESTED" "consistent install must not warn"
 }
 run_test "consistent install: quiet" test_consistent_state_is_quiet
+
+# CFG-1087 slice 2: without CC_LAUNCHER the check must find the launcher where this platform's
+# cc-mirror writes it — ~/.cc-mirror/bin/mclaude.cmd on native Windows (_cc_launcher_find), not a
+# hardcoded ~/.local/bin/mclaude that would FAIL LAUNCHER at every Windows SessionStart.
+test_cmd_launcher_found_without_env() {
+    fx 2.1.280 false 2.1.280
+    mkdir -p "$MOCK_HOME/.cc-mirror/bin"
+    mv "$LAUNCHER" "$MOCK_HOME/.cc-mirror/bin/mclaude.cmd"
+    LAUNCHER=""                              # CC_LAUNCHER empty → the check resolves it itself
+    run_check
+    echo "    measured CC_INSTALL slice: [$(printf '%s' "$CTX" | grep -o -E 'CC_INSTALL[^|]{0,120}' | head -1 || echo none)]"
+    assert_not_contains "$CTX" "launcher missing" "a .cmd launcher at the cc-mirror Windows location is found" || return 1
+    assert_not_contains "$CTX" "FAILS its invariants" "no invariant fails on a .cmd-only install"
+}
+run_test "launcher at ~/.cc-mirror/bin/mclaude.cmd is found without CC_LAUNCHER (native Windows)" test_cmd_launcher_found_without_env
 
 suite_summary

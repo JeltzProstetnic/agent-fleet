@@ -216,11 +216,12 @@ log_success "Plugin registration complete (marketplace cached, per-project enabl
 # If we're running from within the agent-fleet repo, also update the template
 TEMPLATE_SETTINGS="${SCRIPT_DIR}/../config/settings.json"
 _PY_TEMPLATE_SETTINGS=$(_to_native_path "${TEMPLATE_SETTINGS}" 2>/dev/null || echo "${TEMPLATE_SETTINGS}")
+type _python3 &>/dev/null || _python3() { python3 "$@"; }   # lib.sh → lib-portable resolves past the Store stub on Git Bash (CFG-1087)
 if [[ -f "${TEMPLATE_SETTINGS}" ]]; then
     print_header "Step 4: Update settings.json template"
 
     if [[ "${DRY_RUN}" == "false" ]]; then
-        python3 -c "
+        _python3 -c "
 import json
 
 template_path = '${_PY_TEMPLATE_SETTINGS}'

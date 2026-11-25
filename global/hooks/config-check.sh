@@ -9,8 +9,12 @@
 # (01-sync-state.sh through 20-user-needs.sh) — adding a file there registers it.
 # Each module reads/modifies the shared variables below.
 
-# Source portable wrappers (provides _readlink_f for macOS compat)
+# Source portable wrappers (provides _readlink_f for macOS compat, _python3 / _link_file for native Windows)
 source "$(dirname "${BASH_SOURCE[0]}")/lib-portable.sh" 2>/dev/null || true
+# Fallbacks when lib-portable.sh is absent (deployed hooks always carry it): plain python3, plain ln -s.
+type _python3 >/dev/null 2>&1 || _python3() { python3 "$@"; }
+type _fleet_python >/dev/null 2>&1 || _fleet_python() { command -v python3 >/dev/null 2>&1 && echo python3; }
+type _link_file >/dev/null 2>&1 || _link_file() { ln -s "$1" "$2"; }
 
 # Config repo detection — canonical source in lib-detect-repo.sh
 source "$(dirname "${BASH_SOURCE[0]}")/lib-detect-repo.sh" 2>/dev/null || true
@@ -197,19 +201,21 @@ fi
 
 _EMIT="empty"
 if [ -n "$SYSTEM_MSG" ]; then
-    # Payload goes in on STDIN, never as argv. The python3 branch is guarded by its own exit
+    # Payload goes in on STDIN, never as argv. The Python branch is guarded by its own exit
     # status so a runtime failure falls through to node — `command -v` alone only proves the
-    # binary exists, which is how the argv failure stayed invisible.
+    # binary exists, which is how the argv failure stayed invisible. The interpreter comes from
+    # _python3 (lib-portable): on Git Bash a bare python3 can be the Microsoft Store stub, which
+    # EXITS 0 with "Python was not found…" — that text would have become the hook's output.
     # CFG-530: the payload MUST be nested under hookSpecificOutput with an explicit
     # hookEventName. A TOP-LEVEL {"additionalContext": …} is accepted, logged as
     # hook_success, and then SILENTLY DISCARDED — measured against the real binary,
     # not inferred, and contrary to the published docs which present both forms as
     # valid. See setup/tests/test-hook-output-format.sh for the three-variant probe.
     _EMIT="none"
-    if { command -v python3 >/dev/null 2>&1 &&
-           printf '%s' "$SYSTEM_MSG" | python3 -c \
+    if { _fleet_python >/dev/null 2>&1 &&
+           printf '%s' "$SYSTEM_MSG" | _python3 -c \
              "import json,sys; print(json.dumps({'hookSpecificOutput': {'hookEventName': 'SessionStart', 'additionalContext': sys.stdin.read()}}))"; }; then
-        _EMIT="python3"
+        _EMIT="${_FLEET_PYTHON:-python3}"; _EMIT="${_EMIT// /}"
     elif command -v node >/dev/null 2>&1; then
         printf '%s' "$SYSTEM_MSG" | node -e \
           "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>console.log(JSON.stringify({hookSpecificOutput:{hookEventName:'SessionStart',additionalContext:s}})))" \

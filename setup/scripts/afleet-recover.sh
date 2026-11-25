@@ -23,13 +23,17 @@ if [[ -z "$CONFIG_REPO" ]]; then
     fi
 fi
 
-# Source portable wrappers for _to_native_path (needed for Python calls on MINGW64)
+# Source portable wrappers: _to_native_path (Python paths on MINGW64), _python3 (python3 may be the
+# Microsoft Store stub there) and the launcher location per platform (_cc_launcher_find) — CFG-1087.
 for _portable in "$CONFIG_REPO/global/hooks/lib-portable.sh" "$HOME/.claude/hooks/lib-portable.sh"; do
     [[ -f "$_portable" ]] && source "$_portable" && break
 done
-# Fallback no-op if lib-portable.sh not found
+# Fallbacks (Linux behaviour) if lib-portable.sh not found
 type _to_native_path &>/dev/null || _to_native_path() { echo "$1"; }
 type _timeout &>/dev/null || _timeout() { timeout "$@"; }
+type _python3 &>/dev/null || _python3() { python3 "$@"; }
+type _cc_launcher_path &>/dev/null || _cc_launcher_path() { echo "$HOME/.local/bin/${1:-mclaude}"; }
+type _cc_launcher_find &>/dev/null || _cc_launcher_find() { [[ -f "$(_cc_launcher_path "$@")" ]] && _cc_launcher_path "$@"; }
 
 CLAUDE_CONFIG_DIR="${CLAUDE_CONFIG_DIR:-${CC_MIRROR_DIR:-$HOME/.cc-mirror/mclaude}/config}"
 
@@ -106,7 +110,7 @@ check_settings_json() {
         return 1
     fi
     local _py_settings; _py_settings=$(_to_native_path "$settings")
-    if ! python3 -c "import json; json.load(open('$_py_settings'))" 2>/dev/null; then
+    if ! _python3 -c "import json; json.load(open('$_py_settings'))" 2>/dev/null; then
         CHECK_MSG="Settings file is not valid JSON: $settings"
         return 1
     fi
@@ -123,9 +127,9 @@ check_mcp_servers() {
     fi
 
     local failed=0 checked=0 details=""
-    # Parse servers using python3 for reliability
+    # Parse servers using the fleet Python for reliability
     local servers
-    servers=$(python3 -c "
+    servers=$(_python3 -c "
 import json, sys
 try:
     with open('$mcp_file') as f:
@@ -218,9 +222,9 @@ check_session_locks() {
 
     local lock_pid lock_machine lock_ts
     local _py_lock; _py_lock=$(_to_native_path "$lock_file")
-    lock_pid=$(python3 -c "import json; d=json.load(open('$_py_lock')); print(d.get('pid','?'))" 2>/dev/null || echo "?")
-    lock_machine=$(python3 -c "import json; d=json.load(open('$_py_lock')); print(d.get('machine','?'))" 2>/dev/null || echo "?")
-    lock_ts=$(python3 -c "import json; d=json.load(open('$_py_lock')); print(d.get('timestamp','?'))" 2>/dev/null || echo "?")
+    lock_pid=$(_python3 -c "import json; d=json.load(open('$_py_lock')); print(d.get('pid','?'))" 2>/dev/null || echo "?")
+    lock_machine=$(_python3 -c "import json; d=json.load(open('$_py_lock')); print(d.get('machine','?'))" 2>/dev/null || echo "?")
+    lock_ts=$(_python3 -c "import json; d=json.load(open('$_py_lock')); print(d.get('timestamp','?'))" 2>/dev/null || echo "?")
 
     # Check if PID is still alive (same machine only)
     local hostname
@@ -399,7 +403,8 @@ _safe_mode_candidate_ok() {
 # cli.js. Order: the launcher's exec target, mirror npm bin/claude.exe, mirror native/claude,
 # legacy cli.js via node, PATH claude last. Prints the command; returns 1 when nothing fits.
 resolve_safe_mode_binary() {
-    local mirror="${CC_MIRROR_DIR:-$HOME/.cc-mirror/mclaude}" launcher="$HOME/.local/bin/mclaude" target
+    local mirror="${CC_MIRROR_DIR:-$HOME/.cc-mirror/mclaude}" launcher target
+    launcher=$(_cc_launcher_find 2>/dev/null || _cc_launcher_path)   # ~/.cc-mirror/bin/mclaude.cmd on native Windows
     if [[ -f "$launcher" ]]; then
         # Known-good line: exec "<path>/bin/claude.exe" "$@" (or exec <mirror>/native/claude "$@")
         target=$(grep -E '^[[:space:]]*exec[[:space:]]+"?[^"[:space:]]+' "$launcher" 2>/dev/null \

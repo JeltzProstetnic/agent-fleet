@@ -204,6 +204,30 @@ _layout_guard() {  # _layout_guard <root> ; copies the guard to <root>/setup/scr
     RC=$rc
     echo "    measured rc=$RC; SETTINGS FAIL count=[$(printf '%s' "$OUT" | grep -c '^FAIL: SETTINGS')]"
 }
+# ── CFG-1087 slice 2: the launcher location is platform-aware (lib-portable _cc_launcher_find) ──
+test_cmd_launcher_is_found_and_not_parsed() {
+    fx 2.1.280 '^2.1.280' false
+    mkdir -p "$HOME/.cc-mirror/bin"
+    mv "$LAUNCHER" "$HOME/.cc-mirror/bin/mclaude.cmd"
+    LAUNCHER=""                               # no CC_LAUNCHER: the guard resolves it
+    guard
+    assert_not_contains "$OUT" "FAIL: LAUNCHER" "a .cmd launcher where cc-mirror puts it on Windows is not 'missing'" || return 1
+    assert_contains "$OUT" "INFO: launcher is a Windows .cmd" "a .cmd has no bash exec line to parse — said, not failed" || return 1
+    assert_contains "$OUT" "launcher=$HOME/.cc-mirror/bin/mclaude.cmd" "RESULT names the launcher it used" || return 1
+    assert_eq "0" "$RC" "no FAIL → exit 0"
+}
+run_test "launcher: ~/.cc-mirror/bin/mclaude.cmd is found without CC_LAUNCHER and reported, not parsed" test_cmd_launcher_is_found_and_not_parsed
+
+test_no_launcher_anywhere_names_platform_default() {
+    fx 2.1.280 '^2.1.280' false
+    rm -f "$LAUNCHER"
+    LAUNCHER=""
+    guard
+    assert_contains "$OUT" "FAIL: LAUNCHER launcher missing at $HOME/.local/bin/mclaude" "Linux default path is the one named (unchanged behaviour)" || return 1
+    assert_eq "1" "$RC"
+}
+run_test "launcher: none anywhere → FAIL names this platform's default path" test_no_launcher_anywhere_names_platform_default
+
 test_vault_keys_read_from_setup_secrets_layout() {
     fx 2.1.280 '^2.1.280' false
     local root="$TEST_TMPDIR/tplclone"

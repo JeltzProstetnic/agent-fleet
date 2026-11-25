@@ -15,8 +15,9 @@ _source_provisioning() {
     log_info()  { echo "[INFO] $*"; }
     log_warn()  { echo "[WARN] $*"; }
     log_error() { echo "[ERROR] $*"; }
-    # Stub portable functions
+    # Stub portable functions (lib-portable.sh arrives via common.sh in production; CFG-1087: _python3)
     _to_native_path() { echo "$1"; }
+    _python3() { python3 "$@"; }
 
     # Source the provisioning function from sync-lib/setup.sh
     source <(sed -n '/^run_provisioning_checks()/,/^}/p' "$SETUP_LIB")

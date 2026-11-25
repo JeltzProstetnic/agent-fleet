@@ -15,6 +15,12 @@
 if ! declare -F _to_native_path >/dev/null 2>&1; then
     _to_native_path() { printf '%s\n' "$1"; }
 fi
+# Same for the fleet Python (CFG-1087): on Git Bash python3 may be the Microsoft Store stub, which
+# `command -v` accepts; lib-portable's _fleet_python / _python3 probe past it. Plain python3 without the lib.
+if ! declare -F _python3 >/dev/null 2>&1; then
+    _fleet_python() { command -v python3 >/dev/null 2>&1 && echo python3; }
+    _python3() { python3 "$@"; }
+fi
 
 pre_deploy_checks() {
     local _global="${GLOBAL_DIR:-$SCRIPT_DIR/global}"
@@ -61,8 +67,8 @@ pre_deploy_checks() {
                     log_error "Pre-deploy: invalid JSON in $_json"
                     _fail=1
                 fi
-            elif command -v python3 &>/dev/null; then
-                if ! python3 -c "import json,sys; json.load(open(sys.argv[1]))" "$(_to_native_path "$_json")" 2>/dev/null; then
+            elif _fleet_python >/dev/null 2>&1; then
+                if ! _python3 -c "import json,sys; json.load(open(sys.argv[1]))" "$(_to_native_path "$_json")" 2>/dev/null; then
                     log_error "Pre-deploy: invalid JSON in $_json"
                     _fail=1
                 fi
@@ -79,11 +85,11 @@ pre_deploy_checks() {
                 .hooks // {} | to_entries[] | .value[] |
                 .hooks[]? | select(.type == "command") | .command
             ' "$_settings" 2>/dev/null) || true
-        elif command -v python3 &>/dev/null; then
+        elif _fleet_python >/dev/null 2>&1; then
             # Same traversal as the jq path. A blind grep for "command" also matches
             # statusLine.command (legitimately not a hook) and would false-positive
             # this check into blocking every deploy on jq-less machines.
-            _hook_cmds=$(python3 -c '
+            _hook_cmds=$(_python3 -c '
 import json, sys
 with open(sys.argv[1]) as fh:
     data = json.load(fh)

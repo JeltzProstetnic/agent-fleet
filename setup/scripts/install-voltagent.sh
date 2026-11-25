@@ -161,9 +161,12 @@ if [[ ! -f "${MARKETPLACE_JSON}" ]]; then
     exit 1
 fi
 
+# The fleet Python (lib.sh → lib-portable): on Git Bash python3 may be the Microsoft Store stub (CFG-1087)
+type _python3 &>/dev/null || _python3() { python3 "$@"; }
+
 # Parse plugin list from marketplace.json
 # Returns lines of: name|source_path|version
-PLUGIN_LIST=$(python3 -c "
+PLUGIN_LIST=$(_python3 -c "
 import json, sys
 try:
     data = json.load(open('${_PY_MARKETPLACE_JSON}'))
@@ -234,9 +237,9 @@ print_header "Step 4: Register in known_marketplaces.json"
 
 mkdir -p "$(dirname "${KNOWN_MARKETPLACES}")"
 
-NOW=$(python3 -c "from datetime import datetime, timezone; print(datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%S.000Z'))")
+NOW=$(_python3 -c "from datetime import datetime, timezone; print(datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%S.000Z'))")
 
-python3 - <<PYEOF
+_python3 - <<PYEOF
 import json, os
 
 path = '${_PY_KNOWN_MARKETPLACES}'
@@ -277,7 +280,7 @@ print_header "Step 5: Register Plugins in installed_plugins.json"
 
 mkdir -p "$(dirname "${INSTALLED_PLUGINS}")"
 
-python3 - <<PYEOF
+_python3 - <<PYEOF
 import json, os
 
 path = '${_PY_INSTALLED_PLUGINS}'
