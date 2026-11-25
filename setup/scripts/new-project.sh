@@ -93,7 +93,17 @@ decide_mcp() {
 }
 
 # ── 3. .gitignore — create, or append the missing lines; never remove anything ──
-GITIGNORE_LINES=("tmp/" ".claude/.session-lock" ".claude/.session-role.*" "docs/terminal-logs/")
+# The lines come from setup/config/project-gitignore.conf (CFG-1094): one source for a new
+# project here and for the conformance top-up of every existing one. Built-in fallback, named.
+GITIGNORE_CONF="${NP_GITIGNORE_CONF:-$REPO/setup/config/project-gitignore.conf}"
+GITIGNORE_LINES=()
+if [[ -f "$GITIGNORE_CONF" ]]; then
+  while IFS= read -r _gl; do GITIGNORE_LINES+=("$_gl"); done < <(grep -vE '^[[:space:]]*(#|$)' "$GITIGNORE_CONF" | sed 's/[[:space:]]*$//')
+fi
+if [[ ${#GITIGNORE_LINES[@]} -eq 0 ]]; then
+  echo "  warn: $GITIGNORE_CONF missing or empty — using the built-in gitignore lines"
+  GITIGNORE_LINES=("tmp/" ".claude/.session-lock" ".claude/.session-role.*" "docs/terminal-logs/")
+fi
 scaffold_gitignore() {
   local gi="$PROJ/.gitignore" line added=0
   [[ -f "$gi" ]] || : > "$gi"

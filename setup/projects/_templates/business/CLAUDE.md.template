@@ -44,4 +44,4 @@
 | File | Purpose |
 |------|---------|
 | `~/cfg-agent-fleet/cross-project/contacts.md` | Contact status tracking |
-| `~/cfg-agent-fleet/cross-project/inbox.md` | Cross-project tasks |
+| `~/cfg-agent-fleet/cross-project/inbox/<project>.md`, filed with `bash ~/cfg-agent-fleet/setup/scripts/inbox-file.sh --project <p> --type <t> --body "…"` | Cross-project tasks |

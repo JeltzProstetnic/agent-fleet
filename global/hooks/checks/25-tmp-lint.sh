@@ -9,17 +9,18 @@
 # repo and are for its own session to make.
 # Shared vars used: CONFIG_REPO, PROJECT_DIR, WARNINGS
 
+# The detector lives in lib-tmp-lint.sh (CFG-1094: the conformance check files the same finding
+# as a backlog item, so there is one definition). Beside this file's hooks dir, else in the repo.
+_tl_lib=""
+for _tl_cand in "$(dirname "${BASH_SOURCE[0]}")/../lib-tmp-lint.sh" "${CONFIG_REPO:-}/global/hooks/lib-tmp-lint.sh"; do
+    [ -f "$_tl_cand" ] && { _tl_lib="$_tl_cand"; break; }
+done
+# shellcheck disable=SC1090
+[ -n "$_tl_lib" ] && source "$_tl_lib"
+type tmp_lint_issue >/dev/null 2>&1 || tmp_lint_issue() { :; }
+
 _tl_issue() {  # <dir> → "tmp/ is not gitignored" / "N tracked file(s) under tmp/" / ""
-    local d="$1" n
-    # Only a repo's own root: a project nested in another repo is that repo's business.
-    [ "$(git -C "$d" rev-parse --show-toplevel 2>/dev/null)" = "$d" ] || return 0
-    # A tracked placeholder (tmp/.gitkeep, a self-ignoring tmp/.gitignore) is deliberate.
-    n=$(git -C "$d" ls-files -- tmp 2>/dev/null | grep -cvxE 'tmp/\.(gitkeep|keep|gitignore)')
-    if [ "${n:-0}" -gt 0 ]; then
-        printf '%s tracked file(s) under tmp/' "$n"
-    elif ! git -C "$d" check-ignore -q tmp/.tmp-lint-probe 2>/dev/null; then
-        printf 'tmp/ is not gitignored'
-    fi
+    tmp_lint_issue "$1"
 }
 
 _tl_found=""
