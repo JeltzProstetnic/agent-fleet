@@ -101,7 +101,7 @@ _afleet_cfg_defer() {   # <repo> <project> — one audit line, and the console n
 _PRE_PICKER_TIMEOUT="${AFLEET_PRE_PICKER_TIMEOUT:-10}"
 _afleet_pre_picker=1
 for _a in "$@"; do
-    case "$_a" in transfer|doctor|recover|rollback|safe-mode|safemode|--list|-l) _afleet_pre_picker=0 ;; esac
+    case "$_a" in transfer|doctor|recover|rollback|safe-mode|safemode|ide|--list|-l) _afleet_pre_picker=0 ;; esac
 done
 if [[ "$_afleet_pre_picker" == 1 && -f "$SYNC_SCRIPT" && -d "$CONFIG_REPO/.git" ]]; then
     if _afleet_cfg_held "$CONFIG_REPO"; then
@@ -513,6 +513,7 @@ resolve_project() {
     AFLEET_HOTSWAP="${AFLEET_HOTSWAP:-0}"   # CFG-922 per-session account store (in-session `swap <acct>`), opt-in
     SHOW_MODEL_PICKER=false
     MCP_MODE="none"        # none | minimal | all  (CFG-506; default none by design)
+    AFLEET_IDE="${AFLEET_IDE:-0}"   # CFG-991: pass --ide to the CLI; opt-in per launch, default off
 
     while [[ $# -gt 0 ]]; do
         case "$1" in
@@ -532,6 +533,11 @@ resolve_project() {
                 echo "  afleet --dash       Alias for --pick (backwards compat)"
                 echo "  afleet --cwd <dir>  Override working directory for project detection"
                 echo "  afleet --all        Include P4-P5 projects in picker"
+                echo ""
+                echo "IDE (CFG-991 — run af in the VS Code / JetBrains terminal, or /ide in the session):"
+                echo "  afleet --ide        Also pass --ide to Claude Code (connects when exactly one IDE has the folder open)"
+                echo "  afleet ide [status|lock-dirs|list|autoconnect on|off]"
+                echo "                      What Claude Code will find; autoconnect writes the opt-in autoConnectIde"
                 echo ""
                 echo "Recovery:"
                 echo "  afleet doctor       Health check — diagnose issues"
@@ -570,6 +576,16 @@ resolve_project() {
             --account) [[ $# -ge 2 ]] || { echo "Error: --account requires an account (alias, number or email)" >&2; exit 1; }; ACCOUNT_ARG="$2"; shift 2 ;;
             --continue) AFLEET_CONTINUE=1; shift ;;
             --hotswap) AFLEET_HOTSWAP=1; shift ;;
+            # IDE terminal mode (CFG-991): --ide is handed to the CLI; `ide …` only reports or
+            # writes the opt-in, never launches — everything after the word is its own.
+            --ide) AFLEET_IDE=1; shift ;;
+            ide)
+                shift
+                if [[ -f "$_AFLEET_DIR/afleet-ide.sh" ]]; then
+                    exec bash "$_AFLEET_DIR/afleet-ide.sh" "$@"
+                else
+                    echo "IDE module not installed (setup/scripts/afleet-ide.sh)." >&2; exit 1
+                fi ;;
             # MCP selection for local-model mode. DEFAULT IS NONE — the lean profile exists
             # because 13 servers' tool definitions do not fit a local context window.
             # Must be matched BEFORE the `-*` and `*` catch-alls below or they swallow these.
@@ -780,14 +796,28 @@ afleet_release_dry_run_locks() {
     fi
 }
 
+# CFG-991: the extra CLI args a launch adds — ` --ide` in IDE mode, nothing otherwise. One place,
+# so the six launch lines below cannot drift apart (test-afleet.sh counts them).
+_afleet_cc_extra_args() {
+    [[ "${AFLEET_IDE:-0}" == 1 ]] && printf ' --ide'
+    return 0
+}
+# Before `--ide` goes to the CLI, say what it will find (advisory: the launch proceeds either way).
+_afleet_ide_preflight_note() {
+    [[ "${AFLEET_IDE:-0}" == 1 && -f "$_AFLEET_DIR/afleet-ide.sh" ]] || return 0
+    bash "$_AFLEET_DIR/afleet-ide.sh" preflight "$TARGET_DIR" >&2 || true
+}
+
 launch_mclaude() {
+    local _cc_extra; _cc_extra="$(_afleet_cc_extra_args)"
     if [[ "$DRY_RUN" == "1" ]]; then
-        echo "DRY_RUN: would cd to $TARGET_DIR and exec mclaude${ACCOUNT_ARG:+ as account $ACCOUNT_ARG}${AFLEET_CONTINUE:+ (continuing)}$([[ "$AFLEET_HOTSWAP" == 1 ]] && echo ' with a hot-swap account store')"
+        echo "DRY_RUN: would cd to $TARGET_DIR and exec mclaude${ACCOUNT_ARG:+ as account $ACCOUNT_ARG}${AFLEET_CONTINUE:+ (continuing)}$([[ "$AFLEET_HOTSWAP" == 1 ]] && echo ' with a hot-swap account store')${_cc_extra:+ with$_cc_extra}"
         afleet_release_dry_run_locks
         exit 0
     fi
 
     cd "$TARGET_DIR" 2>/dev/null || { echo "  Warning: cannot cd to $TARGET_DIR — using HOME" >&2; cd "$HOME"; }
+    _afleet_ide_preflight_note
 
     MCLAUDE=""
     for candidate in "$HOME/.local/bin/mclaude" "$HOME/.cc-mirror/bin/mclaude.cmd" "$(command -v mclaude 2>/dev/null || true)"; do
@@ -1013,9 +1043,9 @@ DONTPANIC
         if script --version 2>/dev/null | grep -q util-linux; then
             # GNU util-linux: -q quiet, -f flush, -e exit-code, -c CMD FILE
             if [[ -n "$INITIAL_PROMPT" ]]; then
-                script -q -f -e -c "$MCLAUDE '${INITIAL_PROMPT//\'/\'\\\'\'}'" "$__afleet_logfile"
+                script -q -f -e -c "$MCLAUDE '${INITIAL_PROMPT//\'/\'\\\'\'}'$_cc_extra" "$__afleet_logfile"
             else
-                script -q -f -e -c "$MCLAUDE" "$__afleet_logfile"
+                script -q -f -e -c "$MCLAUDE$_cc_extra" "$__afleet_logfile"
             fi
             MCLAUDE_EXIT=$?
         else
@@ -1023,19 +1053,21 @@ DONTPANIC
             # Does not propagate child exit code — capture via sidecar.
             local _exit_sidecar="$__afleet_logdir/.exit-code"
             if [[ -n "$INITIAL_PROMPT" ]]; then
-                script -q "$__afleet_logfile" bash -c "$MCLAUDE '$INITIAL_PROMPT'; echo \$? > '$_exit_sidecar'"
+                script -q "$__afleet_logfile" bash -c "$MCLAUDE '$INITIAL_PROMPT'$_cc_extra; echo \$? > '$_exit_sidecar'"
             else
-                script -q "$__afleet_logfile" bash -c "$MCLAUDE; echo \$? > '$_exit_sidecar'"
+                script -q "$__afleet_logfile" bash -c "$MCLAUDE$_cc_extra; echo \$? > '$_exit_sidecar'"
             fi
             MCLAUDE_EXIT=$(cat "$_exit_sidecar" 2>/dev/null || echo 1)
             rm -f "$_exit_sidecar"
         fi
     else
         echo "  ⚠ script(1) not found — terminal logging disabled (install util-linux-script)" >&2
+        # $_cc_extra is unquoted on purpose: it is a word list (" --ide" or empty).
+        # shellcheck disable=SC2086
         if [[ -n "$INITIAL_PROMPT" ]]; then
-            "$MCLAUDE" "$INITIAL_PROMPT"
+            "$MCLAUDE" "$INITIAL_PROMPT" $_cc_extra
         else
-            "$MCLAUDE"
+            "$MCLAUDE" $_cc_extra
         fi
         MCLAUDE_EXIT=$?
     fi

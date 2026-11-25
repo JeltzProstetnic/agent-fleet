@@ -539,6 +539,34 @@ test_preflight_warns_on_tracked_terminal_logs() {
 }
 run_test "preflight (CFG-941): warns when terminal logs are already tracked" test_preflight_warns_on_tracked_terminal_logs
 
+# CFG-1116: a CRLF .gitignore (Windows editors) ends every line in CR, which `grep -qx` never
+# matches — one project got an LF duplicate of the ignore line on every launch, and the tmp/
+# check warned although tmp/ was ignored. The match strips CR; an append keeps the file's ending.
+test_preflight_crlf_gitignore_not_duplicated() {
+    _preflight_fixture
+    echo '{"enabledMcpjsonServers":[]}' > "$PF/home/proj/.claude/settings.local.json"; echo x > "$PF/home/proj/CLAUDE.md"
+    printf 'tmp/\r\nnode_modules/\r\ndocs/terminal-logs/\r\n' > "$PF/home/proj/.gitignore"
+    local before; before=$(od -c "$PF/home/proj/.gitignore")
+    local err; err=$(_pf_run)
+    assert_eq "1" "$(grep -c 'terminal-logs' "$PF/home/proj/.gitignore")" \
+        "a CRLF line that already ignores the logs is recognised (measured count)" || return 1
+    assert_eq "$before" "$(od -c "$PF/home/proj/.gitignore")" "the CRLF file is left byte-identical" || return 1
+    assert_not_contains "$err" "does not gitignore tmp/" "a CRLF tmp/ line counts as ignored"
+}
+run_test "preflight (CFG-1116): a CRLF .gitignore that already has the line is not appended to" test_preflight_crlf_gitignore_not_duplicated
+
+test_preflight_crlf_gitignore_append_keeps_ending() {
+    _preflight_fixture
+    echo '{"enabledMcpjsonServers":[]}' > "$PF/home/proj/.claude/settings.local.json"; echo x > "$PF/home/proj/CLAUDE.md"
+    printf 'tmp/\r\nnode_modules/\r\n' > "$PF/home/proj/.gitignore"
+    _pf_run >/dev/null
+    assert_eq $'tmp/\r\nnode_modules/\r\ndocs/terminal-logs/\r\nx' "$(cat "$PF/home/proj/.gitignore"; echo x)" \
+        "the appended line uses the file's CRLF ending (no mixed endings)" || return 1
+    _pf_run >/dev/null
+    assert_eq "1" "$(grep -c 'terminal-logs' "$PF/home/proj/.gitignore")" "a second launch does not duplicate it"
+}
+run_test "preflight (CFG-1116): appending to a CRLF .gitignore keeps CRLF and stays idempotent" test_preflight_crlf_gitignore_append_keeps_ending
+
 test_afleet_calls_preflight() {
     assert_file_contains "$REPO_ROOT/setup/scripts/afleet.sh" 'afleet_project_preflight "$TARGET_DIR" "$TARGET_NAME"' "pre_launch_sync runs the preflight"
 }

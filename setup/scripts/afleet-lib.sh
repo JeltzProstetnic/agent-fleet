@@ -462,20 +462,30 @@ afleet_project_preflight() {
     fi
     [[ -f "$dir/CLAUDE.md" || -f "$dir/.claude/CLAUDE.md" ]] \
         || echo "  Warning: $name has no CLAUDE.md — run setup/scripts/new-project.sh" >&2
-    grep -qxE '/?tmp/?(\*)?' "$dir/.gitignore" 2>/dev/null \
+    _afleet_gitignore_has "$dir/.gitignore" '/?tmp/?(\*)?' \
         || echo "  Warning: $name does not gitignore tmp/" >&2
     _afleet_ignore_terminal_logs "$dir" "$name"
     return 0
 }
 
+# CFG-1116: a CRLF .gitignore ends every line in CR, which `grep -x` never matches — the
+# ignore line below was appended again on every launch. Match with the CR stripped.
+_afleet_gitignore_has() {   # <gitignore> <whole-line ERE> — rc 0 when some line matches
+    [[ -f "$1" ]] && tr -d '\r' < "$1" 2>/dev/null | grep -qxE "$2"
+}
+
 # CFG-941: af logs everything typed in a session to docs/terminal-logs/ (once a sudo password).
 # Add the ignore line silently when missing; warn only when git already tracks logs, because
-# untracking (and any history scrub) is that project's own session's job.
+# untracking (and any history scrub) is that project's own session's job. The appended line
+# takes the file's own ending (CRLF stays CRLF), so no editor sees a mixed-ending file.
 _afleet_ignore_terminal_logs() {
-    local dir="$1" name="$2" gi="$1/.gitignore" n
-    if ! grep -qxE '/?docs/terminal-logs/?(\*)?' "$gi" 2>/dev/null; then
-        [[ -s "$gi" && -n "$(tail -c1 "$gi")" ]] && printf '\n' >> "$gi"
-        printf 'docs/terminal-logs/\n' >> "$gi" 2>/dev/null || true
+    local dir="$1" name="$2" gi="$1/.gitignore" n eol=$'\n'
+    if ! _afleet_gitignore_has "$gi" '/?docs/terminal-logs/?(\*)?'; then
+        if [[ -s "$gi" ]]; then
+            grep -q $'\r' "$gi" 2>/dev/null && eol=$'\r\n'
+            [[ -n "$(tail -c1 "$gi")" ]] && printf '%s' "$eol" >> "$gi"
+        fi
+        printf 'docs/terminal-logs/%s' "$eol" >> "$gi" 2>/dev/null || true
     fi
     n=$(git -C "$dir" ls-files -- docs/terminal-logs 2>/dev/null | grep -c . || true)
     [[ "${n:-0}" -gt 0 ]] && echo "  Warning: $name tracks $n terminal log(s) in git — in that project's session run: git rm -r --cached docs/terminal-logs" >&2

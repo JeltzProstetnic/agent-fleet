@@ -485,6 +485,68 @@ test_default_launch_has_no_store() {
 }
 run_test "a normal af launch gets no hot-swap store" test_default_launch_has_no_store
 
+# ── --ide / `af ide …` (CFG-991 step 1: IDE terminal mode) ───────────────────
+
+test_ide_flag_reaches_launch() {
+    local env_dir; env_dir=$(create_mock_env)
+    local home="$TEST_TMPDIR/home"; mkdir -p "$home/project-alpha"
+    local output
+    output=$(CONFIG_REPO="$env_dir" HOME="$home" AFLEET_DRY_RUN=1 bash "$SCRIPT" --ide project-alpha 2>&1)
+    assert_contains "$output" "exec mclaude" "--ide still launches the normal fleet session" || return 1
+    assert_contains "$output" "with --ide" "and hands --ide through to the CLI"
+}
+run_test "--ide (CFG-991) reaches the launch as a passthrough flag" test_ide_flag_reaches_launch
+
+test_default_launch_has_no_ide_flag() {
+    local env_dir; env_dir=$(create_mock_env)
+    local home="$TEST_TMPDIR/home"; mkdir -p "$home/project-alpha"
+    local output
+    output=$(CONFIG_REPO="$env_dir" HOME="$home" AFLEET_DRY_RUN=1 bash "$SCRIPT" project-alpha 2>&1)
+    assert_not_contains "$output" "--ide" "a plain af launch must not connect to an IDE or mention the flag"
+}
+run_test "a normal af launch passes no --ide (default behaviour unchanged)" test_default_launch_has_no_ide_flag
+
+test_ide_extra_args_helper() {
+    local env_dir; env_dir=$(create_full_mock_env)
+    AFLEET_SOURCE_ONLY=1 CONFIG_REPO="$env_dir" source "$SCRIPT"
+    assert_eq "" "$(AFLEET_IDE=0 _afleet_cc_extra_args)" "no extra CLI args by default" || return 1
+    assert_eq " --ide" "$(AFLEET_IDE=1 _afleet_cc_extra_args)" "--ide is the one extra arg in IDE mode"
+}
+run_test "_afleet_cc_extra_args: empty by default, ' --ide' in IDE mode" test_ide_extra_args_helper
+
+test_every_cli_launch_line_carries_extra_args() {
+    # launch_mclaude starts the CLI six ways (GNU script, BSD script, no script; with and
+    # without an initial prompt). Each must carry the extra args, or --ide works on one
+    # platform and silently not on another.
+    local n_launch n_extra
+    n_launch=$(grep -c -E '(-c "\$MCLAUDE|^[[:space:]]+"\$MCLAUDE")' "$SCRIPT")
+    n_extra=$(grep -c -E '(-c "\$MCLAUDE|^[[:space:]]+"\$MCLAUDE").*_cc_extra' "$SCRIPT")
+    assert_eq "6" "$n_launch" "six CLI launch lines are expected (measured $n_launch)" || return 1
+    assert_eq "$n_launch" "$n_extra" "every CLI launch line passes \$_cc_extra (launch lines: $n_launch, with the extra args: $n_extra)"
+}
+run_test "every CLI launch line in launch_mclaude carries the extra args" test_every_cli_launch_line_carries_extra_args
+
+test_ide_subcommand_dispatch() {
+    local env_dir; env_dir=$(create_mock_env)
+    local home="$TEST_TMPDIR/home"
+    local output
+    output=$(CONFIG_REPO="$env_dir" HOME="$home" bash "$SCRIPT" ide lock-dirs 2>&1)
+    assert_contains "$output" "$home/.claude/ide" "af ide <verb> dispatches to afleet-ide.sh with the sandboxed home's lock dir" || return 1
+    assert_not_contains "$output" "MOCK_MCLAUDE_CALLED" "and does not launch a session" || return 1
+    # `af ide …` is a query, not a launch: it must not trigger the pre-picker config pull.
+    grep -qE 'case "\$_a" in [^)]*\bide\b[^)]*\) _afleet_pre_picker=0' "$SCRIPT" \
+        || { echo "FAIL: 'ide' missing from the pre-picker no-pull list"; return 1; }
+}
+run_test "af ide <verb> dispatches to afleet-ide.sh, launches nothing, pulls nothing" test_ide_subcommand_dispatch
+
+test_help_mentions_ide() {
+    local output
+    output=$(bash "$SCRIPT" --help 2>&1)
+    assert_contains "$output" "--ide" "help names the flag" || return 1
+    assert_contains "$output" "afleet ide" "help names the subcommand"
+}
+run_test "help lists --ide and af ide" test_help_mentions_ide
+
 # ── Summary ──────────────────────────────────────────────────────────────────
 
 suite_summary
