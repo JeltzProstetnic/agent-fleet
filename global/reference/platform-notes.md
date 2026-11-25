@@ -38,7 +38,7 @@ Machine files (`~/.claude/machines/<machine>.md`) contain platform-specific deta
 - Git Bash login shells source `~/.bashrc` through an auto-created `.bash_profile`; `/tmp` maps to `%TEMP%`.
 - Absent in Git Bash although fleet scripts use them (CFG-1093 sweep): `tmux`, `pgrep`, `systemctl`, `jq` (gpi, statusline, afleet-ide), `flock` (`gpi.sh`, `vault-manage.sh`), `setsid`, `script` (afleet runs claude under `script -q -f`), `wslpath`. `sudo` on Windows 11 is Windows' own `sudo.exe`.
 - From PowerShell, `bash` resolves to the WindowsApps alias and starts **WSL**, not Git Bash — so an install line like `cd ~/agent-fleet && bash setup.sh` typed into PowerShell runs in WSL. Call Git Bash by its full path.
-- Execution policy measured on this host: CurrentUser Undefined, LocalMachine Restricted (not elevated) — the port states admin + execution-policy prerequisites instead of working around them.
+- Execution policy measured on this host (corrected by the CFG-1087 slice-3 probe): all five scopes Undefined, so the effective policy is Restricted; the shell is not elevated (`net session` rc 2, IsInRole False) — the port states admin + execution-policy prerequisites instead of working around them.
 
 ## macOS
 
