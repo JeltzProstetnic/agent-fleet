@@ -68,7 +68,7 @@ EOF
     fi
 
     # Check 3.2e (CFG-1091 D2): a per-project file whose name matches no live project's
-    # registry name or directory is read by nobody — jasmin.md (project deleted) and
+    # registry name or directory is read by nobody — oldnotes.md (project deleted) and
     # fleet-auditor.md (its session runs in auditor/) held mail for months with no signal.
     if command -v inbox_unreadable_files >/dev/null 2>&1; then
         _unread=$(inbox_unreadable_files 2>/dev/null | awk '{ printf "%s%s.md (%s open)", (NR > 1 ? ", " : ""), $1, $2 }')

@@ -269,7 +269,7 @@ d_prompt()   { d_words Claude Code v2.1.280; d_words ❯ startup; d_words "?" fo
 # d_repl: what 2.1.280 draws once a startup dialog is answered (banner, prompt box, mode line) — real log, 2026-11-14.
 d_repl() {
     d_words ▐▛███▜▌ Claude Code v2.1.280; d_words ▝▜█████▛▘ Opus 5.5 "(1M" "context)" with xhigh effort · Claude Max
-    d_words ~/life; d_words ────────────────────────; d_words ❯; d_words ⏵⏵ auto mode on "(shift+tab" to "cycle)"
+    d_words ~/project; d_words ────────────────────────; d_words ❯; d_words ⏵⏵ auto mode on "(shift+tab" to "cycle)"
 }
 d_trust_redraw() { d_words No, exit; d_words ❯ Yes, I trust this folder; }   # a human moved the selection
 d_filler()   { local i; for (( i = 0; i < $1; i++ )); do d_words lorem ipsum dolor sit amet consectetur; done; }

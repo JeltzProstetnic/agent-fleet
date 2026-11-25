@@ -31,7 +31,7 @@ trap 'rm -rf "$_tmp"' EXIT
 REPO="$_tmp/repo"
 HOME_DIR="$_tmp/home"
 mkdir -p "$REPO/cross-project/inbox" "$REPO/setup/scripts" \
-         "$HOME_DIR/cfg-agent-fleet/auditor" "$HOME_DIR/life" "$HOME_DIR/social"
+         "$HOME_DIR/cfg-agent-fleet/auditor" "$HOME_DIR/home" "$HOME_DIR/social"
 cp "$REPO_ROOT/setup/scripts/inbox-lib.sh" "$REPO/setup/scripts/"
 
 _old=$(date -d '60 days ago' +%Y-%m-%d)
@@ -52,9 +52,9 @@ cat > "$REPO/registry.md" <<'EOF'
 |---------|----------|--------|------|--------------|----------|------|-------|-------|
 | cfg-agent-fleet | P1 | — | `~/cfg-agent-fleet` | — | test | config | active | backbone |
 | fleet-auditor | P3 | cfg-agent-fleet | `~/cfg-agent-fleet/auditor` | — | test | config | active | lives in auditor/ |
-| life | P2 | — | `~/life` | — | test | personal | active | |
-| erik | P3 | life | `~/life/erik` | — | test | business | active | |
-| jasmin | — | life | `~/jasmin` | — | test | business | deleted 2026-11-04 | **Merged into `~/life/erik/`** |
+| home | P2 | — | `~/home` | — | test | personal | active | |
+| garden | P3 | home | `~/home/garden` | — | test | business | active | |
+| oldnotes | — | home | `~/oldnotes` | — | test | business | deleted 2026-11-04 | **Merged into `~/home/garden/`** |
 | social | P1 | — | `~/social` | — | test | marketing | active | |
 
 ### Removed Projects
@@ -79,15 +79,15 @@ cat > "$REPO/cross-project/inbox/fleet-auditor.md" <<EOF
 - [ ] **fleet-auditor** [work] (P2; from cfg WSL $_new): AUDITOR-ITEM-ONE audit the roster
 - [ ] **fleet-auditor** [fact] (P2; from cfg WSL $_new): AUDITOR-ITEM-TWO $_long
 EOF
-cat > "$REPO/cross-project/inbox/erik.md" <<EOF
-# Inbox — erik
+cat > "$REPO/cross-project/inbox/garden.md" <<EOF
+# Inbox — garden
 
-- [ ] **erik** [work] (P2; from life WSL $_new): ERIK-CHILD-ITEM check the evidence folder
+- [ ] **garden** [work] (P2; from home WSL $_new): Garden-CHILD-ITEM check the evidence folder
 EOF
-cat > "$REPO/cross-project/inbox/jasmin.md" <<EOF
-# Inbox — jasmin
+cat > "$REPO/cross-project/inbox/oldnotes.md" <<EOF
+# Inbox — oldnotes
 
-- [ ] **jasmin** [work] (P1; from life WSL $_old): JASMIN-DEAD-ITEM filed after the project was deleted
+- [ ] **oldnotes** [work] (P1; from home WSL $_old): Oldnotes-DEAD-ITEM filed after the project was deleted
 EOF
 cat > "$REPO/cross-project/inbox/social.md" <<EOF
 # Inbox — social
@@ -144,10 +144,10 @@ else
 fi
 
 echo "=== D4: child → parent surfacing reads the per-project files ==="
-_out_life=$(run_check "$HOME_DIR/life")
+_out_life=$(run_check "$HOME_DIR/home")
 _msg_life=$(field "$_out_life" INBOX_MSG)
-if printf '%s' "$_msg_life" | grep -q 'CHILD project' && printf '%s' "$_msg_life" | grep -q 'ERIK-CHILD-ITEM'; then
-    pass "life sees erik's item from cross-project/inbox/erik.md"
+if printf '%s' "$_msg_life" | grep -q 'CHILD project' && printf '%s' "$_msg_life" | grep -q 'Garden-CHILD-ITEM'; then
+    pass "home sees garden's item from cross-project/inbox/garden.md"
 else
     fail "child item invisible to the parent: $_msg_life"
 fi
@@ -166,12 +166,12 @@ if printf '%s' "$_ut" | grep -q 'typoproject'; then
 else
     fail "typoproject not reported: $_warn"
 fi
-if printf '%s' "$_ut" | grep -q 'fleet-auditor\|erik\|social'; then
+if printf '%s' "$_ut" | grep -q 'fleet-auditor\|garden\|social'; then
     fail "a live project was reported as unknown: $_ut"
 else
     pass "live projects are not reported as unknown"
 fi
-if printf '%s' "$_ut" | grep -q 'jasmin.*successor.*life'; then
+if printf '%s' "$_ut" | grep -q 'oldnotes.*successor.*home'; then
     pass "a tag for a deleted project is reported with its successor"
 else
     fail "deleted-project tag not reported with successor: $_ut"
@@ -179,12 +179,12 @@ fi
 
 echo "=== D2: per-project files no session can read are flagged ==="
 _ur=$(printf '%s' "$_warn" | grep -oE 'INBOX_UNREACHABLE:[^|]*' | head -1)
-if printf '%s' "$_ur" | grep -q 'jasmin.md' && printf '%s' "$_ur" | grep -q 'typo.md'; then
-    pass "jasmin.md (deleted project) and typo.md (no project) are flagged unreachable"
+if printf '%s' "$_ur" | grep -q 'oldnotes.md' && printf '%s' "$_ur" | grep -q 'typo.md'; then
+    pass "oldnotes.md (deleted project) and typo.md (no project) are flagged unreachable"
 else
     fail "unreachable files not flagged: $_warn"
 fi
-if printf '%s' "$_ur" | grep -q 'fleet-auditor.md\|erik.md\|social.md'; then
+if printf '%s' "$_ur" | grep -q 'fleet-auditor.md\|garden.md\|social.md'; then
     fail "a readable file was flagged unreachable: $_ur"
 else
     pass "files a live project or directory reads are not flagged"

@@ -357,7 +357,7 @@ fi
 rm -rf "$_fx_dir"
 
 # ══════════════════════════════════════════════════════════════════════════════
-# CFG-798 (life 2026-10-21): a target with no trailing newline swallowed the new item
+# CFG-798 (home 2026-10-21): a target with no trailing newline swallowed the new item
 # ══════════════════════════════════════════════════════════════════════════════
 echo ""
 echo "=== CFG-798: appending to a file that lacks a trailing newline ==="
@@ -376,7 +376,7 @@ rm -rf "$_nl_dir"
 # ══════════════════════════════════════════════════════════════════════════════
 # CFG-1091 D3: a deleted registry target is refused and its successor named; --repo
 # ══════════════════════════════════════════════════════════════════════════════
-# jasmin was deleted 2026-11-04 and an item was filed for it on 11-13 — the check read
+# oldnotes was deleted 2026-11-04 and an item was filed for it on 11-13 — the check read
 # the registry name, never its status. Nothing will ever read a dead project's inbox.
 echo ""
 echo "=== CFG-1091: deleted targets are refused, --repo routes a sandbox ==="
@@ -387,8 +387,8 @@ cat > "$_d3/repo/registry.md" <<'EOF'
 
 | Project | Priority | Parent | Path | GitHub Remote | Machines | Type | Phase | Notes |
 |---------|----------|--------|------|--------------|----------|------|-------|-------|
-| life | P2 | — | `~/life` | — | test | personal | active | |
-| jasmin | — | life | `~/jasmin` | — | test | business | deleted 2026-11-04 | **Merged into `~/life/erik/`** |
+| home | P2 | — | `~/home` | — | test | personal | active | |
+| oldnotes | — | home | `~/oldnotes` | — | test | business | deleted 2026-11-04 | **Merged into `~/home/garden/`** |
 | alpha | P2 | — | `~/alpha` | — | test | code | active | |
 
 ### Removed Projects
@@ -400,14 +400,14 @@ cat > "$_d3/repo/registry.md" <<'EOF'
 ## Machines
 EOF
 
-_rc=0; _out=$(bash "$HELPER" --repo "$_d3/repo" --project jasmin --type work --body "mail for a dead project" 2>&1) || _rc=$?
-if [ "$_rc" -ne 0 ] && printf '%s' "$_out" | grep -q 'deleted' && printf '%s' "$_out" | grep -q -- '--project life'; then
-    pass "D3: a deleted project is refused and the successor 'life' is named"
+_rc=0; _out=$(bash "$HELPER" --repo "$_d3/repo" --project oldnotes --type work --body "mail for a dead project" 2>&1) || _rc=$?
+if [ "$_rc" -ne 0 ] && printf '%s' "$_out" | grep -q 'deleted' && printf '%s' "$_out" | grep -q -- '--project home'; then
+    pass "D3: a deleted project is refused and the successor 'home' is named"
 else
     fail "D3: deleted project not refused with successor (rc=$_rc): $_out"
 fi
-if [ -e "$_d3/repo/cross-project/inbox/jasmin.md" ]; then
-    fail "D3: a refused filing still created jasmin.md"
+if [ -e "$_d3/repo/cross-project/inbox/oldnotes.md" ]; then
+    fail "D3: a refused filing still created oldnotes.md"
 else
     pass "D3: a refused filing writes nothing"
 fi

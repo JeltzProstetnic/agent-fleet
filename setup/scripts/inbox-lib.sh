@@ -95,7 +95,7 @@ inbox_items_for_any() {
 # ── Registry (CFG-1091) ──────────────────────────────────────────────────────
 # registry.md is the only map from a tag to a session. Three facts the delivery code
 # never read: a project's registry NAME can differ from its directory (fleet-auditor
-# lives in auditor/), a row can be `deleted …` (jasmin, 2026-11-04), and the Removed
+# lives in auditor/), a row can be `deleted …` (oldnotes, 2026-11-04), and the Removed
 # Projects table exists. Each made mail undeliverable with no signal (audit 2026-11-20).
 inbox_registry() { printf '%s' "${INBOX_REGISTRY:-$(_inbox_repo)/registry.md}"; }
 

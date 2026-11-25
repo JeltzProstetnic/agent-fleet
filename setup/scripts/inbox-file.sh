@@ -85,7 +85,7 @@ esac
 # `new-project` is the reserved placeholder and stays legal (CFG-483).
 if [ -f "$REGISTRY" ] && [ "$PROJECT" != "new-project" ]; then
     # CFG-1091 D3: a target registered as deleted (or listed under Removed Projects) has
-    # no session left to read its inbox — jasmin took mail for nine days after its
+    # no session left to read its inbox — oldnotes took mail for nine days after its
     # deletion because only the NAME was checked, never the status. Refuse and name the
     # successor: the filer is the one who still knows what the item is for.
     if command -v inbox_registry_dead >/dev/null 2>&1 && _dead=$(inbox_registry_dead "$PROJECT"); then

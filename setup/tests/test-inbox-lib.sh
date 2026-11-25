@@ -142,6 +142,154 @@ else
     fail "delivery broke when the inbox dir was absent: $_items"
 fi
 
+# ══════════════════════════════════════════════════════════════════════════════
+# CFG-1091: registry resolution — who can read a per-project file, and who is dead
+# ══════════════════════════════════════════════════════════════════════════════
+# fleet-auditor lives in `auditor/`, so the hook's basename lookup never read
+# inbox/fleet-auditor.md; oldnotes was deleted 2026-11-04 and still accepted as a target.
+echo "=== CFG-1091: registry resolution ==="
+mkdir -p "$_tmp/cross-project/inbox"
+cat > "$_tmp/registry.md" <<'EOF'
+## Projects
+
+| Project | Priority | Parent | Path | GitHub Remote | Machines | Type | Phase | Notes |
+|---------|----------|--------|------|--------------|----------|------|-------|-------|
+| cfg-agent-fleet | P1 | — | `~/cfg-agent-fleet` | — | test | config | active | backbone |
+| fleet-auditor | P3 | cfg-agent-fleet | `~/cfg-agent-fleet/auditor` | — | test | config | active | sub-project |
+| home | P2 | — | `~/home` | — | test | personal | active | |
+| garden | P3 | home | `~/home/garden` | — | test | business | active | |
+| oldnotes | — | home | `~/oldnotes` | — | test | business | deleted 2026-11-04 | **Merged into `~/home/garden/`** |
+| acme | P1 | — | `~/acme` | — | test | business | active | |
+
+### Removed Projects
+
+| Project | Previous Path | Status | Notes |
+|---------|--------------|--------|-------|
+| claude-demo | `~/demo` | Deleted from filesystem + GitHub | Was a demo |
+| oldmail | `~/oldmail` | Absorbed into acme | PST search |
+
+## Machines
+EOF
+
+# ── Test 9: rows of both tables parse by header name ────────────────────────
+_rows=$(inbox_registry_rows 2>/dev/null)
+_main=$(printf '%s\n' "$_rows" | grep -c '|main|')
+_removed=$(printf '%s\n' "$_rows" | grep -c '|removed|')
+if [ "$_main" -eq 6 ] && [ "$_removed" -eq 2 ] \
+   && printf '%s\n' "$_rows" | grep -q '^fleet-auditor|cfg-agent-fleet|~/cfg-agent-fleet/auditor|active|main|'; then
+    pass "registry rows parse: 6 project rows, 2 removed rows, columns by header"
+else
+    fail "registry rows wrong (main=$_main removed=$_removed): $_rows"
+fi
+
+# ── Test 10: live names exclude deleted and removed projects ────────────────
+_live=$(inbox_registry_live_names 2>/dev/null)
+if printf '%s\n' "$_live" | grep -qx 'fleet-auditor' && ! printf '%s\n' "$_live" | grep -qx 'oldnotes' \
+   && ! printf '%s\n' "$_live" | grep -qx 'claude-demo' && ! printf '%s\n' "$_live" | grep -qx 'oldmail'; then
+    pass "live names keep fleet-auditor and drop oldnotes, claude-demo, oldmail"
+else
+    fail "live names wrong: $(printf '%s' "$_live" | tr '\n' ' ')"
+fi
+
+# ── Test 11: a dead target is recognised and its successor named ────────────
+_d=$(inbox_registry_dead oldnotes 2>/dev/null)
+if [ "$_d" = "deleted 2026-11-04|home" ]; then
+    pass "oldnotes is dead, phase 'deleted 2026-11-04', successor home (Parent column)"
+else
+    fail "inbox_registry_dead oldnotes → '$_d'"
+fi
+_d=$(inbox_registry_dead oldmail 2>/dev/null)
+if [ "${_d#*|}" = "acme" ]; then
+    pass "oldmail (removed table) names its successor from 'Absorbed into acme'"
+else
+    fail "inbox_registry_dead oldmail → '$_d'"
+fi
+_d=$(inbox_registry_dead claude-demo 2>/dev/null); _rc=$?
+if [ "$_rc" -eq 0 ] && [ -z "${_d#*|}" ]; then
+    pass "claude-demo is dead with no successor recorded"
+else
+    fail "inbox_registry_dead claude-demo → rc=$_rc '$_d'"
+fi
+if inbox_registry_dead home >/dev/null 2>&1; then
+    fail "a live project was reported dead"
+else
+    pass "a live project is not dead"
+fi
+
+# ── Test 12: the registry name of a directory, and the names a session answers to ──
+_n=$(inbox_registry_name_for_dir "/somewhere/else/auditor" 2>/dev/null)
+if [ "$_n" = "fleet-auditor" ]; then
+    pass "directory auditor/ resolves to registry name fleet-auditor"
+else
+    fail "name for auditor/ → '$_n'"
+fi
+_names=$(inbox_names_for_dir "/x/auditor" 2>/dev/null | tr '\n' ' ')
+if [ "$_names" = "auditor fleet-auditor " ]; then
+    pass "a session in auditor/ answers to 'auditor' and 'fleet-auditor'"
+else
+    fail "names for auditor/ → '$_names'"
+fi
+_names=$(inbox_names_for_dir "/x/home" 2>/dev/null | tr '\n' ' ')
+if [ "$_names" = "home " ]; then
+    pass "a directory whose name is its registry name answers to one name"
+else
+    fail "names for home/ → '$_names'"
+fi
+
+# ── Test 13: children by any alias ──────────────────────────────────────────
+_kids=$(inbox_children_of home 2>/dev/null | sort | tr '\n' ' ')
+if [ "$_kids" = "garden oldnotes " ]; then
+    pass "children of home: garden and oldnotes (a deleted child is still listed for its parent)"
+else
+    fail "children of home → '$_kids'"
+fi
+_kids=$(inbox_children_of auditor fleet-auditor 2>/dev/null)
+if [ -z "$_kids" ]; then
+    pass "a project without children yields nothing"
+else
+    fail "unexpected children: $_kids"
+fi
+
+# ── Test 14: items for several names, each line once ────────────────────────
+printf -- '- [ ] **fleet-auditor** (P2 — legacy): a legacy fleet-auditor item\n' >> "$_tmp/cross-project/inbox.md"
+cat > "$_tmp/cross-project/inbox/fleet-auditor.md" <<'EOF'
+- [ ] **fleet-auditor** [work] (P2): file item one
+- [ ] **fleet-auditor** [fact] (P2): file item two
+EOF
+_n=$(inbox_items_for_any auditor fleet-auditor fleet-auditor 2>/dev/null | grep -c '^- \[ \]')
+if [ "$_n" -eq 3 ]; then
+    pass "items for aliases are a union without duplicates (3)"
+else
+    fail "expected 3 unique items, got $_n"
+fi
+
+# ── Test 15: per-project files no session can read ──────────────────────────
+printf -- '- [ ] **oldnotes** [work] (P1): mail for a deleted project\n' > "$_tmp/cross-project/inbox/oldnotes.md"
+printf -- '- [ ] **?** [work] (P2): mail for nobody\n' > "$_tmp/cross-project/inbox/unrouted.md"
+printf -- '- [ ] **new-project** [work] (P2): placeholder\n' > "$_tmp/cross-project/inbox/new-project.md"
+printf -- '- [ ] **auditor** [work] (P2): by directory name\n' > "$_tmp/cross-project/inbox/auditor.md"
+printf -- '# Inbox — empty\n' > "$_tmp/cross-project/inbox/nobody.md"
+_ur=$(inbox_unreadable_files 2>/dev/null)
+if printf '%s\n' "$_ur" | grep -qx 'oldnotes 1' && printf '%s\n' "$_ur" | grep -qx 'unrouted 1' \
+   && [ "$(printf '%s\n' "$_ur" | grep -c .)" -eq 2 ]; then
+    pass "oldnotes.md and unrouted.md are unreachable; auditor.md, fleet-auditor.md, new-project.md and an empty file are not"
+else
+    fail "unreachable files → '$(printf '%s' "$_ur" | tr '\n' ';')'"
+fi
+
+# ── Test 16: the child report is capped ─────────────────────────────────────
+: > "$_tmp/cross-project/inbox/garden.md"
+for i in 1 2 3 4 5 6 7; do
+    printf -- '- [ ] **garden** [work] (P2): child item %s\n' "$i" >> "$_tmp/cross-project/inbox/garden.md"
+done
+_rep=$(inbox_child_report home 2>/dev/null)
+if printf '%s' "$_rep" | grep -q 'garden (7 item(s))' && printf '%s' "$_rep" | grep -q '+2 more' \
+   && ! printf '%s' "$_rep" | grep -q 'child item 6'; then
+    pass "child report names the count, shows 5 items and counts the rest"
+else
+    fail "child report → '$_rep'"
+fi
+
 echo
 echo "── Summary ──"
 echo "  Total:   $TESTS_RUN"

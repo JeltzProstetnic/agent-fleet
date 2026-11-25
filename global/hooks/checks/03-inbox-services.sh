@@ -1,7 +1,11 @@
 #!/usr/bin/env bash
-# Check group 3: Inbox and service config — inbox tasks, Serena, settings, branches
-# Checks: 3.1, 3.2, 3.3, 3.4, 3.5
+# Check group 3: Inbox and service config — inbox delivery, Serena, settings, branches
+# Checks: 3.1, 3.2, 3.2c (child surfacing), 3.3, 3.4, 3.5
+# Typed delivery of this project's items is in 03b-inbox-typing.sh; corpus health (3.2b
+# unknown tags, 3.2d size/age, 3.2e unreachable files) moved to 03c-inbox-health.sh on
+# 2026-11-25 (CFG-1091, 150-line limit). Both run after this file by filename order.
 # Shared vars used: CONFIG_REPO, WARNINGS, INBOX_MSG, SETTINGS_FILE, DEFAULT_BRANCH
+# Sets for 03b/03c: INBOX, PROJECT_NAME, PROJECT_ALIASES, TASKS, TOTAL
 
 # Check 3.1: Run mobile-collect BEFORE reading inbox (Bug 1 fix — ensures mobile
 # tasks are merged into inbox before Check 6 surfaces them to Claude)
@@ -28,8 +32,17 @@ _INBOX_LIB="$CONFIG_REPO/setup/scripts/inbox-lib.sh"
 [ -f "$_INBOX_LIB" ] && . "$_INBOX_LIB" 2>/dev/null
 if [ -f "$INBOX" ] || [ -d "$CONFIG_REPO/cross-project/inbox" ]; then
     PROJECT_NAME=$(basename "$(pwd)")
-    if command -v inbox_items_for >/dev/null 2>&1; then
-        TASKS=$(inbox_items_for "$PROJECT_NAME" 2>/dev/null || true)
+    PROJECT_ALIASES="$PROJECT_NAME"
+    if command -v inbox_items_for_any >/dev/null 2>&1; then
+        # CFG-1091 D2: a session answers to its directory name AND its registry name.
+        # fleet-auditor lives in auditor/, so inbox/fleet-auditor.md was read by nobody
+        # and its mail sat for four months with no signal. Same for any project whose
+        # registry Path basename differs from its name.
+        PROJECT_ALIASES=$(inbox_names_for_dir "$(pwd)" 2>/dev/null | tr '\n' ' ')
+        PROJECT_ALIASES="${PROJECT_ALIASES% }"
+        [ -n "$PROJECT_ALIASES" ] || PROJECT_ALIASES="$PROJECT_NAME"
+        # shellcheck disable=SC2086
+        TASKS=$(inbox_items_for_any $PROJECT_ALIASES 2>/dev/null || true)
     else
         TASKS=$(grep -i "\- \[ \].*\*\*[[:space:]]*$PROJECT_NAME[[:space:]]*\*\*" "$INBOX" 2>/dev/null || true)
     fi
@@ -59,105 +72,34 @@ if [ -f "$INBOX" ] || [ -d "$CONFIG_REPO/cross-project/inbox" ]; then
     # tells the parent to report child items without deleting them; it just had
     # no way to see them short of reading the whole ~100k-token inbox by hand.
     #
-    # Bodies are TRUNCATED on purpose: carrying them whole would import the
-    # CFG-515 token problem into every parent session. The parent needs enough to
-    # tell the user a child has mail, not the full item.
-    _REGISTRY="$CONFIG_REPO/registry.md"
-    if [ -f "$_REGISTRY" ]; then
-        _CHILDREN=$(sed -n '/^## Projects/,/^## [^P]/p' "$_REGISTRY" 2>/dev/null \
-            | awk -F'|' -v parent="$PROJECT_NAME" '
-                NF > 3 {
-                    name = $2; par = $4
-                    gsub(/^[ \t]+|[ \t]+$/, "", name)
-                    gsub(/^[ \t]+|[ \t]+$/, "", par)
-                    if (name == "" || name == "Project") next
-                    if (name ~ /^-+$/) next
-                    if (tolower(par) == tolower(parent)) print name
-                }' 2>/dev/null || true)
-        _CHILD_MSG=""
+    # CFG-1091 D4: since CFG-542 this grepped only the legacy file, where no item
+    # has lived for three months — acme saw 0 of 13 child items, home 0 of 13.
+    # inbox_child_report reads the per-project files and TRUNCATES bodies on
+    # purpose: the parent needs enough to tell the user a child has mail, not the
+    # full item (CFG-515).
+    _CHILD_MSG=""
+    if command -v inbox_child_report >/dev/null 2>&1; then
+        # shellcheck disable=SC2086
+        _CHILD_MSG=$(inbox_child_report $PROJECT_ALIASES 2>/dev/null || true)
+    elif [ -f "$CONFIG_REPO/registry.md" ]; then
+        # No library (un-migrated machine): registry Parent column + legacy file, as before.
+        _CHILDREN=$(sed -n '/^## Projects/,/^## [^P]/p' "$CONFIG_REPO/registry.md" 2>/dev/null \
+            | awk -F'|' -v parent="$PROJECT_NAME" 'NF > 3 {
+                name = $2; par = $4; gsub(/^[ \t]+|[ \t]+$/, "", name); gsub(/^[ \t]+|[ \t]+$/, "", par)
+                if (name != "" && name != "Project" && name !~ /^-+$/ && tolower(par) == tolower(parent)) print name }' 2>/dev/null || true)
         while IFS= read -r _child; do
             [ -n "$_child" ] || continue
             _citems=$(grep -i -- "- \[ \].*\*\*[[:space:]]*$_child[[:space:]]*\*\*" "$INBOX" 2>/dev/null || true)
             [ -n "$_citems" ] || continue
-            # grep -c exits 1 on zero matches, and `|| echo 0` would then append a
-            # SECOND "0" to grep's own "0" — the two-value bug that has bitten this
-            # repo before. _citems is non-empty here by construction, so the count
-            # is always >= 1; head -1 makes that safe rather than merely true today.
-            _ccount=$(printf '%s\n' "$_citems" | grep -c -- '- \[ \]' 2>/dev/null | head -1)
-            [ -n "$_ccount" ] || _ccount=1
-            _cbrief=$(printf '%s\n' "$_citems" | cut -c1-220 | tr '\n' '~' | sed 's/~/ … /g')
+            _ccount=$(printf '%s\n' "$_citems" | grep -c -- '- \[ \]' 2>/dev/null | head -1); [ -n "$_ccount" ] || _ccount=1
+            _cbrief=$(printf '%s\n' "$_citems" | head -n 5 | cut -c1-160 | tr '\n' '~' | sed 's/~$//; s/~/ … /g')
             _CHILD_MSG="${_CHILD_MSG:+$_CHILD_MSG | }$_child ($_ccount item(s)): $_cbrief"
         done <<EOF
 $_CHILDREN
 EOF
-        if [ -n "$_CHILD_MSG" ]; then
-            INBOX_MSG="${INBOX_MSG:+$INBOX_MSG | }INBOX TASKS for CHILD project(s) — report these to the user but do NOT delete them; each child's own session promotes and clears its own items: $_CHILD_MSG"
-        fi
     fi
-
-    # Check 3.2b (CFG-483): a tag that matches no registered project under any
-    # casing is undeliverable. Case-folding alone would have hidden the casing
-    # incident again the moment someone typo'd a tag — so make it loud.
-    # Legitimate tag forms that must NOT warn: a machine qualifier (`proj (WSL)`),
-    # several projects in one tag (`alpha + beta`), parent/child notation
-    # (`parent/child`), and the reserved `new-project` placeholder.
-    REGISTRY="$CONFIG_REPO/registry.md"
-    if [ -f "$REGISTRY" ]; then
-        # Drop the table header and separator rows — otherwise "project" and
-        # "---------" register as valid project names and silently whitelist
-        # a tag of that name.
-        KNOWN_PROJECTS=$(sed -n '/^## Projects/,/^## [^P]/p' "$REGISTRY" \
-            | sed -n 's/^| *\([A-Za-z0-9._/-]\+\) *|.*/\1/p' \
-            | grep -vxE '\-+|Project' \
-            | tr '[:upper:]' '[:lower:]' | sort -u)
-        UNKNOWN_TAGS=""
-        if [ -n "$KNOWN_PROJECTS" ]; then
-            INBOX_TAGS=$(grep -o '^\- \[ \] \*\*[^*]*\*\*' "$INBOX" 2>/dev/null \
-                | sed -e 's/^\- \[ \] \*\*//' -e 's/\*\*$//' -e 's/ *(.*//' \
-                | tr '+' '\n' \
-                | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' \
-                | tr '[:upper:]' '[:lower:]' | grep -v '^$' | sort -u)
-            while IFS= read -r _tag; do
-                [ -n "$_tag" ] || continue
-                [ "$_tag" = "new-project" ] && continue
-                printf '%s\n' "$KNOWN_PROJECTS" | grep -qxF "$_tag" && continue
-                printf '%s\n' "$KNOWN_PROJECTS" | grep -qxF "${_tag##*/}" && continue
-                UNKNOWN_TAGS="${UNKNOWN_TAGS:+$UNKNOWN_TAGS, }$_tag"
-            done <<EOF
-$INBOX_TAGS
-EOF
-        fi
-        if [ -n "$UNKNOWN_TAGS" ]; then
-            WARNINGS="${WARNINGS:+$WARNINGS | }INBOX_UNKNOWN_TAG: inbox items are tagged for project(s) that match nothing in registry.md under any casing: $UNKNOWN_TAGS — these will never be delivered. Fix the tag or register the project."
-        fi
-    fi
-
-    # Check 3.2c (CFG-515): bound the inbox. Check 3.2 deliberately reports only a count
-    # so no session pays the file's context cost — which also means unbounded growth emits
-    # the same signal at 3 items as at 288. It reached 288 items / ~121k tokens, oldest
-    # 2026-04-28, and no session was ever told that was abnormal. A raw count is not a
-    # signal; a threshold is. Same shape as 3.2b: make the failure loud.
-    # NOTE: stdout here is a JSON contract (CFG-503) — warnings go to $WARNINGS, never echo.
-    # CFG-542: the corpus is now inbox.md PLUS every per-project file, so measure both
-    # or the ceiling silently stops seeing the items that moved.
-    _inbox_bytes=$(cat "$INBOX" "$CONFIG_REPO"/cross-project/inbox/*.md 2>/dev/null | wc -c 2>/dev/null || echo 0)
-    [ -n "$_inbox_bytes" ] || _inbox_bytes=0
-    _inbox_tok=$(( _inbox_bytes / 4 ))
-    if [ "$_inbox_tok" -gt "${INBOX_TOKEN_CEILING:-20000}" ]; then
-        WARNINGS="${WARNINGS:+$WARNINGS | }INBOX_OVERSIZE: cross-project/inbox.md is ~${_inbox_tok} tokens (ceiling ${INBOX_TOKEN_CEILING:-20000}) across $TOTAL open item(s) — promote them into project backlogs and delete them. See CFG-515."
-    fi
-    # CFG-65: stream the corpus rather than naming files. As awk operands, an unmatched
-    # inbox/*.md glob made gawk abort before END and `|| echo 0` hid it, so the check was
-    # dead on every machine without inbox/; and the legacy preamble's dated prose counted.
-    _inbox_old=$( { if command -v inbox_legacy_body >/dev/null 2>&1; then inbox_legacy_body; else cat "$INBOX"; fi
-                    cat "$CONFIG_REPO"/cross-project/inbox/*.md; } 2>/dev/null \
-        | awk -v cutoff="$(date -d '30 days ago' +%Y-%m-%d 2>/dev/null || echo 0000-00-00)" \
-        'match($0, /20[0-9][0-9]-[0-9][0-9]-[0-9][0-9]/) {
-            d = substr($0, RSTART, RLENGTH); if (d < cutoff) n++
-         } END { print n+0 }' 2>/dev/null || echo 0)
-    [ -n "$_inbox_old" ] || _inbox_old=0
-    if [ "$_inbox_old" -gt 0 ]; then
-        WARNINGS="${WARNINGS:+$WARNINGS | }INBOX_STALE: $_inbox_old inbox line(s) carry a date older than 30 days — an inbox item that survives a month was never a handoff, it is untracked work. Promote to a backlog and delete."
+    if [ -n "$_CHILD_MSG" ]; then
+        INBOX_MSG="${INBOX_MSG:+$INBOX_MSG | }INBOX TASKS for CHILD project(s) — report these to the user but do NOT delete them; each child's own session promotes and clears its own items: $_CHILD_MSG"
     fi
 fi
 
