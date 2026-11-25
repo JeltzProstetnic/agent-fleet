@@ -108,6 +108,22 @@ Reference implementation: a fleet i18n project's `_repair()` helper.
 
 ---
 
+## Claude Code headless as a program's brain (measured WSL 2026-11-25, CC 2.1.280)
+
+Source: a fleet voice-assistant project's measurement log.
+1. **`--bare` is unusable with subscription OAuth** — it accepts only `ANTHROPIC_API_KEY`/`apiKeyHelper`. Instead give
+   the child a clean `CLAUDE_CONFIG_DIR` plus `CLAUDE_SECURESTORAGE_CONFIG_DIR=<mirror config dir>`: it borrows the
+   fleet login without hooks or CLAUDE.md (~500-token requests).
+2. **`ultrathink` no longer raises thinking under `--effort`** (332 vs 399 thinking tokens).
+3. In `--input-format stream-json` mode, the control request
+   `{type:"control_request", request:{subtype:"apply_flag_settings", settings:{effortLevel:"high"}}}` changes effort
+   mid-session (control_response success); `set_max_thinking_tokens` is accepted but has no visible effect under `--effort`.
+4. Opus 5.5 effort on one planning question: low 6.6 s / 480 thinking tokens, high 20 s / 1,650, xhigh 29 s / 2,100,
+   max 268 s / 26,700.
+5. Headless tool scoping that works: `--permission-mode dontAsk` + `--allowedTools 'Bash(<abs python> -m pkg *),Read(/<abs dir>/**),Edit(/<abs file>)'` + `--add-dir`.
+
+---
+
 ## Checklist for any new provider client
 
 - [ ] Redirects refused, not followed, on every call that carries a credential.
