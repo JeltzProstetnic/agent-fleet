@@ -56,6 +56,7 @@ Conditionally loaded files containing operational knowledge for specific tools a
 | `risk-management.md` | Risk tiers, E2E test requirements, privacy scrub, IT security compliance | Risk Tiers, T1 — Critical Infrastructure, T2 — Deployment Pipeline |
 | `manufacturing-simulation-modelling.md` | Building or validating a discrete-event model of a real plant from its records | Plant structure, KPI definitions, planning rules, mining parameters from records, engine traps, validation |
 | `shopfloor-management-and-governance.md` | Shopfloor management, KPI boards, A3/8D, Hoshin Kanri, stage-gate or PDP governance | Board cascade, SQCDP, A3/8D, Hoshin Kanri, portfolio gates, what each yields for a model |
+| `ide-terminal-mode.md` | IDE integration: `af` in a VS Code / JetBrains terminal, `/ide`, `af --ide`, `af ide status\|autoconnect`, Remote-WSL, a session started from an IDE behaving oddly | Three ways to connect, what the IDE shows (Manual-mode diffs), recipes (VS Code, Remote-WSL, JetBrains Claude command = `af`, Windows IDE + WSL), how discovery works, traps (panel + terminal = two sessions, `--ide` needs one IDE, lock role) |
 
 ## Adding New Knowledge Files
 
