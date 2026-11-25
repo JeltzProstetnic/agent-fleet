@@ -1,5 +1,5 @@
 <!-- updates: setup/scripts/afleet-ide.sh (the commands this guide names), setup/tests/test-afleet-ide.sh -->
-<!-- consumed-by: global/knowledge/INDEX.md (row), docs/research/ide-integration-2026-11.md (step 1 of its build order) -->
+<!-- consumed-by: global/CLAUDE.md (conditional-loading trigger row), global/knowledge/INDEX.md (row), docs/research/ide-integration-2026-11.md (step 1 of its build order) -->
 # IDE Terminal Mode
 
 Load when a developer wants to keep VS Code or a JetBrains IDE open as the place to inspect what a

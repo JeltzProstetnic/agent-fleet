@@ -86,7 +86,7 @@ When either project modifies anything in the shared file's scope:
 |---------|----------|-----|
 | Shared targets + status | Strategy file | Single source of truth, prevents divergence |
 | Project-specific tasks | Project backlog | Only that project acts on them |
-| One-off cross-project tasks | `~/agent-fleet/cross-project/inbox.md` | Transient, picked up and deleted |
+| One-off cross-project tasks | `~/agent-fleet/cross-project/inbox/<project>.md`, filed with `setup/scripts/inbox-file.sh` | Transient, picked up and deleted |
 | Persistent shared state | Strategy file | Survives across sessions |
 | Detailed dossiers/profiles | Owning project's `tmp/` or `docs/` | Too detailed for the strategy overview |
 
