@@ -46,8 +46,8 @@ Unified risk classification and enforcement for agent fleet infrastructure chang
 **Files:** Everything under `global/` tracked in `template-sync-manifest.md`
 
 **Enforcement:** After editing manifest-tracked files:
-1. Run `bash sync.sh template-push --dry-run`
-2. If changes detected: run `bash sync.sh template-push --commit` for Category 1-2 files
+1. Run `afx sync template-push --dry-run`
+2. If changes detected: run `afx sync template-push --commit` for Category 1-2 files
 3. Category 3 files (CLAUDE.md, personas, mcp-catalog, sync.sh) → create inbox task for manual review
 
 **Automated detection:** SessionEnd hook Phase 0.8 runs drift detection and logs `TEMPLATE_PROPAGATION_NEEDED` for next session.

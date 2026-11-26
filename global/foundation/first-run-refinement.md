@@ -94,7 +94,7 @@ Present findings as: "Here's what I found on your machine: [summary]. Based on t
 
 ### 2e. Tool Suggestions (always, after the project types are picked)
 
-Run `bash ~/agent-fleet/setup/scripts/kind-tools-check.sh <kinds>` with the kinds the user picked, mapped as: Code → `code`, Writing → `writing`, Research → `research`, Infrastructure → `infra`, Business → `business`, Data → `data`, Media → `media`. Marketing, Tooling and Custom have no own rows, so pass nothing for them. Tools everyone needs (fzf for the `af` picker, git, tmux, jq) are always checked. It prints each missing tool with the install command for this OS and why it matters (table: `setup/config/project-kind-tools.conf`). Show that list and offer to install. Install only what the user says yes to, and nothing at all without that yes; where the command needs `sudo`, hand it over as a `!` command.
+Run `afx kind-tools-check <kinds>` with the kinds the user picked, mapped as: Code → `code`, Writing → `writing`, Research → `research`, Infrastructure → `infra`, Business → `business`, Data → `data`, Media → `media`. Marketing, Tooling and Custom have no own rows, so pass nothing for them. Tools everyone needs (fzf for the `af` picker, git, tmux, jq) are always checked. It prints each missing tool with the install command for this OS and why it matters (table: `setup/config/project-kind-tools.conf`). Show that list and offer to install. Install only what the user says yes to, and nothing at all without that yes; where the command needs `sudo`, hand it over as a `!` command.
 
 ### 2d. Service Connection (when user picks Y or Z)
 
@@ -206,7 +206,7 @@ Type `lsd` for a project dashboard anytime. Everything is documented — just as
 
 ### 5. Verification and Clean-Up
 
-- Run `bash sync.sh status` to verify everything is linked
+- Run `afx sync status` to verify everything is linked
 - Delete `.setup-pending` marker file
 - Create initial `session-context.md`
 - Commit: "Initial configuration after interactive setup"

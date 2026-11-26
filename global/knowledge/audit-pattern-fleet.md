@@ -31,7 +31,7 @@ Launch two Opus agents simultaneously:
 - All bash scripts: path references (REPO_DIR, SCRIPT_DIR, source statements)
 - Full test suite execution (`bash setup/tests/run.sh`)
 - Cross-references in docs (stale paths, wrong filenames)
-- Symlink integrity (`sync.sh status`, `~/.claude/` symlinks)
+- Symlink integrity (`afx sync status`, `~/.claude/` symlinks)
 - Git state (uncommitted changes, untracked files, gitignore correctness)
 - Configuration health (settings.json valid, .mcp.json valid)
 - Script executability (+x permissions)

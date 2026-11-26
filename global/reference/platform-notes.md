@@ -22,12 +22,7 @@ Machine files (`~/.claude/machines/<machine>.md`) contain platform-specific deta
 
 - Use `xdg-open` for opening files (respects system default app)
 - No `/mnt/c/` or `powershell.exe` available
-- **Terminal tabs (Konsole/KDE):** Use D-Bus to open tabs and send commands:
-  ```bash
-  KONSOLE_SVC=$(qdbus org.kde.konsole-* 2>/dev/null | head -1)
-  SID=$(qdbus "$KONSOLE_SVC" /Windows/1 org.kde.konsole.Window.newSession "tab-name" "bash")
-  qdbus "$KONSOLE_SVC" /Sessions/$SID org.kde.konsole.Session.sendText "cd ~/project && mclaude\n"
-  ```
+- **Terminal tabs (Konsole/KDE):** open tabs and send commands over D-Bus as `knowledge/konsole-tabs.md` describes, safety rules included.
 - **Never use tmux on KDE machines** — the user has a graphical terminal with native tabs
 
 ## Native Windows (Git Bash / MINGW64) — measured 2026-11-25 (CFG-335/336, Git for Windows 2.55, Win 11 Pro)

@@ -34,7 +34,7 @@ tokens. The rule arrives as `AZURE_AI:` at SessionStart, only in trees listed in
 `setup/config/azure-ai-allowlist.txt`; the CLI refuses anywhere else.
 
 ```bash
-python3 ~/cfg-agent-fleet/setup/scripts/azure-ai.py --prompt-file prompt.md \
+afx azure-ai --prompt-file prompt.md \
     --input a.md --input b.txt [--system-file sys.md] [--out answer.md] [--max-tokens N]
 ```
 

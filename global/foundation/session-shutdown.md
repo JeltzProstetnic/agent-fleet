@@ -19,7 +19,7 @@
 
 ### 3. Cross-project inbox
 - [ ] **Mark completed inbox items `[x]`.** Check `~/agent-fleet/cross-project/inbox/<this-project>.md` (and the legacy spillover `cross-project/inbox.md`, if it still names this project) for any `[ ]` items targeting THIS project that were completed this session. Mark them `[x]`. This is mandatory — stale unchecked items cause the next session to re-propose already-finished work. **Infrastructure/connectivity tasks require end-to-end verification** (e.g., `ssh ... echo test`, `curl -sI`, `deploy && verify`) — script fixes + backlog tracking alone do NOT count as completion.
-- [ ] If this session's work affects other projects, file one item per target with `bash ~/agent-fleet/setup/scripts/inbox-file.sh --project <p> --type <fact|rule|work|fyi> --body "…"` — it writes `cross-project/inbox/<p>.md` and refuses a target no session will ever read
+- [ ] If this session's work affects other projects, file one item per target with `afx inbox-file --project <p> --type <fact|rule|work|fyi> --body "…"` — it writes `cross-project/inbox/<p>.md` and refuses a target no session will ever read
 - [ ] Each entry targets ONE project — never broadcast
 - [ ] Format (written by `inbox-file.sh`, not by hand): `- [ ] **project-name** [type] (P2; from <project> <machine> <date>): description of what they need to do`
 

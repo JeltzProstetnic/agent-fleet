@@ -25,13 +25,13 @@ Cross-project reference detected: [project-name]
 
 ## Execution
 
-Use `afleet-nav.sh` for all actions:
+Use `afx afleet-nav` for all actions:
 
 ```bash
-bash ~/agent-fleet/setup/scripts/afleet-nav.sh switch <project>
-bash ~/agent-fleet/setup/scripts/afleet-nav.sh tab <project>
-bash ~/agent-fleet/setup/scripts/afleet-nav.sh notify <project> "message here"
-bash ~/agent-fleet/setup/scripts/afleet-nav.sh info <project>
+afx afleet-nav switch <project>
+afx afleet-nav tab <project>
+afx afleet-nav notify <project> "message here"
+afx afleet-nav info <project>
 ```
 
 ## Rules
