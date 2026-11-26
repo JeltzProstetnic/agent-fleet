@@ -91,6 +91,9 @@ cmd_setup() {
     # `repro` shortcut (SteamOS only)
     deploy_repro
 
+    # `afx` fleet dispatcher (CFG-1093)
+    deploy_afx
+
     # Create CLAUDE.local.md if missing (machine-specific @import)
     if [[ ! -f "$HOME/CLAUDE.local.md" ]]; then
         # Auto-detect machine file from hostname

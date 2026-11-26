@@ -140,7 +140,7 @@ _readlink_f() { readlink -f "$1"; }
 source "$SCRIPT_DIR/sync-lib/common.sh"
 source "$SCRIPT_DIR/sync-lib/setup.sh"
 deploy_hooks() { mkdir -p "$CLAUDE_HOME/hooks"; cp "$GLOBAL_DIR/hooks/config-check.sh" "$CLAUDE_HOME/hooks/"; chmod +x "$CLAUDE_HOME/hooks/config-check.sh"; }
-deploy_project_rules() { :; }; deploy_aliases() { :; }; deploy_afleet() { :; }; deploy_repro() { :; }
+deploy_project_rules() { :; }; deploy_aliases() { :; }; deploy_afleet() { :; }; deploy_repro() { :; }; deploy_afx() { :; }
 setup_arm_githooks() { :; }; clean_marketplace_plugins() { :; }; run_provisioning_checks() { :; }
 echo "platform=$PLATFORM"
 echo "--- run 1"; cmd_setup
@@ -436,6 +436,57 @@ EOF
     assert_contains "$out" "session_id=abc-123" "lib-hook-stdin parses the session id through the resolved Python"
 }
 _win_case "a ported hook (compound-cd-warn) and lib-hook-stdin work under Git Bash with the Store stub on PATH" test_ported_hook_real
+
+# ── 13. afx dispatcher on the metal (CFG-1093 / CFG-1087 slice) ─────────────────────────────
+# The dispatcher resolves verbs, a .py verb gets native C:/ paths, --install writes afx.cmd, and that shim
+# runs from cmd.exe with the verb's exit code — a bare `bash` there would be the WSL launcher.
+test_afx_real() {
+    _stage_repo
+    cp "$REPO_ROOT/global/hooks/lib-detect-repo.sh" "$WT/repo/global/hooks/"
+    cp "$REPO_ROOT/setup/scripts/afx.sh" "$WT/repo/setup/scripts/"
+    printf '#!/usr/bin/env bash\necho SYNC\n' > "$WT/repo/sync.sh"
+    printf '#!/usr/bin/env bash\nfor a in "$@"; do echo "ARG[$a]"; done\n' > "$WT/repo/setup/scripts/hello.sh"
+    printf '#!/usr/bin/env bash\nexit 7\n' > "$WT/repo/setup/scripts/rc7.sh"
+    printf 'import sys, os\nprint("PYARGS=" + "|".join(sys.argv[1:]))\nprint("PYEXISTS=" + str(os.path.exists(sys.argv[1])))\n' > "$WT/repo/setup/scripts/pyecho.py"
+    cat > "$WT/t13.sh" <<'EOF'
+#!/usr/bin/env bash
+A="$HOME/repo/setup/scripts/afx.sh"
+echo "which=$(bash "$A" --which hello)"
+echo "hello=$(bash "$A" hello 'a b' | tr '\n' ' ')"
+bash "$A" rc7; echo "rc7=$?"
+bash "$A" nosuch >/dev/null 2>&1; echo "unknown_rc=$?"
+bash "$A" pyecho "$HOME/repo/sync.sh" "--f=$HOME/x" plain </dev/null 2>&1 | tr -d '\r'
+bash "$A" --install "$HOME/bin" 2>&1
+echo "install_rc=$?"
+echo "cmd_exists=$([ -f "$HOME/bin/afx.cmd" ] && echo y || echo n) afx_exists=$([ -f "$HOME/bin/afx" ] && echo y || echo n)"
+echo "shim=$(tr -d '\r' < "$HOME/bin/afx.cmd" | grep -v '^REM\|^@echo' | head -1)"
+SHIM="$(cygpath -w "$HOME/bin/afx.cmd")"
+echo "via_cmd=$(cmd.exe //c "$SHIM" hello x </dev/null 2>&1 | tr -d '\r' | tr '\n' ' ')"
+cmd.exe //c "$SHIM" rc7 </dev/null >/dev/null 2>&1; echo "cmd_rc7=$?"
+EOF
+    local out
+    out=$(_gb t13.sh)
+    echo "$out" | sed 's/^/    | /'
+    assert_contains "$out" "setup/scripts/hello.sh" "--which resolves inside the repo afx lives in" || return 1
+    assert_contains "$out" "hello=ARG[a b]" "a .sh verb runs with its args" || return 1
+    assert_contains "$out" "rc7=7" "exit code passes through" || return 1
+    assert_contains "$out" "unknown_rc=2" "unknown verb exits 2" || return 1
+    if [[ "$out" == *"no usable Python 3"* ]]; then
+        echo "    (no usable Python on this host — afx said so)"
+    else
+        assert_contains "$out" "PYARGS=C:/" "the .py verb's absolute path arrives native (C:/…)" || return 1
+        assert_contains "$out" "|--f=C:/" "--opt=/abs values arrive native" || return 1
+        assert_contains "$out" "|plain" "plain words untouched" || return 1
+        assert_contains "$out" "PYEXISTS=True" "the native Python can open the converted path" || return 1
+    fi
+    assert_contains "$out" "install_rc=0" "--install succeeds" || return 1
+    assert_contains "$out" "cmd_exists=y afx_exists=y" "afx and afx.cmd placed" || return 1
+    assert_contains "$out" 'shim="' "the shim calls an absolute bash.exe" || return 1
+    assert_contains "$out" "Git" "…the Git for Windows one, not the WSL alias" || return 1
+    assert_contains "$out" "via_cmd=ARG[x]" "afx.cmd runs a verb from cmd.exe" || return 1
+    assert_contains "$out" "cmd_rc7=7" "and returns the verb's exit code"
+}
+_win_case "afx: verbs dispatch, .py gets native paths, afx.cmd runs from cmd.exe with the exit code (CFG-1093)" test_afx_real
 
 # ── 10. nothing left behind outside the throwaway dir ───────────────────────────────────────
 test_throwaway_only() {

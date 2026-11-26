@@ -28,8 +28,8 @@ if [ -f "$_ci_script" ] && [ -d "$_ci_mirror" ]; then
               CC_SETTINGS_TEMPLATE="$_ci_tmpl" $_ci_to bash "$_ci_script" --write-snapshot 2>/dev/null) || true
     _ci_fails=$(printf '%s\n' "$_ci_out" | grep '^FAIL:' | sed 's/^FAIL: //' | tr '\n' ';' | sed 's/;$//')
     if [ -z "$_ci_out" ]; then
-        WARNINGS="${WARNINGS:+$WARNINGS | }CC_INSTALL: invariants check produced no output (crashed or timed out) — the Claude Code install under $_ci_mirror is unverified this session. Run by hand: bash $_ci_script"
+        WARNINGS="${WARNINGS:+$WARNINGS | }CC_INSTALL: invariants check produced no output (crashed or timed out) — the Claude Code install under $_ci_mirror is unverified this session. Run by hand: afx cc-install-invariants"
     elif [ -n "$_ci_fails" ]; then
-        WARNINGS="${WARNINGS:+$WARNINGS | }CC_INSTALL: the Claude Code install under $_ci_mirror FAILS its invariants — $_ci_fails. Full report: bash $_ci_script. Repair or update ONLY with bash $CONFIG_REPO/setup/scripts/cc-update.sh after end (never a cc-mirror verb). If the change was deliberate, accept it: bash $_ci_script --write-snapshot --force"
+        WARNINGS="${WARNINGS:+$WARNINGS | }CC_INSTALL: the Claude Code install under $_ci_mirror FAILS its invariants — $_ci_fails. Full report: afx cc-install-invariants. Repair or update ONLY with afx cc-update after end (never a cc-mirror verb). If the change was deliberate, accept it: afx cc-install-invariants --write-snapshot --force"
     fi
 fi

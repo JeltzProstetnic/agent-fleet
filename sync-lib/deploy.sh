@@ -108,6 +108,9 @@ cmd_deploy() {
     # `repro` shortcut (SteamOS only)
     deploy_repro
 
+    # `afx` fleet dispatcher (CFG-1093)
+    deploy_afx
+
     # Clear stale sync-failed marker on successful deploy
     rm -f "$SCRIPT_DIR/.sync-failed"
 
@@ -343,6 +346,22 @@ deploy_repro() {
     fi
     _link_file "$src" "$dst"
     log_info "Deployed: repro → reprovision-steamos.sh (~/.local/bin/)"
+}
+
+# `afx`, the fleet dispatcher (CFG-1093): ~/.local/bin/afx, plus afx.cmd on native Windows, placed by the
+# dispatcher's own tested --install. It never replaces an unrelated `afx` (exit 3), and no outcome stops the deploy.
+deploy_afx() {
+    local src="$SCRIPT_DIR/setup/scripts/afx.sh" out rc line
+    [ -f "$src" ] || return 0
+    # `|| rc=$?`, never `; rc=$?`: sync.sh runs under set -euo pipefail, where a failing assignment would end the
+    # whole deploy here (Fable review 2026-11-26)
+    rc=0; out=$(_SYMLINK_MODE="${_SYMLINK_MODE:-}" bash "$src" --install "$HOME/.local/bin" 2>&1) || rc=$?
+    case "$rc" in
+        0) while IFS= read -r line; do [ -n "$line" ] && log_info "$line"; done <<< "$out" ;;
+        3) log_warn "Skipped 'afx': an unrelated afx exists at $HOME/.local/bin/afx — run fleet scripts by path" ;;
+        *) log_warn "afx not deployed (rc $rc): $out" ;;
+    esac
+    return 0
 }
 
 deploy_afleet() {

@@ -79,8 +79,8 @@ marker="$repo/.template-push-verified-${head_sha}"
     for h in "${hits[@]}"; do echo "  - $h"; done
     echo
     echo "Required before committing:"
-    echo "  1. bash sync.sh template-push --dry-run"
-    echo "  2. If drift reported: bash sync.sh template-push --commit"
+    echo "  1. afx sync template-push --dry-run"
+    echo "  2. If drift reported: afx sync template-push --commit"
     echo "  3. Push agent-fleet if needed: git -C ~/agent-fleet push"
     echo "  4. touch '$marker'"
     echo

@@ -24,7 +24,7 @@ FMS_SCRIPT="$CONFIG_REPO/dms/scripts/fms-intake.sh"
 if [ -x "$FMS_SCRIPT" ] || [ -f "$FMS_SCRIPT" ]; then
     FMS_COUNT=$(bash "$FMS_SCRIPT" count 2>/dev/null || echo "0")
     if [ "$FMS_COUNT" -gt 0 ]; then
-        FMS_MSG="FMS: $FMS_COUNT file(s) pending classification. Run 'bash $FMS_SCRIPT scan' to review."
+        FMS_MSG="FMS: $FMS_COUNT file(s) pending classification. Run 'afx fms-intake scan' to review."
     fi
 fi
 if [ -n "$FMS_MSG" ]; then
@@ -47,7 +47,7 @@ fi
 DRIFT_LOG="$CONFIG_REPO/.sync-warnings.log"
 if [ -f "$DRIFT_LOG" ] && [ -s "$DRIFT_LOG" ]; then
     DRIFT_CONTENT=$(cat "$DRIFT_LOG" | tr '\n' '; ' | sed 's/; $//')
-    WARNINGS="${WARNINGS:+$WARNINGS | }Propagation drift detected at last shutdown: $DRIFT_CONTENT. Run 'bash $CONFIG_REPO/sync.sh check' for details, then fix with 'bash $CONFIG_REPO/sync.sh deploy'."
+    WARNINGS="${WARNINGS:+$WARNINGS | }Propagation drift detected at last shutdown: $DRIFT_CONTENT. Run 'afx sync check' for details, then fix with 'afx sync deploy'."
     rm -f "$DRIFT_LOG"
 fi
 
@@ -55,7 +55,7 @@ fi
 T2_MARKER="$CONFIG_REPO/.t2-edits-pending"
 if [ -f "$T2_MARKER" ] && [ -s "$T2_MARKER" ]; then
     T2_CONTENT=$(cat "$T2_MARKER")
-    WARNINGS="${WARNINGS:+$WARNINGS | }$T2_CONTENT — run E2E tests before release: bash setup/tests/run.sh && bash setup/scripts/e2e-podman.sh --source ~/agent-fleet"
+    WARNINGS="${WARNINGS:+$WARNINGS | }$T2_CONTENT — run E2E tests before release: bash setup/tests/run.sh && afx e2e-podman --source ~/agent-fleet"
     rm -f "$T2_MARKER"
 fi
 

@@ -49,7 +49,7 @@ if [ -d "$_TEMPLATE_DIR" ] && [ -f "$_MANIFEST" ]; then
     done < "$_MANIFEST"
 
     if [ "$_DRIFT_COUNT" -gt 0 ]; then
-        WARNINGS="${WARNINGS:+$WARNINGS | }PROPAGATION_DRIFT: $_DRIFT_COUNT file(s) differ between personal and template: $_DRIFT_FILES. Run 'bash $CONFIG_REPO/sync.sh check' for details."
+        WARNINGS="${WARNINGS:+$WARNINGS | }PROPAGATION_DRIFT: $_DRIFT_COUNT file(s) differ between personal and template: $_DRIFT_FILES. Run 'afx sync check' for details."
     fi
 fi
 
@@ -87,6 +87,6 @@ if [ -f "$_TPF" ]; then
            else _tpf_why="partial, the template's settings.json registers hooks it does not have"; fi ;;
         *) _tpf_why="failed" ;;
     esac
-    WARNINGS="${WARNINGS:+$WARNINGS | }TEMPLATE_PUSH_FAILING: template propagation has failed ${_tpf_n:-1} consecutive shutdown(s), since ${_tpf_since:-unknown}${_tpf_age}; last exit=${_tpf_rc:-?} (${_tpf_why})${_tpf_held:+; held: $_tpf_held}${_tpf_orph:+; orphan registrations: $_tpf_orph}. Every downstream fleet is that far behind — this is not routine drift. Read $_TPF, fix the cause, then run 'bash $CONFIG_REPO/sync.sh template-push --dry-run'."
+    WARNINGS="${WARNINGS:+$WARNINGS | }TEMPLATE_PUSH_FAILING: template propagation has failed ${_tpf_n:-1} consecutive shutdown(s), since ${_tpf_since:-unknown}${_tpf_age}; last exit=${_tpf_rc:-?} (${_tpf_why})${_tpf_held:+; held: $_tpf_held}${_tpf_orph:+; orphan registrations: $_tpf_orph}. Every downstream fleet is that far behind — this is not routine drift. Read $_TPF, fix the cause, then run 'afx sync template-push --dry-run'."
     unset -f _tpf_get
 fi
