@@ -23,6 +23,13 @@
 # update-checker.sh's printed remedy (behavioural, both layouts). Plus one blanket rule
 # for global/CLAUDE.md alone, because it is in every session's context: the backticked
 # command form `cc-mirror update` must not appear there at all.
+#
+# CFG-1093 part A (approved 2026-11-26, Q-1093-PARTA): the rule files name the wrapper by its
+# dispatcher verb, `afx cc-update`, not by path. The doc slots therefore assert that verb,
+# and one binding case runs the repo's own afx.sh --which to prove the verb resolves to
+# setup/scripts/cc-update.sh — the documented command still reaches the tested wrapper.
+# update-checker.sh's printed remedy is script output, not rule text, and still names
+# cc-update.sh.
 
 set -euo pipefail
 
@@ -35,6 +42,8 @@ UPSTREAM_MD="$REPO_ROOT/global/reference/upstream-dependencies.md"
 CAPS_MD="$REPO_ROOT/global/knowledge/fleet-capabilities.md"
 CC_UPDATE="$REPO_ROOT/setup/scripts/cc-update.sh"
 UPDATE_CHECKER="$REPO_ROOT/setup/scripts/update-checker.sh"
+AFX="$REPO_ROOT/setup/scripts/afx.sh"
+DOC_CMD="afx cc-update"   # how the rule files name the wrapper (CFG-1093)
 
 suite_header "runbook binding: documented CC update command → cc-update.sh"
 
@@ -55,14 +64,25 @@ test_wrapper_exists_and_has_tests() {
 }
 run_test "binding target: cc-update.sh exists, executable, unit + E2E suites present" test_wrapper_exists_and_has_tests
 
+# ── The documented verb must resolve to that wrapper (CFG-1093) ──────────────
+test_afx_verb_resolves_to_wrapper() {
+    assert_file_exists "$AFX" "the afx dispatcher must exist" || return 1
+    local got rc=0
+    got=$(CONFIG_REPO="$REPO_ROOT" bash "$AFX" --which cc-update 2>&1) || rc=$?
+    echo "    measured: afx --which cc-update → [$got] (rc $rc)"
+    [[ "$rc" -eq 0 ]] || { echo "    afx --which cc-update failed" >&2; return 1; }
+    assert_eq "$CC_UPDATE" "$got" "\`$DOC_CMD\` must run setup/scripts/cc-update.sh"
+}
+run_test "binding: \`$DOC_CMD\` resolves to setup/scripts/cc-update.sh" test_afx_verb_resolves_to_wrapper
+
 # ── global/CLAUDE.md ─────────────────────────────────────────────────────────
 test_claude_md_cc_update_slot_names_wrapper() {
     local line; line=$(slot "$CLAUDE_MD" '**CC update:**')
     [[ -n "$line" ]] || { echo "    no '**CC update:**' slot found in global/CLAUDE.md" >&2; return 1; }
-    assert_contains "$line" "cc-update.sh" "the CC update slot must name the wrapper" || return 1
+    assert_contains "$line" "$DOC_CMD" "the CC update slot must name the wrapper's verb" || return 1
     assert_not_contains "$line" "cc-mirror update" "the CC update slot must not name the raw verb"
 }
-run_test "global/CLAUDE.md '**CC update:**' names cc-update.sh, not cc-mirror update" test_claude_md_cc_update_slot_names_wrapper
+run_test "global/CLAUDE.md '**CC update:**' names \`$DOC_CMD\`, not cc-mirror update" test_claude_md_cc_update_slot_names_wrapper
 
 test_claude_md_has_no_backticked_cc_mirror_update() {
     local hits
@@ -76,34 +96,34 @@ run_test "global/CLAUDE.md never carries \`cc-mirror update\` as a command" test
 test_upstream_deps_procedure_names_wrapper() {
     local line; line=$(slot "$UPSTREAM_MD" '**CC update procedure:**')
     [[ -n "$line" ]] || { echo "    no '**CC update procedure:**' slot in upstream-dependencies.md" >&2; return 1; }
-    assert_contains "$line" "cc-update.sh" "procedure must name the wrapper" || return 1
+    assert_contains "$line" "$DOC_CMD" "procedure must name the wrapper's verb" || return 1
     assert_not_contains "$line" "cc-mirror update" "procedure must not name the raw verb"
 }
-run_test "upstream-dependencies.md 'CC update procedure' names cc-update.sh" test_upstream_deps_procedure_names_wrapper
+run_test "upstream-dependencies.md 'CC update procedure' names \`$DOC_CMD\`" test_upstream_deps_procedure_names_wrapper
 
 test_upstream_deps_update_method_row_names_wrapper() {
     local line; line=$(slot "$UPSTREAM_MD" '| **Update method** |')
     [[ -n "$line" ]] || { echo "    no '**Update method**' row in upstream-dependencies.md" >&2; return 1; }
-    assert_contains "$line" "cc-update.sh" "the Update method row must name the wrapper (not a bare npm install)"
+    assert_contains "$line" "$DOC_CMD" "the Update method row must name the wrapper's verb (not a bare npm install)"
 }
-run_test "upstream-dependencies.md 'Update method' row names cc-update.sh" test_upstream_deps_update_method_row_names_wrapper
+run_test "upstream-dependencies.md 'Update method' row names \`$DOC_CMD\`" test_upstream_deps_update_method_row_names_wrapper
 
 # ── fleet-capabilities.md ────────────────────────────────────────────────────
 test_fleet_capabilities_switch_slot_names_wrapper() {
     local line; line=$(slot "$CAPS_MD" 'To switch:')
     [[ -n "$line" ]] || { echo "    no 'To switch:' slot in fleet-capabilities.md" >&2; return 1; }
-    assert_contains "$line" "cc-update.sh" "'To switch' must name the wrapper" || return 1
+    assert_contains "$line" "$DOC_CMD" "'To switch' must name the wrapper's verb" || return 1
     assert_not_contains "$line" "cc-mirror update" "'To switch' must not name the raw verb"
 }
-run_test "fleet-capabilities.md 'To switch:' names cc-update.sh" test_fleet_capabilities_switch_slot_names_wrapper
+run_test "fleet-capabilities.md 'To switch:' names \`$DOC_CMD\`" test_fleet_capabilities_switch_slot_names_wrapper
 
 test_fleet_capabilities_update_path_slot_names_wrapper() {
     local line; line=$(slot "$CAPS_MD" '**Update path:**')
     [[ -n "$line" ]] || { echo "    no '**Update path:**' slot in fleet-capabilities.md" >&2; return 1; }
-    assert_contains "$line" "cc-update.sh" "'Update path' must name the wrapper" || return 1
+    assert_contains "$line" "$DOC_CMD" "'Update path' must name the wrapper's verb" || return 1
     assert_not_contains "$line" "cc-mirror update" "'Update path' must not name the raw verb"
 }
-run_test "fleet-capabilities.md '**Update path:**' names cc-update.sh" test_fleet_capabilities_update_path_slot_names_wrapper
+run_test "fleet-capabilities.md '**Update path:**' names \`$DOC_CMD\`" test_fleet_capabilities_update_path_slot_names_wrapper
 
 # ── update-checker.sh: the remedy it PRINTS must be the wrapper (both layouts) ──
 # Behavioural: run the real checker against a sandbox with an update available.
