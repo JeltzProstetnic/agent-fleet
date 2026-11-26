@@ -319,6 +319,33 @@ $roster_rows
 EOF
 }
 
+# Test 15b: a bundles cell that starts with a dash ("— (VoltAgent off)") means NO bundles — never a plugin name
+# built from its words, never the type fallback (2026-11-26: localva got voltagent-—, (VoltAgent, off) enabled)
+test_registry_roster_dash_means_none() {
+    create_mock_project "$TEST_TMPDIR/alpha"
+    create_mock_registry_with_roster \
+        "| alpha | P1 | — | \`$TEST_TMPDIR/alpha\` | — | wsl-host | code + business | active | Papers |" \
+        "| alpha | — (VoltAgent off) | built-ins cover it |"
+    cat > "$TEST_TMPDIR/alpha/.claude/settings.local.json" << 'SETTINGS'
+{
+  "keep": 1,
+  "enabledPlugins": {"voltagent-—@voltagent-subagents": true, "(VoltAgent@voltagent-subagents": true}
+}
+SETTINGS
+    run_roster "$TEST_TMPDIR/alpha" >/dev/null 2>&1
+    local settings="$TEST_TMPDIR/alpha/.claude/settings.local.json"
+    assert_eq "0" "$(count_plugins "$settings")" "a dash cell leaves enabledPlugins empty"
+    assert_file_not_contains "$settings" "voltagent-core-dev@voltagent-subagents"
+    assert_file_contains "$settings" '"keep": 1'
+    # the --all-local listing reports no bundles for it either
+    create_mock_registry_with_roster \
+        "| alpha | P1 | — | \`$TEST_TMPDIR/alpha\` | — | wsl-host | code | active | Papers |" \
+        "| alpha | - | plain hyphen too |"
+    run_roster "$TEST_TMPDIR/alpha" >/dev/null 2>&1
+    assert_eq "0" "$(count_plugins "$settings")" "a plain hyphen cell means none as well"
+}
+run_test "registry roster: a dash cell means no bundles (no bogus plugin names, no type fallback)" test_registry_roster_dash_means_none
+
 # Test 16: Registry roster overrides type-derived bundles
 test_registry_roster_overrides_type() {
     create_mock_project "$TEST_TMPDIR/alpha"

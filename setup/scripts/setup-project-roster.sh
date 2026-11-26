@@ -174,6 +174,11 @@ for line in content.splitlines():
         continue
     # Match project name
     if proj_col.strip() == project_name:
+        # A cell that starts with a dash ("— (VoltAgent off)", "-") means NO bundles: NONE, never words-as-plugins
+        # and never the type fallback (2026-11-26: localva got voltagent-—, (VoltAgent, off) enabled).
+        if bundles_col.strip()[:1] in ('—', '–', '-'):
+            print('NONE')
+            sys.exit(0)
         # Parse comma-separated short names → voltagent-prefixed space-separated
         short_names = [b.strip() for b in bundles_col.split(',') if b.strip()]
         full_names = [f"voltagent-{name}" for name in short_names]
@@ -222,6 +227,9 @@ for line in content.splitlines():
     if proj in ('Project', '') or '---' in proj:
         continue
     if bundles_col in ('Bundles (enabledPlugins)', '') or '---' in bundles_col:
+        continue
+    if bundles_col[:1] in ('—', '–', '-'):   # a dash cell = no bundles (see lookup_registry_roster)
+        roster[proj] = 'NONE'
         continue
     short_names = [b.strip() for b in bundles_col.split(',') if b.strip()]
     roster[proj] = ' '.join(f"voltagent-{name}" for name in short_names)
@@ -441,7 +449,10 @@ apply_roster_to_project() {
     local bundles
     bundles=$(lookup_registry_roster "$project_name")
 
-    if [[ -n "$bundles" ]]; then
+    if [[ "$bundles" == NONE ]]; then
+        bundles=""
+        log_info "$project_name: registry roster says no bundles"
+    elif [[ -n "$bundles" ]]; then
         log_info "$project_name: using registry roster"
     else
         # Step 2: Fall back to type-based resolution
