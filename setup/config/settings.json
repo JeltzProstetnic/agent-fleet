@@ -86,6 +86,7 @@
       "Bash(realpath:*)",
       "Bash(wslpath:*)",
       "Bash(bash:*)",
+      "Bash(afx:*)",
       "Bash(test:*)",
       "Bash(sleep:*)",
       "Bash(xdg-open:*)",
