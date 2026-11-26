@@ -12,7 +12,7 @@ voice (33 lines, a 7-minute assembled listening file) transcribed at **0.2 % WER
 its helpers (generation, headless server launcher, post-process, keep-awake), **[B]** the batch
 orchestrator, **[G]** the verify gate, **[C]** take choice, cue cutting and install into the player,
 **[R]** the listening-stage READMEs and gate records of 2026-11-13, **[M]** machine notes of a WSL2 +
-RTX 4090 box.
+RTX 4090 box, **[V]** a live voice-assistant project's latency measurements (2026-11-25/26).
 
 ## 1. The pipeline at a glance
 
@@ -56,6 +56,10 @@ by ear — keep Σweights ≤ ~0.4 or let the reference carry the manner; output
 normalisation and a hard clamp**, so hot takes carry isolated full-scale samples (upstream fix #773,
 2026-08-18) [K §2]. The log line "Use the specified emotion vector" prints for every take, also without a
 vector — it is the speaker-derived vector, not an applied emotion [S].
+**Speed (live use):** `num_beams=1` (infer kwarg) plus 12 instead of the 25 s2mel diffusion steps (hard-coded in
+`infer_v2.py`; wrap `s2mel.models['cfm'].inference` to change it) rendered 1.47–1.74× faster on 14 short live lines ×
+2 seeds under GPU load, with the same Whisper large-v3 word errors and the same WeSpeaker similarity (0.79). GPT token
+generation is ~80 % of a render; under GPU contention (VR, other jobs) speed fell to 2–6.5 s per s of speech [V].
 
 **Chatterbox** (devnen Chatterbox-TTS-Server; model Turbo for English, Multilingual for other languages).
 `POST /tts` with temperature 0.8, an explicit non-zero seed per take (0 = unseeded), `split_text: false`
@@ -108,6 +112,10 @@ Engine behaviour seen more than once:
 - **faster-whisper** `base.en`, CPU int8: ~2 min of audio in 3–4 s — cheap screen; `large-v3` gates (§5).
   With system CUDA 13, CTranslate2 needs `nvidia-cublas-cu12` + `nvidia-cudnn-cu12` in the venv and their
   `lib/` dirs on `LD_LIBRARY_PATH` before the process starts (read at exec only) [M, G].
+- **Qwen3-TTS** via faster-qwen3-tts (Windows venv; pin `transformers==5.15.1`, 5.24.1 breaks it): streamed first
+  audio 0.4–0.6 s for 0.6B and 0.7–1.4 s for 1.7B under GPU load; with a German reference speaking English,
+  WeSpeaker similarity 0.61–0.76 (ICL beats x-vector) against IndexTTS-2's 0.79 on the same lines [V]. The streaming
+  latency candidate for live speech; IndexTTS-2 stays ahead on likeness.
 
 ## 4. Writing lines and the unattended batch
 
