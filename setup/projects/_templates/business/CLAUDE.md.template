@@ -18,12 +18,26 @@
 | `knowledge/people.md` | Key contacts and stakeholders |
 | `data/` | Source data, reports, analysis inputs |
 
+## Project Structure
+
+| Directory | Contents |
+|-----------|----------|
+| `docs/` | Analysis, decisions, session log |
+| `data/` | Source data, reports, analysis inputs |
+| `knowledge/` | People and domain knowledge |
+| `drafts/` | Documents awaiting the user's action |
+| `tmp/` | Throwaway artifacts (gitignored) |
+
 ## Process Analysis
 
 - Map current state before proposing changes
 - Document findings in `docs/` with clear rationale
 - Track decisions in `docs/decisions.md`
 - Regulatory/compliance items flagged explicitly
+
+## Reference (load on demand, not at start)
+
+- MCP catalog: `~/.claude/reference/mcp-catalog.md`
 
 ## Active Roster
 

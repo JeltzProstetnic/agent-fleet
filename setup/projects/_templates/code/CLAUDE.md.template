@@ -42,6 +42,11 @@
 - Commit messages describe the "why"
 - Run tests before committing
 
+## Reference (load on demand, not at start)
+
+- MCP catalog: `~/.claude/reference/mcp-catalog.md`
+- Serena: `~/.claude/reference/serena.md`
+
 ## Active Roster
 
 | Agent Type | Use When |

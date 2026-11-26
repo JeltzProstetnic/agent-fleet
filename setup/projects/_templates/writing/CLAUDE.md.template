@@ -50,6 +50,10 @@
 - **Manual process kits**: For submissions or uploads, create `tmp/<process-name>/` with all needed files
 - **PDF builds**: Always open the LaTeX/build output, not intermediate renders
 
+## Reference (load on demand, not at start)
+
+- MCP catalog: `~/.claude/reference/mcp-catalog.md`
+
 ## Active Roster
 
 | Agent Type | Use When |

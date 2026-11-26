@@ -150,12 +150,14 @@ except Exception: pass' "${3:-$(rs_cc_dir_of "$1")}/sessions/$1.json" "$2" 2>/de
 
 # rs_record_current <pid> — 0 when the record in its own config dir is THIS process's and interactive (care-watch.sh's
 # rule): a procStart that is not the pid's start time belongs to an earlier process with that pid; a non-interactive
-# kind (bg) has no terminal to type into.
+# kind (bg), or a headless `claude -p` (entrypoint sdk-*, CFG-1131), has no terminal to type into.
 rs_record_current() {
     local js="" ps st=() s
     { IFS= read -r -d '' js < "$(rs_cc_dir_of "$1")/sessions/$1.json"; } 2>/dev/null
     [[ -n "$js" ]] || return 1
     [[ "$js" =~ \"kind\"[[:space:]]*:[[:space:]]*\"([^\"]*)\" && "${BASH_REMATCH[1]}" != interactive ]] && return 1
+    # a headless `claude -p` (entrypoint sdk-*) records kind interactive but has no terminal either (CFG-1131)
+    [[ "$js" =~ \"entrypoint\"[[:space:]]*:[[:space:]]*\"sdk ]] && return 1
     [[ "$js" =~ \"procStart\"[[:space:]]*:[[:space:]]*\"?([0-9]+) ]] || return 0
     ps="${BASH_REMATCH[1]}"; s=$(cat "$RS_PROC/$1/stat" 2>/dev/null); s="${s##*) }"; read -r -a st <<<"$s"
     [[ "${st[19]-}" == "$ps" ]]   # stat field 22: start time, what procStart holds
