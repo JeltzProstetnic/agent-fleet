@@ -121,6 +121,16 @@ Source: a fleet voice-assistant project's measurement log.
 4. Opus 5.5 effort on one planning question: low 6.6 s / 480 thinking tokens, high 20 s / 1,650, xhigh 29 s / 2,100,
    max 268 s / 26,700.
 5. Headless tool scoping that works: `--permission-mode dontAsk` + `--allowedTools 'Bash(<abs python> -m pkg *),Read(/<abs dir>/**),Edit(/<abs file>)'` + `--add-dir`.
+6. **Start it OUTSIDE `$HOME`.** From a working directory under HOME it walks up and loads the fleet's global
+   CLAUDE.md even with a clean `CLAUDE_CONFIG_DIR` (27k vs 5.7k tokens per request); a `/tmp/<app>` cwd avoids it.
+7. **Under `dontAsk` the model writes compound Bash and every such call is refused** (`cd` first, shell variables,
+   chained commands: 27 of 27 runs). Tell it in the system prompt: one command per Bash call, written exactly as shown.
+8. **The `result` event's `usage` sums every API call of the turn** (a tool turn showed 81k against a real 28k context):
+   take context size from the LAST assistant message's per-call usage.
+9. The stream-json control request subtype `interrupt` ends a turn at once (next answer 0.8 s after a cancelled xhigh think).
+10. **Effort, not prompt size, drives answer time:** a thinking question takes 5 s at low, 9 s at high, 30 s at xhigh,
+    while a cached 100k–300k prompt adds ~0.3 s. MCP servers add ~3 s per process start and must stay deferred
+    behind ToolSearch, or all their tools load up front (364 tools = 216k–300k tokens).
 
 ---
 
