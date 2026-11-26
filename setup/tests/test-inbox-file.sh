@@ -434,6 +434,113 @@ else
 fi
 rm -rf "$_d3"
 
+# ══════════════════════════════════════════════════════════════════════════════
+# CFG-1112 (b): --attach <file> — private material leaves the filing session as an attachment
+# ══════════════════════════════════════════════════════════════════════════════
+# tmp-sweep deleted a project's private notes on 2026-11-19 because they waited in tmp/ for a
+# hand-off. The owner's decision (2026-11-25): file them as an inbox attachment instead.
+echo ""
+echo "=== CFG-1112: --attach copies files into cross-project/attachments/<project>/ ==="
+_at="$(mktemp -d)"
+mkdir -p "$_at/repo/cross-project" "$_at/src/sub"
+cat > "$_at/repo/registry.md" <<'EOF'
+## Projects
+
+| Project | Priority | Parent | Path | GitHub Remote | Machines | Type | Phase | Notes |
+|---------|----------|--------|------|--------------|----------|------|-------|-------|
+| cfg-agent-fleet | P1 | — | `~/cfg` | — | test | infra | active | |
+| acme/widget | P2 | acme | `~/acme/widget` | — | test | code | active | |
+
+## Machines
+EOF
+printf 'private note line 1\nline 2 with `code` and ümlaut\n' > "$_at/src/note one.md"
+printf 'second file\n' > "$_at/src/sub/review.md"
+_today="$(date +%Y-%m-%d)"
+_adir="$_at/repo/cross-project/attachments/cfg-agent-fleet"
+
+# A1: one attachment — byte-identical copy at <date>-<safe name>, source left in place
+_rc=0; _out=$(bash "$HELPER" --repo "$_at/repo" --project cfg-agent-fleet --type work \
+    --body "store this privately" --attach "$_at/src/note one.md" 2>&1) || _rc=$?
+_copy="$_adir/$_today-note_one.md"
+if [ "$_rc" -eq 0 ] && [ -f "$_copy" ] && cmp -s "$_copy" "$_at/src/note one.md"; then
+    pass "A1: --attach copies the file byte-identically to attachments/<project>/<date>-<safe name>"
+else
+    fail "A1: no byte-identical copy at $_copy (rc=$_rc): $_out"
+fi
+[ -f "$_at/src/note one.md" ] && pass "A1: the source file is left in place" || fail "A1: source file was removed"
+
+# A2: the item names the attachment by its repo-relative path, on ONE line
+_item=$(grep -F 'store this privately' "$_at/repo/cross-project/inbox/cfg-agent-fleet.md" 2>/dev/null)
+if printf '%s' "$_item" | grep -qF "cross-project/attachments/cfg-agent-fleet/$_today-note_one.md" \
+   && [ "$(grep -c 'store this privately' "$_at/repo/cross-project/inbox/cfg-agent-fleet.md")" -eq 1 ]; then
+    pass "A2: the item line names the attachment's repo-relative path"
+else
+    fail "A2: item does not name the attachment: $_item"
+fi
+printf '%s' "$_out" | grep -qF "$_today-note_one.md" \
+    && pass "A2: the helper prints where the attachment landed" \
+    || fail "A2: output does not name the attachment: $_out"
+
+# A3: repeatable — two files, both copied, both named
+_rc=0; _out=$(bash "$HELPER" --repo "$_at/repo" --project cfg-agent-fleet --type fact \
+    --body "two files" --attach "$_at/src/sub/review.md" --attach "$_at/src/note one.md" 2>&1) || _rc=$?
+_item=$(grep -F 'two files' "$_at/repo/cross-project/inbox/cfg-agent-fleet.md" 2>/dev/null)
+if [ "$_rc" -eq 0 ] && [ -f "$_adir/$_today-review.md" ] \
+   && printf '%s' "$_item" | grep -qF "$_today-review.md"; then
+    pass "A3: --attach is repeatable"
+else
+    fail "A3: second attachment missing (rc=$_rc): $_out"
+fi
+
+# A4: a same-named DIFFERENT file never overwrites an earlier attachment
+printf 'a different note\n' > "$_at/src/sub/note one.md"
+_rc=0; bash "$HELPER" --repo "$_at/repo" --project cfg-agent-fleet --type fyi \
+    --body "collision" --attach "$_at/src/sub/note one.md" >/dev/null 2>&1 || _rc=$?
+if cmp -s "$_adir/$_today-note_one.md" "$_at/src/note one.md" \
+   && [ -f "$_adir/$_today-note_one-2.md" ] && cmp -s "$_adir/$_today-note_one-2.md" "$_at/src/sub/note one.md"; then
+    pass "A4: a name collision with different content gets a -2 suffix, the first copy is untouched"
+else
+    fail "A4: collision handling wrong (rc=$_rc): $(ls "$_adir" | tr '\n' ' ')"
+fi
+
+# A5: a missing attachment refuses BEFORE anything is filed or copied
+_before=$(wc -l < "$_at/repo/cross-project/inbox/cfg-agent-fleet.md")
+_rc=0; _out=$(bash "$HELPER" --repo "$_at/repo" --project cfg-agent-fleet --type work \
+    --body "points at nothing" --attach "$_at/src/note one.md" --attach "$_at/src/missing.md" 2>&1) || _rc=$?
+_after=$(wc -l < "$_at/repo/cross-project/inbox/cfg-agent-fleet.md")
+if [ "$_rc" -ne 0 ] && [ "$_before" -eq "$_after" ] && printf '%s' "$_out" | grep -qF 'missing.md'; then
+    pass "A5: a missing attachment is refused, nothing filed, the file is named"
+else
+    fail "A5: missing attachment not refused cleanly (rc=$_rc, lines $_before→$_after): $_out"
+fi
+
+# A6: a directory is refused (attach files, not trees)
+_rc=0; bash "$HELPER" --repo "$_at/repo" --project cfg-agent-fleet --type work \
+    --body "a tree" --attach "$_at/src/sub" >/dev/null 2>&1 || _rc=$?
+[ "$_rc" -ne 0 ] && pass "A6: a directory is refused" || fail "A6: a directory was accepted"
+
+# A7: a nested project maps to the same safe name its inbox file uses
+_rc=0; _out=$(bash "$HELPER" --repo "$_at/repo" --project acme/widget --type fyi \
+    --body "nested" --attach "$_at/src/sub/review.md" 2>&1) || _rc=$?
+if [ "$_rc" -eq 0 ] && [ -f "$_at/repo/cross-project/attachments/acme-widget/$_today-review.md" ]; then
+    pass "A7: a nested project's attachments go to attachments/<its inbox file's safe name>/"
+else
+    fail "A7: nested project attachment misplaced (rc=$_rc): $_out"
+fi
+
+# A8: --attach with no value is an argument error
+_rc=0; bash "$HELPER" --repo "$_at/repo" --project cfg-agent-fleet --type work --body "x" --attach >/dev/null 2>&1 || _rc=$?
+[ "$_rc" -eq 2 ] && pass "A8: --attach without a file exits 2" || fail "A8: --attach without a file gave rc=$_rc"
+
+# A9: nothing lands in the real repo
+if [ -d "$REPO_ROOT/cross-project/attachments/cfg-agent-fleet" ] \
+   && ls "$REPO_ROOT/cross-project/attachments/cfg-agent-fleet" 2>/dev/null | grep -q 'note_one'; then
+    fail "A9: a test attachment leaked into the real repo"
+else
+    pass "A9: --attach with --repo writes nothing into the real repo"
+fi
+rm -rf "$_at"
+
 if [ "$TESTS_FAILED" -gt 0 ]; then
     echo "  Failed:  $TESTS_FAILED"
     echo -e "$FAIL_DETAILS"

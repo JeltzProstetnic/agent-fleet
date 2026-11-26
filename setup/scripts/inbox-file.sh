@@ -14,11 +14,15 @@
 #   rule → Meta-Rules consent queue; only these legitimately wait on the owner.
 #   work → promote to backlog.md.
 #   fyi  → read, delete.
+#   An item that names attachments: move each file to its permanent home (or delete it)
+#   when the item is dispatched; the attachments dir is a mailbox, not an archive.
 #
 # Usage:
 #   inbox-file.sh --project <name> --type <fact|rule|work|fyi> --body "<text>"
 #                 [--priority P0|P1|P2|P3] [--summary "<short>"] [--source "<proj machine date>"]
-#                 [--repo <config-repo>] [--inbox <path>] [--registry <path>]
+#                 [--attach <file>]... [--repo <config-repo>] [--inbox <path>] [--registry <path>]
+#   --attach copies a file (repeatable) into <repo>/cross-project/attachments/<project>/<date>-<name>
+#   and names it in the item — for private material that must not wait in a swept tmp/ (CFG-1112).
 #   --repo points the per-project files and the default registry at another repo
 #   (a writer running from a different checkout, or a test sandbox) — CFG-1091.
 set -uo pipefail
@@ -29,6 +33,7 @@ REPO_ROOT="$(_repo_root)"
 PROJECT=""; TYPE=""; BODY=""; PRIORITY="P2"; SUMMARY=""; SOURCE=""; FORCE=0
 INBOX=""
 REGISTRY=""
+ATTACH=()
 
 die() { echo "inbox-file: $*" >&2; exit 2; }
 
@@ -44,7 +49,8 @@ while [ $# -gt 0 ]; do
         --inbox)    INBOX="${2:-}"; INBOX_EXPLICIT=1; shift 2 ;;
         --force)    FORCE=1; shift ;;
         --registry) REGISTRY="${2:-}"; shift 2 ;;
-        -h|--help)  sed -n '2,22p' "$0"; exit 0 ;;
+        --attach)   [ -n "${2:-}" ] || die "--attach needs a file"; ATTACH+=("$2"); shift 2 ;;
+        -h|--help)  sed -n '2,28p' "$0"; exit 0 ;;
         *)          die "unknown argument: $1" ;;
     esac
 done
@@ -78,6 +84,12 @@ case "$PRIORITY" in
     P0|P1|P2|P3) : ;;
     *) die "invalid --priority '$PRIORITY' (expected P0..P3)" ;;
 esac
+
+# CFG-1112: check every attachment BEFORE anything is filed — an item pointing at a file
+# that never arrived is worse than a refusal the filer can fix on the spot.
+for _f in ${ATTACH[@]+"${ATTACH[@]}"}; do
+    [ -f "$_f" ] && [ -r "$_f" ] || die "attachment is not a readable file: $_f"
+done
 
 # Validate the target against registry.md. Check 3.2b already warns about
 # undeliverable tags AFTER filing; refusing at filing time is strictly better,
@@ -124,6 +136,38 @@ if [ -z "${INBOX_EXPLICIT:-}" ] && command -v inbox_project_file >/dev/null 2>&1
 fi
 
 [ -f "$INBOX" ] || die "inbox file not found: $INBOX"
+
+# ── CFG-1112: --attach ──────────────────────────────────────────────────────
+# tmp-sweep deleted a project's private notes on 2026-11-19 while they waited in tmp/ for a hand-off
+# that only an inbox line pointed at. The copy goes into the config repo itself, next to the inbox,
+# under the same safe name the project's inbox file uses; never overwritten, verified byte for byte.
+_attach_safe() { printf '%s' "$1" | sed -e 's#[^A-Za-z0-9._-]#_#g' -e 's#^[._-]*##'; }
+_attached=()
+if [ "${#ATTACH[@]}" -gt 0 ]; then
+    if command -v inbox_project_file >/dev/null 2>&1; then
+        _adir_name="$(basename "$(inbox_project_file "$PROJECT")" .md)"
+    else
+        _adir_name="$(_attach_safe "$(printf '%s' "$PROJECT" | tr '[:upper:]/' '[:lower:]-')")"
+    fi
+    _adir="$REPO_ROOT/cross-project/attachments/${_adir_name:-unrouted}"
+    mkdir -p "$_adir" || die "cannot create $_adir"
+    _today="$(date +%Y-%m-%d)"
+    for _f in "${ATTACH[@]}"; do
+        _name="$(_attach_safe "$(basename "$_f")")"; _name="${_name:-attachment}"
+        _stem="$_name"; _ext=""
+        case "$_name" in ?*.*) _stem="${_name%.*}"; _ext=".${_name##*.}" ;; esac
+        _dest="$_adir/$_today-$_name"; _n=2
+        while [ -e "$_dest" ] && ! cmp -s "$_dest" "$_f"; do
+            _dest="$_adir/$_today-$_stem-$_n$_ext"; _n=$((_n + 1))
+        done
+        [ -e "$_dest" ] || cp -- "$_f" "$_dest" || die "could not copy $_f to $_dest"
+        cmp -s "$_dest" "$_f" || die "copy of $_f at $_dest does not match the source"
+        _attached+=("cross-project/attachments/${_adir_name:-unrouted}/$(basename "$_dest")")
+    done
+    _list=""
+    for _a in "${_attached[@]}"; do _list="${_list:+$_list, }\`$_a\`"; done
+    BODY="$BODY — attachments: $_list"
+fi
 
 # Assemble the item. Format is deliberately a superset of the pre-CFG-541 line so
 # every existing consumer keeps working: the tag sits AFTER the closing `**`, which
@@ -250,6 +294,7 @@ EOF
 esac
 
 echo "filed [$TYPE] $PRIORITY item for $PROJECT"
+for _a in ${_attached[@]+"${_attached[@]}"}; do echo "  attached: $_a"; done
 # --force is retained so existing callers keep working, but it no longer gates anything.
 [ "$FORCE" -eq 1 ] && echo "  (--force is no longer needed: no filing is ever refused)"
 
