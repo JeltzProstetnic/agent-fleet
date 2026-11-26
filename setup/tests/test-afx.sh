@@ -248,7 +248,12 @@ test_hook_verbs_resolve() {
     local verbs v bad=""
     verbs=$(grep -rhoE "afx [a-z0-9][a-z0-9_-]*" "$H" | awk '{print $2}' | sort -u)
     [ -n "$verbs" ] || { echo "    no hook names an afx verb"; return 1; }
-    for v in $verbs; do CONFIG_REPO="$REPO_ROOT" bash "$SCRIPT" --which "$v" >/dev/null 2>&1 || bad="$bad $v"; done
+    for v in $verbs; do
+        CONFIG_REPO="$REPO_ROOT" bash "$SCRIPT" --which "$v" >/dev/null 2>&1 && continue
+        # the public template ships no dms/: 04-auto-fix prints its FMS line only when fms-intake.sh exists
+        [ "$v" = fms-intake ] && [ ! -f "$REPO_ROOT/dms/scripts/fms-intake.sh" ] && continue
+        bad="$bad $v"
+    done
     assert_eq "" "$bad" "every verb a hook tells the agent to run exists in the repo"
 }
 run_test "every 'afx <verb>' named in a hook resolves in this repo" test_hook_verbs_resolve
@@ -261,8 +266,10 @@ test_routine_messages_switched() {
     assert_file_contains "$H/checks/08-propagation-drift.sh" "afx sync template-push --dry-run"
     assert_file_contains "$H/checks/24-cc-install.sh" "afx cc-install-invariants"
     assert_file_contains "$H/checks/24-cc-install.sh" "afx cc-update"
-    assert_file_contains "$H/checks/28-azure-ai.sh" "afx azure-ai"
-    assert_file_not_contains "$H/checks/28-azure-ai.sh" "python3 ~/cfg-agent-fleet" "no bare python3 + home path in the AZURE_AI line"
+    if [ -f "$H/checks/28-azure-ai.sh" ]; then   # employer-specific, personal repo only (not propagated)
+        assert_file_contains "$H/checks/28-azure-ai.sh" "afx azure-ai"
+        assert_file_not_contains "$H/checks/28-azure-ai.sh" "python3 ~/cfg-agent-fleet" "no bare python3 + home path in the AZURE_AI line"
+    fi
     assert_file_contains "$H/manifest-push-check.sh" "afx sync template-push --dry-run"
     # …and the old path forms are gone from those messages
     assert_file_not_contains "$H/checks/04-auto-fix.sh" "Run 'bash \$FMS_SCRIPT scan'"
