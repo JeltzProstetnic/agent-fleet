@@ -392,4 +392,26 @@ test_e2e_gate_ignores_non_tier2_changes() {
 }
 run_test "A5 E2E gate: a non-Tier-2 change does not demand an E2E" test_e2e_gate_ignores_non_tier2_changes
 
+# ── --live-only (CFG-1093): the checks of what is deployed, without the cfg working-tree gate ──
+# `afx session-close` runs anti-lockout after its deploy in every project. Check 10 asks whether the
+# CONFIG REPO's uncommitted Tier-2 edits had an E2E run — a question for the cfg session, which another
+# project's session can neither answer nor fix. --live-only skips that one check and nothing else.
+test_live_only_skips_only_the_e2e_gate() {
+    local root; root=$(build_fixture)
+    local repo; repo=$(build_tier2_repo)
+    echo "modified" > "$repo/setup/scripts/thing.sh"
+    ANTILOCKOUT_REPO_DIR="$repo" ANTILOCKOUT_E2E_MARKER="$TEST_TMPDIR/no-such-marker" \
+        assert_exit_code 0 bash "$SCRIPT" --live-only \
+            --hooks-dir "$root/hooks" --config-dir "$root/config" --claude-dir "$root"
+}
+run_test "--live-only: an unverified cfg Tier-2 edit does not fail the check" test_live_only_skips_only_the_e2e_gate
+
+test_live_only_still_checks_live_files() {
+    local root; root=$(build_fixture)
+    echo 'if then fi' > "$root/hooks/broken.sh"
+    assert_exit_code 1 bash "$SCRIPT" --live-only \
+        --hooks-dir "$root/hooks" --config-dir "$root/config" --claude-dir "$root"
+}
+run_test "--live-only: a broken live hook still fails" test_live_only_still_checks_live_files
+
 suite_summary

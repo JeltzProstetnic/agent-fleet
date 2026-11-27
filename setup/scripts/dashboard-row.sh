@@ -2,10 +2,12 @@
 # dashboard-row.sh — Update ONE project's row in cross-project/dashboard-cache.md (CFG-576)
 #
 # Usage:
-#   bash setup/scripts/dashboard-row.sh <project> [--tasks V] [--size V]
+#   bash setup/scripts/dashboard-row.sh <project> [--tasks V] [--size V] | [--auto]
 #                                                 [--deadline V] [--p1names V] [--lastdone V]
 #
 # Each flag REPLACES that cell (never appends). Cells without a flag are left as they are.
+# --auto computes Tasks and Size from the row's own Path (backlog summary as lsd-refresh.sh,
+#        `du -sh`; CFG-1093) — exit 1 when that path is not on this machine. Not with --tasks/--size.
 # Env: DASHBOARD_CACHE (default: <this repo>/cross-project/dashboard-cache.md)
 #      DASHBOARD_LOCK_TIMEOUT seconds to wait for the lock (default 10)
 #      DASHBOARD_LOCK_STALE   age in seconds after which a lock is presumed dead (default 60)
@@ -27,7 +29,7 @@ LOCK_STALE="${DASHBOARD_LOCK_STALE:-60}"
 NCOLS=10   # Project | Priority | Parent | Path | Type | Tasks | Size | Deadline | P1Names | LastDone
 
 usage() {
-    sed -n '4,6p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//' >&2
+    sed -n '4,8p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//' >&2
     exit 2
 }
 
@@ -35,7 +37,9 @@ usage() {
 PROJECT="$1"; shift
 
 declare -A set_cell=()
+AUTO=0
 while [[ $# -gt 0 ]]; do
+    if [[ "$1" == --auto ]]; then AUTO=1; shift; continue; fi
     [[ $# -ge 2 ]] || usage
     case "$1" in
         --tasks)    set_cell[5]="$2" ;;
@@ -47,11 +51,43 @@ while [[ $# -gt 0 ]]; do
     esac
     shift 2
 done
-(( ${#set_cell[@]} > 0 )) || usage
+if (( AUTO )); then
+    [[ -z "${set_cell[5]+x}" && -z "${set_cell[6]+x}" ]] || usage
+else
+    (( ${#set_cell[@]} > 0 )) || usage
+fi
 
 if [[ ! -f "$CACHE" ]]; then
     echo "dashboard-row: cache not found: $CACHE (run lsd-refresh.sh once)" >&2
     exit 1
+fi
+
+# --auto: the slow part (du, backlog scan) happens here, BEFORE the lock, as in lsd-refresh.sh.
+# The Path cell is registry-driven and does not change under a concurrent writer.
+if (( AUTO )); then
+    # shellcheck source=lib-dashboard.sh
+    source "$SCRIPT_DIR/lib-dashboard.sh"
+    # The row whose FIRST cell is the name — a substring match also hits a child row naming this
+    # project as its Parent, and the live cache lists such a child first (Fable review 2026-11-27).
+    _row=$(awk -F'|' -v p="$PROJECT" '{ n = $2; gsub(/^[ \t]+|[ \t]+$/, "", n) } n == p { print; exit }' "$CACHE")
+    _path=""
+    [[ -n "$_row" ]] && _path=$(dashboard_expand_path "$(awk -F'|' '{print $5}' <<<"$_row")")
+    if [[ -z "$_row" ]]; then
+        echo "dashboard-row: no row for project '$PROJECT' in $CACHE (add it to registry.md, then run lsd-refresh.sh)" >&2
+        exit 3
+    fi
+    if [[ -z "$_path" || ! -d "$_path" ]]; then
+        echo "dashboard-row: --auto: path '${_path:-?}' of '$PROJECT' is not on this machine — row unchanged" >&2
+        exit 1
+    fi
+    set_cell[5]="—"
+    [[ -f "$_path/backlog.md" ]] && set_cell[5]=$(summarise_backlog "$_path/backlog.md" | sed -n 1p)
+    # Bounded: a cold `du` on a large tree must not push a shutdown past the Bash tool's 120 s.
+    # Size is cosmetic and lsd-refresh.sh recomputes it, so a timeout writes a dash.
+    _du=(du -sh "$_path")
+    command -v timeout >/dev/null 2>&1 && _du=(timeout "${DASHBOARD_DU_TIMEOUT:-60}" "${_du[@]}")
+    set_cell[6]=$("${_du[@]}" 2>/dev/null | awk '{print $1}' || true)
+    [[ -n "${set_cell[6]}" ]] || set_cell[6]="—"
 fi
 
 # A cell can hold neither a newline nor a '|' — either one silently adds columns, and every

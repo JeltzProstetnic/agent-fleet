@@ -4,6 +4,10 @@ source "$(dirname "$0")/test-helpers.sh"
 
 suite_header "lsd-refresh.sh"
 
+# The tests pipe a sed-edited copy of the script into bash, so it cannot find lib-dashboard.sh
+# beside itself; point it at this checkout's copy (CFG-1093).
+export LSD_LIB="$REPO_ROOT/setup/scripts/lib-dashboard.sh"
+
 # ── Fixture: create a minimal registry + backlogs ────────────────────────────
 
 create_registry() {

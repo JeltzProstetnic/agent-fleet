@@ -2,7 +2,7 @@
 # Anti-lockout check — fast gate for agent-fleet shutdown (CFG-339)
 # Verifies no changes will break CC startup. Runs in <2 seconds.
 #
-# Usage: bash anti-lockout-check.sh [--hooks-dir DIR] [--config-dir DIR] [--claude-dir DIR]
+# Usage: bash anti-lockout-check.sh [--live-only] [--hooks-dir DIR] [--config-dir DIR] [--claude-dir DIR]
 #   Defaults to live deployed paths if no args given.
 #
 # Exit 0 = PASS (safe to commit/shutdown)
@@ -22,9 +22,14 @@ CLAUDE_DIR="${HOME}/.claude"
 # a scratch tree, not a real shutdown gating a real commit. The E2E freshness check
 # is scoped to real invocations so it reports on the actual repo, not a fixture.
 FIXTURE_MODE=0
+# --live-only (CFG-1093): skip ONLY check 10 (the E2E gate on the config repo's uncommitted Tier-2
+# edits). `afx session-close` passes it in every project but the config repo itself: another project's
+# session can neither answer nor fix that question, and every other check reads the live files.
+LIVE_ONLY=0
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
+        --live-only)  LIVE_ONLY=1; shift ;;
         --hooks-dir)  HOOKS_DIR="$2"; FIXTURE_MODE=1; shift 2 ;;
         --config-dir) CONFIG_DIR="$2"; FIXTURE_MODE=1; shift 2 ;;
         --claude-dir) CLAUDE_DIR="$2"; FIXTURE_MODE=1; shift 2 ;;
@@ -236,7 +241,7 @@ check_hooks_section
 check_critical_dirs
 check_nuc_crontab_hygiene_H2
 check_runway_ok_at_configured_ttl
-check_e2e_freshness
+(( LIVE_ONLY )) || check_e2e_freshness
 
 if [[ $ERRORS -gt 0 ]]; then
     echo "ANTI-LOCKOUT: $ERRORS failure(s) — fix before shutdown" >&2

@@ -128,51 +128,11 @@ byte_len() {
     blen=${#1}
 }
 
-# Summarise one backlog. Prints four lines: tasks, deadline, p1names, lastdone.
-# ⛔ The counter used to read only a `## Open` section (and `## Open questions` matched too),
-#    count every line carrying a `[Pn]` tag — done ones included — and file everything else,
-#    P0 included, under P3. A track-sectioned backlog with `(P1)` tags came out as `1P3`.
-# ⇒ Open = a top-level `- [ ]`, `- [>]` or `- [?]` item anywhere outside a `## Done` section.
-#    Priority = the item's first `[Pn]` or `(Pn…` tag. Untagged items default to P3 per the
-#    backlog convention — unless NOTHING is tagged, in which case a priority split would be
-#    invented, so the cell says `N open` instead.
-summarise_backlog() {
-    awk '
-        /^## / { in_done = ($0 ~ /^## Done/); next }
-        in_done {
-            if (last_done == "" && $0 ~ /^- \[x\] /) { last_done = substr($0, 7) }
-            next
-        }
-        /^- \[[ >?]\] / {
-            total++
-            line = $0
-            if (match(line, /[[(]P[0-5][]) ,:]/)) {
-                p = substr(line, RSTART + 2, 1)
-                cnt[p]++; tagged++
-                if (p == "1" && match(line, /\*\*[^*]+\*\*/)) {
-                    name = substr(line, RSTART + 2, RLENGTH - 4)
-                    sub(/: *$/, "", name)
-                    names = (names == "" ? name : names "; " name)
-                }
-            }
-            if (deadline == "" && match(line, /(deadline|due|by [A-Z][a-z]+ [0-9]+|[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]|[0-9]+ days)/)) {
-                deadline = substr(line, RSTART, RLENGTH)
-            }
-        }
-        END {
-            tasks = ""
-            if (total > 0 && tagged == 0) {
-                tasks = total " open"
-            } else if (total > 0) {
-                cnt["3"] += total - tagged
-                for (p = 0; p <= 5; p++) if (cnt[p] > 0) tasks = tasks (tasks == "" ? "" : " ") cnt[p] "P" p
-            }
-            if (tasks == "") tasks = "—"
-            if (total > 0) last_done = ""
-            print tasks; print deadline; print names; print last_done
-        }
-    ' "$1"
-}
+# summarise_backlog (tasks, deadline, p1names, lastdone) lives in lib-dashboard.sh, shared with
+# dashboard-row.sh --auto so a shutdown row and a refresh row are counted the same way (CFG-1093).
+# LSD_LIB: the tests pipe a sed-edited copy of this script into bash, where BASH_SOURCE is empty.
+# shellcheck source=lib-dashboard.sh
+source "${LSD_LIB:-$(dirname "${BASH_SOURCE[0]:-}")/lib-dashboard.sh}"
 
 # --- Phase 1: compute (slow — du, backlog scans — and done WITHOUT the lock) --
 r_project=() r_pnum=() r_parent=() r_path=() r_type=() r_local=()

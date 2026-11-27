@@ -208,4 +208,100 @@ test_file_mode_preserved() {
 }
 run_test "the atomic replace keeps the cache's file mode" test_file_mode_preserved
 
+# ── --auto (CFG-1093 P-SHUTDOWN): Tasks and Size computed from the row's Path ──
+# session-close.sh passes only --deadline; the counts come from the same summariser
+# lsd-refresh.sh uses (lib-dashboard.sh) and the same `du -sh`.
+_auto_project() {
+    mkdir -p "$TEST_TMPDIR/home/beta"
+    cat > "$TEST_TMPDIR/home/beta/backlog.md" <<'EOF'
+# Backlog
+- [ ] [P1] `B-1` **Fix it**: x
+- [ ] [P2] `B-2` y
+## Done
+- [x] [P2] `B-0` z
+EOF
+    head -c 20000 /dev/zero > "$TEST_TMPDIR/home/beta/blob.bin"
+}
+
+test_auto_computes_tasks_and_size() {
+    create_cache
+    _auto_project
+    HOME="$TEST_TMPDIR/home" run_row beta --auto || return 1
+    local want_size
+    want_size=$(du -sh "$TEST_TMPDIR/home/beta" | awk '{print $1}')
+    assert_eq "1P1 1P2" "$(cell beta 6)" "tasks computed from the backlog" || return 1
+    assert_eq "$want_size" "$(cell beta 7)" "size is du -sh of the row's path" || return 1
+    assert_eq "Shipped v3.0" "$(cell beta 10)" "LastDone untouched"
+}
+run_test "--auto computes Tasks and Size from the row's Path" test_auto_computes_tasks_and_size
+
+test_auto_with_deadline() {
+    create_cache
+    _auto_project
+    HOME="$TEST_TMPDIR/home" run_row beta --auto --deadline "ship 2026-12-01" || return 1
+    assert_eq "1P1 1P2" "$(cell beta 6)" "tasks set" || return 1
+    assert_eq "ship 2026-12-01" "$(cell beta 8)" "deadline set alongside"
+}
+run_test "--auto combines with --deadline" test_auto_with_deadline
+
+test_auto_no_backlog_is_dash() {
+    create_cache
+    mkdir -p "$TEST_TMPDIR/home/beta"
+    HOME="$TEST_TMPDIR/home" run_row beta --auto || return 1
+    assert_eq "—" "$(cell beta 6)" "no backlog → dash"
+}
+run_test "--auto without a backlog writes a dash" test_auto_no_backlog_is_dash
+
+test_auto_missing_path_fails_unchanged() {
+    create_cache
+    cp "$TEST_TMPDIR/cache.md" "$TEST_TMPDIR/before.md"
+    local rc=0
+    HOME="$TEST_TMPDIR/home" run_row beta --auto 2>/dev/null || rc=$?
+    assert_eq "1" "$rc" "a row whose path does not exist here fails" || return 1
+    diff -q "$TEST_TMPDIR/before.md" "$TEST_TMPDIR/cache.md" >/dev/null
+    assert_eq "0" "$?" "file unchanged"
+}
+run_test "--auto with a path absent on this machine: exit 1, file unchanged" test_auto_missing_path_fails_unchanged
+
+test_auto_conflicts_with_explicit_tasks() {
+    create_cache
+    _auto_project
+    assert_failure env HOME="$TEST_TMPDIR/home" DASHBOARD_CACHE="$TEST_TMPDIR/cache.md" bash "$SCRIPT" beta --auto --tasks "9P1"
+}
+run_test "--auto with --tasks or --size is a usage error" test_auto_conflicts_with_explicit_tasks
+
+# Fable review 2026-11-27 #1: the live cache lists a child row (Parent = P) BEFORE P's own row, and a
+# substring match on "| P |" took the child's Path for the parent.
+test_auto_ignores_a_child_row_naming_it_as_parent() {
+    cat > "$TEST_TMPDIR/cache.md" << 'EOF'
+| Project | Priority | Parent | Path | Type | Tasks | Size | Deadline | P1Names | LastDone |
+|---------|----------|--------|------|------|-------|------|----------|---------|----------|
+| kid | P2 | beta | ~/kid | code | 9P1 | 9G |  |  |  |
+| beta | P2 | — | ~/beta | code | 1P2 | 340M |  |  |  |
+EOF
+    _auto_project
+    mkdir -p "$TEST_TMPDIR/home/kid"
+    printf '# Backlog\n- [ ] [P3] `K-1` kid item\n' > "$TEST_TMPDIR/home/kid/backlog.md"
+    HOME="$TEST_TMPDIR/home" run_row beta --auto || return 1
+    assert_eq "1P1 1P2" "$(cell beta 6)" "beta's own backlog, not kid's" || return 1
+    assert_eq "$(du -sh "$TEST_TMPDIR/home/beta" | awk '{print $1}')" "$(cell beta 7)" "beta's own size" || return 1
+    assert_eq "9P1" "$(cell kid 6)" "the child row is untouched"
+}
+run_test "--auto uses the row whose Project cell is the name, not a child naming it as Parent" test_auto_ignores_a_child_row_naming_it_as_parent
+
+# Fable review #6: a cold `du` on a large tree must not push a shutdown past the Bash tool's 120 s.
+test_auto_du_is_time_bounded() {
+    create_cache
+    _auto_project
+    mkdir -p "$TEST_TMPDIR/slowbin"
+    printf '#!/usr/bin/env bash\nsleep 5\necho "99G x"\n' > "$TEST_TMPDIR/slowbin/du"
+    chmod +x "$TEST_TMPDIR/slowbin/du"
+    local t0=$SECONDS
+    HOME="$TEST_TMPDIR/home" PATH="$TEST_TMPDIR/slowbin:$PATH" DASHBOARD_DU_TIMEOUT=1 run_row beta --auto || return 1
+    assert_eq "—" "$(cell beta 7)" "a du that times out writes a dash" || return 1
+    assert_eq "1P1 1P2" "$(cell beta 6)" "tasks still written" || return 1
+    (( SECONDS - t0 < 4 )) || { echo "    took $((SECONDS - t0)) s" >&2; return 1; }
+}
+run_test "--auto bounds du with DASHBOARD_DU_TIMEOUT (Size '—' on timeout)" test_auto_du_is_time_bounded
+
 suite_summary
