@@ -414,4 +414,19 @@ test_live_only_still_checks_live_files() {
 }
 run_test "--live-only: a broken live hook still fails" test_live_only_still_checks_live_files
 
+# Fable second pass #2: check 9 runs the config repo's WORKING-TREE cc-mesh-leader.sh, so it is a
+# cfg-tree check too — an uncommitted cfg edit to the leader must not refuse another project's close.
+test_live_only_skips_the_runway_check() {
+    local root; root=$(build_fixture)
+    local leader="$TEST_TMPDIR/leader-stub.sh"
+    printf '#!/usr/bin/env bash\necho RUNWAY_OK=0\n' > "$leader"; chmod +x "$leader"
+    CC_MESH_ANTILOCKOUT_LEADER_BIN="$leader" \
+        assert_exit_code 0 bash "$SCRIPT" --live-only \
+            --hooks-dir "$root/hooks" --config-dir "$root/config" --claude-dir "$root" || return 1
+    CC_MESH_ANTILOCKOUT_LEADER_BIN="$leader" \
+        assert_exit_code 1 bash "$SCRIPT" \
+            --hooks-dir "$root/hooks" --config-dir "$root/config" --claude-dir "$root"
+}
+run_test "--live-only: the working-tree RUNWAY_OK check is skipped (the full gate keeps it)" test_live_only_skips_the_runway_check
+
 suite_summary

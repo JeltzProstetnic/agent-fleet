@@ -252,6 +252,39 @@ t_empty_goal_with_content_refuses() {
 }
 run_test "a context with content but an empty Session Goal is refused, not skipped" t_empty_goal_with_content_refuses
 
+# Fable second pass #3: rotate-session.sh also counts a legacy `### Completed` section as content.
+t_legacy_completed_section_is_content() {
+    _fixture
+    printf '# Session Context\n\n## Session Info\n- **Session Goal**:\n\n### Completed\n- Shipped the thing\n\n## Key Decisions\n\n## Recovery Instructions\n\n## Next Session Task\n' \
+        > "$TEST_TMPDIR/home/beta/session-context.md"
+    _close "$TEST_TMPDIR/home/beta"
+    assert_eq "1" "$RC" "refused, not skipped as rotated (output: $OUT)" || return 1
+    assert_contains "$OUT" "no Session Goal" "names the missing goal"
+}
+run_test "a legacy ### Completed section counts as content (goalless → refused)" t_legacy_completed_section_is_content
+
+# Fable second pass #1: a git worktree of the config repo IS the config repo for the E2E gate, and
+# the gate must look at the tree being closed, not at the main checkout.
+t_config_repo_worktree_keeps_the_full_gate() {
+    _fixture; _ctx "- Carried item"
+    local main="$TEST_TMPDIR/cfgmain" wt="$TEST_TMPDIR/cfgwt"
+    mkdir -p "$main"
+    git -C "$main" init -q; git -C "$main" config user.email t@t; git -C "$main" config user.name t
+    echo x > "$main/f"; git -C "$main" add f; git -C "$main" commit -qm init
+    git -C "$main" worktree add -q "$wt" 2>/dev/null || return 1
+    cp "$TEST_TMPDIR/home/beta/session-context.md" "$wt/"; mkdir -p "$wt/docs"; cp "$TEST_TMPDIR/home/beta/docs/pending-x.md" "$wt/docs/"
+    cat > "$TEST_TMPDIR/stubs/anti-lockout-check.sh" <<EOF
+#!/usr/bin/env bash
+echo "anti-lockout-check \$* repo=\${ANTILOCKOUT_REPO_DIR:-unset}" >> "$TEST_TMPDIR/calls.log"
+exit 0
+EOF
+    CONFIG_REPO="$main" _close "$wt"
+    assert_eq "0" "$RC" "exit 0 (output: $OUT)" || return 1
+    assert_file_not_contains "$TEST_TMPDIR/calls.log" "--live-only" "a worktree of the config repo keeps the full gate" || return 1
+    assert_file_contains "$TEST_TMPDIR/calls.log" "repo=$(cd "$wt" && pwd -P)" "check 10 looks at the closing worktree"
+}
+run_test "a worktree of the config repo keeps the full gate, pointed at the worktree" t_config_repo_worktree_keeps_the_full_gate
+
 # Fable review #7: drive the REAL dashboard-row.sh on a multi-row cache with a child row first.
 t_real_dashboard_row_on_multi_row_cache() {
     _fixture; _ctx "- Carried item"

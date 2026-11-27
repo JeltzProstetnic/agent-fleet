@@ -22,9 +22,10 @@ CLAUDE_DIR="${HOME}/.claude"
 # a scratch tree, not a real shutdown gating a real commit. The E2E freshness check
 # is scoped to real invocations so it reports on the actual repo, not a fixture.
 FIXTURE_MODE=0
-# --live-only (CFG-1093): skip ONLY check 10 (the E2E gate on the config repo's uncommitted Tier-2
-# edits). `afx session-close` passes it in every project but the config repo itself: another project's
-# session can neither answer nor fix that question, and every other check reads the live files.
+# --live-only (CFG-1093): skip the two checks that read the CONFIG REPO's working tree — 9 (RUNWAY_OK via
+# the tree's cc-mesh-leader.sh) and 10 (the E2E gate on its uncommitted Tier-2 edits). `afx session-close`
+# passes it in every project but the config repo itself: another project's session can neither answer
+# nor fix those; checks 1-8 read the live deployed files and this machine's crontab.
 LIVE_ONLY=0
 
 while [[ $# -gt 0 ]]; do
@@ -240,7 +241,7 @@ check_safe_run_routing
 check_hooks_section
 check_critical_dirs
 check_nuc_crontab_hygiene_H2
-check_runway_ok_at_configured_ttl
+(( LIVE_ONLY )) || check_runway_ok_at_configured_ttl
 (( LIVE_ONLY )) || check_e2e_freshness
 
 if [[ $ERRORS -gt 0 ]]; then

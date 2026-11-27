@@ -81,7 +81,10 @@ if (( AUTO )); then
         exit 1
     fi
     set_cell[5]="—"
-    [[ -f "$_path/backlog.md" ]] && set_cell[5]=$(summarise_backlog "$_path/backlog.md" | sed -n 1p)
+    if [[ -f "$_path/backlog.md" ]]; then
+        [[ -r "$_path/backlog.md" ]] || { echo "dashboard-row: --auto: cannot read $_path/backlog.md — row unchanged" >&2; exit 1; }
+        set_cell[5]=$(summarise_backlog "$_path/backlog.md" | sed -n 1p)
+    fi
     # Bounded: a cold `du` on a large tree must not push a shutdown past the Bash tool's 120 s.
     # Size is cosmetic and lsd-refresh.sh recomputes it, so a timeout writes a dash.
     _du=(du -sh "$_path")

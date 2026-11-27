@@ -304,4 +304,20 @@ test_auto_du_is_time_bounded() {
 }
 run_test "--auto bounds du with DASHBOARD_DU_TIMEOUT (Size '—' on timeout)" test_auto_du_is_time_bounded
 
+# Fable second pass #4: an unreadable backlog killed --auto with exit 2, the usage code.
+test_auto_unreadable_backlog_fails_cleanly() {
+    create_cache
+    _auto_project
+    chmod 000 "$TEST_TMPDIR/home/beta/backlog.md"
+    cp "$TEST_TMPDIR/cache.md" "$TEST_TMPDIR/before.md"
+    local rc=0 out
+    out=$(HOME="$TEST_TMPDIR/home" run_row beta --auto 2>&1) || rc=$?
+    chmod 644 "$TEST_TMPDIR/home/beta/backlog.md"
+    assert_eq "1" "$rc" "exit 1, not the usage code" || return 1
+    assert_contains "$out" "cannot read" "says why" || return 1
+    diff -q "$TEST_TMPDIR/before.md" "$TEST_TMPDIR/cache.md" >/dev/null
+    assert_eq "0" "$?" "row unchanged"
+}
+run_test "--auto with an unreadable backlog: exit 1 with a reason, row unchanged" test_auto_unreadable_backlog_fails_cleanly
+
 suite_summary

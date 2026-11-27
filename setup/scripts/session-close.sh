@@ -21,8 +21,8 @@
 #   6 anti-lockout-check.sh [--live-only]               GATE; runs whenever step 5 ran. AFTER deploy, so it
 #                                                       checks the live files the next session loads
 #                                                       (anti-lockout-check.sh defaults to them) — Q-SC-ORDER
-#                                                       --live-only outside the config repo: its check 10
-#                                                       gates on cfg's own uncommitted Tier-2 edits
+#                                                       --live-only outside the config repo: its checks
+#                                                       9 and 10 read cfg's own working tree
 # Re-running after a stop is safe: steps 1–2 are idempotent and step 4 skips a rotated context.
 #
 # Exit: 0 all passed · 1 a gate refused · 2 usage · 4 finished with warnings.
@@ -105,16 +105,18 @@ step_handover() {
     say "3 handover: ok — every Recovery Instructions item is carried"
 }
 
-# Context state (rotate-session.sh:128-131's own tests): "rotated" = no Session Goal, no `- [x]` item and
-# an empty Key Decisions section; "goalless" = content but no goal, which rotation would drop silently.
+# Context state (rotate-session.sh:128-131's own tests): "rotated" = no Session Goal, no `- [x]` item, no
+# legacy `### Completed` bullet and an empty Key Decisions section; "goalless" = content but no goal,
+# which rotation would drop silently.
 context_state() {
-    local f="$DIR/session-context.md" goal done_ dec
+    local f="$DIR/session-context.md" goal done_ dec comp
     [[ -s "$f" ]] || { echo rotated; return; }
     goal=$(sed -n 's/.*\*\*Session Goal\*\*: \(.\+\)/\1/p' "$f" | head -1)
     done_=$(grep -i '^\s*- \[x\]' "$f" | head -1)
     dec=$(awk '/^##+ Key Decisions/{f=1; next} /^## /{f=0} f' "$f" | sed '/^[[:space:]]*$/d' | head -1)
+    comp=$(awk '/^### Completed/{f=1; next} /^###|^## |^- \*\*/{f=0} f' "$f" | grep '^- ' | head -1)
     if [[ -n "$goal" ]]; then echo populated
-    elif [[ -n "$done_$dec" ]]; then echo goalless
+    elif [[ -n "$done_$dec$comp" ]]; then echo goalless
     else echo rotated; fi
 }
 
@@ -166,14 +168,28 @@ step_deploy() {
          indent <<<"$out" | tail -20; fi
 }
 
-# Outside the config repo only the checks of the live files run (--live-only): check 10 asks whether
-# the config repo's own uncommitted Tier-2 edits had an E2E run, which only a cfg session can answer.
+# The project IS the config repo when it is that checkout or a git worktree of it (same common dir).
+_git_common() { git -C "$1" rev-parse --path-format=absolute --git-common-dir 2>/dev/null; }
+is_config_repo() {
+    local d c
+    d="$(cd "$DIR" && pwd -P)"
+    [[ "$d" == "$(cd "$CONFIG_REPO" 2>/dev/null && pwd -P)" ]] && return 0
+    c="$(_git_common "$CONFIG_REPO")" || return 1
+    [[ -n "$c" && "$(_git_common "$d")" == "$c" ]]
+}
+
+# Outside the config repo only the live-file checks run (--live-only): checks 9 and 10 read the config
+# repo's working tree, which only a cfg session can answer for. Inside it — a worktree included — the
+# full gate runs and check 10 looks at the tree being closed (ANTILOCKOUT_REPO_DIR).
 step_anti_lockout() {
     (( DEPLOY_RAN )) || return 0
-    local out rc=0 args=() repo_real
-    repo_real="$(cd "$CONFIG_REPO" 2>/dev/null && pwd -P)"
-    [[ "$(cd "$DIR" && pwd -P)" == "$repo_real" ]] || args=(--live-only)
-    out=$(bash "$ANTI" ${args[@]+"${args[@]}"} 2>&1) || rc=$?
+    local out rc=0 args=()
+    if is_config_repo; then
+        out=$(ANTILOCKOUT_REPO_DIR="$(cd "$DIR" && pwd -P)" bash "$ANTI" 2>&1) || rc=$?
+    else
+        args=(--live-only)
+        out=$(bash "$ANTI" "${args[@]}" 2>&1) || rc=$?
+    fi
     if (( rc != 0 )); then
         indent <<<"$out" | tail -30
         refuse "6 anti-lockout: anti-lockout-check.sh ${args[*]:+${args[*]} }exited $rc — fix the FAIL lines above before ending the session"
