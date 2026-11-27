@@ -1,0 +1,50 @@
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  3 new MCP servers found in this project
+  Select any you wish to enable.
+
+  MCP servers may execute code or access system resources. All tool calls require approval. Learn more in the MCP documentation.
+
+    [✔] dummy-a
+    [ ] dummy-b
+    [✔] dummy-c
+  ❯    Enable selected
+ Space to select · Esc to reject all
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

@@ -1,0 +1,62 @@
+Script started on 2026-11-27 09:20:23+01:00 [COMMAND="~/.local/bin/mclaude --model haiku" TERM="tmux-256color" TTY="/dev/pts/14" COLUMNS="200" LINES="50"]
+7[r8[?25h[?25l[?2004h[?2031h[?1004h[<u[>5u[>4;2m
+[38;5;220m────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────[39m
+[2G[38;5;220m[1mAccessing[12Gworkspace:[22m[39m
+
+[2G[1m/tmp/scratch/cfg1023cap2[22m
+
+[2GQuick[8Gsafety[15Gcheck:[22GIs[25Gthis[30Ga[32Gproject[40Gyou[44Gcreated[52Gor[55Gone[59Gyou[63Gtrust?[70G(Like[76Gyour[81Gown[85Gcode,[91Ga[93Gwell-known[104Gopen[109Gsource[116Gproject,[125Gor[128Gwork[133Gfrom[138Gyour[143Gteam).[150GIf[153Gnot,[158Gtake[163Ga[165Gmoment[172Gto[175Greview[182Gwhat's[189Gin[192Gthis
+[2Gfolder[9Gfirst.
+
+[2GClaude[9GCode'll[17Gbe[20Gable[25Gto[28Gread,[34Gedit,[40Gand[44Gexecute[52Gfiles[58Ghere.
+
+[2G]8;id=zaxmda;https://code.claude.com/docs/en/security[38;5;246mSecurity guide[39m]8;;
+
+[2G[38;5;153m❯[4GNo,[8Gexit[39m
+[4GYes,[9GI[11Gtrust[17Gthis[22Gfolder
+
+[2G[38;5;246mEnter[8Gto[11Gconfirm[19G·[21GEsc[25Gto[28Gcancel[39m
+[1C[4A[>0q[?u[c[?2026$p[c(B[<u[>5u[>4;2m[1D[4B[1C[4A [4GNo, exit[1C[1B[38;5;153m❯[4GYes, I trust this folder[39m
+
+
+[1C[3A[>4m[<u[?1004l[?2031l[?2004l[1D[3B[2K[1A[2K[1A[2K[1A[2K[1A[2K[1A[2K[1A[2K[1A[2K[1A[2K[1A[2K[1A[2K[1A[2K[1A[2K[1A[2K[1A[2K[1A[2K[1A[2K[G[1A[K[1B[K[1B[K[1B[K[1B[K[1B[K[1B[K[1B[K[1B[K[1B[K[1B[K[1B[K[1B[K[1B[K[1B[K[1B[K[1B[K[16A[?2004h[?2031h[?1004h[<u[>5u[>4;2m
+[38;5;220m────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────[39m
+[3G[38;5;220m[1m3[5Gnew[9GMCP[13Gservers[21Gfound[27Gin[30Gthis[35Gproject[22m[39m
+[3G[38;5;246mSelect[10Gany[14Gyou[18Gwish[23Gto[26Genable.[39m
+
+[3GMCP[7Gservers[15Gmay[19Gexecute[27Gcode[32Gor[35Gaccess[42Gsystem[49Gresources.[60GAll[64Gtool[69Gcalls[75Grequire[83Gapproval.[93GLearn[99Gmore[104Gin[107Gthe[111G]8;id=c415zw;https://code.claude.com/docs/en/mcpMCP documentation]8;;.
+
+[3G[38;5;153m❯[5G[38;5;114m[✔][9G[38;5;153mdummy-a[39m
+[5G[38;5;114m[✔][9G[39mdummy-b
+[5G[38;5;114m[✔][9G[39mdummy-c
+[8G[1mEnable[15Gselected[22m
+[2G[38;5;246m[3mSpace[8Gto[11Gselect[18G·[20GEsc[24Gto[27Greject[34Gall[23m[39m
+[2C[5A[>0q[c[?2026$p[c(B[<u[>5u[>4;2m[2D[5B[2C[5A [9Gdummy-a[2C[1B[38;5;153m❯[9Gdummy-b[39m
+
+
+
+[2C[4A[2D[4B[4C[4A[ ]
+
+
+
+[2C[4A(B[<u[>5u[>4;2m[2D[4B[2C[4A [9Gdummy-b[2C[1B[38;5;153m❯[9Gdummy-c[39m
+
+
+[2C[3A[2D[3B[2C[3A [9Gdummy-c[2C[1B[38;5;153m❯[8G[1mEnable selected[22m[39m
+
+[>4m[<u[?1004l[?2031l[?2004l[2K[1A[2K[1A[2K[1A[2K[1A[2K[1A[2K[1A[2K[1A[2K[1A[2K[1A[2K[1A[2K[1A[2K[G[1A[K[1B[K[1B[K[1B[K[1B[K[1B[K[1B[K[1B[K[1B[K[1B[K[1B[K[1B[K[11A[?2004h[?2031h[?1004h[<u[>5u[>4;2m[>0q[c[?2026$p[c
+[38;5;220m────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────[39m
+[3G[38;5;220m[1mAllow[9Gexternal[18GCLAUDE.md[28Gfile[33Gimports?[22m[39m
+
+[3GThis[8Gproject's[18GCLAUDE.md[28Gimports[36Gfiles[42Goutside[50Gthe[54Gcurrent[62Gworking[70Gdirectory.[81GNever[87Gallow[93Gthis[98Gfor[102Gthird-party[114Grepositories.
+
+[3G[38;5;246mExternal[12Gimports:[39m
+[3G[38;5;246m [5G/tmp/scratch/cfg1023-external.md[39m
+
+[3G[38;5;246mImportant:[14GOnly[19Guse[23GClaude[30GCode[35Gwith[40Gfiles[46Gyou[50Gtrust.[57GAccessing[67Guntrusted[77Gfiles[83Gmay[87Gpose[92Gsecurity[101Grisks[107G]8;id=zaxmda;https://code.claude.com/docs/en/securityhttps://code.claude.com/docs/en/security[39m]8;;
+
+[3G[38;5;153m❯[5GNo,[9Gdisable[17Gexternal[26Gimports[39m
+[5GYes,[10Gallow[16Gexternal[25Gimports
+
+[3G[38;5;246m[3mEnter[9Gto[12Gconfirm[20G·[22GEsc[26Gto[29Gcancel[23m[39m
+[2C[4A

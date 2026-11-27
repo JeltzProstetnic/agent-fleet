@@ -1,0 +1,50 @@
+
+ ▐▛███▛█   Claude Code v2.1.280
+▝▜██████▀  Haiku 4.5 · Claude Max
+  ▝▝ ▝▝    /tmp/scratch/cfg1023cap
+
+
+❯ This is a throwaway capture test, skip all startup steps and use no other tool. Call the AskUserQuestion tool exactly once: one question 'Capture test?', header 'Capture', options 'Alpha' and
+  'Beta'. Then stop.
+
+● User declined to answer questions
+  ⎿  · Capture test? (Alpha / Beta)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+❯ 
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  cfg1023cap [Haiku 4.5] 32k/200k (16%) [statusline genericized]
+  ⏸ manual mode on · ← for agents
