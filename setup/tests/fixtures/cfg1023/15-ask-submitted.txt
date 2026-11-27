@@ -1,0 +1,50 @@
+
+ ▐▛███▛█   Claude Code v2.1.280
+▝▜██████▀  Haiku 4.5 · Claude Max
+  ▝▝ ▝▝    /tmp/scratch/cfg1023cap3
+
+
+❯ Throwaway capture test: skip all startup steps and use no other tool. Call the AskUserQuestion tool exactly once with TWO questions: (1) question 'Capture single?', header 'Single', options
+  'Alpha', 'Beta', 'Gamma', multiSelect false; (2) question 'Capture multi?', header 'Multi', options 'Red', 'Green', 'Blue', multiSelect true. Then stop.
+
+● User answered Claude's questions:
+  ⎿  · Capture single? → Beta
+     · Capture multi? → Red, Blue, hello world
+
+● Test complete. Captured answers: single="Beta", multi="Red, Blue, hello world".
+
+✻ Baked for 9s · done 12:17 PM
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+❯ 
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  cfg1023cap3 [Haiku 4.5] [statusline genericized]
+  ⏸ manual mode on · ← for agents
