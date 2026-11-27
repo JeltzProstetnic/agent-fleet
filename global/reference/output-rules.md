@@ -10,16 +10,14 @@ Any document, summary, or one-pager MUST be delivered as **PDF**, not markdown. 
 - **Before converting**: verify which engine is available (`which weasyprint xelatex`). Do NOT guess — check first.
 - **Avoid** Unicode box-drawing characters in code blocks (xelatex chokes) — use tables instead
 - **weasyprint HTML: BMP symbols only** — never use emoji codepoints (U+1F000+) in HTML for weasyprint. Emoji fonts aren't portable across machines. Use BMP Unicode symbols instead: `&#10004;` (checkmark), `&#9654;` (play), `&#9733;` (star), `&#9679;` (bullet). For colored indicators: `<span style="color:green">&#9679;</span>`.
-- **Open (WSL)**: `powershell.exe -Command "Start-Process '$(wslpath -w /absolute/path/to/file)'"` — ALWAYS use `wslpath -w` to convert; never manually construct `\\wsl.localhost\` paths (error-prone escaping)
-- **Open (native Linux)**: `xdg-open output.pdf`
-- **Detect environment**: if `/mnt/c/` exists → WSL, otherwise → native Linux
+- **Open**: `afx open-file <path>` — dispatches by file type per machine
 - Short text (<10 words) can go inline. Anything longer → file + PDF + open.
 
 ## Copy-Paste Content Exception
 
 Tweet drafts, reply options, and anything the user needs to copy-paste goes in plain text (`.md` or `.txt`, not PDF). Use single-line paragraphs — NO hard line breaks mid-sentence. Wrapped lines look nice in terminal but break copy-paste. Rules:
 - **One piece of content per file** (e.g., `tmp/bradford-tweet.txt` not a mega-file). Keep the file minimal — just the copy-pastable text, no headers/context/dividers.
-- **Open in editor** after writing — same platform detection as PDFs: WSL → `powershell.exe -Command "Start-Process '$(wslpath -w /path)'"`, native Linux → `xdg-open /path`, VPS → termbin (no editor). Overwriting a file already open is fine — editors auto-reload.
+- **Open in editor** after writing with `afx open-file <path>`; on the VPS deliver it through termbin instead (`platform-notes.md`). Overwriting a file already open is fine — editors auto-reload.
 - **Never claim a file has been updated without a tool call.** If you say "I've updated the file" you must have an Edit or Write tool result confirming it.
 
 ## Email Draft Rule

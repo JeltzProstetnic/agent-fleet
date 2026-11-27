@@ -65,3 +65,24 @@ Catalog of rule formulations that reliably fail. When auditing rules (in CLAUDE.
 **Symptom:** Proposed rule has branching logic ("if X do A, else B"), numbered options, preemptive edge cases, or explanatory scaffolding around a single imperative.
 **Why it fails:** Branching creates decision points that compete with the action. The user's correction pattern is always: collapse to one imperative sentence.
 **Fix:** Flat imperatives. One action, one sentence. If branching seems needed, it's two rules or wrong scope. Match the style of existing rules in the target file.
+
+## Pattern 10: Prose Rule vs Point-of-Action Vendor Instruction
+
+**Symptom:** A rule forbids a behaviour that a tool's own description or system instruction invites at the point of action.
+**Why it fails:** The vendor text is present on every turn, right where the action happens, and cannot be edited or outranked; a prose rule loaded elsewhere loses regardless of wording, placement or loading — unlike Patterns 1-9, no rewrite fixes it.
+**Fix:** Enforce with a `PreToolUse` block (or remove/disable the instruction or tool); never rely on a prose rule as the control.
+**Example:** A tool description saying "Publishing proactively is fine for your own work-product" — no CLAUDE.md rule could stop the publish it invited.
+
+## Pattern 11: A Green Test Proves the Fixture, Not the World
+
+**Symptom:** A check parses a documented convention (file header, hook payload, log format) and every test feeds it a hand-written fixture shaped like the author's belief.
+**Why it fails:** The test verifies the parser against the input it was written for; if the belief is wrong the check and its tests agree and pass while the feature never fires.
+**Fix:** At least one test must exercise a real artifact — a file from the repo or input captured from the live producer — not only a hand-written fixture.
+**Example:** A fixture wrote `Tracked-by:` bare while real files use `<!-- Tracked-by: -->`, and stayed green for two months; a hook read `tool_output.stdout` and its tests fed the same invented shape, while Claude Code sends `tool_response`.
+
+## Pattern 12: Executable Code in Rule Text
+
+**Symptom:** A rule tells the agent to run a literal command — shell syntax, globs, brace expansion, home-relative paths — as a step of the behaviour it requires.
+**Why it fails:** The command is platform-dependent and goes stale silently: it breaks on another OS or shell, drifts from the scripts it duplicates, and "match the target file's style" copies it into the next rule.
+**Fix:** State the intent and end state; put any needed command into a tested script and name the script, or into a mechanism. A command that is itself the subject of a rule (e.g. which form of `git commit` to use) is not a step and may stay.
+**Example:** A draft "Cross-project fleet changes reach every consumer" rule embedded `grep -rlsI --exclude-dir={.git,worktrees} … ~/*/CLAUDE.md …`, copied in style from the rule it replaced; the owner's verdict: "hard coded platform dependent code within rules surely not".

@@ -22,7 +22,7 @@ Write the description to a file (not inline). This enables automated scrubbing.
 
 ### 2. Privacy scrub (MANDATORY — never skip)
 ```bash
-bash setup/scripts/fleet-issue.sh --scrub <body_file>
+afx fleet-issue --scrub <body_file>
 ```
 - Exit 0 = clean. Proceed.
 - Exit 1 = violations found. Rewrite the body, re-scrub. Never file without passing.
@@ -39,7 +39,7 @@ bash setup/scripts/fleet-issue.sh --scrub <body_file>
 
 ### 3. Dedup check
 ```bash
-bash setup/scripts/fleet-issue.sh --dedup "<title>" [index_file]
+afx fleet-issue --dedup "<title>" [index_file]
 ```
 - Exit 0 = no duplicate. Proceed.
 - Exit 2 = duplicate found. Skip or comment on existing issue instead.
@@ -51,7 +51,7 @@ mcp__github__search_issues with query: "repo:<owner>/agent-fleet <keywords>"
 
 ### 4. Format the issue
 ```bash
-bash setup/scripts/fleet-issue.sh --format "<title>" "<category>" "<severity>" <body_file>
+afx fleet-issue --format "<title>" "<category>" "<severity>" <body_file>
 ```
 Categories: `bug`, `feature`, `rule-change`, `improvement`, `docs`
 Severity: `critical`, `high`, `medium`, `low`
@@ -69,7 +69,7 @@ Before filing, spin up an Opus subagent to review:
 
 ### 7. Record locally
 ```bash
-bash setup/scripts/fleet-issue.sh --record "<title>" <issue_number> [index_file]
+afx fleet-issue --record "<title>" <issue_number> [index_file]
 ```
 
 ## Rate Limit

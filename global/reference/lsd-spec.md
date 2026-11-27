@@ -6,7 +6,7 @@
 
 Read `~/agent-fleet/cross-project/dashboard-cache.md`. This file contains pre-computed task counts, disk sizes, and deadlines for all projects. It is updated by:
 - **Session shutdown** — each project updates its own row when shutting down
-- **`lsd refresh`** — runs `bash ~/agent-fleet/setup/scripts/lsd-refresh.sh` to do a full scan of all local backlogs and disk sizes
+- **`lsd refresh`** — runs `afx lsd-refresh` to do a full scan of all local backlogs and disk sizes
 
 Show P1-P3 by default, P1-P5 with `lsd all`. Do NOT scan backlogs or run `du` — trust the cache. If the cache is missing, run `lsd-refresh.sh` once.
 
@@ -109,4 +109,4 @@ After the table, show:
 - **details**: show full info including machines, GitHub remotes, agents, multi-repo setup
 - **new**: follow project-setup.md
 - **all**: re-display including P4-P5 projects
-- **refresh**: run `bash ~/agent-fleet/setup/scripts/lsd-refresh.sh`, then re-display
+- **refresh**: run `afx lsd-refresh`, then re-display

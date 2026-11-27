@@ -33,7 +33,7 @@
 | `KONSOLE_SVC="..." && qdbus ...` | KONSOLE_SVC | **No** |
 | `sleep 2 && qdbus ...` | sleep | **No** |
 
-**Fix:** Always start Bash tool commands with the actual command, never with variable assignments or delays. Use separate tool calls instead of chaining with `&&`.
+**Fix:** Always start Bash tool commands with the actual command, never with variable assignments or delays. Use separate tool calls instead of chaining with `&&`. The vault cycle is the one exception: it runs as ONE call that starts with `VAULT_PASS=$(…)` and chains with `&&`, because a shell variable does not survive between calls (`vault-ops.md`).
 
 **Adding missing commands:** If a command is frequently used but not in the global permissions, add `Bash(command:*)` to `settings.json` — don't rely on project-level approvals (they cause the settings.local.json override problem described above).
 
@@ -55,7 +55,7 @@
 - Instead of: `cd ~/social && git status` → Use: `git -C ~/social status`
 - Instead of: `cd ~/project && git add . && git commit` → Use: `git -C ~/project add . && git -C ~/project commit`
 
-**Behavioral rule for Claude:** NEVER use `cd <dir> && <command>` patterns. Use `-C` flags, absolute paths, or `--work-tree`/`--git-dir` for git. For non-git commands, use absolute paths directly.
+**Behavioral rule for Claude:** `compound-cd-warn.sh` blocks these commands and names the alternatives.
 
 ## Auto-Clean: Permissions Block Removal
 
