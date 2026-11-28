@@ -11,9 +11,14 @@ the screen is replayed on a virtual terminal, never read as a byte stream. The w
 `COLUMNS="…"` header when present (default 200). Real captures and findings:
 setup/tests/fixtures/cfg1023/, docs/research/cfg1023-dialog-captures-2026-11-27.md.
 
-options output — line 1: `kind=<single|checklist> n=<options> cursor=<1-based option | action>`, then per option
-`<n>\\t<1 cursor on it | 0>\\t<1 ticked | 0 unticked | - no box>\\t<text>`. `action` = the checklist's confirm line
-(`Enable selected`). Library, not an afx verb (afx skips lib-*). No dependencies beyond the standard library.
+options output — line 1: `kind=<single|checklist|numbered|ask-single|ask-multi|ask-review> n=<options> cursor=<1-based
+option | action>`, then per option `<n>\\t<1 cursor on it | 0>\\t<1 ticked | 0 unticked | - no box>\\t<text>`.
+`action` = the checklist's confirm line (`Enable selected`) or a multiSelect's `Submit` line. single/checklist are
+Claude Code's own approval dialogs (unnumbered); numbered is any other numbered option run (a Claude Code picker, a
+question read without its tab row) — listed, never answered as an approval dialog; ask-* is AskUserQuestion (numbered
+on screen, the number printed is the screen's; the last two of a question are `Type something` — the automatic Other —
+and `Chat about this`; ask-review is the `Ready to submit your answers?` page). Library, not an afx verb (afx skips
+lib-*). No dependencies beyond the standard library.
 """
 import re
 import sys
@@ -107,13 +112,23 @@ def read_input():
     return raw, cols
 
 
-BOX = re.compile(r"^(\s*)(?:❯\s+)?\[(✔| )\]\s(.+)$")
+BOX = re.compile(r"^(\s*)(❯\s+)?\[(✔| )\]\s(.+)$")   # 2: the cursor marker, in front of the box only
+TABROW = re.compile(r"^←\s.*→$")
+ASK_ITEM = re.compile(r"^(❯ |  )(\d+)\.\s(.*)$")   # an option line; its description sits deeper, never at col 0-2
+ASK_BOX = re.compile(r"^\[(✔| )\]\s(.*)$")
+ASK_SUBMIT = re.compile(r"^\s*(❯\s+)?Submit$")
+ASK_READY = "Ready to submit your answers?"
 
 
 def options(rows):
     """(kind, entries, cursor) of the dialog whose guide is the last one on screen, else None."""
+    ask = _ask(rows)
+    if ask:
+        return ask
     gi = max((k for k, line in enumerate(rows) if any(g in line for g in GUIDES)), default=None)
     if gi is None:
+        return None
+    if "Enter to select" in rows[gi]:   # only AskUserQuestion says this; unread by _ask → refused, never guessed
         return None
     block = [line for line in rows[:gi] if line.strip()]
     if any(BOX.match(line) for line in block[-12:]):
@@ -126,7 +141,10 @@ def _single(block):
     if cur is None:
         return None
     lead = block[cur].index("❯")
-    col = lead + len(re.match(r"❯\s+", block[cur][lead:]).group(0))
+    m = re.match(r"❯\s+(?=\S)", block[cur][lead:])
+    if not m:   # a bare `❯` (an empty prompt) is no option (re-review NIT 5)
+        return None
+    col = lead + len(m.group(0))
     start, k = cur, cur
     while k - 1 >= 0 and _text_col(block[k - 1]) == col and not block[k - 1].lstrip().startswith("❯"):
         k -= 1
@@ -136,7 +154,9 @@ def _single(block):
         end += 1
     entries = [(n + 1, 1 if j == cur else 0, "-", block[j].lstrip().lstrip("❯").strip())
                for n, j in enumerate(range(start, end + 1))]
-    return "single", entries, cur - start + 1
+    # No approval dialog numbers its options; AskUserQuestion and Claude Code's pickers do (review finding 1b).
+    numbered = all(re.match(r"\d+\.\s", e[3]) for e in entries)
+    return "numbered" if numbered else "single", entries, cur - start + 1
 
 
 def _text_col(line):
@@ -146,15 +166,55 @@ def _text_col(line):
     return len(line) - len(s) if s else -1
 
 
+def _ask(rows):
+    """An AskUserQuestion dialog that is up — kind ask-single | ask-multi | ask-review — else None.
+
+    Read below the LAST tab row only (an answered question above stays history). Up = its `Enter to select` guide is
+    the screen's last line, or — the review page, which has no guide — the numbered lines after `Ready to submit your
+    answers?` end the screen. Options must be numbered 1..n in order; anything else is refused, never guessed."""
+    tabs = [k for k, line in enumerate(rows) if TABROW.match(line.strip())]
+    if not tabs:
+        return None
+    body = [line for line in rows[tabs[-1] + 1:] if line.strip()]
+    gi = max((k for k, line in enumerate(body) if "Enter to select" in line), default=None)
+    review = False
+    if gi is not None:
+        if gi != len(body) - 1:
+            return None
+        lines = body[:gi]
+    else:
+        ri = max((k for k, line in enumerate(body) if line.strip() == ASK_READY), default=None)
+        if ri is None or ri == len(body) - 1 or not all(ASK_ITEM.match(line) for line in body[ri + 1:]):
+            return None
+        lines, review = body[ri + 1:], True
+    items, cursor, boxed = [], None, False
+    for line in lines:
+        m = ASK_ITEM.match(line)
+        if m:
+            text, box = m.group(3).strip(), "-"
+            b = ASK_BOX.match(text)
+            if b:
+                box, text, boxed = ("1" if b.group(1) == "✔" else "0"), b.group(2).strip(), True
+            on = 1 if m.group(1) == "❯ " else 0
+            items.append((int(m.group(2)), on, box, text))
+            if on:
+                cursor = int(m.group(2))
+        elif boxed and ASK_SUBMIT.match(line) and "❯" in line:
+            cursor = "action"
+    if not items or cursor is None or [e[0] for e in items] != list(range(1, len(items) + 1)):
+        return None
+    return ("ask-review" if review else "ask-multi" if boxed else "ask-single"), items, cursor
+
+
 def _checklist(block):
     items, cursor = [], None
     for line in block:
         m = BOX.match(line)
-        if m:
-            items.append((len(items) + 1, 1 if "❯" in line else 0, "1" if m.group(2) == "✔" else "0", m.group(3).strip()))
-            if "❯" in line:
+        if m:   # a ❯ inside a server's name is text (review finding 4)
+            items.append((len(items) + 1, 1 if m.group(2) else 0, "1" if m.group(3) == "✔" else "0", m.group(4).strip()))
+            if m.group(2):
                 cursor = len(items)
-        elif items and "❯" in line:
+        elif items and line.lstrip().startswith("❯"):
             cursor = "action"
     if not items or cursor is None:
         return None

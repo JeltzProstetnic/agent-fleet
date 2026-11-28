@@ -263,8 +263,14 @@ d_imports() {
     d_words ❯ No, disable external imports; d_words Yes, allow external imports; d_guide
 }
 d_mcp()      { d_words New MCP server found in this project: github; d_words ❯ Use this MCP server; d_guide; }
-d_mcp_many() { d_words 3 new MCP servers found in this project; d_words Select any you wish to enable.; d_guide; }
+d_mcp_many() {   # the checklist's guide is not d_guide's (real capture: fixtures/cfg1023/04-mcp-many.txt)
+    d_words 3 new MCP servers found in this project; d_words Select any you wish to enable.
+    d_words Space to select · Esc to reject all
+}
 d_selector() { d_words Choose the text style that looks best with your terminal; d_words ❯ 1. Dark mode; d_guide; }
+# d_ask1: a ONE-question AskUserQuestion — no ←/→ tab row (CC 2.1.280 hideSubmitTab), SYNTHETIC from 08-ask-single
+d_ask1()     { d_words ☐ Single; d_words Pick "one?"; d_words ❯ 1. Alpha; d_words 2. Beta
+               d_words Enter to select · ↑/↓ to navigate · Esc to cancel; }   # one question: ↑/↓, not Tab/Arrow
 d_prompt()   { d_words Claude Code v2.1.280; d_words ❯ startup; d_words "?" for shortcuts; }
 # d_repl: what 2.1.280 draws once a startup dialog is answered (banner, prompt box, mode line) — real log, 2026-11-14.
 d_repl() {

@@ -7,8 +7,17 @@ in a Windows Terminal tab, so claude reads its own /dev/pts/<n>. The kernel refu
 as root through `wsl.exe -u root -e python3 …`. No shell is involved: argv only.
 
     tty-inject.py [--expect-pid PID] [--clear N] [--no-cr] /dev/pts/N [TEXT]
+    tty-inject.py [--expect-pid PID] --key NAME [--key NAME …] /dev/pts/N
 
 TEXT (optional) is typed, then Enter (\\r) unless --no-cr. No TEXT = Enter only.
+--key NAME (up, down, space, enter, tab; repeatable) types named keys for a Claude Code dialog (CFG-1023), nothing
+else — no TEXT, no --clear, no Enter added. Each key is one entry of the write list, its whole sequence (an arrow is
+ESC [ A/B), never mixed with another key. It is NOT one read on the other side: TIOCSTI injects byte by byte, and
+Claude Code can read an arrow split (review 2026-11-27, own pty, 400 keys: 33 split with a blocking read). A split
+arrow is safe only because Claude Code 2.1.280 holds an incomplete escape for 50 ms before taking it as a lone ESC —
+"Esc to cancel", on the folder-trust dialog: exit — and its tokenizer carries the rest over to the next read; a CC
+update can change that (reference/upstream-dependencies.md §1). KEY_GAP before each further key, TEXT_GAP before an
+enter.
 --clear N first types N times Ctrl+K (delete to line end), then N times Ctrl+U (delete to line start,
 repeated across lines): it empties Claude Code's input line wherever the cursor sits, which TEXT cannot
 do because TEXT refuses control characters. `--clear N --no-cr` with no TEXT is a clear alone (CFG-1006).
@@ -53,14 +62,20 @@ MAX_CLEAR = 64
 CLEAR_BATCH = 8    # clearing keys per write — far below the 64 bytes at which they stop acting
 KEY_GAP = 0.1      # seconds before each further write of the clear
 TEXT_GAP = 0.5     # seconds before the TEXT after a clear, and before the Enter after anything
+KEYS = {"up": b"\x1b[A", "down": b"\x1b[B", "space": b" ", "enter": b"\r", "tab": b"\t"}
 
 
 def parse(argv):
-    expect_pid, cr, clear, rest = None, True, 0, []
+    expect_pid, cr, clear, rest, keys = None, True, 0, [], []
     i = 0
     while i < len(argv):
         a = argv[i]
-        if a == "--expect-pid":
+        if a == "--key":
+            i += 1
+            if i >= len(argv) or argv[i] not in KEYS:
+                refuse(2, f"--key needs one of: {', '.join(KEYS)}")
+            keys.append(argv[i])
+        elif a == "--expect-pid":
             i += 1
             if i >= len(argv) or not argv[i].isdigit():
                 refuse(2, "--expect-pid needs a numeric pid")
@@ -85,9 +100,13 @@ def parse(argv):
         refuse(2, f"{tty} is not a /dev/pts/<n> device")
     if any(ord(c) < 0x20 or ord(c) == 0x7F for c in text):
         refuse(2, "TEXT must not contain control characters")
+    if keys:
+        if text or clear:
+            refuse(2, "--key types named keys only — no TEXT, no --clear")
+        return tty, "", expect_pid, False, 0, keys
     if not text and not cr and not clear:
         refuse(2, "nothing to type (no TEXT, no --clear and --no-cr)")
-    return tty, text, expect_pid, cr, clear
+    return tty, text, expect_pid, cr, clear, keys
 
 
 def exe_basename(pid):
@@ -116,10 +135,14 @@ def pid_problem(pid, tty):
     return None
 
 
-def writes(text, cr, clear):
+def writes(text, cr, clear, keys=()):
     """The injection as (pause-before, bytes) writes: no write that holds a control byte comes near
     the 64 bytes at which Claude Code reads it as text, and the Enter is always a write of its own."""
     out = []
+    for k in keys:
+        out.append(((TEXT_GAP if k == "enter" else KEY_GAP) if out else 0, KEYS[k]))
+    if keys:
+        return out
     keys = CTRL_K * clear + CTRL_U * clear
     for i in range(0, len(keys), CLEAR_BATCH):
         out.append((KEY_GAP if out else 0, keys[i:i + CLEAR_BATCH]))
@@ -131,14 +154,14 @@ def writes(text, cr, clear):
 
 
 def main():
-    tty, text, expect_pid, cr, clear = parse(sys.argv[1:])
+    tty, text, expect_pid, cr, clear, keys = parse(sys.argv[1:])
     try:
         fd = os.open(tty, os.O_WRONLY | os.O_NOCTTY)
     except OSError as e:
         refuse(4, f"cannot open {tty} ({e.strerror})")
     typed = 0
     try:
-        for pause, data in writes(text, cr, clear):
+        for pause, data in writes(text, cr, clear, keys):
             if pause:
                 time.sleep(pause)
             why = pid_problem(expect_pid, tty) if expect_pid is not None else None

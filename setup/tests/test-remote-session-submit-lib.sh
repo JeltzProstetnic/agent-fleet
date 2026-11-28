@@ -413,6 +413,37 @@ test_injector_writes_keys_small_and_apart() {
 }
 run_test "injector: the clear in writes of ≤ 16 keys and a text's Enter in a write of its own, paused between" test_injector_writes_keys_small_and_apart
 
+# CFG-1023 slice 2: a dialog is answered with named keys. An arrow key is an escape sequence; a lone ESC is "Esc to
+# cancel" (on the folder-trust dialog: exit), so each key is ONE entry of the write list, its whole sequence, never
+# mixed with text, a clear or a trailing Enter. TIOCSTI still injects it byte by byte and Claude Code can read it
+# split — safe only through CC's 50 ms escape hold (tty-inject.py docstring, upstream-dependencies.md §1).
+test_injector_key_parse() {
+    local rc
+    python3 "$INJ" --key down /dev/pts/999999 >/dev/null 2>&1; rc=$?
+    assert_eq 4 "$rc" "--key down parses; only the missing device refuses it (exit 4)" || return 1
+    python3 "$INJ" --key /dev/pts/999999 >/dev/null 2>&1; rc=$?
+    assert_eq 2 "$rc" "--key without a name → exit 2" || return 1
+    python3 "$INJ" --key escape /dev/pts/999999 >/dev/null 2>&1; rc=$?
+    assert_eq 2 "$rc" "an unknown key name (escape is not offered) → exit 2" || return 1
+    python3 "$INJ" --key down /dev/pts/999999 hello >/dev/null 2>&1; rc=$?
+    assert_eq 2 "$rc" "--key with TEXT → exit 2" || return 1
+    python3 "$INJ" --key down --clear 2 /dev/pts/999999 >/dev/null 2>&1; rc=$?
+    assert_eq 2 "$rc" "--key with --clear → exit 2"
+}
+run_test "injector: --key takes up|down|space|enter|tab, alone (no text, no clear)" test_injector_key_parse
+
+test_injector_key_writes() {
+    local out
+    out=$(i_writes --key down PTY)
+    assert_eq $'0.00 3 1b5b42\nrc 0' "$out" "Down: ESC [ B as ONE entry of the write list, nothing after it (no Enter)" || return 1
+    out=$(i_writes --key up PTY)
+    assert_eq "0.00 3 1b5b41" "$(head -1 <<<"$out")" "Up: ESC [ A" || return 1
+    out=$(i_writes --key down --key space --key enter PTY)
+    assert_eq $'0.00 3 1b5b42\n0.10 1 20\n0.50 1 0d\nrc 0' "$out" \
+        "three keys: three writes, KEY_GAP before the Space, TEXT_GAP before the Enter (measured: $(tr '\n' '|' <<<"$out"))"
+}
+run_test "injector: each --key is one entry of the write list, its whole sequence, paused apart, no Enter added" test_injector_key_writes
+
 # The pid check (--expect-pid) holds for every write, not just the first: the injection now spans pauses.
 test_injector_reverifies_each_write() {
     local out; export I_PROC="$TEST_TMPDIR/iproc" I_PID=4242

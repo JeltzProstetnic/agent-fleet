@@ -494,13 +494,16 @@ rs_wait_new_claude() {
 
 # rs_screen_dialog <pid> [size] — the Claude Code dialog that is UP on <pid>'s screen (rs_screen_text), by name:
 # folder-trust, external-imports, mcp-server, or selector (any other option list, by its "Enter to confirm · Esc to
-# cancel" guide); nothing and 1 when none (CFG-1022). [size]: "<name> <screen length>", for a caller that must see the
+# cancel" guide; the MCP checklist's guide is "Space to select · Esc to reject all", CFG-1023), or ask (an
+# AskUserQuestion: its "Enter to select" guide is the latest — never the named dialog drawn above it, review
+# finding 1c); nothing and 1 when none (CFG-1022). [size]: "<name> <screen length>", for a caller that must see the
 # screen change. A script(1) log is raw terminal output, and Claude Code 2.1.280 draws the space between two words as
 # a cursor move (ESC[<n>G), so every escape sequence reads as a space; box and block drawing is dropped. The last
 # named dialog drawn wins; a guide more than RS_DIALOG_SPAN characters after it belongs to a dialog with no name here.
 # UP means the dialog is still the screen's trailing content (re-review N1): an ANSWERED dialog stays in the log tail,
 # but what follows it — the prompt, the banner — is new text, while a human moving the selection only redraws the
-# dialog's own words. More than RS_DIALOG_SLACK characters of words not in the dialog after its guide: not up.
+# dialog's own words (a checklist box flipped — `[ ]` / `[✔]` — and the cursor `❯` are always its own). More than
+# RS_DIALOG_SLACK characters of words not in the dialog after its guide: not up.
 rs_screen_dialog() {
     rs_screen_text "$1" 2>/dev/null | RS_DIALOG_SPAN="${RS_DIALOG_SPAN:-3000}" RS_DIALOG_SLACK="${RS_DIALOG_SLACK:-16}" \
         RS_DIALOG_SIZE="${2:-}" python3 -c 'import os,re,sys
@@ -512,10 +515,13 @@ named = [("folder-trust", r"Is this a project you created or one you trust|Yes, 
          ("external-imports", r"Allow external CLAUDE\.md file imports"),
          ("mcp-server", r"MCP servers? found in this project")]
 n = max(((m.start(), m.end(), k) for k, p in named for m in re.finditer(p, t)), default=None)
-g = max(((m.start(), m.end()) for m in re.finditer(r"Enter to confirm|Esc to cancel", t)), default=None)
+g = max(((m.start(), m.end()) for m in re.finditer(r"Enter to confirm|Esc to cancel|Space to select|Esc to reject all|Enter to select", t)), default=None)
+last = lambda p: max((m.start() for m in re.finditer(p, t)), default=-1)
+ask = last(r"Enter to select") > last(r"Enter to confirm|Space to select|Esc to reject all")
 if g and (n is None or n[0] <= g[1]):
-    own = set(t[max(0, g[0] - span):g[1]].split())
+    own = set(t[max(0, g[0] - span):g[1]].split()) | {"[", "]", "[✔]", "✔", "❯"}   # a box flip is a redraw
     foreign, name = sum(len(w) for w in t[g[1]:].split() if w not in own), (n[2] if n and g[0] - n[1] <= span else "selector")
+    name = "ask" if ask else name
 elif n:
     foreign, name = (0 if len(t) - n[1] <= span else slack + 1), n[2]
 else:

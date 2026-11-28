@@ -78,6 +78,17 @@ t_options_checklist() {
 }
 run_test "MCP checklist: three items, all ticked, cursor on the first" t_options_checklist
 
+t_options_checklist_glyph_in_name() {
+    # Review finding 4: a server named with `❯` (a third party's .mcp.json) was a second cursor. Only the marker in
+    # front of the box is the cursor; only a line STARTING with it is the action line. Synthetic from 04.
+    local got
+    got=$(sed 's/dummy-b$/dummy❯b/; s/dummy-c$/❯dummy-c/' "$FX/04-mcp-many.txt" | python3 "$LIB" options)
+    assert_eq "kind=checklist n=3 cursor=1" "$(sed -n 1p <<<"$got")" "the cursor stays on item 1" || return 1
+    assert_eq $'2\t0\t1\tdummy❯b' "$(sed -n 3p <<<"$got")" "a ❯ inside a name is text, not the cursor" || return 1
+    assert_eq $'3\t0\t1\t❯dummy-c' "$(sed -n 4p <<<"$got")" "nor at its start, behind the box"
+}
+run_test "MCP checklist: a ❯ in a server's name is not the cursor" t_options_checklist_glyph_in_name
+
 t_options_checklist_after_space() {
     local got; got=$(python3 "$LIB" options < "$FX/05-mcp-many-moved-unticked.txt")
     assert_eq "kind=checklist n=3 cursor=2" "$(sed -n 1p <<<"$got")" "cursor moved to item 2" || return 1
@@ -104,5 +115,103 @@ t_options_none_at_prompt() {
     assert_eq "1" "$rc" "no dialog on screen → exit 1"
 }
 run_test "a prompt screen has no dialog options (exit 1)" t_options_none_at_prompt
+
+# ── AskUserQuestion (slice 2, fixtures 08–15, captured with AFK off 2026-11-27) ──────────────────────────────────
+# The layout differs from the approval dialogs: a tab row `←  ☐ Single  ☐ Multi  ✔ Submit  →`, the question,
+# NUMBERED options each followed by an indented description line, `Type something` (the automatic Other), a rule,
+# `Chat about this`; multiSelect items carry `[ ]`/`[✔]` and end with a `Submit` line; the review page has no guide.
+# Slice 1 read 08 as `kind=single n=1` — a wrong answer. The option number printed is the one on screen.
+
+t_render_ask() { _renders_to 08-ask-single.raw 08-ask-single.txt && _renders_to 09-ask-multi.raw 09-ask-multi.txt; }
+run_test "the AskUserQuestion raw logs render to the tmux screen" t_render_ask
+
+t_options_ask_single() {
+    local got; got=$(python3 "$LIB" options < "$FX/08-ask-single.raw")
+    assert_eq "kind=ask-single n=5 cursor=1" "$(sed -n 1p <<<"$got")" "header: description lines are not options" || return 1
+    assert_eq $'1\t1\t-\tAlpha' "$(sed -n 2p <<<"$got")" "option 1, cursor on it" || return 1
+    assert_eq $'2\t0\t-\tBeta' "$(sed -n 3p <<<"$got")" "option 2" || return 1
+    assert_eq $'4\t0\t-\tType something.' "$(sed -n 5p <<<"$got")" "option 4 is the automatic Other" || return 1
+    assert_eq $'5\t0\t-\tChat about this' "$(sed -n 6p <<<"$got")" "option 5 below the rule"
+}
+run_test "AskUserQuestion single-select: five numbered options, cursor on 1" t_options_ask_single
+
+t_options_ask_multi() {
+    local got; got=$(python3 "$LIB" options < "$FX/09-ask-multi.raw")
+    assert_eq "kind=ask-multi n=5 cursor=1" "$(sed -n 1p <<<"$got")" "header" || return 1
+    assert_eq $'1\t1\t0\tRed' "$(sed -n 2p <<<"$got")" "boxes start unticked" || return 1
+    assert_eq $'4\t0\t0\tType something' "$(sed -n 5p <<<"$got")" "Other has a box" || return 1
+    assert_eq $'5\t0\t-\tChat about this' "$(sed -n 6p <<<"$got")" "Chat about this has none"
+}
+run_test "AskUserQuestion multiSelect: four boxes unticked plus 'Chat about this'" t_options_ask_multi
+
+t_options_ask_multi_ticked() {
+    local got; got=$(python3 "$LIB" options < "$FX/10-ask-multi-1-3.txt")
+    assert_eq $'1\t1\t1\tRed' "$(sed -n 2p <<<"$got")" "1 ticked" || return 1
+    assert_eq $'2\t0\t0\tGreen' "$(sed -n 3p <<<"$got")" "2 not" || return 1
+    assert_eq $'3\t0\t1\tBlue' "$(sed -n 4p <<<"$got")" "3 ticked"
+}
+run_test "AskUserQuestion multiSelect after keys 1 and 3: Red and Blue ticked" t_options_ask_multi_ticked
+
+t_options_ask_other_typed() {
+    local got; got=$(python3 "$LIB" options < "$FX/12-ask-multi-on-other.txt")
+    assert_eq "kind=ask-multi n=5 cursor=4" "$(sed -n 1p <<<"$got")" "cursor on Other (guide gains 'ctrl+g')" || return 1
+    got=$(python3 "$LIB" options < "$FX/13-ask-multi-other-typed.txt")
+    assert_eq $'4\t1\t1\thello world' "$(sed -n 5p <<<"$got")" "typed text replaces 'Type something' in place"
+}
+run_test "AskUserQuestion Other: cursor on 4, then the typed text shows as option 4" t_options_ask_other_typed
+
+t_options_ask_on_submit() {
+    # No capture has the cursor on `Submit`; this screen is 10's with the ❯ moved there (the review page, 14, is real).
+    local got; got=$(sed -e 's/^❯ 1\. \[✔\] Red/  1. [✔] Red/' -e 's/^     Submit$/   ❯ Submit/' "$FX/10-ask-multi-1-3.txt" \
+        | python3 "$LIB" options)
+    assert_eq "kind=ask-multi n=5 cursor=action" "$(sed -n 1p <<<"$got")" "cursor on the Submit line"
+}
+run_test "AskUserQuestion multiSelect with the cursor on 'Submit' reads cursor=action" t_options_ask_on_submit
+
+t_options_ask_review() {
+    local got; got=$(python3 "$LIB" options < "$FX/14-ask-review.raw")
+    assert_eq "kind=ask-review n=2 cursor=1" "$(sed -n 1p <<<"$got")" "the review page has no guide line" || return 1
+    assert_eq $'1\t1\t-\tSubmit answers' "$(sed -n 2p <<<"$got")" "option 1" || return 1
+    assert_eq $'2\t0\t-\tCancel' "$(sed -n 3p <<<"$got")" "option 2"
+}
+run_test "AskUserQuestion review page: 'Submit answers' / 'Cancel'" t_options_ask_review
+
+t_options_ask_answered() {
+    local rc=0
+    python3 "$LIB" options < "$FX/15-ask-submitted.txt" >/dev/null 2>&1 || rc=$?
+    assert_eq "1" "$rc" "an answered question in the history is not a dialog"
+}
+run_test "after submitting, the answered question is history, not a dialog (exit 1)" t_options_ask_answered
+
+t_options_ask_one_question_refused() {
+    # SYNTHETIC (Fable review 2026-11-27, finding 1): a ONE-question single-select AskUserQuestion draws no ←/→ tab row
+    # (CC 2.1.280 hideSubmitTab), only `☐ Header`; no real capture yet. 08's screen with its tab row cut down to that.
+    # Read as an approval dialog it was `single n=1` — answer-dialog then pressed Enter on it. It must be refused.
+    local rc=0 got
+    got=$(sed 's/^←  ☐ Single  ☐ Multi  ✔ Submit  →$/☐ Single/; s|Tab/Arrow keys to navigate|↑/↓ to navigate|' \
+          "$FX/08-ask-single.txt" | python3 "$LIB" options 2>&1) || rc=$?   # the one-question footer (binary)
+    assert_eq "1" "$rc" "an 'Enter to select' screen the AskUserQuestion parse cannot read is refused, never read as an approval dialog (got: $got)"
+}
+run_test "a one-question AskUserQuestion (no tab row) is refused, not misread as an approval dialog" t_options_ask_one_question_refused
+
+t_options_numbered_not_single() {
+    # Review finding 1(b): no approval dialog numbers its options (01, 02, 07); AskUserQuestion and Claude Code's own
+    # pickers do. A numbered run is listed as `numbered` — readable for `dialog`, never an answerable `single`.
+    local got
+    got=$(printf '  Choose the text style\n  ❯ 1. Dark mode\n    2. Light mode\n  Enter to confirm · Esc to cancel\n' | python3 "$LIB" options)
+    assert_eq "kind=numbered n=2 cursor=1" "$(sed -n 1p <<<"$got")" "a numbered option run is not kind=single" || return 1
+    assert_eq $'2\t0\t-\t2. Light mode' "$(sed -n 3p <<<"$got")" "the entries are still read, as drawn"
+}
+run_test "a numbered option run reads as kind=numbered, never as an approval dialog's single" t_options_numbered_not_single
+
+t_options_empty_cursor_line() {
+    # Re-review NIT 5: a `❯` with nothing after it (an empty prompt) above a guide raised AttributeError — a traceback
+    # must never stand for "unreadable". Clean exit 1, no traceback.
+    local rc=0 err
+    err=$(printf '❯\nEnter to confirm · Esc to cancel\n' | python3 "$LIB" options 2>&1 >/dev/null) || rc=$?
+    assert_eq "1" "$rc" "no dialog read" || return 1
+    assert_not_contains "$err" "Traceback" "and no traceback"
+}
+run_test "an empty ❯ line above a guide reads as no dialog, without a traceback" t_options_empty_cursor_line
 
 suite_summary
