@@ -359,7 +359,13 @@ t_real_tree_cfg() {
     assert_file_contains "$c/CLAUDE.md" '^| `cross-project/inbox.md` | Legacy spillover queue' \
         "the deliberate legacy mention in the real cfg manifest is kept (keep-when)"
 }
-run_test "real tree: a sparse clone of this repo — converges, deliberate legacy row kept" t_real_tree_cfg
+# The config repo's own tree and its legacy-inbox manifest row exist only there (CFG-1147: this file ships verbatim to
+# the public template, whose suite went red on it): run where registry.md lists the config repo, skip elsewhere.
+if grep -q '^| cfg-agent-fleet |' "$REPO_ROOT/registry.md" 2>/dev/null; then
+    run_test "real tree: a sparse clone of this repo — converges, deliberate legacy row kept" t_real_tree_cfg
+else
+    skip_test "real tree: a sparse clone of this repo" "this repo is not the config repo (no cfg-agent-fleet row in its registry.md)"
+fi
 
 # The first registered sibling project checked out on this machine (from the real registry, not a
 # name list), chosen before the HOME sandbox applies; this repo's own main checkout is excluded.

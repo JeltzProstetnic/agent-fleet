@@ -29,7 +29,13 @@ t_registry_rows_real() {
     expected=$(awk -F'|' '/^## /{p=($0 ~ /^## Projects/)} p && /^\| / && match($5, /`[^`]+`/) { t=substr($5, RSTART+1, RLENGTH-2); if (t ~ /^(~\/|\/)/) n++ } END{print n+0}' "$REPO_ROOT/registry.md")
     assert_eq "$expected" "$(printf '%s\n' "$rows" | grep -c .)" "one row per pathed project, nothing from other tables"
 }
-run_test "registry rows: real registry.md yields name|path|type for every pathed project" t_registry_rows_real
+# The config repo's registry (its own row, nested and compound-type rows, the `## Projects` table) exists only there
+# (CFG-1147: this file ships verbatim to the public template, whose local registry.md is a short other table).
+if grep -q '^| cfg-agent-fleet |' "$REPO_ROOT/registry.md" 2>/dev/null; then
+    run_test "registry rows: real registry.md yields name|path|type for every pathed project" t_registry_rows_real
+else
+    skip_test "registry rows: the real registry.md" "this repo is not the config repo (no cfg-agent-fleet row in its registry.md)"
+fi
 
 t_registry_lookup_by_dir() {
     pcf_cfg; pcf_project alpha
