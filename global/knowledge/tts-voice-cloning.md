@@ -116,6 +116,9 @@ Engine behaviour seen more than once:
   audio 0.4–0.6 s for 0.6B and 0.7–1.4 s for 1.7B under GPU load; with a German reference speaking English,
   WeSpeaker similarity 0.61–0.76 (ICL beats x-vector) against IndexTTS-2's 0.79 on the same lines [V]. The streaming
   latency candidate for live speech; IndexTTS-2 stays ahead on likeness.
+- **Beside a GPU-heavy game, GPU TIME is the limit, not memory** (localva 2026-11-27, Star Citizen VR, card at 98 %
+  compute): IndexTTS-2 starved (RTF 3.5, silent for 120 s, worker died); Qwen3-TTS 0.6B (faster-qwen3-tts, ICL) ran
+  beside it at 4,378 MiB, RTF 2.5–3.7, stable. For speech while a game holds the card, pick the 0.6B.
 
 ## 4. Writing lines and the unattended batch
 
